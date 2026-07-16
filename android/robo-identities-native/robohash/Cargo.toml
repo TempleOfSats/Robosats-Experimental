@@ -1,0 +1,21 @@
+[package]
+name = "robohash"
+authors = ["reckless_satoshi","kyco"]
+version = "0.3.0"
+edition = "2021"
+description = "RoboHash implementation w/ robosats customizations"
+homepage = "https://github.com/robosats/robo-identities"
+repository = "https://github.com/robosats/robo-identities"
+keywords = ["robo", "robohash", "robot", "avatar"]
+include = ["**/*.rs", "Cargo.toml"]
+
+[dependencies]
+jni = "0.21.1"
+base64 = "0.22.1"
+data-encoding = "2.9.0"
+image = { version = "0.25.10", default-features = false, features = ["png", "webp"] }
+sha2 = "0.10.9"
+thiserror = "2.0.18"
+
+[lib]
+crate-type = ["rlib", "cdylib"]

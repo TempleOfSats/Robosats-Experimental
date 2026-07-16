@@ -1,0 +1,381 @@
+@import "./components.css";
+@import "./layout.css";
+@import "./typography.css";
+
+:root {
+  color-scheme: dark;
+  /* Neutral structure: three surfaces, one input, two interaction levels. */
+  --canvas: #0b0909;
+  --navigation: #100d0e;
+  --surface: #151214;
+  --surface-subtle: #1d191b;
+  --surface-raised: #252023;
+  --input-surface: #1a1718;
+  --interactive-hover: #2b2528;
+  --interactive-selected: #342a30;
+  --border-subtle: #2d282a;
+  --border-default: #443d40;
+  --border-strong: #756b6f;
+  --text-primary: #f4f1ed;
+  --text-secondary: #c5beb8;
+  --text-supporting: #9c9490;
+
+  /* Brand and Color Universal Design semantic families. */
+  --brand-amber: #ffb23f;
+  --brand-amber-hover: #ffc263;
+  --brand-amber-foreground: #211a16;
+  --brand-amber-ink: #ffd18a;
+  --secondary: #e1a0c5;
+  --secondary-foreground: #211a16;
+  --success: #21b7b2;
+  --success-solid-foreground: #10201a;
+  --success-foreground: #75e3de;
+  --success-surface: #102827;
+  --success-border: #159c98;
+  --danger: #ff8a57;
+  --danger-button-foreground: #211a16;
+  --danger-foreground: #ffb08c;
+  --danger-surface: #2a1812;
+  --danger-border: #d55e00;
+  --warning: #ffd166;
+  --warning-solid-foreground: #211a16;
+  --warning-foreground: #ffd98c;
+  --warning-surface: #2a2211;
+  --warning-border: #c88a18;
+  --info: #70c4f0;
+  --info-foreground: #8dd5f5;
+  --info-surface: #111f29;
+  --info-border: #0072b2;
+  --pending: #e1a0c5;
+  --pending-foreground: #f0b9d7;
+  --pending-surface: #261b23;
+  --pending-border: #a95786;
+  --offline: #9c9490;
+  --cancelled: #9c9490;
+  --focus-ring: #70c4f0;
+  --focus-inner: #0b0909;
+
+  /* Short component aliases for the structural tokens above. */
+  --background: var(--canvas);
+  --foreground: var(--text-primary);
+  --card: var(--surface);
+  --card-foreground: var(--text-primary);
+  --muted: var(--surface-subtle);
+  --muted-foreground: var(--text-secondary);
+  --border: var(--border-default);
+  --input: var(--input-surface);
+  --primary: var(--brand-amber);
+  --primary-foreground: var(--brand-amber-foreground);
+  --destructive: var(--danger);
+  --buy: var(--info);
+  --buy-foreground: #10202a;
+  --sell: var(--secondary);
+  --sell-foreground: #24131d;
+  --coordinator-online: var(--success);
+  --coordinator-offline: var(--offline);
+  --trade-waiting: var(--warning);
+  --trade-action-required: var(--brand-amber);
+  --trade-complete: var(--success);
+  --radius-xs: 0.25rem;
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.625rem;
+  --radius-xl: 0.75rem;
+  --space-page-x: clamp(1rem, 2.2vw, 2.25rem);
+  --space-page-y: 1.5rem;
+  --glow-primary: 0 0 1.5rem rgba(255,178,63,0.12);
+  --shadow-lg: 0 1.25rem 3rem rgb(0 0 0 / 42%);
+  --sidebar-width: 16rem;
+  --header-height: 4.25rem;
+  --font-sans: "Public Sans Variable", "Public Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-scale: 100%;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  --type-caption-size: 0.75rem;
+  --type-caption-line: 1rem;
+  --type-machine-size: 0.8125rem;
+  --type-machine-line: 1.125rem;
+  --type-compact-size: 0.875rem;
+  --type-compact-line: 1.25rem;
+  --type-button-size: 0.9375rem;
+  --type-button-line: 1.25rem;
+  --type-body-size: 1rem;
+  --type-body-line: 1.5rem;
+  --type-body-large-size: 1.0625rem;
+  --type-body-large-line: 1.625rem;
+  --type-card-title-size: 1.125rem;
+  --type-card-title-line: 1.625rem;
+  --type-h3-size: 1.25rem;
+  --type-h3-line: 1.75rem;
+  --type-h2-size: 1.5rem;
+  --type-h2-line: 2rem;
+  --type-h1-size: 2rem;
+  --type-h1-line: 2.375rem;
+  --type-display-size: 2.5rem;
+  --type-display-line: 2.75rem;
+  --type-balance-size: 2rem;
+  --type-balance-line: 2.375rem;
+  --type-payment-size: 1.75rem;
+  --type-payment-line: 2.25rem;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --canvas: #f7f6f3;
+  --navigation: #f1f0ec;
+  --surface: #ffffff;
+  --surface-subtle: #f0efeb;
+  --surface-raised: #ffffff;
+  --input-surface: #fcfbf8;
+  --interactive-hover: #e9e7e1;
+  --interactive-selected: #f2e9ef;
+  --border-subtle: #e1ded7;
+  --border-default: #c8c4ba;
+  --border-strong: #8a857b;
+  --text-primary: #211a16;
+  --text-secondary: #5f5953;
+  --text-supporting: #716a63;
+  --brand-amber: #ffb23f;
+  --brand-amber-hover: #e99a21;
+  --brand-amber-foreground: #211a16;
+  --brand-amber-ink: #7a4700;
+  --secondary: #8f3b68;
+  --secondary-foreground: #ffffff;
+  --success: #007a77;
+  --success-solid-foreground: #ffffff;
+  --success-foreground: #007a77;
+  --success-surface: #e8f6f5;
+  --success-border: #008f8a;
+  --danger: #b84a00;
+  --danger-button-foreground: #ffffff;
+  --danger-foreground: #9c3e00;
+  --danger-surface: #fff0e9;
+  --danger-border: #d55e00;
+  --warning: #7a5200;
+  --warning-solid-foreground: #ffffff;
+  --warning-foreground: #6f4a00;
+  --warning-surface: #fff7e3;
+  --warning-border: #c27600;
+  --info: #0072b2;
+  --info-foreground: #005a8c;
+  --info-surface: #eaf4fa;
+  --info-border: #0072b2;
+  --pending: #8f3b68;
+  --pending-foreground: #7d315b;
+  --pending-surface: #f8eef4;
+  --pending-border: #b45f8e;
+  --offline: #716a63;
+  --cancelled: #716a63;
+  --focus-ring: #0072b2;
+  --focus-inner: #ffffff;
+  --background: var(--canvas);
+  --foreground: var(--text-primary);
+  --card: var(--surface);
+  --card-foreground: var(--text-primary);
+  --muted: var(--surface-subtle);
+  --muted-foreground: var(--text-secondary);
+  --border: var(--border-default);
+  --input: var(--input-surface);
+  --primary: var(--brand-amber);
+  --primary-foreground: var(--brand-amber-foreground);
+  --destructive: var(--danger);
+  --buy: var(--info);
+  --buy-foreground: #ffffff;
+  --sell: var(--secondary);
+  --sell-foreground: #ffffff;
+  --coordinator-online: var(--success);
+  --coordinator-offline: var(--offline);
+  --trade-waiting: var(--warning);
+  --trade-action-required: var(--brand-amber);
+  --trade-complete: var(--success);
+  --glow-primary: 0 0 1.25rem rgba(255, 178, 63, 0.16);
+  --shadow-lg: 0 1rem 2.5rem rgb(33 26 22 / 16%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow-x: clip;
+}
+
+html {
+  font-size: var(--font-scale);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-size: var(--type-body-size);
+  font-weight: var(--weight-regular);
+  line-height: var(--type-body-line);
+  text-rendering: optimizeLegibility;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Skip navigation link for keyboard users */
+.skip-link {
+  position: absolute;
+  top: -100%;
+  left: 0;
+  z-index: 9999;
+  padding: 0.75rem 1.25rem;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-weight: 600;
+  border-radius: 0 0 var(--radius-md) 0;
+  transition: top 120ms ease;
+}
+
+.skip-link:focus {
+  top: 0;
+  outline: 2px solid var(--foreground);
+  outline-offset: 2px;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+input,
+select,
+textarea {
+  color: var(--text-primary);
+  background: var(--input-surface);
+  border-color: var(--border-default);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-supporting);
+  opacity: 1;
+}
+
+input[aria-invalid="true"],
+select[aria-invalid="true"],
+textarea[aria-invalid="true"] {
+  border-color: var(--danger-border) !important;
+  box-shadow: 0 0 0 1px var(--danger-border);
+}
+
+.field-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  color: var(--danger-foreground);
+}
+
+.field-error::before {
+  content: "!";
+  width: 1.15rem;
+  height: 1.15rem;
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  margin-top: 0.05rem;
+  border: 1px solid var(--danger-border);
+  border-radius: 999px;
+  color: var(--danger-foreground);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.font-mono {
+  font-family: var(--font-mono);
+  font-size: var(--type-machine-size);
+  line-height: var(--type-machine-line);
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Balance hiding utility */
+.balance-hidden .balance-value,
+.balance-hidden .balance-value * {
+  visibility: hidden;
+}
+
+.balance-hidden .balance-placeholder {
+  display: inline;
+}
+
+.balance-placeholder {
+  display: none;
+}
+
+.balance-hidden .balance-placeholder {
+  display: inline;
+  color: var(--muted-foreground);
+  font-style: italic;
+  font-size: 0.85em;
+}
+
+/* Slashed zero for addresses/keys */
+.slashed-zero {
+  font-family: var(--font-mono);
+}
+
+.slashed-zero .zero {
+  position: relative;
+  display: inline-block;
+}
+
+.slashed-zero .zero::after {
+  content: "";
+  position: absolute;
+  top: 0.15em;
+  left: -0.05em;
+  right: -0.05em;
+  height: 0.06em;
+  background: currentColor;
+  transform: rotate(-35deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Ensure focus is always visible for keyboard navigation */
+*:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px var(--focus-inner);
+}

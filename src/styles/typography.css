@@ -1,0 +1,302 @@
+/* Semantic type roles. Component geometry remains in layout.css. */
+
+:where(h1, h2, h3, p, button, input, select, textarea, th, td, dt, dd, small, strong) {
+  letter-spacing: 0;
+}
+
+:where(h1, h2, h3) {
+  text-wrap: balance;
+}
+
+:where(p, blockquote, li, dd) {
+  text-align: left;
+}
+
+.page-heading h2,
+.trade-lab-header h1 {
+  font-size: var(--type-h1-size);
+  font-weight: var(--weight-semibold);
+  line-height: var(--type-h1-line);
+}
+
+.page-trade .page-heading h2,
+.maker-page .page-heading h2,
+.page-settings .page-heading h2,
+.trade-completion-hero h2,
+.coordinator-table-heading h2 {
+  font-size: var(--type-h2-size);
+  font-weight: var(--weight-semibold);
+  line-height: var(--type-h2-line);
+}
+
+.app-header h1,
+.confirm-header h3,
+.maker-time-dialog-heading strong,
+.garage-robot-dialog header h2,
+.garage-reward-dialog h2,
+.robot-keys-dialog h2,
+.telegram-setup-dialog h2,
+.coordinator-dialog-header h2,
+.settings-tor-dialog-header h3,
+.garage-recovery-dialog h3,
+.garage-last-order-dialog h3 {
+  font-size: var(--type-card-title-size);
+  font-weight: var(--weight-semibold);
+  line-height: var(--type-card-title-line);
+}
+
+.app-eyebrow {
+  font-size: var(--type-caption-size);
+  font-weight: var(--weight-semibold);
+  line-height: var(--type-caption-line);
+}
+
+.page-heading p:last-child,
+.settings-card-copy,
+.trade-status-card-body p,
+.order-description-copy,
+.coordinator-notice,
+.coordinator-dialog-detail-row p,
+.robot-key-panel > p,
+.telegram-setup-dialog p {
+  max-inline-size: 66ch;
+  font-size: var(--type-body-size);
+  font-weight: var(--weight-regular);
+  line-height: var(--type-body-line);
+}
+
+.confirm-body,
+.order-description-sheet .confirm-header p {
+  max-inline-size: 55ch;
+  font-size: var(--type-body-size);
+  font-weight: var(--weight-regular);
+  line-height: var(--type-body-line);
+}
+
+.muted-copy,
+.payout-entry-header p,
+.garage-privacy-note,
+.maker-time-dialog-heading small,
+.trade-status-card small {
+  font-size: var(--type-compact-size);
+  font-weight: var(--weight-regular);
+  line-height: var(--type-compact-line);
+}
+
+.field-block,
+.field-block > span,
+.maker-field-label,
+.robot-key-field > span:first-child {
+  font-size: var(--type-compact-size);
+  font-weight: var(--weight-semibold);
+  line-height: var(--type-compact-line);
+}
+
+.field-block input,
+.field-block select,
+.field-block textarea,
+.chat-composer textarea,
+.image-select-input,
+.input-shell input {
+  font-size: var(--type-body-size);
+  font-weight: var(--weight-regular);
+  line-height: var(--type-body-line);
+}
+
+.field-error,
+.garage-dialog-error {
+  max-inline-size: 48ch;
+  font-size: var(--type-compact-size);
+  font-weight: var(--weight-medium);
+  line-height: var(--type-compact-line);
+}
+
+.info-hint-popover {
+  max-inline-size: min(17rem, calc(100vw - 2rem));
+  font-size: var(--type-compact-size);
+  font-weight: var(--weight-regular);
+  line-height: var(--type-compact-line);
+}
+
+.offer-table-header,
+.coordinator-directory-header {
+  font-size: var(--type-caption-size);
+  font-weight: var(--weight-semibold);
+  line-height: var(--type-caption-line);
+  text-transform: none;
+}
+
+.offer-row,
+.coordinator-directory-row,
+.summary-list,
+.trade-detail-list,
+.payout-cost-summary {
+  font-size: var(--type-compact-size);
+  font-weight: var(--weight-regular);
+  line-height: var(--type-compact-line);
+}
+
+.offer-amount-line strong,
+.offer-bond-cell strong,
+.offer-premium,
+.coordinator-directory-name strong,
+.summary-list dd,
+.trade-detail-list dd,
+.payout-cost-summary dd {
+  font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.offer-amount-line strong {
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-line);
+}
+
+.offer-amount-line span,
+.offer-method-line,
+.offer-bond-cell small,
+.coordinator-rating-cell small,
+.coordinator-dialog-rating span {
+  font-size: var(--type-caption-size);
+  font-weight: var(--weight-regular);
+  line-height: var(--type-caption-line);
+}
+
+.offer-premium,
+.offer-bond-cell,
+.offer-expiry,
+.payment-countdown,
+.maker-clock-summary strong,
+.maker-time-dialog > header strong,
+.maker-coordinator-fees strong,
+.garage-balance-value .balance-value,
+.garage-reward-dialog .payment-amount,
+.trade-detail-amount,
+.trade-progress,
+.chat-bubble-meta,
+.coordinator-live-status {
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.offer-table-header > :nth-child(3),
+.offer-table-header > :nth-child(4),
+.offer-premium,
+.offer-bond-cell {
+  justify-content: flex-end;
+  text-align: right;
+}
+
+.payment-amount,
+.payout-invoice-target strong {
+  font-family: var(--font-sans);
+  font-size: var(--type-payment-size);
+  font-weight: var(--weight-semibold);
+  line-height: var(--type-payment-line);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.garage-balance-value .balance-value {
+  font-family: var(--font-sans);
+  font-size: var(--type-card-title-size);
+  font-weight: var(--weight-semibold);
+  line-height: var(--type-card-title-line);
+}
+
+.payment-countdown,
+.maker-clock-summary strong,
+.maker-time-dialog > header strong {
+  font-size: var(--type-body-size);
+  font-weight: var(--weight-medium);
+  line-height: var(--type-body-line);
+}
+
+.payment-amount-block > span,
+.payment-expiry small,
+.garage-token-label,
+.maker-review-label,
+.maker-summary-label,
+.trade-completion-stat small {
+  font-size: var(--type-caption-size);
+  font-weight: var(--weight-semibold);
+  line-height: var(--type-caption-line);
+  text-transform: none;
+}
+
+.ui-badge,
+.status-panel,
+.maker-coordinator-status,
+.chat-presence,
+.trade-progress-label {
+  font-size: var(--type-caption-size);
+  font-weight: var(--weight-semibold);
+  line-height: var(--type-caption-line);
+}
+
+.chat-participant strong,
+.chat-bubble-author strong {
+  font-size: var(--type-compact-size);
+  font-weight: var(--weight-semibold);
+  line-height: var(--type-compact-line);
+}
+
+.chat-bubble p {
+  font-size: var(--type-body-size);
+  font-weight: var(--weight-regular);
+  line-height: var(--type-body-line);
+}
+
+.receipt-json,
+.confirm-details code,
+.invoice-value-row code,
+.token-backup-value code,
+.garage-token-value,
+.garage-token-masked span,
+.robot-key-value,
+.robot-key-value textarea,
+.font-mono,
+.slashed-zero {
+  font-family: var(--font-mono);
+  font-size: var(--type-machine-size);
+  font-weight: var(--weight-regular);
+  line-height: var(--type-machine-line);
+  font-variant-numeric: normal;
+}
+
+@media (min-width: 600px) {
+  html:root {
+    --type-card-title-size: 1.25rem;
+    --type-card-title-line: 1.75rem;
+    --type-h3-size: 1.375rem;
+    --type-h3-line: 1.875rem;
+    --type-h2-size: 1.75rem;
+    --type-h2-line: 2.25rem;
+    --type-h1-size: 2.25rem;
+    --type-h1-line: 2.625rem;
+    --type-display-size: 3rem;
+    --type-display-line: 3.25rem;
+    --type-balance-size: 2.5rem;
+    --type-balance-line: 3rem;
+    --type-payment-size: 2rem;
+    --type-payment-line: 2.5rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  html:root {
+    --type-body-large-size: 1.125rem;
+    --type-body-large-line: 1.75rem;
+    --type-h3-size: 1.5rem;
+    --type-h3-line: 2rem;
+    --type-h2-size: 2rem;
+    --type-h2-line: 2.5rem;
+    --type-h1-size: 2.5rem;
+    --type-h1-line: 3rem;
+    --type-display-size: 3.5rem;
+    --type-display-line: 3.75rem;
+    --type-balance-size: 3rem;
+    --type-balance-line: 3.5rem;
+    --type-payment-size: 2.25rem;
+    --type-payment-line: 2.75rem;
+  }
+}

@@ -1,0 +1,32 @@
+name: Gradle dependency submission
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - android/**
+      - .github/workflows/dependency-submission.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  submit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - name: Set up Java
+        uses: actions/setup-java@0f481fcb613427c0f801b606911222b5b6f3083a # v5
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Submit Gradle dependencies
+        uses: gradle/actions/dependency-submission@0723195856401067f7a2779048b490ace7a47d7c # v5
+        with:
+          build-root-directory: android
