@@ -5,6 +5,14 @@ React, TypeScript, Vite, Nostr orderbook transport, encrypted trade chat, and
 the current RoboSats coordinator API. The mobile packages embed Arti and route
 all coordinator traffic through a local SOCKS proxy.
 
+**Live Client (Tor Hidden Service)**:
+
+[**http://roboexpaotkiicp3rktwo6a5g2rlnmjub44mu7k4hrhcfxaxqmr63wyd.onion**](http://roboexpaotkiicp3rktwo6a5g2rlnmjub44mu7k4hrhcfxaxqmr63wyd.onion)
+
+<p align="center">
+  <img src="public/static/assets/demos/smooth.gif" width="20%" alt="RoboSats Exp. Demo">
+</p>
+
 RoboSats Exp. is alpha software. Review the release notes and verify published
 checksums before installing a binary.
 
