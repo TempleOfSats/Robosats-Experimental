@@ -10,7 +10,7 @@ all coordinator traffic through a local SOCKS proxy.
 [**http://roboexpaotkiicp3rktwo6a5g2rlnmjub44mu7k4hrhcfxaxqmr63wyd.onion**](http://roboexpaotkiicp3rktwo6a5g2rlnmjub44mu7k4hrhcfxaxqmr63wyd.onion)
 
 <p align="center">
-  <img src="public/static/assets/demos/smooth.gif" width="20%" alt="RoboSats Exp. Demo">
+  <img src="public/static/assets/demos/smooth.gif" width="80%" alt="RoboSats Exp. Demo">
 </p>
 
 RoboSats Exp. is alpha software. Review the release notes and verify published
