@@ -1,0 +1,178 @@
+export interface PaymentMethodOption {
+  name: string;
+  icon: string;
+  reversible: boolean;
+}
+
+const paymentMethods: PaymentMethodOption[] = [
+  { name: "not specified", icon: "notspecified", reversible: false },
+  { name: "On-Chain BTC", icon: "onchain", reversible: false },
+  { name: "On-Chain w/ Stowaway", icon: "stowaway", reversible: false },
+  { name: "RBTC", icon: "rbtc", reversible: false },
+  { name: "LBTC", icon: "lbtc", reversible: false },
+  { name: "WBTC", icon: "wbtc", reversible: false },
+  { name: "Revolut", icon: "revolut", reversible: true },
+  { name: "CashApp", icon: "cashapp", reversible: false },
+  { name: "Zelle", icon: "zelle", reversible: false },
+  { name: "Strike", icon: "strike", reversible: false },
+  { name: "WeChat Pay", icon: "wechatpay", reversible: false },
+  { name: "Instant SEPA", icon: "sepa", reversible: false },
+  { name: "Interac e-Transfer", icon: "interac", reversible: false },
+  { name: "Wise", icon: "wise", reversible: false },
+  { name: "Venmo", icon: "venmo", reversible: false },
+  { name: "Faster Payments", icon: "faster", reversible: false },
+  { name: "Paypal Friends & Family", icon: "paypal", reversible: false },
+  { name: "LINE Pay", icon: "linepay", reversible: false },
+  { name: "Rakuten Pay", icon: "rakuten", reversible: false },
+  { name: "PromptPay", icon: "promptpay", reversible: false },
+  { name: "Bizum", icon: "bizum", reversible: false },
+  { name: "N26", icon: "n26", reversible: false },
+  { name: "Tinkoff Bank", icon: "tinkoff", reversible: false },
+  { name: "TWINT", icon: "twint", reversible: false },
+  { name: "Advcash", icon: "advcash", reversible: false },
+  { name: "BLIK", icon: "blik", reversible: false },
+  { name: "MBWay", icon: "mbway", reversible: false },
+  { name: "W1TTY", icon: "w1tty", reversible: false },
+  { name: "Verse", icon: "verse", reversible: false },
+  { name: "Paysera", icon: "paysera", reversible: false },
+  { name: "Amazon GiftCard", icon: "amazon", reversible: false },
+  { name: "Ozon GiftCard", icon: "ozon", reversible: false },
+  { name: "AliPay", icon: "alipay", reversible: false },
+  { name: "GPay", icon: "gpay", reversible: false },
+  { name: "Bancolombia", icon: "bancolombia", reversible: false },
+  { name: "Pago Movil BDV", icon: "pagomovilbdv", reversible: false },
+  { name: "SPEI", icon: "spei", reversible: false },
+  { name: "PIX", icon: "pix", reversible: true },
+  { name: "Pouch.ph", icon: "pouch", reversible: false },
+  { name: "PayID", icon: "payid", reversible: false },
+  { name: "Paysafe", icon: "paysafe", reversible: false },
+  { name: "Sber Bank", icon: "sberbank", reversible: false },
+  { name: "PhonePe", icon: "phonepe", reversible: false },
+  { name: "OVO", icon: "ovo", reversible: false },
+  { name: "HalCash", icon: "halcash", reversible: false },
+  { name: "Vivid", icon: "vivid", reversible: false },
+  { name: "Google Play Gift Code", icon: "googleplay", reversible: false },
+  { name: "Apple Pay", icon: "applepay", reversible: false },
+  { name: "Steam", icon: "steam", reversible: false },
+  { name: "Nequi", icon: "nequi", reversible: false },
+  { name: "ShakePay", icon: "shakepay", reversible: false },
+  { name: "Sinpe", icon: "sinpe", reversible: false },
+  { name: "DaviPlata", icon: "daviplata", reversible: false },
+  { name: "CoDi", icon: "codi", reversible: false },
+  { name: "TaiwanPay", icon: "taiwanpay", reversible: false },
+  { name: "MaiCoin", icon: "maicoin", reversible: false },
+  { name: "GoPay", icon: "gopay", reversible: false },
+  { name: "MercadoPago", icon: "mercadopago", reversible: false },
+  { name: "Monero", icon: "monero", reversible: false },
+  { name: "USDT", icon: "usdt", reversible: false },
+  { name: "L-USDt", icon: "usdtliquid", reversible: false },
+  { name: "USDC", icon: "usdc", reversible: false },
+  { name: "Airtel Money", icon: "airtel", reversible: false },
+  { name: "MTN Money", icon: "mtn", reversible: false },
+  { name: "M-Pesa", icon: "mpesa", reversible: false },
+  { name: "UPI", icon: "upi", reversible: false },
+  { name: "MoMo", icon: "momo", reversible: false },
+  { name: "Tigo Pesa", icon: "tigopesa", reversible: false },
+  { name: "Cash F2F", icon: "cash", reversible: false },
+  { name: "Amazon USA GiftCard", icon: "amazonus", reversible: false },
+  { name: "Amazon DE GiftCard", icon: "amazonde", reversible: false },
+  { name: "Amazon AU GiftCard", icon: "amazonau", reversible: false },
+  { name: "Amazon SA GiftCard", icon: "amazonsa", reversible: false },
+  { name: "Amazon ES GiftCard", icon: "amazones", reversible: false },
+  { name: "Amazon CA GiftCard", icon: "amazonca", reversible: false },
+  { name: "Amazon CN GiftCard", icon: "amazoncn", reversible: false },
+  { name: "Amazon AE GiftCard", icon: "amazonae", reversible: false },
+  { name: "Amazon FR GiftCard", icon: "amazonfr", reversible: false },
+  { name: "Amazon NL GiftCard", icon: "amazonnl", reversible: false },
+  { name: "Amazon IN GiftCard", icon: "amazonin", reversible: false },
+  { name: "Amazon IT GiftCard", icon: "amazonit", reversible: false },
+  { name: "Amazon JP GiftCard", icon: "amazonjp", reversible: false },
+  { name: "Amazon MX GiftCard", icon: "amazonmx", reversible: false },
+  { name: "Amazon PL GiftCard", icon: "amazonpl", reversible: false },
+  { name: "Amazon UK GiftCard", icon: "amazonuk", reversible: false },
+  { name: "Amazon SE GiftCard", icon: "amazonse", reversible: false },
+  { name: "Amazon SG GiftCard", icon: "amazonsg", reversible: false },
+  { name: "Amazon TR GiftCard", icon: "amazontr", reversible: false },
+  { name: "Tinkoff QR", icon: "tinkoffqr", reversible: false },
+  { name: "SBP", icon: "sbp", reversible: false },
+  { name: "Qiwi", icon: "qiwi", reversible: false },
+  { name: "Nomad", icon: "nomad", reversible: false },
+  { name: "Paysend", icon: "paysend", reversible: false },
+  { name: "Zeam", icon: "zeam", reversible: false }
+];
+
+const iconFileNameById: Record<string, string> = {
+  amazonae: "amazon-ae.png",
+  amazonau: "amazon-au.png",
+  amazonca: "amazon-ca.png",
+  amazoncn: "amazon-cn.png",
+  amazonde: "amazon-de.png",
+  amazones: "amazon-es.png",
+  amazonfr: "amazon-fr.png",
+  amazonin: "amazon-in.png",
+  amazonit: "amazon-it.png",
+  amazonjp: "amazon-jp.png",
+  amazonmx: "amazon-mx.png",
+  amazonnl: "amazon-nl.png",
+  amazonpl: "amazon-pl.png",
+  amazonsa: "amazon-sa.png",
+  amazonse: "amazon-se.png",
+  amazonsg: "amazon-sg.png",
+  amazontr: "amazon-tr.png",
+  amazonuk: "amazon-uk.png",
+  amazonus: "amazon-us.png",
+  applepay: "applepay.jpg",
+  daviplata: "daviplata.jpg",
+  gopay: "gopay.jpg",
+  momo: "momo.jpg",
+  mtn: "mtn.jpg",
+  ovo: "ovo.jpg",
+  pouch: "pouch.jpg",
+  sepa: "sepa.jpg",
+  taiwanpay: "taiwanpay.jpg",
+  tigopesa: "tigopesa.jpg"
+};
+
+export function paymentIconSrc(icon: string): string {
+  return `/static/assets/payment-methods/${iconFileNameById[icon] ?? `${icon}.png`}`;
+}
+
+export function paymentMethodOptions(): PaymentMethodOption[] {
+  return paymentMethods.filter((method) => method.name !== "not specified");
+}
+
+const swapPaymentMethodNames = new Set(["On-Chain BTC", "On-Chain w/ Stowaway", "RBTC", "LBTC", "WBTC"]);
+
+export function isSwapPaymentMethod(method: Pick<PaymentMethodOption, "name">): boolean {
+  return swapPaymentMethodNames.has(method.name);
+}
+
+export function normalPaymentMethodOptions(): PaymentMethodOption[] {
+  return paymentMethodOptions().filter((method) => !isSwapPaymentMethod(method));
+}
+
+export function swapPaymentMethodOptions(): PaymentMethodOption[] {
+  return paymentMethodOptions().filter(isSwapPaymentMethod);
+}
+
+export function matchedPaymentMethods(text: string): PaymentMethodOption[] {
+  let customMethods = text.replace(
+    /([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF])/g,
+    ""
+  );
+  const matches: PaymentMethodOption[] = [];
+
+  for (const method of paymentMethods) {
+    const regex = new RegExp(`\\b${escapeRegExp(method.name.toLowerCase())}\\b`, "g");
+    if (regex.test(customMethods.toLowerCase())) {
+      customMethods = customMethods.replace(new RegExp(escapeRegExp(method.name), "i"), "");
+      matches.push(method);
+    }
+  }
+
+  return matches;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}

@@ -1,0 +1,8 @@
+[toolchain]
+channel = "1.94.1"
+profile = "minimal"
+components = ["rustc", "cargo", "rust-std"]
+targets = [
+    "aarch64-linux-android",
+    "x86_64-linux-android",
+]
