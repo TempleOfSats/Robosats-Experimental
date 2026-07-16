@@ -19,7 +19,7 @@ arti-client = { version = "0.44", default-features = false, features = [
 ] }
 tor-rtcompat = { version = "0.44", default-features = false, features = ["tokio", "rustls"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
-jni = "0.21"
+jni = "0.22"
 tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "time", "macros"] }
 futures = "0.3"
 anyhow = "1"
