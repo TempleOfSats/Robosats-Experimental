@@ -1,0 +1,22 @@
+<resources>
+    <string name="app_name">RoboSats Exp.</string>
+    <string name="service">Background Service</string>
+    <string name="robosats_is_running_in_background">RoboSats Exp. is listening for trade updates</string>
+    <string name="notifications">Notifications</string>
+    <string name="loading_app">Secure connection established. Loading app&#8230;</string>
+    <string name="reconnecting_tor" translatable="false">Network changed. Reconnecting privately&#8230;</string>
+    <string name="private_connection_title">Establishing a private connection</string>
+    <string name="private_connection_failed">Private connection interrupted</string>
+    <string name="preparing_tor">Preparing Tor on this device&#8230;</string>
+    <string name="tor_message_protecting_identity">Keeping your connection private&#8230;</string>
+    <string name="tor_message_contacting_network">Contacting the Tor network&#8230;</string>
+    <string name="tor_message_selecting_relays">Selecting privacy-preserving relays&#8230;</string>
+    <string name="tor_message_building_circuit">Building an encrypted circuit&#8230;</string>
+    <string name="tor_message_checking_route">Checking the private route&#8230;</string>
+    <string name="tor_message_preparing_exchange">Preparing RoboSats over Tor&#8230;</string>
+    <string name="tor_progress">%1$d%%</string>
+    <string name="tor_progress_initial" formatted="false">0%</string>
+    <string name="tor_retry_message">Tor could not finish the connection. Your identity remains on this device.</string>
+    <string name="retry_tor">Try again</string>
+    <string name="stop">Stop</string>
+</resources>

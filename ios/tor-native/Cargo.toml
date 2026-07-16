@@ -1,0 +1,33 @@
+[package]
+name = "arti-mobile"
+version = "2.5.0"
+edition = "2021"
+
+[lib]
+name = "arti_mobile"
+crate-type = ["staticlib", "rlib"]
+
+[workspace]
+
+[dependencies]
+anyhow = "1"
+arti-client = { version = "0.44", default-features = false, features = [
+    "tokio",
+    "rustls",
+    "compression",
+    "flowctl-cc",
+    "onion-service-client",
+    "static",
+    "static-sqlite",
+] }
+futures = "0.3"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "time", "macros"] }
+tor-rtcompat = { version = "0.44", default-features = false, features = ["tokio", "rustls", "static"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

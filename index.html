@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <link rel="icon" href="/static/assets/vector/R-notext.svg" type="image/svg+xml" />
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RoboSats Exp.</title>
+    <script>
+      window.RobosatsSettings = window.RobosatsSettings ||
+        (navigator.userAgent.includes("RoboSatsExp") ? "mobile-basic" : "web-basic");
+      try {
+        const preferences = JSON.parse(localStorage.getItem("robosats_exp_ui_preferences") || "{}");
+        document.documentElement.dataset.theme = preferences.theme === "light" ? "light" : "dark";
+      } catch {}
+    </script>
+    <style>
+      :root {
+        --boot-background: #0b0909;
+        --boot-foreground: #f4f1ed;
+        --boot-muted: #c5beb8;
+        --boot-track: #443d40;
+        --boot-primary: #ffb23f;
+      }
+
+      :root[data-theme="light"] {
+        --boot-background: #f7f6f3;
+        --boot-foreground: #211a16;
+        --boot-muted: #5f5953;
+        --boot-track: #c8c4ba;
+      }
+
+      body {
+        margin: 0;
+        background: var(--boot-background);
+      }
+
+      body.app-booting {
+        overflow: hidden;
+      }
+
+      #app-boot {
+        position: fixed;
+        inset: 0;
+        z-index: 2147483000;
+        display: grid;
+        place-items: center;
+        background: var(--boot-background);
+        color: var(--boot-foreground);
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        letter-spacing: 0;
+        opacity: 1;
+        transition: opacity 280ms ease, visibility 280ms ease;
+      }
+
+      #app-boot[data-state="leaving"] {
+        visibility: hidden;
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .app-boot-content {
+        width: min(320px, calc(100vw - 48px));
+        display: grid;
+        justify-items: center;
+        text-align: center;
+      }
+
+      .app-boot-mark {
+        position: relative;
+        width: 142px;
+        height: 142px;
+        display: grid;
+        place-items: center;
+        contain: layout paint;
+      }
+
+      .app-boot-mark::before,
+      .app-boot-mark::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        pointer-events: none;
+      }
+
+      .app-boot-mark::before {
+        border: 2px solid var(--boot-track);
+      }
+
+      .app-boot-mark::after {
+        background: conic-gradient(from 0deg, var(--boot-primary) 0deg 72deg, transparent 72deg 360deg);
+        -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+        mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+        animation: app-boot-orbit 5.2s linear infinite;
+        will-change: transform;
+      }
+
+      .app-boot-mark img {
+        position: relative;
+        width: 94px;
+        height: 94px;
+        translate: 3px 12px;
+        filter: invert(1);
+        opacity: 0.94;
+        animation: app-boot-breathe 2.4s ease-in-out infinite;
+      }
+
+      :root[data-theme="light"] .app-boot-mark img {
+        filter: none;
+      }
+
+      .app-boot-title {
+        margin: 24px 0 0;
+        color: var(--boot-foreground);
+        font-size: 22px;
+        font-weight: 600;
+        line-height: 1.25;
+      }
+
+      .app-boot-message {
+        min-height: 42px;
+        margin: 10px 0 18px;
+        display: grid;
+        place-items: center;
+        color: var(--boot-muted);
+        font-size: 14px;
+        line-height: 1.45;
+        opacity: 1;
+        transition: opacity 150ms ease;
+      }
+
+      .app-boot-message[data-changing="true"] {
+        opacity: 0;
+      }
+
+      .app-boot-track {
+        width: 100%;
+        height: 3px;
+        overflow: hidden;
+        background: var(--boot-track);
+      }
+
+      .app-boot-progress {
+        width: 2%;
+        height: 100%;
+        background: var(--boot-primary);
+        transform-origin: left center;
+        transition: width 100ms linear;
+      }
+
+      .app-boot-percent {
+        margin-top: 9px;
+        color: var(--boot-muted);
+        font-size: 12px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .app-boot-retry {
+        margin-top: 18px;
+        min-height: 44px;
+        border: 1px solid var(--boot-primary);
+        border-radius: 6px;
+        padding: 10px 18px;
+        background: var(--boot-primary);
+        color: #211a16;
+        font: 600 15px/20px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        cursor: pointer;
+      }
+
+      .app-boot-retry[hidden] {
+        display: none;
+      }
+
+      @keyframes app-boot-orbit {
+        to { transform: rotate(360deg); }
+      }
+
+      @keyframes app-boot-breathe {
+        50% {
+          transform: scale(1.04);
+          opacity: 1;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        #app-boot,
+        .app-boot-message,
+        .app-boot-progress {
+          transition-duration: 0.01ms;
+        }
+
+        .app-boot-mark::after,
+        .app-boot-mark img {
+          animation: none;
+        }
+      }
+    </style>
+  </head>
+  <body class="app-booting">
+    <div id="app-boot" role="status" aria-live="polite" aria-label="Preparing RoboSats">
+      <div class="app-boot-content">
+        <div class="app-boot-mark" aria-hidden="true">
+          <img src="/static/assets/vector/R-notext.svg" alt="" />
+        </div>
+        <h1 class="app-boot-title">Preparing RoboSats</h1>
+        <p class="app-boot-message">Loading the private interface...</p>
+        <div class="app-boot-track" aria-hidden="true">
+          <div class="app-boot-progress"></div>
+        </div>
+        <div class="app-boot-percent" aria-hidden="true">2%</div>
+        <button class="app-boot-retry" type="button" hidden>Try again</button>
+      </div>
+    </div>
+    <div id="root"></div>
+    <script>
+      (() => {
+        const overlay = document.getElementById("app-boot");
+        const message = overlay.querySelector(".app-boot-message");
+        const progress = overlay.querySelector(".app-boot-progress");
+        const percent = overlay.querySelector(".app-boot-percent");
+        const retry = overlay.querySelector(".app-boot-retry");
+        const messages = [
+          "Loading the private interface...",
+          "Restoring your local settings...",
+          "Checking local exchange data...",
+          "Preparing the order book..."
+        ];
+        const startedAt = performance.now();
+        let shown = 2;
+        let stageTarget = 2;
+        let messageIndex = 0;
+        let ready = false;
+        let finished = false;
+        let previousFrame = startedAt;
+
+        retry.addEventListener("click", () => {
+          const url = new URL(window.location.href);
+          url.searchParams.set("reload", Date.now().toString());
+          window.location.replace(url);
+        });
+
+        const finish = () => {
+          if (finished) return;
+          finished = true;
+          progress.style.width = "100%";
+          percent.textContent = "100%";
+          window.setTimeout(() => {
+            overlay.dataset.state = "leaving";
+            document.body.classList.remove("app-booting");
+            window.setTimeout(() => overlay.remove(), 300);
+          }, 120);
+        };
+
+        const interpolate = (start, end, fraction) =>
+          start + (end - start) * Math.max(0, Math.min(1, fraction));
+
+        const syntheticTarget = (elapsed) => {
+          if (elapsed < 500) return interpolate(2, 18, elapsed / 500);
+          if (elapsed < 1400) return interpolate(18, 44, (elapsed - 500) / 900);
+          if (elapsed < 3600) return interpolate(44, 70, (elapsed - 1400) / 2200);
+          return 70;
+        };
+
+        const setMessage = (text) => {
+          if (message.textContent === text) return;
+          message.dataset.changing = "true";
+          window.setTimeout(() => {
+            message.textContent = text;
+            message.dataset.changing = "false";
+          }, 150);
+        };
+
+        window.addEventListener("robosats:boot-stage", (event) => {
+          const detail = event.detail || {};
+          if (Number.isFinite(detail.progress)) stageTarget = Math.max(stageTarget, Math.min(95, detail.progress));
+          if (detail.message) setMessage(detail.message);
+        });
+
+        window.addEventListener("robosats:app-ready", () => {
+          ready = true;
+          stageTarget = 100;
+          setMessage("RoboSats is ready.");
+          finish();
+        }, { once: true });
+
+        window.setTimeout(() => {
+          if (finished) return;
+          setMessage("The interface could not finish loading. Check your connection and try again.");
+          retry.hidden = false;
+        }, 15000);
+
+        const frame = (now) => {
+          if (finished) return;
+          const elapsed = now - startedAt;
+          const delta = Math.min(64, now - previousFrame);
+          previousFrame = now;
+
+          if (!ready) stageTarget = Math.max(stageTarget, syntheticTarget(elapsed));
+          const smoothing = 1 - Math.exp(-delta / (ready ? 105 : 260));
+          shown += (stageTarget - shown) * smoothing;
+
+          const rounded = Math.max(2, Math.min(100, Math.round(shown)));
+          progress.style.width = `${rounded}%`;
+          percent.textContent = `${rounded}%`;
+
+          if (!ready) {
+            const nextMessage = Math.floor(elapsed / 1800) % messages.length;
+            if (nextMessage !== messageIndex) {
+              messageIndex = nextMessage;
+              setMessage(messages[messageIndex]);
+            }
+          }
+
+          requestAnimationFrame(frame);
+        };
+
+        requestAnimationFrame(frame);
+      })();
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

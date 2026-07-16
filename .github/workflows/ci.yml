@@ -1,0 +1,114 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: Web checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm audit --audit-level=high
+      - run: npm run typecheck
+      - run: npm run check:typography
+      - run: npm test
+      - run: npm run build
+      - run: npm run check:production-build
+      - run: npm run check:ios:config
+      - name: Reject tracked build output
+        run: |
+          if git ls-files | grep -Eq '(^|/)(build|dist|node_modules|target|\.gradle)/|android/app/src/main/jniLibs/.+\.so$'; then
+            echo "Generated build output is tracked by Git." >&2
+            git ls-files | grep -E '(^|/)(build|dist|node_modules|target|\.gradle)/|android/app/src/main/jniLibs/.+\.so$' >&2
+            exit 1
+          fi
+
+  rust:
+    name: Rust checks (${{ matrix.name }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Android Arti
+            manifest: android/tor-native/Cargo.toml
+          - name: Android robot identities
+            manifest: android/robo-identities-native/Cargo.toml
+          - name: iOS Arti
+            manifest: ios/tor-native/Cargo.toml
+    steps:
+      - name: Check out source
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - name: Install Rust
+        run: rustup toolchain install 1.94.1 --profile minimal
+      - name: Check locked dependency graph
+        run: cargo +1.94.1 check --locked --manifest-path "${{ matrix.manifest }}"
+
+  android:
+    name: Android debug APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      RUSTUP_TOOLCHAIN: 1.94.1
+    steps:
+      - name: Check out source
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: npm
+      - name: Set up Java
+        uses: actions/setup-java@0f481fcb613427c0f801b606911222b5b6f3083a # v5
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@0723195856401067f7a2779048b490ace7a47d7c # v5
+      - name: Install Android and Rust build tools
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "ndk;27.0.12077973"
+          rustup toolchain install 1.94.1 --profile minimal
+          rustup target add --toolchain 1.94.1 aarch64-linux-android x86_64-linux-android
+          cargo install cargo-ndk --version 4.1.2 --locked
+      - run: npm ci
+      - name: Build and verify APKs
+        run: |
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.0.12077973"
+          npm run build:android:debug
+      - name: Run Android lint
+        working-directory: android
+        run: ./gradlew --no-daemon lintDebug

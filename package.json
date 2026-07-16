@@ -1,0 +1,62 @@
+{
+  "name": "robosats-experimental-frontend",
+  "private": true,
+  "version": "0.1.0-alpha.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "deploy:nginx": "node scripts/deploy-nginx.mjs",
+    "build:nginx": "npm run build && npm run deploy:nginx",
+    "build:nginx:lab": "VITE_ENABLE_TRADE_LAB=true npm run build && npm run deploy:nginx",
+    "build:android:web": "npm run build && node scripts/sync-android-assets.mjs",
+    "build:android:native": "bash android/build-native.sh",
+    "verify:android:16kb": "bash android/scripts/check-16kb-alignment.sh",
+    "build:android:debug": "npm run build:android:web && npm run build:android:native && cd android && ./gradlew assembleDebug && bash scripts/check-16kb-alignment.sh app/build/outputs/apk/debug/*.apk",
+    "build:android:release": "npm run build:android:web && npm run build:android:native && cd android && ./gradlew assembleRelease && bash scripts/check-16kb-alignment.sh app/build/outputs/apk/release/*.apk",
+    "build:ios:web": "npm run build && node ios/scripts/sync-web-assets.mjs",
+    "build:ios:rust": "bash ios/scripts/build-rust.sh",
+    "build:ios:rust:linux": "bash ios/scripts/build-rust-xtool.sh",
+    "build:ios:unsigned": "bash ios/scripts/build-unsigned-ipa.sh",
+    "build:ios:unsigned:linux": "bash ios/scripts/build-unsigned-ipa-xtool.sh",
+    "check:ios:config": "node ios/scripts/check-build-config.mjs",
+    "check:ios:rust": "cargo check --manifest-path ios/tor-native/Cargo.toml",
+    "check:production-build": "node scripts/check-production-build.mjs",
+    "check:typography": "node scripts/check-typography.mjs",
+    "release:metadata": "node scripts/release-metadata.mjs",
+    "audit:trade": "node scripts/audit-trade-previews.mjs",
+    "preview": "vite preview",
+    "serve": "vite preview --host 127.0.0.1 --port 5173 --strictPort",
+    "lint": "npm run typecheck && npm run check:typography",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=22.12 <23"
+  },
+  "dependencies": {
+    "@fontsource-variable/public-sans": "^5.2.7",
+    "@noble/hashes": "^2.2.0",
+    "js-sha256": "^0.11.1",
+    "lucide-react": "^1.24.0",
+    "nostr-tools": "^2.23.12",
+    "openpgp": "^6.3.1",
+    "qrcode.react": "^4.2.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^7.0.0",
+    "robo-identities-wasm": "^0.1.0",
+    "zustand": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^6.0.3",
+    "playwright": "^1.61.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.1.4",
+    "vite-plugin-wasm": "^3.6.0",
+    "vitest": "^4.1.10"
+  }
+}

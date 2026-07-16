@@ -1,0 +1,263 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  metadata:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      ios_version: ${{ steps.release.outputs.ios_version }}
+      build_number: ${{ steps.release.outputs.build_number }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+      - name: Validate release tag
+        id: release
+        run: node scripts/release-metadata.mjs "$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+      - name: Require a release commit from main
+        run: git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main
+
+  web:
+    needs: metadata
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: npm run check:production-build
+      - name: Package web bundle
+        run: tar -czf "robosats-exp-web-${{ needs.metadata.outputs.version }}.tar.gz" -C dist .
+      - name: Attest web bundle
+        if: github.event.repository.visibility == 'public'
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4
+        with:
+          subject-path: robosats-exp-web-${{ needs.metadata.outputs.version }}.tar.gz
+      - name: Upload web bundle
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: web
+          path: robosats-exp-web-${{ needs.metadata.outputs.version }}.tar.gz
+          if-no-files-found: error
+
+  android:
+    needs: metadata
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    env:
+      RUSTUP_TOOLCHAIN: 1.94.1
+    steps:
+      - name: Check out source
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: npm
+      - name: Set up Java
+        uses: actions/setup-java@0f481fcb613427c0f801b606911222b5b6f3083a # v5
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@0723195856401067f7a2779048b490ace7a47d7c # v5
+      - name: Install Android and Rust build tools
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "ndk;27.0.12077973"
+          rustup toolchain install 1.94.1 --profile minimal
+          rustup target add --toolchain 1.94.1 aarch64-linux-android x86_64-linux-android
+          cargo install cargo-ndk --version 4.1.2 --locked
+      - run: npm ci
+      - name: Prepare Android release signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          for variable in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [[ -z "${!variable}" ]]; then
+              echo "Required Android release secret is missing: $variable" >&2
+              exit 1
+            fi
+          done
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/robosats-release.jks"
+          chmod 600 "$RUNNER_TEMP/robosats-release.jks"
+      - name: Build release APKs
+        env:
+          ROBOSATS_VERSION_NAME: ${{ needs.metadata.outputs.version }}
+          ROBOSATS_VERSION_CODE: ${{ needs.metadata.outputs.build_number }}
+          ROBOSATS_ANDROID_KEYSTORE_FILE: ${{ runner.temp }}/robosats-release.jks
+          ROBOSATS_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ROBOSATS_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ROBOSATS_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.0.12077973"
+          npm run build:android:release
+      - name: Verify Android signatures
+        run: |
+          shopt -s nullglob
+          apks=(android/app/build/outputs/apk/release/*.apk)
+          if (( ${#apks[@]} == 0 )); then
+            echo "No release APKs were produced." >&2
+            exit 1
+          fi
+          for apk in "${apks[@]}"; do
+            "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$apk"
+          done
+      - name: Collect release APKs
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          mkdir -p release-android
+          shopt -s nullglob
+          apks=(android/app/build/outputs/apk/release/*.apk)
+          if (( ${#apks[@]} == 0 )); then
+            echo "No release APKs were produced." >&2
+            exit 1
+          fi
+          for apk in "${apks[@]}"; do
+            case "$(basename "$apk")" in
+              *arm64-v8a*) abi=arm64-v8a ;;
+              *x86_64*) abi=x86_64 ;;
+              *universal*) abi=universal ;;
+              *) echo "Unknown APK ABI: $apk" >&2; exit 1 ;;
+            esac
+            cp "$apk" "release-android/robosats-exp-${VERSION}-${abi}.apk"
+          done
+      - name: Attest Android APKs
+        if: github.event.repository.visibility == 'public'
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4
+        with:
+          subject-path: release-android/*.apk
+      - name: Upload Android APKs
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: android
+          path: release-android/*.apk
+          if-no-files-found: error
+
+  ios:
+    needs: metadata
+    runs-on: macos-15
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    env:
+      RUSTUP_TOOLCHAIN: 1.94.1
+      ROBOSATS_IOS_VERSION: ${{ needs.metadata.outputs.ios_version }}
+      ROBOSATS_BUILD_NUMBER: ${{ needs.metadata.outputs.build_number }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: npm
+      - name: Select Xcode 26
+        run: |
+          xcode_app="$(find /Applications -maxdepth 1 -type d -name 'Xcode_26*.app' -print | sort | tail -n 1)"
+          if [[ -z "$xcode_app" ]]; then
+            echo "Xcode 26 is not installed on this runner." >&2
+            exit 1
+          fi
+          sudo xcode-select --switch "$xcode_app/Contents/Developer"
+          xcodebuild -version
+      - name: Install iOS build tools
+        run: |
+          brew install xcodegen
+          rustup toolchain install 1.94.1 --profile minimal
+          rustup target add --toolchain 1.94.1 aarch64-apple-ios
+      - run: npm ci
+      - run: npm run build:ios:unsigned
+      - name: Collect unsigned IPA
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          mkdir -p release-ios
+          cp ios/build/RoboSatsExp-unsigned.ipa "release-ios/robosats-exp-${VERSION}-unsigned.ipa"
+      - name: Attest unsigned IPA
+        if: github.event.repository.visibility == 'public'
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4
+        with:
+          subject-path: release-ios/*.ipa
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: ios
+          path: release-ios/*.ipa
+          if-no-files-found: error
+
+  publish:
+    needs:
+      - metadata
+      - web
+      - android
+      - ios
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          path: release-assets
+          merge-multiple: true
+      - name: Create checksums
+        working-directory: release-assets
+        run: sha256sum * > SHA256SUMS
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.metadata.outputs.version }}
+          PRERELEASE: ${{ needs.metadata.outputs.prerelease }}
+        run: |
+          options=(--repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes --title "RoboSats Exp. $VERSION")
+          if [[ "$PRERELEASE" == "true" ]]; then options+=(--prerelease); fi
+          gh release create "$GITHUB_REF_NAME" "${options[@]}" release-assets/*

@@ -1,0 +1,16 @@
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary
+*.ico binary
+*.mp3 binary
+*.wasm binary
+*.jar binary
+*.jks binary
+*.apk binary
+*.ipa binary
+*.a binary
+*.so binary
