@@ -10,7 +10,7 @@ keywords = ["robo", "robohash", "robot", "avatar"]
 include = ["**/*.rs", "Cargo.toml"]
 
 [dependencies]
-jni = "0.21.1"
+jni = "0.22.4"
 base64 = "0.22.1"
 data-encoding = "2.9.0"
 image = { version = "0.25.10", default-features = false, features = ["png", "webp"] }
