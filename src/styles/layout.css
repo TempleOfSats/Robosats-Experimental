@@ -540,6 +540,15 @@
   margin-inline: auto;
 }
 
+.trade-quiet-order-heading {
+  width: min(100%, 36rem);
+  margin: 0 auto 0.25rem;
+}
+
+.trade-quiet-order-heading .app-eyebrow {
+  margin: 0;
+}
+
 .page-trade .page-heading h2 {
   font-size: var(--type-h2-size);
   line-height: 1.15;
