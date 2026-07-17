@@ -214,7 +214,11 @@ export function OrderPage() {
             </Badge>
           ) : null}
         </div>
-      ) : null}
+      ) : (
+        <div className="trade-quiet-order-heading">
+          <p className="app-eyebrow">Order #{order.id || "preview"}</p>
+        </div>
+      )}
 
       <TradeProgress order={order} />
 
