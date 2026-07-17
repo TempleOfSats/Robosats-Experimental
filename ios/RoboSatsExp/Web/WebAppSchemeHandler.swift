@@ -17,7 +17,7 @@ final class WebAppSchemeHandler: NSObject, WKURLSchemeHandler {
 
     func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
         guard let requestURL = urlSchemeTask.request.url,
-              let root = AppResources.bundle.resourceURL?.appendingPathComponent("WebApp", isDirectory: true) else {
+              let root = AppResources.webAppRoot else {
             AppDiagnostics.shared.record("Assets", "WebApp resource root is missing")
             urlSchemeTask.didFailWithError(URLError(.fileDoesNotExist))
             return
