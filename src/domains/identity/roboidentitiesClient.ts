@@ -47,17 +47,21 @@ export async function generateRobohash(hashId: string, size: "small" | "large"):
 
 export function prewarmRobohashes(hashId: string): void {
   if (!hashId) return;
-  void generateRobohash(hashId, "small");
-  void generateRobohash(hashId, "large");
+  void generateRobohash(hashId, "small").catch(() => undefined);
+  void generateRobohash(hashId, "large").catch(() => undefined);
 }
 
-/** Importing this module starts the cached WASM runtime. Call after a token is
- * generated so the identity reveal is ready by the time the user continues. */
 export function prewarmRobotIdentity(hashId: string): void {
   if (!hashId) return;
-  // Prioritize the quick preview. The full-size image is requested only when
-  // an XL avatar is actually displayed.
-  void generateRobohash(hashId, "small");
+  void generateRobohash(hashId, "small").catch(() => undefined);
+}
+
+export async function prepareRobotIdentity(hashId: string): Promise<{ avatar: string; nickname: string }> {
+  const avatar = await generateRobohash(hashId, "small");
+  return {
+    avatar,
+    nickname: generateRoboname(hashId)
+  };
 }
 
 function readPersistedAvatar(cacheKey: string): string | undefined {

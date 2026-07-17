@@ -1,10 +1,15 @@
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Check, Copy, Dices, Info, KeyRound, Zap } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { RobotAvatar } from "@/domains/identity/RobotAvatar";
 import { deriveRobotIdentity, type RobotIdentity } from "@/domains/identity/robotIdentity";
+import {
+  generateRoboname,
+  prepareRobotIdentity,
+  prewarmRobotIdentity
+} from "@/domains/identity/roboidentitiesClient";
 import { useGarageStore } from "@/domains/garage/garageStore";
 import { generateRobotToken } from "@/domains/garage/token";
 import { cn } from "@/lib/cn";
@@ -22,18 +27,10 @@ export function CreateRobotPanel({ onProfile }: { onProfile?: () => void }) {
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
   const [rolling, setRolling] = useState(false);
+  const [preparingIdentity, setPreparingIdentity] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    // Load the renderer before the identity step opens.
-    const timer = window.setTimeout(() => {
-      void import("@/domains/identity/roboidentitiesClient").catch(() => undefined);
-    }, 180);
-    return () => window.clearTimeout(timer);
-  }, []);
-
   const hasToken = token.trim().length > 0;
-  const robotNameIsResolving = draftIdentity ? draftNickname === fallbackRobotName(draftIdentity.hashId) : false;
 
   const updateToken = (nextToken: string) => {
     setToken(nextToken);
@@ -55,7 +52,7 @@ export function CreateRobotPanel({ onProfile }: { onProfile?: () => void }) {
     setError("");
   };
 
-  const continueToIdentity = () => {
+  const continueToIdentity = async () => {
     const cleanToken = token.trim();
     if (!cleanToken) {
       setError("Enter a robot token first.");
@@ -63,16 +60,18 @@ export function CreateRobotPanel({ onProfile }: { onProfile?: () => void }) {
     }
 
     const identity = deriveRobotIdentity(cleanToken);
-    const fallbackName = fallbackRobotName(identity.hashId);
-    setDraftIdentity(identity);
-    setDraftNickname(fallbackName);
+    setPreparingIdentity(true);
     setError("");
-    setStep("identity");
-    prewarmRobotIdentity(identity.hashId);
-
-    void resolveRobotName(identity.hashId, fallbackName).then((nickname) => {
-      setDraftNickname((current) => (current === fallbackName ? nickname : current));
-    });
+    try {
+      const prepared = await prepareRobotIdentity(identity.hashId);
+      setDraftIdentity(identity);
+      setDraftNickname(prepared.nickname);
+      setStep("identity");
+    } catch {
+      setError("Could not prepare your robot identity. Check your connection and try again.");
+    } finally {
+      setPreparingIdentity(false);
+    }
   };
 
   const saveRobot = async (): Promise<boolean> => {
@@ -136,7 +135,7 @@ export function CreateRobotPanel({ onProfile }: { onProfile?: () => void }) {
             <details className="recover-token-details">
               <summary>Recover with existing token</summary>
               <TokenInput token={token} setToken={updateToken} copied={copied} copyToken={copyToken} />
-              <Button onClick={continueToIdentity} disabled={!hasToken}>
+              <Button onClick={() => void continueToIdentity()} disabled={!hasToken} loading={preparingIdentity}>
                 <Check size={17} />
                 Continue
               </Button>
@@ -158,7 +157,7 @@ export function CreateRobotPanel({ onProfile }: { onProfile?: () => void }) {
                 <Dices className={cn(rolling && "dice-roll")} size={17} />
                 Roll again
               </Button>
-              <Button onClick={continueToIdentity} size="lg">
+              <Button onClick={() => void continueToIdentity()} loading={preparingIdentity} size="lg">
                 <Check size={18} />
                 Continue
               </Button>
@@ -176,7 +175,7 @@ export function CreateRobotPanel({ onProfile }: { onProfile?: () => void }) {
               <span>Hi! My name is</span>
               <strong>
                 <Zap size={22} fill="currentColor" />
-                {robotNameIsResolving ? "Meeting robot..." : draftNickname}
+                {draftNickname}
                 <Zap size={22} fill="currentColor" />
               </strong>
             </div>
@@ -198,17 +197,10 @@ function fallbackRobotName(hashId: string): string {
 
 async function resolveRobotName(hashId: string, fallback: string): Promise<string> {
   try {
-    const { generateRoboname } = await import("@/domains/identity/roboidentitiesClient");
     return generateRoboname(hashId);
   } catch {
     return fallback;
   }
-}
-
-function prewarmRobotIdentity(hashId: string): void {
-  void import("@/domains/identity/roboidentitiesClient")
-    .then(({ prewarmRobotIdentity }) => prewarmRobotIdentity(hashId))
-    .catch(() => undefined);
 }
 
 function finalizeRobotSlot(
