@@ -456,8 +456,7 @@ function ContractPanel({
 
   return (
     <div className="trade-contract-stack">
-<<<<<<< HEAD
-      {isPublicMakerWait ? (
+{isPublicMakerWait ? (
         <div className="trade-public-wait-notice" role="status">
           <Clock size={18} aria-hidden="true" />
           <span>
@@ -466,9 +465,6 @@ function ContractPanel({
           </span>
         </div>
       ) : !isInvoicePaymentStep && !isChatStep && !isDisputeStep && !isPayoutStep && !isRenewalStep && !isSuccessStep && !isRoutingStep ? (
-=======
-      {!isInvoicePaymentStep && !isChatStep && !isDisputeStep && !isPayoutStep && !isRenewalStep && !isSuccessStep && !isRoutingStep ? (
->>>>>>> 57bff76 (Add expired maker order renewal)
         <Card className="trade-contract-card">
           <CardHeader className="trade-contract-title-row">
             <CardTitle>{view.message.heading}</CardTitle>
