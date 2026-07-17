@@ -34,7 +34,7 @@ type GarageState = {
   setActiveOrder: (token: string, shortAlias: string, orderId: number) => void;
   releaseOrderReservation: (token: string, shortAlias: string, orderId: number) => void;
   setStealthInvoices: (token: string, shortAlias: string, enabled: boolean) => void;
-  syncOrderSnapshot: (params: { token: string; shortAlias: string; orderId: number; status: number }) => void;
+  syncOrderSnapshot: (params: { token: string; shortAlias: string; orderId: number; status: number; isMaker?: boolean }) => void;
   updateSlotIdentityDetails: (
     token: string,
     details: { nickname?: string; keys?: { pubKey: string; encPrivKey: string } }
@@ -52,6 +52,7 @@ export type RobotRecord = {
   activeOrderId?: number;
   lastOrderId?: number;
   releasedOrderId?: number;
+  renewableOrderId?: number;
   earnedRewards?: number;
   stealthInvoices?: boolean;
   found?: boolean;
@@ -150,7 +151,8 @@ export const useGarageStore = create<GarageState>((set, get) => ({
               shortAlias,
               activeOrderId: orderId,
               lastOrderId: orderId,
-              releasedOrderId: undefined
+              releasedOrderId: undefined,
+              renewableOrderId: undefined
             }
           }
         };
@@ -173,7 +175,8 @@ export const useGarageStore = create<GarageState>((set, get) => ({
               shortAlias,
               activeOrderId: existingRobot?.activeOrderId === orderId ? undefined : existingRobot?.activeOrderId,
               lastOrderId: existingRobot?.lastOrderId === orderId ? undefined : existingRobot?.lastOrderId,
-              releasedOrderId: orderId
+              releasedOrderId: orderId,
+              renewableOrderId: undefined
             }
           }
         });
@@ -202,9 +205,10 @@ export const useGarageStore = create<GarageState>((set, get) => ({
       persistSlots(slots, state.currentToken ?? token);
       return { ...state, slots };
     }),
-  syncOrderSnapshot: ({ token, shortAlias, orderId, status }) =>
+  syncOrderSnapshot: ({ token, shortAlias, orderId, status, isMaker }) =>
     set((state) => {
-      const terminal = isTerminalOrderStatus(status);
+      const renewable = status === 5 && Boolean(isMaker);
+      const terminal = isTerminalOrderStatus(status) && !renewable;
       const slots = state.slots.map((slot) => {
         if (slot.token !== token) return slot;
         const existingRobot = slot.robots[shortAlias] ?? Object.values(slot.robots)[0];
@@ -215,7 +219,8 @@ export const useGarageStore = create<GarageState>((set, get) => ({
           shortAlias,
           lastOrderId: remainsReleased ? undefined : orderId,
           activeOrderId: terminal || remainsReleased ? undefined : orderId,
-          releasedOrderId: remainsReleased ? orderId : undefined
+          releasedOrderId: remainsReleased ? orderId : undefined,
+          renewableOrderId: renewable && !remainsReleased ? orderId : undefined
         };
         return summarizeSlot({
           ...slot,
@@ -326,7 +331,7 @@ export const useGarageStore = create<GarageState>((set, get) => ({
             ...Object.fromEntries(results.map((result) => {
               const currentRobot = item.robots[result.shortAlias];
               const orderState = result.orderSnapshot
-                ? reconcileReleasedOrder(
+                ? reconcileOrderState(
                     currentRobot,
                     result.orderSnapshot.activeOrderId,
                     result.orderSnapshot.lastOrderId
@@ -516,29 +521,37 @@ function markTargetRobotsLoading(
   );
 }
 
-function reconcileReleasedOrder(
+function reconcileOrderState(
   robot: RobotRecord | undefined,
   activeOrderId: number | undefined,
   lastOrderId: number | undefined
-): Pick<RobotRecord, "activeOrderId" | "lastOrderId" | "releasedOrderId"> {
+): Pick<RobotRecord, "activeOrderId" | "lastOrderId" | "releasedOrderId" | "renewableOrderId"> {
   const releasedOrderId = robot?.releasedOrderId;
-  if (!releasedOrderId || (activeOrderId !== releasedOrderId && lastOrderId !== releasedOrderId)) {
-    return { activeOrderId, lastOrderId, releasedOrderId: undefined };
+  if (releasedOrderId && (activeOrderId === releasedOrderId || lastOrderId === releasedOrderId)) {
+    return {
+      activeOrderId: activeOrderId === releasedOrderId ? undefined : activeOrderId,
+      lastOrderId: lastOrderId === releasedOrderId ? undefined : lastOrderId,
+      releasedOrderId,
+      renewableOrderId: undefined
+    };
   }
-  return {
-    activeOrderId: activeOrderId === releasedOrderId ? undefined : activeOrderId,
-    lastOrderId: lastOrderId === releasedOrderId ? undefined : lastOrderId,
-    releasedOrderId
-  };
+
+  const renewableOrderId = robot?.renewableOrderId;
+  if (renewableOrderId && !activeOrderId && lastOrderId === renewableOrderId) {
+    return { activeOrderId: renewableOrderId, lastOrderId, releasedOrderId: undefined, renewableOrderId };
+  }
+
+  return { activeOrderId, lastOrderId, releasedOrderId: undefined, renewableOrderId: undefined };
 }
 
 function selectRobotOrderState(
   robot: RobotRecord | undefined
-): Pick<RobotRecord, "activeOrderId" | "lastOrderId" | "releasedOrderId"> {
+): Pick<RobotRecord, "activeOrderId" | "lastOrderId" | "releasedOrderId" | "renewableOrderId"> {
   return {
     activeOrderId: robot?.activeOrderId,
     lastOrderId: robot?.lastOrderId,
-    releasedOrderId: robot?.releasedOrderId
+    releasedOrderId: robot?.releasedOrderId,
+    renewableOrderId: robot?.renewableOrderId
   };
 }
 
