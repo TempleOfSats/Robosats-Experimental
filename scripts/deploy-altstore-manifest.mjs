@@ -60,10 +60,8 @@ function main() {
   } catch {}
 
   // Clone gh-pages; if it does not exist yet, clone main and create it
-  let cloneOk = false;
   try {
     runCmd("git", "clone", "--branch", BRANCH, "--single-branch", "--depth", "1", repoUrl, pagesDir);
-    cloneOk = true;
   } catch {
     log("gh-pages branch does not exist yet — creating from main...");
     runCmd("git", "clone", "--branch", "main", "--single-branch", "--depth", "1", repoUrl, pagesDir);
