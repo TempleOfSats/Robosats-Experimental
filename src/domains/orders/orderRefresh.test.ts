@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   orderRefreshDelayMs,
   shouldLeaveTradeAfterAction,
+  shouldOpenOrderDetailsByDefault,
   shouldReturnExpiredTakeToOffers
 } from "@/domains/orders/OrderPage";
 import { isAlreadyCancelledError, isTransientOrderLoadError } from "@/domains/orders/orderStore";
@@ -40,6 +41,17 @@ describe("shouldLeaveTradeAfterAction", () => {
     expect(shouldLeaveTradeAfterAction("collaborative-cancel", { status: 12, is_maker: false, is_taker: true })).toBe(true);
     expect(shouldLeaveTradeAfterAction("cancel", { status: 4, is_maker: false, is_taker: false })).toBe(true);
     expect(shouldLeaveTradeAfterAction("cancel", { status: 1, is_maker: false, is_taker: false })).toBe(true);
+  });
+});
+
+describe("shouldOpenOrderDetailsByDefault", () => {
+  it("opens details for a maker waiting on a public order", () => {
+    expect(shouldOpenOrderDetailsByDefault({ status: 1, is_maker: true })).toBe(true);
+  });
+
+  it("keeps details collapsed for takers and other trade stages", () => {
+    expect(shouldOpenOrderDetailsByDefault({ status: 1, is_maker: false })).toBe(false);
+    expect(shouldOpenOrderDetailsByDefault({ status: 3, is_maker: true })).toBe(false);
   });
 });
 
