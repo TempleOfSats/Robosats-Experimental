@@ -1,17 +1,13 @@
 import type { ReactNode } from "react";
-import { useState } from "react";
-import { Check, Copy, Dices, Info, KeyRound, Zap } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Check, Copy, Dices, Download, Info, KeyRound, Zap } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { RobotAvatar } from "@/domains/identity/RobotAvatar";
 import { deriveRobotIdentity, type RobotIdentity } from "@/domains/identity/robotIdentity";
-import {
-  generateRoboname,
-  prepareRobotIdentity,
-  prewarmRobotIdentity
-} from "@/domains/identity/roboidentitiesClient";
 import { useGarageStore } from "@/domains/garage/garageStore";
 import { generateRobotToken } from "@/domains/garage/token";
+import { downloadRobotTokenBackup } from "@/domains/garage/tokenBackup";
 import { cn } from "@/lib/cn";
 
 type WizardStep = "token" | "identity" | "ready";
@@ -27,12 +23,22 @@ export function CreateRobotPanel({ onProfile }: { onProfile?: () => void }) {
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
   const [rolling, setRolling] = useState(false);
-  const [preparingIdentity, setPreparingIdentity] = useState(false);
   const [saving, setSaving] = useState(false);
+  const latestToken = useRef("");
+
+  useEffect(() => {
+    // Load the renderer before the identity step opens.
+    const timer = window.setTimeout(() => {
+      void import("@/domains/identity/roboidentitiesClient").catch(() => undefined);
+    }, 180);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   const hasToken = token.trim().length > 0;
+  const robotNameIsResolving = draftIdentity ? draftNickname === fallbackRobotName(draftIdentity.hashId) : false;
 
   const updateToken = (nextToken: string) => {
+    latestToken.current = nextToken;
     setToken(nextToken);
     setDraftIdentity(null);
     setDraftNickname("");
@@ -43,35 +49,40 @@ export function CreateRobotPanel({ onProfile }: { onProfile?: () => void }) {
   const generateToken = () => {
     setRolling(true);
     const nextToken = generateRobotToken();
-    prewarmRobotIdentity(deriveRobotIdentity(nextToken).hashId);
+    const identity = deriveRobotIdentity(nextToken);
+    const fallbackName = fallbackRobotName(identity.hashId);
+    latestToken.current = nextToken;
+    prewarmRobotIdentity(identity.hashId);
     window.setTimeout(() => setRolling(false), 420);
     setToken(nextToken);
-    setDraftIdentity(null);
-    setDraftNickname("");
+    setDraftIdentity(identity);
+    setDraftNickname(fallbackName);
     setCopied(false);
     setError("");
+    void resolveRobotName(identity.hashId, fallbackName).then((nickname) => {
+      if (latestToken.current === nextToken) setDraftNickname(nickname);
+    });
   };
 
-  const continueToIdentity = async () => {
+  const continueToIdentity = () => {
     const cleanToken = token.trim();
+    latestToken.current = cleanToken;
     if (!cleanToken) {
       setError("Enter a robot token first.");
       return;
     }
 
     const identity = deriveRobotIdentity(cleanToken);
-    setPreparingIdentity(true);
+    const fallbackName = fallbackRobotName(identity.hashId);
+    setDraftIdentity(identity);
+    setDraftNickname(fallbackName);
     setError("");
-    try {
-      const prepared = await prepareRobotIdentity(identity.hashId);
-      setDraftIdentity(identity);
-      setDraftNickname(prepared.nickname);
-      setStep("identity");
-    } catch {
-      setError("Could not prepare your robot identity. Check your connection and try again.");
-    } finally {
-      setPreparingIdentity(false);
-    }
+    setStep("identity");
+    prewarmRobotIdentity(identity.hashId);
+
+    void resolveRobotName(identity.hashId, fallbackName).then((nickname) => {
+      setDraftNickname((current) => (current === fallbackName ? nickname : current));
+    });
   };
 
   const saveRobot = async (): Promise<boolean> => {
@@ -122,6 +133,23 @@ export function CreateRobotPanel({ onProfile }: { onProfile?: () => void }) {
     setCopied(true);
   };
 
+  const downloadToken = async () => {
+    const cleanToken = token.trim();
+    if (!cleanToken) return;
+    const identity = draftIdentity ?? deriveRobotIdentity(cleanToken);
+    const fallbackName = fallbackRobotName(identity.hashId);
+    const currentName = draftIdentity?.hashId === identity.hashId && draftNickname
+      ? draftNickname
+      : fallbackName;
+    const robotName = currentName === fallbackName
+      ? await resolveRobotName(identity.hashId, fallbackName)
+      : currentName;
+    if (latestToken.current !== cleanToken) return;
+    setDraftIdentity(identity);
+    setDraftNickname(robotName);
+    downloadRobotTokenBackup(cleanToken, robotName);
+  };
+
   return (
     <div className="robot-wizard" aria-label="Robot setup wizard">
       <WizardSection title="1. Generate a token" active={step === "token"} complete={step !== "token"}>
@@ -134,8 +162,14 @@ export function CreateRobotPanel({ onProfile }: { onProfile?: () => void }) {
             </Button>
             <details className="recover-token-details">
               <summary>Recover with existing token</summary>
-              <TokenInput token={token} setToken={updateToken} copied={copied} copyToken={copyToken} />
-              <Button onClick={() => void continueToIdentity()} disabled={!hasToken} loading={preparingIdentity}>
+              <TokenInput
+                token={token}
+                setToken={updateToken}
+                copied={copied}
+                copyToken={copyToken}
+                downloadToken={downloadToken}
+              />
+              <Button onClick={continueToIdentity} disabled={!hasToken}>
                 <Check size={17} />
                 Continue
               </Button>
@@ -149,7 +183,13 @@ export function CreateRobotPanel({ onProfile }: { onProfile?: () => void }) {
                 <strong>Store it somewhere safe.</strong> This token is the only key to your robot.
               </p>
             </div>
-            <TokenInput token={token} setToken={updateToken} copied={copied} copyToken={copyToken} />
+            <TokenInput
+              token={token}
+              setToken={updateToken}
+              copied={copied}
+              copyToken={copyToken}
+              downloadToken={downloadToken}
+            />
             {copied ? <p className="field-note">Token copied.</p> : null}
             {error ? <p className="field-error">{error}</p> : null}
             <div className="wizard-actions centered-actions">
@@ -157,7 +197,7 @@ export function CreateRobotPanel({ onProfile }: { onProfile?: () => void }) {
                 <Dices className={cn(rolling && "dice-roll")} size={17} />
                 Roll again
               </Button>
-              <Button onClick={() => void continueToIdentity()} loading={preparingIdentity} size="lg">
+              <Button onClick={continueToIdentity} size="lg">
                 <Check size={18} />
                 Continue
               </Button>
@@ -175,7 +215,7 @@ export function CreateRobotPanel({ onProfile }: { onProfile?: () => void }) {
               <span>Hi! My name is</span>
               <strong>
                 <Zap size={22} fill="currentColor" />
-                {draftNickname}
+                {robotNameIsResolving ? "Meeting robot..." : draftNickname}
                 <Zap size={22} fill="currentColor" />
               </strong>
             </div>
@@ -197,10 +237,17 @@ function fallbackRobotName(hashId: string): string {
 
 async function resolveRobotName(hashId: string, fallback: string): Promise<string> {
   try {
+    const { generateRoboname } = await import("@/domains/identity/roboidentitiesClient");
     return generateRoboname(hashId);
   } catch {
     return fallback;
   }
+}
+
+function prewarmRobotIdentity(hashId: string): void {
+  void import("@/domains/identity/roboidentitiesClient")
+    .then(({ prewarmRobotIdentity }) => prewarmRobotIdentity(hashId))
+    .catch(() => undefined);
 }
 
 function finalizeRobotSlot(
@@ -277,12 +324,14 @@ function TokenInput({
   token,
   setToken,
   copied,
-  copyToken
+  copyToken,
+  downloadToken
 }: {
   token: string;
   setToken: (token: string) => void;
   copied: boolean;
   copyToken: () => Promise<void>;
+  downloadToken: () => Promise<void>;
 }) {
   return (
     <div className="input-shell token-input-shell">
@@ -293,6 +342,10 @@ function TokenInput({
         placeholder="Paste robot token"
         aria-label="Robot token"
       />
+      <button className="icon-button" type="button" onClick={() => void downloadToken()} disabled={!token} title="Download token backup">
+        <Download size={16} />
+        <span className="sr-only">Download token backup as JSON</span>
+      </button>
       <button className="icon-button" type="button" onClick={() => void copyToken()} disabled={!token} title={copied ? "Copied" : "Copy"}>
         <Copy size={16} />
         <span className="sr-only">Copy token</span>
