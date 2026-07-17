@@ -9,6 +9,7 @@ import {
   PUBLIC_DURATION_MIN_SECONDS
 } from "@/domains/maker/makerDurations";
 import type { CreateOrderDraft, CreateOrderPayload, CreateOrderResponse } from "@/domains/maker/maker.types";
+import type { OrderDto } from "@/domains/orders/order.types";
 
 export async function createOrder(
   baseUrl: string,
@@ -42,6 +43,32 @@ export function buildCreateOrderPayload(draft: CreateOrderDraft): CreateOrderPay
     longitude: parseNumericField(draft.longitude),
     password: password ? sha256(password) : null,
     description: description || null
+  };
+}
+
+export function buildRenewOrderPayload(order: OrderDto, password = ""): CreateOrderPayload {
+  const hasRange = Boolean(order.has_range);
+  const isExplicit = Boolean(order.is_explicit);
+  const normalizedPassword = password.trim();
+
+  return {
+    type: order.type === 1 ? 1 : 0,
+    currency: order.currency,
+    amount: hasRange ? null : order.amount,
+    has_range: hasRange,
+    min_amount: hasRange ? order.min_amount ?? null : null,
+    max_amount: hasRange ? order.max_amount ?? null : null,
+    payment_method: order.payment_method,
+    is_explicit: isExplicit,
+    premium: isExplicit ? null : order.premium,
+    satoshis: isExplicit ? order.satoshis : null,
+    public_duration: order.public_duration || 86_340,
+    escrow_duration: order.escrow_duration || 10_800,
+    bond_size: order.bond_size || 3,
+    latitude: order.latitude ?? 0,
+    longitude: order.longitude ?? 0,
+    password: normalizedPassword ? sha256(normalizedPassword) : null,
+    description: order.description?.trim() || null
   };
 }
 

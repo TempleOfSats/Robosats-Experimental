@@ -130,7 +130,8 @@ function syncGarageOrder(slot: RobotSlot | undefined, shortAlias: string, order:
     token: slot.token,
     shortAlias,
     orderId: order.id,
-    status: order.status
+    status: order.status,
+    isMaker: order.is_maker
   });
 }
 
