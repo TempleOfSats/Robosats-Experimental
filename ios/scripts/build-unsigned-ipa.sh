@@ -43,4 +43,5 @@ mkdir -p "$BUILD_ROOT/Payload"
 cp -R "$APP_PATH" "$BUILD_ROOT/Payload/"
 cd "$BUILD_ROOT"
 /usr/bin/zip -qry RoboSatsExp-unsigned.ipa Payload
+"$IOS_ROOT/scripts/verify-unsigned-ipa.sh" "$BUILD_ROOT/RoboSatsExp-unsigned.ipa"
 echo "Unsigned IPA: $BUILD_ROOT/RoboSatsExp-unsigned.ipa"
