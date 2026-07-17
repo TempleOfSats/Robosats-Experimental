@@ -177,13 +177,15 @@ export function CoordinatorsPage() {
   );
 }
 
-function CoordinatorDetailDialog({
+export function CoordinatorDetailDialog({
+  compact = false,
   coordinator,
   lastRefreshed,
   network,
   rating,
   onClose
 }: {
+  compact?: boolean;
   coordinator: CoordinatorSummary;
   lastRefreshed?: number;
   network: BitcoinNetwork;
@@ -204,7 +206,15 @@ function CoordinatorDetailDialog({
 
   return (
     <div className="coordinator-dialog-overlay" onClick={onClose}>
-      <aside className="coordinator-dialog coordinator-production-dialog" role="dialog" aria-modal="true" aria-labelledby="coordinator-dialog-title" onClick={(event) => event.stopPropagation()}>
+      <aside
+        className={compact
+          ? "coordinator-dialog coordinator-production-dialog coordinator-choice-dialog"
+          : "coordinator-dialog coordinator-production-dialog"}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="coordinator-dialog-title"
+        onClick={(event) => event.stopPropagation()}
+      >
         <button className="take-modal-close" onClick={onClose} type="button" aria-label="Close coordinator details">
           <X size={20} />
         </button>
@@ -217,7 +227,7 @@ function CoordinatorDetailDialog({
           {rating.count > 0 ? (
             <div className="coordinator-dialog-rating"><RatingStars rating={rating.score} /><span>({rating.count})</span></div>
           ) : <span className="coordinator-unrated">No coordinator ratings yet</span>}
-          <ContactIcons contact={coordinator.contact} />
+          {!compact ? <ContactIcons contact={coordinator.contact} /> : null}
           {coordinator.badgeIcons.length > 0 ? (
             <div className="coordinator-dialog-badges" aria-label="Coordinator badges">
               {coordinator.badgeIcons.map((badge) => (
@@ -243,7 +253,7 @@ function CoordinatorDetailDialog({
         <div className="coordinator-dialog-details coordinator-profile-details">
           {coordinator.description ? <DetailRow icon={<FileText size={21} />} label="Coordinator description">{coordinator.description}</DetailRow> : null}
           {coordinator.established ? <DetailRow icon={<Flag size={21} />} label="Established">{formatEstablished(coordinator.established)}</DetailRow> : null}
-          {hostedUrl ? (
+          {!compact && hostedUrl ? (
             <DetailRow icon={<Globe2 size={21} />} label={`${network} hosted web app`}>
               <a className="coordinator-dialog-detail-link" href={hostedUrl} rel="noreferrer" target="_blank">{displayUrl(hostedUrl)}<ExternalLink size={14} /></a>
             </DetailRow>
@@ -257,7 +267,7 @@ function CoordinatorDetailDialog({
           </div>
         )}
 
-        {info ? <ActivityDetails info={info} /> : null}
+        {!compact && info ? <ActivityDetails info={info} /> : null}
 
         {policies.length > 0 ? (
           <CoordinatorDisclosure icon={<ShieldCheck size={18} />} label="Policies" summary={`${policies.length} published rules`}>
@@ -267,7 +277,7 @@ function CoordinatorDetailDialog({
           </CoordinatorDisclosure>
         ) : null}
 
-        {info ? <TechnicalDetails coordinator={coordinator} info={info} networkUrls={networkUrls} /> : null}
+        {!compact && info ? <TechnicalDetails coordinator={coordinator} info={info} networkUrls={networkUrls} /> : null}
       </aside>
     </div>
   );
