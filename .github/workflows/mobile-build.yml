@@ -1,0 +1,124 @@
+name: Mobile Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Mobile platform to build
+        required: true
+        type: choice
+        options:
+          - all
+          - android
+          - ios
+        default: all
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-build-${{ github.ref }}-${{ inputs.platform }}
+  cancel-in-progress: false
+
+jobs:
+  android:
+    name: Android debug APKs
+    if: inputs.platform == 'all' || inputs.platform == 'android'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      RUSTUP_TOOLCHAIN: 1.94.1
+    steps:
+      - name: Check out source
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: npm
+      - name: Set up Java
+        uses: actions/setup-java@0f481fcb613427c0f801b606911222b5b6f3083a # v5
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@0723195856401067f7a2779048b490ace7a47d7c # v5
+      - name: Install Android and Rust build tools
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "ndk;27.0.12077973"
+          rustup toolchain install 1.94.1 --profile minimal
+          rustup target add --toolchain 1.94.1 aarch64-linux-android x86_64-linux-android
+          cargo install cargo-ndk --version 4.1.2 --locked
+      - run: npm ci
+      - name: Build debug APKs
+        run: |
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.0.12077973"
+          npm run build:android:debug
+      - name: Verify APK signatures
+        run: |
+          shopt -s nullglob
+          apks=(android/app/build/outputs/apk/debug/*.apk)
+          if (( ${#apks[@]} == 0 )); then
+            echo "No debug APKs were produced." >&2
+            exit 1
+          fi
+          for apk in "${apks[@]}"; do
+            "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "$apk"
+          done
+      - name: Upload Android APKs
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: android-debug-${{ github.run_number }}-${{ github.run_attempt }}
+          path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+  ios:
+    name: iOS unsigned IPA
+    if: inputs.platform == 'all' || inputs.platform == 'ios'
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      RUSTUP_TOOLCHAIN: 1.94.1
+    steps:
+      - name: Check out source
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: npm
+      - name: Select Xcode 26
+        run: |
+          xcode_app="$(find /Applications -maxdepth 1 -type d -name 'Xcode_26*.app' -print | sort | tail -n 1)"
+          if [[ -z "$xcode_app" ]]; then
+            echo "Xcode 26 is not installed on this runner." >&2
+            exit 1
+          fi
+          sudo xcode-select --switch "$xcode_app/Contents/Developer"
+          xcodebuild -version
+      - name: Install iOS build tools
+        run: |
+          brew install xcodegen
+          rustup toolchain install 1.94.1 --profile minimal
+          rustup target add --toolchain 1.94.1 aarch64-apple-ios
+      - run: npm ci
+      - name: Build unsigned IPA
+        run: npm run build:ios:unsigned
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: ios-unsigned-${{ github.run_number }}-${{ github.run_attempt }}
+          path: ios/build/RoboSatsExp-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14
