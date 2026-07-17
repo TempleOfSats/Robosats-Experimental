@@ -26,6 +26,16 @@ assertEqual("marketing version", projectVersion, xtoolVersion);
 assertEqual("build number", projectBuild, xtoolBuild);
 assertEqual("package marketing version", projectVersion, metadata.ios_version);
 assertEqual("package build number", projectBuild, metadata.build_number);
+assertMatch(
+  "Xcode WebApp resource",
+  project,
+  /-\s+path:\s+RoboSatsExp\/Resources\/WebApp\s+type:\s+folder\s+buildPhase:\s+resources/
+);
+assertMatch(
+  "Xcode loading mark resource",
+  project,
+  /-\s+path:\s+RoboSatsExp\/Resources\/Raw\/RoboSatsMark\.png\s+buildPhase:\s+resources/
+);
 
 console.log(`iOS build configuration: ${projectBundleID} ${projectVersion} (${projectBuild})`);
 
@@ -44,5 +54,11 @@ function plistValue(source, key) {
 function assertEqual(label, xcodeValue, xtoolValue) {
   if (xcodeValue !== xtoolValue) {
     throw new Error(`iOS ${label} differs: Xcode uses ${xcodeValue}, xtool uses ${xtoolValue}`);
+  }
+}
+
+function assertMatch(label, source, pattern) {
+  if (!pattern.test(source)) {
+    throw new Error(`Missing or invalid ${label} declaration`);
   }
 }

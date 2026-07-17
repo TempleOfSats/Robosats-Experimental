@@ -90,21 +90,11 @@ struct TorLoadingView: View {
     }
 
     private static let packagedLoadingMark: UIImage = {
-        var bundles = [AppResources.bundle, Bundle.main]
-        if let resourceBundleURL = Bundle.main.url(
-            forResource: "RoboSatsExp_RoboSatsExp",
-            withExtension: "bundle"
-        ), let resourceBundle = Bundle(url: resourceBundleURL) {
-            bundles.append(resourceBundle)
-        }
-
-        for bundle in bundles {
-            if let url = bundle.url(forResource: "RoboSatsMark", withExtension: "png"),
-               let data = try? Data(contentsOf: url),
-               let image = UIImage(data: data) {
-                AppDiagnostics.shared.record("Assets", "Loading mark ready")
-                return image
-            }
+        if let url = AppResources.loadingMarkURL,
+           let data = try? Data(contentsOf: url),
+           let image = UIImage(data: data) {
+            AppDiagnostics.shared.record("Assets", "Loading mark ready")
+            return image
         }
         AppDiagnostics.shared.record("Assets", "Loading mark is unavailable")
         return UIImage(systemName: "bolt.fill") ?? UIImage()
