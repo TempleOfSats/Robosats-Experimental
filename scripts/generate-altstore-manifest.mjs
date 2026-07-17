@@ -54,8 +54,21 @@ async function main() {
   log("Fetching releases from GitHub...");
 
   const releases = JSON.parse(
-    runCmd("gh", "release", "list", "--json", "tagName,name,isPrerelease,body,publishedAt,assets", "--limit", "100")
+    runCmd("gh", "release", "list", "--json", "tagName,name,isPrerelease,publishedAt", "--limit", "100")
   );
+
+  // Fetch body and assets for each release
+  for (const release of releases) {
+    const fullRelease = JSON.parse(
+      runCmd("gh", "release", "view", release.tagName, "--json", "body,assets")
+    );
+    release.body = fullRelease.body;
+    release.assetList = (fullRelease.assets || []).map((a) => ({
+      name: a.name,
+      browser_download_url: a.browser_download_url,
+      size: a.size,
+    }));
+  }
 
   if (releases.length === 0) {
     log("No releases found.");
@@ -67,7 +80,7 @@ async function main() {
   const apps = [];
 
   for (const release of releases) {
-    const ipaAssets = (release.assets || []).filter((a) => a.name.endsWith(".ipa"));
+    const ipaAssets = (release.assetList || []).filter((a) => a.name.endsWith(".ipa"));
 
     if (ipaAssets.length === 0) continue;
 
