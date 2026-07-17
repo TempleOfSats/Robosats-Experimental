@@ -236,8 +236,7 @@ jobs:
 
   altstore:
     needs:
-      - metadata
-      - ios
+      - publish
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -266,7 +265,6 @@ jobs:
       - web
       - android
       - ios
-      - altstore
     runs-on: ubuntu-24.04
     permissions:
       contents: write
