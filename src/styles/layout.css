@@ -1007,6 +1007,45 @@
   line-height: 1.55;
 }
 
+.trade-public-wait-notice {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.7rem;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--primary);
+  border-radius: var(--radius-md);
+  background: var(--card);
+  padding: 0.7rem 0.85rem;
+}
+
+.trade-public-wait-notice > svg {
+  color: var(--primary);
+}
+
+.trade-public-wait-notice > span {
+  min-width: 0;
+  display: grid;
+  gap: 0.1rem;
+}
+
+.trade-public-wait-notice strong,
+.trade-public-wait-notice small {
+  overflow-wrap: anywhere;
+}
+
+.trade-public-wait-notice strong {
+  font-size: 0.9rem;
+  line-height: 1.25rem;
+}
+
+.trade-public-wait-notice small {
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+  line-height: 1.1rem;
+}
+
 .token-backup-sheet {
   width: min(calc(100vw - 2rem), 35rem);
   gap: 1.15rem;
@@ -1117,6 +1156,28 @@
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.trade-order-summary-meta {
+  min-width: 0;
+  display: flex;
+  gap: 0.15rem 0.65rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.trade-order-summary-order {
+  min-width: 0;
+}
+
+.trade-order-summary-expiry {
+  flex: 0 0 auto;
+  display: inline-flex;
+  gap: 0.3rem;
+  align-items: center;
+  overflow: visible !important;
+  color: var(--foreground) !important;
+  text-overflow: clip !important;
 }
 
 .trade-order-summary-chevron {
