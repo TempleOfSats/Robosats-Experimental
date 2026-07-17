@@ -234,12 +234,39 @@ jobs:
           path: release-ios/*.ipa
           if-no-files-found: error
 
+  altstore:
+    needs:
+      - metadata
+      - ios
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pages: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+      - name: Generate AltStore manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/generate-altstore-manifest.mjs
+      - name: Deploy to GitHub Pages
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/deploy-altstore-manifest.mjs
+
   publish:
     needs:
       - metadata
       - web
       - android
       - ios
+      - altstore
     runs-on: ubuntu-24.04
     permissions:
       contents: write

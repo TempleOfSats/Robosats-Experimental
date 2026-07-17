@@ -162,6 +162,22 @@ library, disables code signing, and packages the application. Both iOS paths
 share the same source and build metadata. See [ios/README.md](ios/README.md)
 for xtool installation, SDK storage, version synchronization, and diagnostics.
 
+### Installing on iOS (AltStore / SideStore)
+
+Every release publishes an unsigned IPA to [GitHub Releases](https://github.com/TempleOfSats/Robosats-Experimental/releases)
+along with an AltStore-compatible manifest. Import the source into AltStore,
+SideStore, or AltHub to browse and install directly on your device — the
+tool signs the IPA with your own Apple ID certificate.
+
+**Add the source:**
+
+```
+https://TempleOfSats.github.io/Robosats-Experimental/altstore.json
+```
+
+All past and future releases appear automatically in the manifest. The latest
+version is always available for instant install.
+
 ## Verification
 
 Run the repository checks independently with:
