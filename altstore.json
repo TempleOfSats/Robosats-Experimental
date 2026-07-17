@@ -1,0 +1,29 @@
+{
+  "name": "RoboSats Exp.",
+  "sourceURL": "https://TempleOfSats.github.io/Robosats-Experimental/altstore.json",
+  "iconURL": "https://raw.githubusercontent.com/TempleOfSats/Robosats-Experimental/main/ios/RoboSatsExp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
+  "website": "https://robosats.com",
+  "subtitle": "Sideload RoboSats Exp. directly on your device",
+  "apps": [
+    {
+      "name": "RoboSats Exp.",
+      "bundleIdentifier": "com.robosats.exp.ios",
+      "developerName": "RoboSats",
+      "subtitle": "Peer-to-peer Bitcoin wallet",
+      "localizedDescription": "RoboSats is a peer-to-peer Bitcoin wallet with built-in Tor routing.\n\nFeatures:\n• Privacy-first P2P trading\n• Built-in Tor (Arti) for coordinator traffic\n• Encrypted trade chat via Nostr\n• Open source (AGPLv3)",
+      "iconURL": "https://raw.githubusercontent.com/TempleOfSats/Robosats-Experimental/main/ios/RoboSatsExp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
+      "tintColor": "FF6600",
+      "minOSVersion": "16.0",
+      "versions": [
+        {
+          "version": "0.1.0-alpha.1",
+          "buildVersion": "1",
+          "date": "2026-07-16",
+          "localizedDescription": "**Full Changelog**: https://github.com/TempleOfSats/Robosats-Experimental/commits/v0.1.0-alpha.1",
+          "size": 4567336,
+          "minOSVersion": "16.0"
+        }
+      ]
+    }
+  ]
+}
