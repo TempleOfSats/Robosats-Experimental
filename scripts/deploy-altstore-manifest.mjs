@@ -11,7 +11,7 @@
 //   - GITHUB_TOKEN with contents:write and pages:write permissions
 //   - altstore.json exists in the repo root
 
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { resolve, dirname } from "node:path";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -27,8 +27,10 @@ function log(...args) {
 }
 
 function runCmd(cmd, ...args) {
-  const full = `${cmd} ${args.map((a) => `"${a.replace(/"/g, '\\"')}"`).join(" ")}`;
-  return execSync(full, { encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  return execFileSync(cmd, args, {
+    encoding: "utf-8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
 }
 
 function main() {
