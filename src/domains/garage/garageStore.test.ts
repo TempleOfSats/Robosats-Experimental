@@ -205,6 +205,41 @@ describe("garage order sync", () => {
     expect(storage.get("robosats_exp_garage_current_slot")).toBe("token");
   });
 
+  it("keeps an expired maker order active so it can be renewed", () => {
+    useGarageStore.setState({ slots: [makeSlot("token")], currentToken: "token", hydrated: true });
+
+    useGarageStore.getState().syncOrderSnapshot({
+      token: "token",
+      shortAlias: "lake",
+      orderId: 89895,
+      status: 5,
+      isMaker: true
+    });
+
+    const synced = useGarageStore.getState().slots[0];
+    expect(synced.activeOrderId).toBe(89895);
+    expect(synced.lastOrderId).toBe(89895);
+    expect(synced.robots.lake.activeOrderId).toBe(89895);
+    expect(synced.robots.lake.renewableOrderId).toBe(89895);
+  });
+
+  it("moves an expired taker order to the last-order history", () => {
+    useGarageStore.setState({ slots: [makeSlot("token")], currentToken: "token", hydrated: true });
+
+    useGarageStore.getState().syncOrderSnapshot({
+      token: "token",
+      shortAlias: "lake",
+      orderId: 89895,
+      status: 5,
+      isMaker: false
+    });
+
+    const synced = useGarageStore.getState().slots[0];
+    expect(synced.activeOrderId).toBeUndefined();
+    expect(synced.lastOrderId).toBe(89895);
+    expect(synced.robots.lake.renewableOrderId).toBeUndefined();
+  });
+
   it("updates and persists a coordinator's stealth invoice preference", () => {
     useGarageStore.setState({ slots: [slot], currentToken: "token", hydrated: true });
 
@@ -238,6 +273,24 @@ describe("garage order sync", () => {
     expect(refreshed.activeOrderId).toBeUndefined();
     expect(refreshed.lastOrderId).toBe(89895);
     expect(refreshed.robots.lake.activeOrderId).toBeUndefined();
+  });
+
+  it("preserves a renewable expired order when the coordinator reports it as the last order", async () => {
+    const renewableSlot = slotWithCoordinatorKeys({
+      activeOrderId: 89895,
+      lastOrderId: 89895,
+      renewableOrderId: 89895
+    });
+    useGarageStore.setState({ slots: [renewableSlot], currentToken: "token", hydrated: true });
+    fetchRobotMock.mockResolvedValue(robotSnapshot({ lastOrderId: 89895 }));
+
+    await useGarageStore.getState().refreshRobots([coordinator]);
+
+    const refreshed = useGarageStore.getState().slots[0];
+    expect(refreshed.activeOrderId).toBe(89895);
+    expect(refreshed.lastOrderId).toBe(89895);
+    expect(refreshed.robots.lake.activeOrderId).toBe(89895);
+    expect(refreshed.robots.lake.renewableOrderId).toBe(89895);
   });
 
   it("keeps the coordinator's canonical keys for an existing robot", async () => {
@@ -314,7 +367,9 @@ const coordinator = {
   online: true
 } satisfies CoordinatorSummary;
 
-function slotWithCoordinatorKeys(order: { activeOrderId?: number; lastOrderId?: number } = {}): RobotSlot {
+function slotWithCoordinatorKeys(
+  order: { activeOrderId?: number; lastOrderId?: number; renewableOrderId?: number } = {}
+): RobotSlot {
   return {
     ...slot,
     activeOrderId: order.activeOrderId,
