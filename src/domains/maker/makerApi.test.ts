@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import { sha256 } from "js-sha256";
-import { buildCreateOrderPayload, createOrder, validateCreateOrderPayload } from "@/domains/maker/makerApi";
+import {
+  buildCreateOrderPayload,
+  buildRenewOrderPayload,
+  createOrder,
+  validateCreateOrderPayload
+} from "@/domains/maker/makerApi";
 import type { CreateOrderDraft } from "@/domains/maker/maker.types";
+import type { OrderDto } from "@/domains/orders/order.types";
 import type { ApiClient, Auth } from "@/domains/transport/apiClient";
 
 const draft: CreateOrderDraft = {
@@ -66,6 +72,67 @@ describe("makerApi", () => {
     const payload = buildCreateOrderPayload({ ...draft, password: "", description: "   " });
     expect(payload.password).toBeNull();
     expect(payload.description).toBeNull();
+  });
+
+  it("recreates an expired range order with its original terms", () => {
+    const payload = buildRenewOrderPayload({
+      type: 1,
+      currency: 978,
+      amount: null,
+      has_range: true,
+      min_amount: 50,
+      max_amount: 150,
+      payment_method: "SEPA",
+      is_explicit: false,
+      premium: -1.25,
+      satoshis: 0,
+      public_duration: 43_200,
+      escrow_duration: 7_200,
+      bond_size: 4,
+      latitude: 12.5,
+      longitude: -8.4,
+      description: "  renewed offer  "
+    } as OrderDto);
+
+    expect(payload).toEqual({
+      type: 1,
+      currency: 978,
+      amount: null,
+      has_range: true,
+      min_amount: 50,
+      max_amount: 150,
+      payment_method: "SEPA",
+      is_explicit: false,
+      premium: -1.25,
+      satoshis: null,
+      public_duration: 43_200,
+      escrow_duration: 7_200,
+      bond_size: 4,
+      latitude: 12.5,
+      longitude: -8.4,
+      password: null,
+      description: "renewed offer"
+    });
+  });
+
+  it("preserves explicit pricing and hashes a renewed order password", () => {
+    const payload = buildRenewOrderPayload({
+      type: 0,
+      currency: 1000,
+      amount: 0.01,
+      has_range: false,
+      payment_method: "On-Chain BTC",
+      is_explicit: true,
+      premium: 0,
+      satoshis: 250_000,
+      public_duration: 86_340,
+      escrow_duration: 10_800,
+      bond_size: 3
+    } as OrderDto, " same secret ");
+
+    expect(payload.premium).toBeNull();
+    expect(payload.satoshis).toBe(250_000);
+    expect(payload.password).toBe(sha256("same secret"));
   });
 
   it("validates required customer-facing fields", () => {
