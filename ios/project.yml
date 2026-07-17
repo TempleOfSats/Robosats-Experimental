@@ -17,9 +17,11 @@ targets:
         excludes:
           - Resources/WebApp
           - Resources/Raw
-    resources:
       - path: RoboSatsExp/Resources/WebApp
         type: folder
+        buildPhase: resources
+      - path: RoboSatsExp/Resources/Raw/RoboSatsMark.png
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.robosats.exp.ios
