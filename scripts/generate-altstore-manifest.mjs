@@ -14,7 +14,7 @@
 
 import { writeFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -35,10 +35,10 @@ function log(...args) {
 }
 
 function runCmd(cmd, ...args) {
-  return execSync(
-    `${cmd} ${args.map((a) => `"${a.replace(/"/g, '\\"')}"`).join(" ")}`,
-    { encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] }
-  ).trim();
+  return execFileSync(cmd, args, {
+    encoding: "utf-8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
 }
 
 async function main() {
