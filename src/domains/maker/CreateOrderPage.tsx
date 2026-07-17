@@ -8,6 +8,7 @@ import {
   Landmark,
   LoaderCircle,
   Lock,
+  Info,
   PlusCircle,
   ReceiptText,
   Repeat2,
@@ -19,6 +20,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { InfoHint } from "@/components/ui/infoHint";
+import { CoordinatorDetailDialog } from "@/domains/coordinators/CoordinatorsPage";
+import { fetchCoordinatorRatings, type CoordinatorRating } from "@/domains/coordinators/coordinatorRatings";
 import { federationLottery } from "@/domains/coordinators/federationLottery";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
 import { toUserMessage } from "@/lib/userError";
@@ -655,7 +658,11 @@ function CoordinatorPicker({
   const refreshCoordinator = useFederationStore((state) => state.refreshCoordinator);
   const attempted = useRef(new Set<string>());
   const [localRetryAlias, setLocalRetryAlias] = useState("");
+  const [showDetails, setShowDetails] = useState(false);
+  const [rating, setRating] = useState<CoordinatorRating>({ score: 0, count: 0 });
   const selected = coordinators.find((coordinator) => coordinator.shortAlias === selectedShortAlias) ?? coordinators[0];
+  const lastRefreshed = useFederationStore((state) => state.lastRefreshed);
+  const network = useFederationStore((state) => state.network);
   const shouldAutoRetry = Boolean(selected && !selected.online && !selected.loading && !attempted.current.has(selected.shortAlias));
   const connecting = Boolean(selected?.loading || localRetryAlias === selected?.shortAlias || shouldAutoRetry || (selected && !selected.online && !selected.error));
   const connected = Boolean(selected?.online);
@@ -692,6 +699,15 @@ function CoordinatorPicker({
     }
   }
 
+  function openCoordinatorDetails() {
+    if (!selected) return;
+    setShowDetails(true);
+    setRating({ score: 0, count: 0 });
+    void fetchCoordinatorRatings([selected])
+      .then((ratings) => setRating(ratings[selected.shortAlias] ?? { score: 0, count: 0 }))
+      .catch(() => undefined);
+  }
+
   return (
     <div className="maker-coordinator-picker">
       <div className="maker-coordinator-heading">
@@ -701,9 +717,15 @@ function CoordinatorPicker({
         </span>
       </div>
       <div className="maker-coordinator-box" aria-label="The provider of the Lightning and communication infrastructure. Choose only coordinators you trust.">
-        <Link className="maker-coordinator-avatar-button" to="/coordinators" aria-label={selected ? `View ${selected.longAlias}` : "View coordinators"}>
+        <button
+          className="maker-coordinator-avatar-button"
+          type="button"
+          onClick={openCoordinatorDetails}
+          aria-label={selected ? `View ${selected.longAlias} details` : "View coordinator details"}
+          disabled={!selected}
+        >
           {selected ? <img className="coordinator-avatar coordinator-avatar-lg" src={selected.smallAvatarUrl} alt="" /> : null}
-        </Link>
+        </button>
         <label className="maker-coordinator-select-shell">
           <span>Order host</span>
           <span className="maker-coordinator-select-control">
@@ -716,6 +738,16 @@ function CoordinatorPicker({
             </select>
           </span>
         </label>
+        <button
+          className="maker-coordinator-detail-button"
+          type="button"
+          onClick={openCoordinatorDetails}
+          disabled={!selected}
+          aria-label={selected ? `View ${selected.longAlias} details` : "View coordinator details"}
+        >
+          <Info size={16} />
+          <span>Details</span>
+        </button>
       </div>
       <div className={statusClassName} aria-live="polite">
         {connecting ? <LoaderCircle className="maker-coordinator-spinner" size={17} /> : connected ? <CheckCircle2 size={17} /> : <AlertCircle size={17} />}
@@ -731,6 +763,16 @@ function CoordinatorPicker({
             <strong>{!selected.info ? "—" : selected.info.swap_enabled ? `${formatOptionalRate(selected.info.current_swap_fee_rate)}%` : "Unavailable"}</strong>
           </span>
         </div>
+      ) : null}
+      {showDetails && selected ? (
+        <CoordinatorDetailDialog
+          compact
+          coordinator={selected}
+          lastRefreshed={lastRefreshed}
+          network={network}
+          rating={rating}
+          onClose={() => setShowDetails(false)}
+        />
       ) : null}
     </div>
   );

@@ -10,6 +10,7 @@ import {
   ChevronRight,
   Check,
   Copy,
+  Download,
   Lock,
   RefreshCw,
   Repeat2,
@@ -25,6 +26,7 @@ import type { PublicOrder } from "@/domains/orderbook/orderbook.types";
 import { filterPublicOrders } from "@/domains/orderbook/orderbookFilters";
 import { buildTakeOfferPayload, defaultTakeAmount, validateTakeOffer } from "@/domains/orderbook/takeOffer";
 import { getRobotAuthForCoordinator, useGarageStore } from "@/domains/garage/garageStore";
+import { downloadRobotTokenBackup } from "@/domains/garage/tokenBackup";
 import { fetchOrder, submitOrderAction } from "@/domains/orders/orderApi";
 import { roleBuysBitcoin, roleIntentLabel } from "@/domains/orders/orderRole";
 import type { OrderDto } from "@/domains/orders/order.types";
@@ -586,6 +588,7 @@ export function OffersPage() {
 
       {confirmTakeOpen && activeSlot ? (
         <TokenBackupDialog
+          robotName={activeSlot.nickname}
           token={activeSlot.token}
           taking={taking}
           onBack={() => setConfirmTakeOpen(false)}
@@ -871,11 +874,13 @@ function OrderDescriptionDialog({
 function TokenBackupDialog({
   onBack,
   onDone,
+  robotName,
   taking,
   token
 }: {
   onBack: () => void;
   onDone: () => void;
+  robotName: string;
   taking: boolean;
   token: string;
 }) {
@@ -901,9 +906,20 @@ function TokenBackupDialog({
             <small>Back it up</small>
             <code>{token}</code>
           </div>
-          <Button size="icon" variant="ghost" onClick={() => void copyToken()} aria-label="Copy robot token">
-            {copied ? <Check size={18} /> : <Copy size={18} />}
-          </Button>
+          <div className="token-backup-actions">
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={() => downloadRobotTokenBackup(token, robotName)}
+              aria-label={`Download ${robotName} token backup as JSON`}
+              title="Download JSON backup"
+            >
+              <Download size={18} />
+            </Button>
+            <Button size="icon" variant="ghost" onClick={() => void copyToken()} aria-label="Copy robot token">
+              {copied ? <Check size={18} /> : <Copy size={18} />}
+            </Button>
+          </div>
         </div>
         <div className="confirm-actions">
           <Button variant="secondary" disabled={taking} onClick={onBack}>Go back</Button>

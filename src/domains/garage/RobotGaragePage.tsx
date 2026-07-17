@@ -1,4 +1,4 @@
-import { AlertTriangle, Copy, Eye, EyeOff, Hash, Home, KeyRound, Plus, Search, Send, Settings, Trash2, Trophy, X } from "lucide-react";
+import { AlertTriangle, Copy, Download, Eye, EyeOff, Hash, Home, KeyRound, Plus, Search, Send, Settings, Trash2, Trophy, X } from "lucide-react";
 import { lazy, Suspense, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
@@ -10,6 +10,7 @@ import { compareCoordinatorsByEstablished } from "@/domains/coordinators/coordin
 import { useFederationStore } from "@/domains/coordinators/federationStore";
 import { getRobotAuthForCoordinator, selectCurrentSlot, type RobotRecord, useGarageStore } from "@/domains/garage/garageStore";
 import { TelegramSetupDialog } from "@/domains/garage/TelegramSetupDialog";
+import { downloadRobotTokenBackup } from "@/domains/garage/tokenBackup";
 import { RobotAvatar } from "@/domains/identity/RobotAvatar";
 import { deriveRobotIdentity } from "@/domains/identity/robotIdentity";
 import { fetchOrder } from "@/domains/orders/orderApi";
@@ -150,6 +151,15 @@ export function RobotGaragePage() {
             {showToken ? (
               <div className="input-shell input-shell-compact">
                 <input value={activeSlot.token} disabled aria-readonly aria-label="Robot token" className="garage-token-value" />
+                <button
+                  className="icon-button"
+                  type="button"
+                  onClick={() => downloadRobotTokenBackup(activeSlot.token, activeSlot.nickname)}
+                  title="Download JSON backup"
+                  aria-label={`Download ${activeSlot.nickname} token backup as JSON`}
+                >
+                  <Download size={15} />
+                </button>
                 <button className="icon-button" type="button" onClick={copyToken} title={copied ? "Copied" : "Copy token"}>
                   <Copy size={15} />
                 </button>
@@ -157,6 +167,15 @@ export function RobotGaragePage() {
             ) : (
               <div className="garage-token-masked">
                 <span>{"••••••••••••••••••••••••••••••"}</span>
+                <button
+                  className="icon-button"
+                  type="button"
+                  onClick={() => downloadRobotTokenBackup(activeSlot.token, activeSlot.nickname)}
+                  title="Download JSON backup"
+                  aria-label={`Download ${activeSlot.nickname} token backup as JSON`}
+                >
+                  <Download size={15} />
+                </button>
                 <button className="icon-button" type="button" onClick={copyToken} title={copied ? "Copied" : "Copy token"}>
                   <Copy size={15} />
                 </button>
