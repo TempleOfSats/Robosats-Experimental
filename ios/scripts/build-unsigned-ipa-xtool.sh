@@ -47,25 +47,6 @@ fi
 
 mkdir -p "$BUILD_ROOT"
 cp "$SOURCE_IPA" "$OUTPUT_IPA"
-
-CONTENTS_FILE="$BUILD_ROOT/RoboSatsExp-unsigned.contents"
-unzip -Z1 "$OUTPUT_IPA" >"$CONTENTS_FILE"
-if ! grep -q '^Payload/RoboSatsExp.app/' "$CONTENTS_FILE"; then
-    echo "The generated archive does not contain Payload/RoboSatsExp.app." >&2
-    exit 1
-fi
-if grep -Eq '/_CodeSignature/|/embedded\.mobileprovision$' "$CONTENTS_FILE"; then
-    echo "The generated IPA unexpectedly contains signing material." >&2
-    exit 1
-fi
-
-EXECUTABLE_FILE="$BUILD_ROOT/RoboSatsExp.arm64"
-unzip -p "$OUTPUT_IPA" Payload/RoboSatsExp.app/RoboSatsExp >"$EXECUTABLE_FILE"
-if ! file "$EXECUTABLE_FILE" | grep -q 'Mach-O 64-bit arm64 executable'; then
-    echo "The generated application executable is not an ARM64 Mach-O binary." >&2
-    exit 1
-fi
-rm -f "$EXECUTABLE_FILE"
-rm -f "$CONTENTS_FILE"
+"$IOS_ROOT/scripts/verify-unsigned-ipa.sh" "$OUTPUT_IPA"
 
 echo "Unsigned IPA: $OUTPUT_IPA"
