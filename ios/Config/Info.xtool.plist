@@ -5,9 +5,9 @@
   <key>CFBundleDisplayName</key>
   <string>RoboSats Exp.</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.1.0</string>
+  <string>0.1.1</string>
   <key>CFBundleVersion</key>
-  <string>1001003</string>
+  <string>1011001</string>
   <key>NSAppTransportSecurity</key>
   <dict>
     <key>NSAllowsArbitraryLoads</key>
