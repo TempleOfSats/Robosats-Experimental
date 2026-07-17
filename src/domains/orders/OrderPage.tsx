@@ -294,7 +294,12 @@ export function OrderPage() {
 
         {!isQuietPaymentState ? (
           <div className="trade-panel-slot">
-            <OrderDetailsPanel coordinator={coordinator} coordinatorAlias={shortAlias} order={order} />
+            <OrderDetailsPanel
+              coordinator={coordinator}
+              coordinatorAlias={shortAlias}
+              defaultOpen={shouldOpenOrderDetailsByDefault(order)}
+              order={order}
+            />
           </div>
         ) : null}
       </section>
@@ -424,10 +429,19 @@ function ContractPanel({
   const isPayoutStep = view.requiredAction === "submit_payout" || view.requiredAction === "retry_invoice";
   const isSuccessStep = view.panel === "success";
   const isRoutingStep = view.panel === "sending_sats" || view.panel === "routing_failed";
+  const isPublicMakerWait = view.panel === "public_order" && order.is_maker;
 
   return (
     <div className="trade-contract-stack">
-      {!isInvoicePaymentStep && !isChatStep && !isDisputeStep && !isPayoutStep && !isSuccessStep && !isRoutingStep ? (
+      {isPublicMakerWait ? (
+        <div className="trade-public-wait-notice" role="status">
+          <Clock size={18} aria-hidden="true" />
+          <span>
+            <strong>Waiting for a taker</strong>
+            <small>Your offer is live in the order book.</small>
+          </span>
+        </div>
+      ) : !isInvoicePaymentStep && !isChatStep && !isDisputeStep && !isPayoutStep && !isSuccessStep && !isRoutingStep ? (
         <Card className="trade-contract-card">
           <CardHeader className="trade-contract-title-row">
             <CardTitle>{view.message.heading}</CardTitle>
@@ -527,35 +541,62 @@ function ChatTradeActions({
   );
 }
 
-function OrderDetailsPanel({ coordinator, coordinatorAlias, order }: { coordinator?: CoordinatorSummary; coordinatorAlias: string; order: OrderDto }) {
+function OrderDetailsPanel({
+  coordinator,
+  coordinatorAlias,
+  defaultOpen,
+  order
+}: {
+  coordinator?: CoordinatorSummary;
+  coordinatorAlias: string;
+  defaultOpen: boolean;
+  order: OrderDto;
+}) {
   const currencyCode = currencyCodeFromId(order.currency) ?? String(order.currency);
   const fiatAmount = formatOrderAmount(order, currencyCode);
   const satsAmount = formatOrderSats(order);
   const sendReceive = tradeSendReceive(order, fiatAmount, satsAmount);
   const expiresAt = new Date(order.expires_at);
+  const expiryText = Number.isNaN(expiresAt.getTime())
+    ? "soon"
+    : expiresAt.toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
   const showExpiry = ![4, 5, 12, 13, 14, 15, 16, 17, 18].includes(order.status);
   const paymentShowsExpiry =
     (Boolean(order.bond_invoice) && (order.status === 0 || order.status === 3)) ||
     (Boolean(order.escrow_invoice) && (order.status === 6 || order.status === 7));
   const coordinatorName = coordinator?.longAlias || coordinator?.shortAlias || order.shortAlias || coordinatorAlias || "Coordinator";
   const coordinatorAvatar = coordinator?.smallAvatarUrl || (coordinatorAlias ? getCoordinatorAvatarUrl(coordinatorAlias, "small") : "");
-  const [detailsOpen, setDetailsOpen] = useState(false);
+  const preferenceKey = `robosats_order_details_${coordinatorAlias}_${order.id}`;
+  const [detailsOpen, setDetailsOpen] = useState(() => readOrderDetailsPreference(preferenceKey, defaultOpen));
 
   useEffect(() => {
-    setDetailsOpen(false);
-  }, [order.id]);
+    setDetailsOpen(readOrderDetailsPreference(preferenceKey, defaultOpen));
+  }, [defaultOpen, preferenceKey]);
+
+  const handleToggle = (open: boolean) => {
+    setDetailsOpen(open);
+    writeOrderDetailsPreference(preferenceKey, open);
+  };
 
   return (
     <Card className="trade-order-card">
       <details
         className="trade-order-disclosure"
         open={detailsOpen}
-        onToggle={(event) => setDetailsOpen(event.currentTarget.open)}
+        onToggle={(event) => handleToggle(event.currentTarget.open)}
       >
         <summary className="trade-order-summary">
           <span className="trade-order-summary-copy">
             <strong>Order details</strong>
-            <small>{fiatAmount} · {order.payment_method || "Method not specified"}</small>
+            <span className="trade-order-summary-meta">
+              <small className="trade-order-summary-order">{fiatAmount} · {order.payment_method || "Method not specified"}</small>
+              {showExpiry && !paymentShowsExpiry ? (
+                <small className="trade-order-summary-expiry">
+                  <Clock size={12} aria-hidden="true" />
+                  Expires {expiryText}
+                </small>
+              ) : null}
+            </span>
           </span>
           <ChevronDown className="trade-order-summary-chevron" size={18} aria-hidden="true" />
         </summary>
@@ -614,14 +655,6 @@ function OrderDetailsPanel({ coordinator, coordinatorAlias, order }: { coordinat
           </div>
         </div>
 
-        {showExpiry && !paymentShowsExpiry ? (
-          <div className="trade-time-box">
-            <div>
-              <Clock size={18} />
-              <span>Expires {Number.isNaN(expiresAt.getTime()) ? "soon" : expiresAt.toLocaleString()}</span>
-            </div>
-          </div>
-        ) : null}
         {order.description ? (
           <details className="invoice-details">
             <summary>Offer description</summary>
@@ -640,6 +673,28 @@ function OrderDetailsPanel({ coordinator, coordinatorAlias, order }: { coordinat
       </details>
     </Card>
   );
+}
+
+export function shouldOpenOrderDetailsByDefault(order: Pick<OrderDto, "status" | "is_maker">): boolean {
+  return order.status === 1 && order.is_maker;
+}
+
+function readOrderDetailsPreference(key: string, fallback: boolean): boolean {
+  try {
+    const preference = window.sessionStorage.getItem(key);
+    if (preference === null) return fallback;
+    return preference === "open";
+  } catch {
+    return fallback;
+  }
+}
+
+function writeOrderDetailsPreference(key: string, open: boolean): void {
+  try {
+    window.sessionStorage.setItem(key, open ? "open" : "closed");
+  } catch {
+    // The disclosure still works when storage is unavailable.
+  }
 }
 
 function tradeSendReceive(order: OrderDto, fiatAmount: string, satsAmount: string): { send: string; receive: string } {
