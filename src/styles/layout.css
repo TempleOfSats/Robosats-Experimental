@@ -3140,6 +3140,21 @@
   min-width: 0;
 }
 
+.trade-renewal-content {
+  display: grid;
+  gap: 1rem;
+}
+
+.trade-renewal-content .trade-action {
+  align-items: flex-start;
+}
+
+.trade-renewal-content .trade-action p {
+  margin: 0;
+  color: var(--muted-foreground);
+  line-height: 1.5;
+}
+
 .trade-status-card-warning {
   border-color: var(--warning-border);
   background: var(--warning-surface);

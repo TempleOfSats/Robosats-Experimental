@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Banknote, Check, ChevronDown, Clock, Copy, Download, ExternalLink, FileText, Link2, Paperclip, Rocket, ShieldAlert, Star, Tag, WifiOff, AlertTriangle, XCircle, Zap } from "lucide-react";
+import { Banknote, Check, ChevronDown, Clock, Copy, Download, ExternalLink, FileText, Link2, Paperclip, RefreshCw, Rocket, ShieldAlert, Star, Tag, WifiOff, AlertTriangle, XCircle, Zap } from "lucide-react";
 import { playTradeAudio } from "@/domains/audio/audioController";
 import { tradeAudioEventForOrderTransition } from "@/domains/audio/audioAssets";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
@@ -24,7 +24,7 @@ import { useOrderStore } from "@/domains/orders/orderStore";
 import { tradePreviewOrder } from "@/domains/orders/tradePreviewFixtures";
 import { isOrderReferenceSatsApproximate, orderReferenceSats, orderReferenceSatsRange } from "@/domains/orders/orderModel";
 import type { OrderDto, SubmitOrderActionPayload } from "@/domains/orders/order.types";
-import type { CreateOrderDraft } from "@/domains/maker/maker.types";
+import { buildRenewOrderPayload, createOrder } from "@/domains/maker/makerApi";
 import type { Auth } from "@/domains/transport/apiClient";
 import { tradeMotionClass } from "@/domains/motion/tradeMotion";
 import { PaymentQrCard } from "@/domains/payments/PaymentQrCard";
@@ -53,6 +53,7 @@ export function OrderPage() {
   const slots = useGarageStore((state) => state.slots);
   const currentToken = useGarageStore((state) => state.currentToken);
   const hydrateGarage = useGarageStore((state) => state.hydrate);
+  const setActiveOrder = useGarageStore((state) => state.setActiveOrder);
   const { order: loadedOrder, submitting, error, loadOrder, submitAction, clearOrder } = useOrderStore();
   const currentSlot = selectCurrentSlot(slots, currentToken);
   const coordinator = coordinators.find((item) => item.shortAlias === shortAlias) ?? coordinators.find((item) => item.shortAlias === "local");
@@ -247,9 +248,30 @@ export function OrderPage() {
             signingRobot={previewOrder ? undefined : signingRobot}
             slotToken={previewOrder ? undefined : currentSlot?.token}
             view={view}
-            onRenew={() => previewOrder
-              ? setPreviewNotice("Renew offer simulated locally. No route change or request was made.")
-              : navigate("/create", { state: { renewDraft: renewalDraft(order), shortAlias } })}
+            onRenew={async (password) => {
+              if (previewOrder) {
+                setPreviewNotice("Renew offer simulated locally. No route change or request was made.");
+                return;
+              }
+              if (!coordinator || !coordinatorAuth || !currentSlot) {
+                throw new Error("Load the robot that created this offer before renewing it.");
+              }
+
+              const response = await createOrder(
+                coordinator.url,
+                buildRenewOrderPayload(order, password),
+                coordinatorAuth
+              );
+              const backendError = response.bad_request
+                ?? response.bad_amount
+                ?? response.bad_payment_method
+                ?? response.bad_password;
+              if (backendError) throw new Error(backendError);
+              if (!response.id) throw new Error("Coordinator did not return a renewed order id.");
+
+              setActiveOrder(currentSlot.token, shortAlias, response.id);
+              navigate(`/order/${shortAlias}/${response.id}`, { replace: true });
+            }}
             onStartAgain={() => previewOrder
               ? setPreviewNotice("Start again simulated locally. No route change was made.")
               : navigate("/create")}
@@ -414,7 +436,7 @@ function ContractPanel({
   onSubmitAction: (payload: SubmitOrderActionPayload) => Promise<void>;
   onSubmitCommand: (action: TradeActionCommand) => void;
   onSubmitPayout: (payload: SubmitOrderActionPayload) => Promise<void>;
-  onRenew: () => void;
+  onRenew: (password?: string) => Promise<void>;
   onStartAgain: () => void;
   onPublishRating?: (rating: number) => Promise<void>;
 }) {
@@ -422,12 +444,13 @@ function ContractPanel({
   const isChatStep = view.panel === "chat";
   const isDisputeStep = view.panel === "dispute_statement";
   const isPayoutStep = view.requiredAction === "submit_payout" || view.requiredAction === "retry_invoice";
+  const isRenewalStep = view.requiredAction === "renew";
   const isSuccessStep = view.panel === "success";
   const isRoutingStep = view.panel === "sending_sats" || view.panel === "routing_failed";
 
   return (
     <div className="trade-contract-stack">
-      {!isInvoicePaymentStep && !isChatStep && !isDisputeStep && !isPayoutStep && !isSuccessStep && !isRoutingStep ? (
+      {!isInvoicePaymentStep && !isChatStep && !isDisputeStep && !isPayoutStep && !isRenewalStep && !isSuccessStep && !isRoutingStep ? (
         <Card className="trade-contract-card">
           <CardHeader className="trade-contract-title-row">
             <CardTitle>{view.message.heading}</CardTitle>
@@ -823,7 +846,7 @@ function TradePaymentPanel({
   footer?: ReactNode;
   signingRobot?: RobotRecord;
   slotToken?: string;
-  onRenew: () => void;
+  onRenew: (password?: string) => Promise<void>;
   onStartAgain: () => void;
   onPublishRating?: (rating: number) => Promise<void>;
   onSubmitAction: (payload: SubmitOrderActionPayload) => Promise<void>;
@@ -852,15 +875,7 @@ function TradePaymentPanel({
   }
 
   if (view.requiredAction === "renew" && order.is_maker) {
-    return (
-      <Card className="trade-status-card trade-status-card-muted">
-        <CardHeader><CardTitle>Offer expired</CardTitle></CardHeader>
-        <CardContent>
-          <p className="muted-copy">Review the previous terms, then publish the offer again.</p>
-          <Button className="full-width" onClick={onRenew}>Renew offer</Button>
-        </CardContent>
-      </Card>
-    );
+    return <ExpiredOrderRenewalCard order={order} onRenew={onRenew} />;
   }
 
   if (view.panel === "chat") {
@@ -1096,31 +1111,76 @@ function TradeStatusCard({
   );
 }
 
-type PayoutMode = "lightning" | "onchain";
+function ExpiredOrderRenewalCard({
+  order,
+  onRenew
+}: {
+  order: OrderDto;
+  onRenew: (password?: string) => Promise<void>;
+}) {
+  const [password, setPassword] = useState("");
+  const [renewing, setRenewing] = useState(false);
+  const [renewError, setRenewError] = useState("");
+  const passwordRequired = Boolean(order.has_password);
+  const passwordErrorId = `renew-order-${order.id}-error`;
 
-function renewalDraft(order: OrderDto): CreateOrderDraft {
-  const amount = order.amount ?? order.min_amount ?? 0;
-  return {
-    type: order.type === 1 ? 1 : 0,
-    currency: order.currency,
-    amount: String(amount),
-    hasRange: Boolean(order.has_range),
-    minAmount: String(order.min_amount ?? amount),
-    maxAmount: String(order.max_amount ?? amount),
-    paymentMethod: order.payment_method,
-    isSwap: order.currency === 1000,
-    isExplicit: false,
-    premium: String(order.premium ?? 0),
-    satoshis: "0",
-    publicDuration: String(order.public_duration || 86_340),
-    escrowDuration: String(order.escrow_duration || 10_800),
-    bondSize: String(order.bond_size || 3),
-    latitude: String(order.latitude || 0),
-    longitude: String(order.longitude || 0),
-    password: "",
-    description: order.description ?? ""
-  };
+  async function renew() {
+    if (passwordRequired && !password.trim()) {
+      setRenewError("Enter the same password used for the original offer.");
+      return;
+    }
+
+    setRenewing(true);
+    setRenewError("");
+    try {
+      await onRenew(passwordRequired ? password : undefined);
+    } catch (error) {
+      setRenewError(toUserMessage(error, "Could not renew the offer."));
+    } finally {
+      setRenewing(false);
+    }
+  }
+
+  return (
+    <Card className="trade-status-card trade-status-card-muted">
+      <CardHeader><CardTitle>Offer expired</CardTitle></CardHeader>
+      <CardContent className="trade-renewal-content">
+        <div className="trade-action">
+          <Clock size={22} />
+          <p>{order.expiry_message || "The public offer expired before another robot took it."}</p>
+        </div>
+        {passwordRequired ? (
+          <label className="field-block">
+            <span>Order password</span>
+            <input
+              aria-describedby={renewError ? passwordErrorId : undefined}
+              aria-invalid={Boolean(renewError)}
+              autoComplete="off"
+              type="password"
+              value={password}
+              onChange={(event) => {
+                setPassword(event.target.value);
+                setRenewError("");
+              }}
+            />
+          </label>
+        ) : null}
+        {renewError ? (
+          <div className="status-panel status-panel-danger" id={passwordErrorId} role="alert">
+            <AlertTriangle size={18} />
+            <span>{renewError}</span>
+          </div>
+        ) : null}
+        <Button className="full-width" loading={renewing} onClick={() => void renew()}>
+          <RefreshCw size={16} />
+          Renew offer
+        </Button>
+      </CardContent>
+    </Card>
+  );
 }
+
+type PayoutMode = "lightning" | "onchain";
 
 function PayoutSubmissionCard({
   canSubmit,
