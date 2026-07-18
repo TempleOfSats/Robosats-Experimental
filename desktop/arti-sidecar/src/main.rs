@@ -36,7 +36,8 @@ async fn run() -> Result<()> {
         .install_default()
         .map_err(|_| anyhow::anyhow!("Could not install the Rustls crypto provider"))?;
 
-    let data_directory = data_directory_from_args()?;
+    let arguments = arguments_from_env()?;
+    let data_directory = arguments.data_directory;
     let state_directory = data_directory.join("state");
     let cache_directory = data_directory.join("cache");
     std::fs::create_dir_all(&state_directory)
@@ -79,7 +80,7 @@ async fn run() -> Result<()> {
         Err(_) => return Err(anyhow::anyhow!("Tor bootstrap timed out")),
     }
 
-    let listener = TcpListener::bind(("127.0.0.1", 0))
+    let listener = TcpListener::bind(("127.0.0.1", arguments.socks_port))
         .await
         .context("Could not bind the local SOCKS proxy")?;
     let port = listener.local_addr()?.port();
@@ -99,13 +100,29 @@ async fn run() -> Result<()> {
     }
 }
 
-fn data_directory_from_args() -> Result<PathBuf> {
-    let mut arguments = std::env::args_os().skip(1);
+struct Arguments {
+    data_directory: PathBuf,
+    socks_port: u16,
+}
+
+fn arguments_from_env() -> Result<Arguments> {
+    parse_arguments(std::env::args_os().skip(1))
+}
+
+fn parse_arguments(arguments: impl IntoIterator<Item = std::ffi::OsString>) -> Result<Arguments> {
+    let mut arguments = arguments.into_iter();
     let mut data_directory = None;
+    let mut socks_port = None;
 
     while let Some(argument) = arguments.next() {
         if argument == "--data-dir" {
             data_directory = arguments.next().map(PathBuf::from);
+        } else if argument == "--socks-port" {
+            socks_port = arguments
+                .next()
+                .map(|value| value.to_string_lossy().parse::<u16>())
+                .transpose()
+                .context("--socks-port must be a valid TCP port")?;
         } else {
             return Err(anyhow::anyhow!(
                 "Unsupported argument: {}",
@@ -114,7 +131,10 @@ fn data_directory_from_args() -> Result<PathBuf> {
         }
     }
 
-    data_directory.ok_or_else(|| anyhow::anyhow!("--data-dir is required"))
+    Ok(Arguments {
+        data_directory: data_directory.ok_or_else(|| anyhow::anyhow!("--data-dir is required"))?,
+        socks_port: socks_port.ok_or_else(|| anyhow::anyhow!("--socks-port is required"))?,
+    })
 }
 
 fn emit(message: &HostMessage<'_>) {
@@ -217,5 +237,18 @@ mod tests {
         })
         .expect("message serializes");
         assert_eq!(value, r#"{"type":"ready","port":19050,"version":"test"}"#);
+    }
+
+    #[test]
+    fn parses_stable_socks_port() {
+        let arguments = parse_arguments([
+            "--data-dir".into(),
+            "state".into(),
+            "--socks-port".into(),
+            "19050".into(),
+        ])
+        .expect("arguments parse");
+        assert_eq!(arguments.data_directory, PathBuf::from("state"));
+        assert_eq!(arguments.socks_port, 19050);
     }
 }

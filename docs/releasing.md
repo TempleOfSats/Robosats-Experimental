@@ -19,8 +19,7 @@ npm run release:metadata
 npm run check:ios:config
 ```
 
-Update the static values in `ios/project.yml` and
-`ios/Config/Info.xtool.plist` to the values printed by the metadata command.
+Android, iOS, web, and desktop builds read this version automatically.
 
 ## Android packaging
 
@@ -72,6 +71,9 @@ or image owner is assumed by the repository.
 git tag -a v0.1.0-alpha.1 -m 'RoboSats Exp. 0.1.0-alpha.1'
 git push origin v0.1.0-alpha.1
 ```
+
+The tag message becomes the release introduction. GitHub appends categorized
+notes from merged pull requests.
 
 The release workflow validates the tag, runs tests, builds the web archive,
 Android APKs, unsigned IPA, and desktop packages, verifies Android ELF

@@ -1,15 +1,4 @@
 #!/usr/bin/env node
-// Deploys the AltStore manifest to GitHub Pages (gh-pages branch).
-//
-// Commits altstore.json to the gh-pages branch and pushes it.
-// Designed to run in GitHub Actions after a release.
-//
-// Usage:
-//   node scripts/deploy-altstore-manifest.mjs
-//
-// Requires:
-//   - GITHUB_TOKEN with contents:write and pages:write permissions
-//   - altstore.json exists in the repo root
 
 import { execFileSync } from "node:child_process";
 import { resolve, dirname } from "node:path";
@@ -43,38 +32,36 @@ function main() {
 
   log(`Deploying ${FILE} to ${BRANCH}...`);
 
-  // Configure git for GitHub token auth
   const token = process.env.GITHUB_TOKEN;
   if (!token) {
     log("Error: GITHUB_TOKEN is not set.");
     process.exit(1);
   }
+  const repository = process.env.GITHUB_REPOSITORY;
+  if (!repository || !repository.includes("/")) {
+    log("Error: GITHUB_REPOSITORY is not set.");
+    process.exit(1);
+  }
 
-  const repoUrl = `https://x-access-token:${token}@github.com/TempleOfSats/Robosats-Experimental.git`;
+  const repoUrl = `https://x-access-token:${token}@github.com/${repository}.git`;
 
-  // Clone (or re-init) the gh-pages branch
   const pagesDir = resolve(ROOT, ".gh-pages-tmp");
 
   try {
     runCmd("rm", "-rf", pagesDir);
   } catch {}
 
-  // Clone gh-pages; if it does not exist yet, clone main and create it
-  let cloneOk = false;
   try {
     runCmd("git", "clone", "--branch", BRANCH, "--single-branch", "--depth", "1", repoUrl, pagesDir);
-    cloneOk = true;
   } catch {
-    log("gh-pages branch does not exist yet — creating from main...");
+    log("Creating the gh-pages branch from main...");
     runCmd("git", "clone", "--branch", "main", "--single-branch", "--depth", "1", repoUrl, pagesDir);
     runCmd("git", "-C", pagesDir, "checkout", "--orphan", BRANCH);
     runCmd("git", "-C", pagesDir, "rm", "-rf", ".");
   }
 
-  // Copy manifest
   runCmd("cp", manifestPath, resolve(pagesDir, FILE));
 
-  // Commit and push
   runCmd("git", "-C", pagesDir, "config", "user.email", "actions@github.com");
   runCmd("git", "-C", pagesDir, "config", "user.name", "GitHub Actions");
   runCmd("git", "-C", pagesDir, "add", FILE);
@@ -88,7 +75,8 @@ function main() {
   runCmd("git", "-C", pagesDir, "commit", "-m", `Update AltStore manifest`);
   runCmd("git", "-C", pagesDir, "push", "origin", BRANCH);
 
-  log(`Deployed to https://TempleOfSats.github.io/Robosats-Experimental/${FILE}`);
+  const [owner, name] = repository.split("/");
+  log(`Deployed to https://${owner}.github.io/${name}/${FILE}`);
 }
 
 main();

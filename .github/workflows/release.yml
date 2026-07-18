@@ -29,6 +29,8 @@ jobs:
       - name: Validate release tag
         id: release
         run: node scripts/release-metadata.mjs "$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+      - name: Require an annotated tag
+        run: test "$(git cat-file -t "$GITHUB_REF_NAME")" = tag
       - name: Require a release commit from main
         run: git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main
 
@@ -260,6 +262,7 @@ jobs:
       attestations: write
     env:
       RUSTUP_TOOLCHAIN: 1.94.1
+      MACOSX_DEPLOYMENT_TARGET: ${{ matrix.name == 'macos' && '14.0' || '' }}
     steps:
       - name: Check out source
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
@@ -272,6 +275,16 @@ jobs:
           cache: npm
       - name: Install Rust
         run: rustup toolchain install 1.94.1 --profile minimal
+      - name: Install Tauri system dependencies
+        if: matrix.name == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            xdg-utils
       - run: npm ci
       - run: npm run ${{ matrix.script }}
       - name: Attest desktop packages
@@ -322,6 +335,11 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Check out source
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
       - name: Download release artifacts
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
@@ -336,6 +354,7 @@ jobs:
           VERSION: ${{ needs.metadata.outputs.version }}
           PRERELEASE: ${{ needs.metadata.outputs.prerelease }}
         run: |
-          options=(--repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes --title "RoboSats Exp. $VERSION")
+          intro="$(git for-each-ref --format='%(contents:subject)%0a%0a%(contents:body)' "refs/tags/$GITHUB_REF_NAME")"
+          options=(--repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes --notes "$intro" --title "RoboSats Exp. $VERSION")
           if [[ "$PRERELEASE" == "true" ]]; then options+=(--prerelease); fi
           gh release create "$GITHUB_REF_NAME" "${options[@]}" release-assets/*
