@@ -174,11 +174,8 @@ npm run build:desktop:macos
 ```
 
 Outputs are written to `desktop/release/` as AppImage, NSIS, or DMG packages.
-Each package includes an Electron shell, the production web bundle, and a
-native Arti sidecar. The shell waits for Tor bootstrap before opening the
-client and routes coordinator HTTP and WebSocket traffic through the sidecar.
-See [desktop/README.md](desktop/README.md) for the runtime boundary and local
-development command.
+Packages include Tauri, the web bundle, platform icons, and Arti. macOS
+requires version 14 or newer.
 
 GitHub's **Desktop builds** workflow can package any or all desktop platforms
 without creating a release.
@@ -201,21 +198,10 @@ The client is available at `http://127.0.0.1:12596`. The image contains only
 the static frontend and Nginx; it does not proxy coordinator requests. See
 [nodeapp/README.md](nodeapp/README.md) for deployment and Tor Browser behavior.
 
-### Installing on iOS (AltStore / SideStore)
+### Installing on iOS
 
-Every release publishes an unsigned IPA to [GitHub Releases](https://github.com/TempleOfSats/Robosats-Experimental/releases)
-along with an AltStore-compatible manifest. Import the source into AltStore,
-SideStore, or AltHub to browse and install directly on your device — the
-tool signs the IPA with your own Apple ID certificate.
-
-**Add the source:**
-
-```
-https://TempleOfSats.github.io/Robosats-Experimental/altstore.json
-```
-
-All past and future releases appear automatically in the manifest. The latest
-version is always available for instant install.
+Releases include an unsigned IPA and an AltStore compatible manifest. AltStore,
+SideStore, or AltHub signs the IPA with the user's Apple certificate.
 
 ## Verification
 
