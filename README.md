@@ -14,7 +14,7 @@ packages embed Arti and route coordinator traffic through a local SOCKS proxy.
 </p>
 
 RoboSats Exp. is alpha software. Review the release notes and verify published
-checksums before installing a binary.
+signatures before installing a binary.
 
 ## Install dependencies
 

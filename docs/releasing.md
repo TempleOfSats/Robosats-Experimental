@@ -62,6 +62,11 @@ or image owner is assumed by the repository.
 
 ## Publish
 
+The `release` environment must provide `RELEASE_GPG_PRIVATE_KEY` and
+`RELEASE_GPG_PASSPHRASE`. The publish job signs every package and
+`SHA256SUMS`, verifies the signatures, and includes the public key in the
+release.
+
 1. Merge the release version and release notes to `main`.
 2. Confirm CI and security checks pass.
 3. Create an annotated tag matching the package version exactly.
@@ -73,10 +78,26 @@ git push origin v0.1.0-alpha.1
 ```
 
 The tag message becomes the release introduction. GitHub appends categorized
-notes from merged pull requests.
+notes from merged pull requests. The description also links directly to each
+desktop package, the unsigned iOS IPA, and the universal Android APK.
 
 The release workflow validates the tag, runs tests, builds the web archive,
 Android APKs, unsigned IPA, and desktop packages, verifies Android ELF
 alignment, creates checksums and provenance attestations, and publishes a
 GitHub release. Versions containing `alpha`, `beta`, or `rc` are marked as
 prereleases.
+
+## Verify downloads
+
+Import the release key once, then verify a package and the checksum manifest:
+
+```bash
+gpg --import robosats-exp-release-key.asc
+asset='RoboSats.Exp_0.1.0_amd64.AppImage'
+gpg --verify "$asset.asc" "$asset"
+gpg --verify SHA256SUMS.asc SHA256SUMS
+sha256sum --check SHA256SUMS
+```
+
+Confirm the imported key fingerprint against a separately published trusted
+fingerprint before relying on the result.
