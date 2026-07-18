@@ -16,8 +16,48 @@
       "minOSVersion": "16.0",
       "versions": [
         {
-          "version": "0.1.0-alpha.1",
-          "buildVersion": "1",
+          "version": "0.1.2",
+          "buildVersion": "1021001",
+          "date": "2026-07-18",
+          "localizedDescription": "RoboSats Exp. 0.1.2-alpha.1\nPrerelease build with Tauri desktop support.\n<!-- Release notes generated using configuration in .github/release.yml at v0.1.2-alpha.1 -->\n**Full Changelog**: https://github.com/TempleOfSats/Robosats-Experimental/commits/v0.1.2-alpha.1",
+          "size": 13024397,
+          "minOSVersion": "16.0"
+        }
+      ]
+    },
+    {
+      "name": "RoboSats Exp.",
+      "bundleIdentifier": "com.robosats.exp.ios",
+      "developerName": "RoboSats",
+      "subtitle": "Peer-to-peer Bitcoin wallet",
+      "localizedDescription": "RoboSats is a peer-to-peer Bitcoin wallet with built-in Tor routing.\n\nFeatures:\n• Privacy-first P2P trading\n• Built-in Tor (Arti) for coordinator traffic\n• Encrypted trade chat via Nostr\n• Open source (AGPLv3)",
+      "iconURL": "https://raw.githubusercontent.com/TempleOfSats/Robosats-Experimental/main/ios/RoboSatsExp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
+      "tintColor": "FF6600",
+      "minOSVersion": "16.0",
+      "versions": [
+        {
+          "version": "0.1.0",
+          "buildVersion": "1001002",
+          "date": "2026-07-17",
+          "localizedDescription": "* Add live client onion link and demo GIF by @TempleOfSats in https://github.com/TempleOfSats/Robosats-Experimental/pull/10\n* Fix iOS Xcode web bundle packaging and resource verification by @TempleOfSats in https://github.com/TempleOfSats/Robosats-Experimental/pull/12\n* Fix robot identity preload by @TempleOfSats in https://github.com/TempleOfSats/Robosats-Experimental/pull/11\n* Add manual mobile build workflow (Android + iOS) by @TempleOfSats in https://github.com/TempleOfSats/Robosats-Experimental/pull/13\n* Add coordinator details view and token backup export by @TempleOfSats in https://github.com/TempleOfSats/Robosats-Experimental/pull/15\n* Add AltStore/SideStore manifest for easy sideloading by @TempleOfSats in https://github.com/TempleOfSats/Robosats-Experimental/pull/14\n* @TempleOfSats made their first contribution in https://github.com/TempleOfSats/Robosats-Experimental/pull/10\n**Full Changelog**: https://github.com/TempleOfSats/Robosats-Experimental/compare/v0.1.0-alpha.1...v0.1.0-alpha.2",
+          "size": 13013651,
+          "minOSVersion": "16.0"
+        }
+      ]
+    },
+    {
+      "name": "RoboSats Exp.",
+      "bundleIdentifier": "com.robosats.exp.ios",
+      "developerName": "RoboSats",
+      "subtitle": "Peer-to-peer Bitcoin wallet",
+      "localizedDescription": "RoboSats is a peer-to-peer Bitcoin wallet with built-in Tor routing.\n\nFeatures:\n• Privacy-first P2P trading\n• Built-in Tor (Arti) for coordinator traffic\n• Encrypted trade chat via Nostr\n• Open source (AGPLv3)",
+      "iconURL": "https://raw.githubusercontent.com/TempleOfSats/Robosats-Experimental/main/ios/RoboSatsExp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
+      "tintColor": "FF6600",
+      "minOSVersion": "16.0",
+      "versions": [
+        {
+          "version": "0.1.0",
+          "buildVersion": "1001001",
           "date": "2026-07-16",
           "localizedDescription": "**Full Changelog**: https://github.com/TempleOfSats/Robosats-Experimental/commits/v0.1.0-alpha.1",
           "size": 4567336,
