@@ -31,6 +31,7 @@
     "check:ios:rust": "cargo check --manifest-path ios/tor-native/Cargo.toml",
     "check:production-build": "node scripts/check-production-build.mjs",
     "check:typography": "node scripts/check-typography.mjs",
+    "check:release-signing": "bash scripts/sign-release-assets.test.sh",
     "release:metadata": "node scripts/release-metadata.mjs",
     "audit:trade": "node scripts/audit-trade-previews.mjs",
     "preview": "vite preview",
