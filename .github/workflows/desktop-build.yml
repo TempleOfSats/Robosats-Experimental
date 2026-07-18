@@ -16,8 +16,30 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: desktop-build-${{ github.ref }}-${{ inputs.platform }}
+  cancel-in-progress: false
+
 jobs:
+  metadata:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+      - name: Validate app version
+        id: release
+        run: node scripts/release-metadata.mjs >> "$GITHUB_OUTPUT"
+
   linux:
+    needs: metadata
     if: inputs.platform == 'all' || inputs.platform == 'linux'
     runs-on: ubuntu-22.04
     timeout-minutes: 75
@@ -31,16 +53,27 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            xdg-utils
       - run: rustup toolchain install 1.94.1 --profile minimal
       - run: npm ci
       - run: npm run build:desktop:linux
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: desktop-linux
+          name: desktop-linux-${{ needs.metadata.outputs.version }}
           path: desktop/release/*.AppImage
           if-no-files-found: error
+          retention-days: 14
 
   windows:
+    needs: metadata
     if: inputs.platform == 'all' || inputs.platform == 'windows'
     runs-on: windows-2025
     timeout-minutes: 75
@@ -59,16 +92,19 @@ jobs:
       - run: npm run build:desktop:windows
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: desktop-windows
+          name: desktop-windows-${{ needs.metadata.outputs.version }}
           path: desktop/release/*.exe
           if-no-files-found: error
+          retention-days: 14
 
   macos:
+    needs: metadata
     if: inputs.platform == 'all' || inputs.platform == 'macos'
     runs-on: macos-15
     timeout-minutes: 75
     env:
       RUSTUP_TOOLCHAIN: 1.94.1
+      MACOSX_DEPLOYMENT_TARGET: "14.0"
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
@@ -82,6 +118,7 @@ jobs:
       - run: npm run build:desktop:macos
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: desktop-macos
+          name: desktop-macos-${{ needs.metadata.outputs.version }}
           path: desktop/release/*.dmg
           if-no-files-found: error
+          retention-days: 14
