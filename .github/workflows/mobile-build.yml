@@ -21,8 +21,26 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  metadata:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+      - name: Validate app version
+        id: release
+        run: node scripts/release-metadata.mjs >> "$GITHUB_OUTPUT"
+
   android:
     name: Android debug APKs
+    needs: metadata
     if: inputs.platform == 'all' || inputs.platform == 'android'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -76,13 +94,14 @@ jobs:
       - name: Upload Android APKs
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: android-debug-${{ github.run_number }}-${{ github.run_attempt }}
+          name: android-debug-${{ needs.metadata.outputs.version }}-${{ github.run_number }}-${{ github.run_attempt }}
           path: android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
 
   ios:
     name: iOS unsigned IPA
+    needs: metadata
     if: inputs.platform == 'all' || inputs.platform == 'ios'
     runs-on: macos-15
     timeout-minutes: 90
@@ -118,7 +137,7 @@ jobs:
       - name: Upload unsigned IPA
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: ios-unsigned-${{ github.run_number }}-${{ github.run_attempt }}
+          name: ios-unsigned-${{ needs.metadata.outputs.version }}-${{ github.run_number }}-${{ github.run_attempt }}
           path: ios/build/RoboSatsExp-unsigned.ipa
           if-no-files-found: error
           retention-days: 14

@@ -1,13 +1,12 @@
 # RoboSats Exp. for iOS
 
-This target hosts the bundled frontend in `WKWebView` and routes its remote HTTP and WebSocket traffic through an embedded Arti SOCKS proxy. It has two build descriptions over the same Swift sources:
+This target hosts the bundled frontend in `WKWebView` and routes remote traffic through an embedded Arti SOCKS proxy. It has two build descriptions:
 
 - `project.yml` generates an Xcode project on macOS.
 - `Package.swift` and `xtool.yml` build directly on Linux with xtool.
 
-The current experimental release uses version `0.1.0` build `1001001`, bundle ID `com.robosats.exp.ios`, and display name `RoboSats Exp.`.
-
-`package.json` is the release version source. Both iOS build descriptions must keep the matching SemVer core and generated build number. Update `package.json`, `project.yml`, and `Config/Info.xtool.plist` together, then run:
+`package.json` is the release version source. Build scripts generate the iOS
+marketing version and build number. Validate the generated configuration with:
 
 ```bash
 npm run check:ios:config
