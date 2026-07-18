@@ -1,30 +1,15 @@
 #!/usr/bin/env node
-// Generates an AltStore/SideStore compatible manifest from GitHub Releases.
-//
-// Reads all releases (tagged and pre-release) and their IPA assets, then
-// writes a JSON manifest suitable for importing into AltStore, SideStore,
-// AltHub, or any compatible sideloading client.
-//
-// Usage:
-//   node scripts/generate-altstore-manifest.mjs [--output <path>]
-//
-// Requires:
-//   - gh CLI authenticated (or GITHUB_TOKEN set)
-//   - Repository: TempleOfSats/Robosats-Experimental
 
 import { writeFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { releaseMetadata } from "./release-metadata.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
 
-const REPO = "TempleOfSats/Robosats-Experimental";
-const ICON_URL = `https://raw.githubusercontent.com/${REPO}/main/ios/RoboSatsExp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png`;
-
 const SOURCE_NAME = "RoboSats Exp.";
-const SOURCE_URL = `https://TempleOfSats.github.io/Robosats-Experimental/altstore.json`;
 const WEBSITE = "https://robosats.com";
 const BUNDLE_ID = "com.robosats.exp.ios";
 const DEVELOPER = "RoboSats";
@@ -44,6 +29,12 @@ function runCmd(cmd, ...args) {
 async function main() {
   const args = process.argv.slice(2);
   let outputPath = resolve(ROOT, "altstore.json");
+  const repository = process.env.GITHUB_REPOSITORY
+    ?? runCmd("gh", "repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner");
+  const [owner, name] = repository.split("/");
+  if (!owner || !name) throw new Error("Could not determine the GitHub repository");
+  const iconURL = `https://raw.githubusercontent.com/${repository}/main/ios/RoboSatsExp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png`;
+  const sourceURL = `https://${owner}.github.io/${name}/altstore.json`;
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--output" && args[i + 1]) {
@@ -57,7 +48,6 @@ async function main() {
     runCmd("gh", "release", "list", "--json", "tagName,name,isPrerelease,publishedAt", "--limit", "100")
   );
 
-  // Fetch body and assets for each release
   for (const release of releases) {
     const fullRelease = JSON.parse(
       runCmd("gh", "release", "view", release.tagName, "--json", "body,assets")
@@ -84,9 +74,10 @@ async function main() {
 
     if (ipaAssets.length === 0) continue;
 
-    const versions = ipaAssets.map((asset, idx) => ({
-      version: release.tagName.replace(/^v/, ""),
-      buildVersion: String(idx + 1),
+    const metadata = releaseMetadata(release.tagName.replace(/^v/, ""));
+    const versions = ipaAssets.map((asset) => ({
+      version: metadata.ios_version,
+      buildVersion: metadata.build_number,
       date: release.publishedAt.split("T")[0],
       localizedDescription: release.body
         ? release.body
@@ -100,7 +91,6 @@ async function main() {
       minOSVersion: MIN_OS_VERSION,
     }));
 
-    // Sort: newest first
     versions.sort((a, b) => new Date(b.date) - new Date(a.date));
 
     apps.push({
@@ -115,7 +105,7 @@ async function main() {
         "• Built-in Tor (Arti) for coordinator traffic\n" +
         "• Encrypted trade chat via Nostr\n" +
         "• Open source (AGPLv3)",
-      iconURL: ICON_URL,
+      iconURL,
       tintColor: "FF6600",
       minOSVersion: MIN_OS_VERSION,
       versions,
@@ -129,8 +119,8 @@ async function main() {
 
   const manifest = {
     name: SOURCE_NAME,
-    sourceURL: SOURCE_URL,
-    iconURL: ICON_URL,
+    sourceURL,
+    iconURL,
     website: WEBSITE,
     subtitle: "Sideload RoboSats Exp. directly on your device",
     apps,

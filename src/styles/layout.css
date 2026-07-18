@@ -1,3 +1,116 @@
+.app-runtime {
+  min-width: 0;
+}
+
+.app-runtime-desktop {
+  --desktop-titlebar-height: 2.5rem;
+}
+
+.app-runtime-desktop .app-shell {
+  min-height: calc(100svh - var(--desktop-titlebar-height));
+}
+
+.desktop-titlebar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  height: var(--desktop-titlebar-height);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding-left: 0.75rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--navigation);
+  color: var(--foreground);
+  user-select: none;
+}
+
+.desktop-titlebar-brand,
+.desktop-titlebar-status,
+.desktop-titlebar-actions {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+}
+
+.desktop-titlebar-brand {
+  gap: 0.5rem;
+}
+
+.desktop-titlebar-brand img {
+  width: 1.25rem;
+  height: 1.25rem;
+  flex: 0 0 auto;
+  filter: invert(1);
+}
+
+.desktop-titlebar-brand strong {
+  overflow: hidden;
+  font-size: 0.8125rem;
+  line-height: 1rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desktop-titlebar-brand small {
+  color: var(--text-supporting);
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+
+.desktop-titlebar-actions {
+  height: 100%;
+  flex: 0 0 auto;
+}
+
+.desktop-titlebar-status {
+  gap: 0.4rem;
+  margin-right: 0.45rem;
+  padding: 0 0.45rem;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+
+.desktop-titlebar-status > span:first-child {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: var(--warning);
+}
+
+.desktop-titlebar-status.connected > span:first-child {
+  background: var(--success);
+}
+
+.desktop-window-command {
+  width: 2.75rem;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 0;
+  color: var(--text-secondary);
+  background: transparent;
+  cursor: pointer;
+}
+
+.desktop-window-command:hover {
+  color: var(--foreground);
+  background: var(--interactive-hover);
+}
+
+.desktop-window-command-danger:hover {
+  color: #fff;
+  background: var(--danger-border);
+}
+
+.app-runtime-desktop .app-sidebar {
+  min-height: calc(100svh - var(--desktop-titlebar-height));
+  top: var(--desktop-titlebar-height);
+}
+
 .app-shell {
   display: flex;
   min-height: 100svh;
@@ -6933,6 +7046,19 @@
 }
 
 @media (max-width: 520px) {
+  .desktop-titlebar-brand small,
+  .desktop-titlebar-status > span:last-child {
+    display: none;
+  }
+
+  .desktop-titlebar-status {
+    margin-right: 0.1rem;
+  }
+
+  .desktop-window-command {
+    width: 2.35rem;
+  }
+
   .page-trade .page-heading > div {
     min-width: 0;
   }

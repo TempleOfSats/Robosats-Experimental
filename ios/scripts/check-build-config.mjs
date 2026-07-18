@@ -5,27 +5,28 @@ import { fileURLToPath } from "node:url";
 import { releaseMetadata } from "../../scripts/release-metadata.mjs";
 
 const iosRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const [project, xtool, plist, packageSource] = await Promise.all([
+const [project, xtool, plistTemplate, plist, packageSource] = await Promise.all([
   readFile(resolve(iosRoot, "project.yml"), "utf8"),
   readFile(resolve(iosRoot, "xtool.yml"), "utf8"),
   readFile(resolve(iosRoot, "Config/Info.xtool.plist"), "utf8"),
+  readFile(resolve(iosRoot, "build/Info.xtool.plist"), "utf8"),
   readFile(resolve(iosRoot, "../package.json"), "utf8")
 ]);
 
 const metadata = releaseMetadata(JSON.parse(packageSource).version);
 
 const projectBundleID = yamlValue(project, "PRODUCT_BUNDLE_IDENTIFIER");
-const projectVersion = yamlValue(project, "MARKETING_VERSION");
-const projectBuild = yamlValue(project, "CURRENT_PROJECT_VERSION");
 const xtoolBundleID = yamlValue(xtool, "bundleID");
 const xtoolVersion = plistValue(plist, "CFBundleShortVersionString");
 const xtoolBuild = plistValue(plist, "CFBundleVersion");
 
 assertEqual("bundle ID", projectBundleID, xtoolBundleID);
-assertEqual("marketing version", projectVersion, xtoolVersion);
-assertEqual("build number", projectBuild, xtoolBuild);
-assertEqual("package marketing version", projectVersion, metadata.ios_version);
-assertEqual("package build number", projectBuild, metadata.build_number);
+assertEqual("package marketing version", xtoolVersion, metadata.ios_version);
+assertEqual("package build number", xtoolBuild, metadata.build_number);
+assertMissing("Xcode marketing version", project, "MARKETING_VERSION");
+assertMissing("Xcode build number", project, "CURRENT_PROJECT_VERSION");
+assertMissing("xtool marketing version", plistTemplate, "CFBundleShortVersionString");
+assertMissing("xtool build number", plistTemplate, "CFBundleVersion");
 assertMatch(
   "Xcode WebApp resource",
   project,
@@ -37,7 +38,7 @@ assertMatch(
   /-\s+path:\s+RoboSatsExp\/Resources\/Raw\/RoboSatsMark\.png\s+buildPhase:\s+resources/
 );
 
-console.log(`iOS build configuration: ${projectBundleID} ${projectVersion} (${projectBuild})`);
+console.log(`iOS build configuration: ${projectBundleID} ${xtoolVersion} (${xtoolBuild})`);
 
 function yamlValue(source, key) {
   const match = source.match(new RegExp(`^\\s*${key}:\\s*["']?([^"'\\s]+)["']?\\s*$`, "m"));
@@ -60,5 +61,11 @@ function assertEqual(label, xcodeValue, xtoolValue) {
 function assertMatch(label, source, pattern) {
   if (!pattern.test(source)) {
     throw new Error(`Missing or invalid ${label} declaration`);
+  }
+}
+
+function assertMissing(label, source, value) {
+  if (source.includes(value)) {
+    throw new Error(`${label} must come from package.json`);
   }
 }

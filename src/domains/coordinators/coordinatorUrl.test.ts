@@ -58,7 +58,7 @@ describe("detectCoordinatorOrigin", () => {
     expect(detectCoordinatorOrigin("localhost", false)).toBe("clearnet");
   });
 
-  it("uses onion coordinator routes inside the Android Arti runtime", () => {
+  it("uses onion coordinator routes inside an embedded Arti runtime", () => {
     expect(detectCoordinatorOrigin("appassets.androidplatform.net", true)).toBe("onion");
   });
 });

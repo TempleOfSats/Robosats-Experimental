@@ -18,3 +18,8 @@ jobs:
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
           fail-on-severity: moderate
+          # GHSA-wrw7-89jp-8q8g: glib < 0.20.0 unsoundness in VariantStrIter
+          # Upstream Tauri 2.x uses GTK3 (gtk 0.18.x) which requires glib ^0.18.
+          # GTK4 migration (Tauri 3) is not yet stable. Exception removed when
+          # Tauri publishes stable GTK4 support.
+          allow-advisories: GHSA-wrw7-89jp-8q8g
