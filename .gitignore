@@ -34,3 +34,6 @@ ios/RoboSatsExp.xcodeproj/
 ios/tor-native/target/
 ios/RoboSatsExp/Resources/WebApp/*
 !ios/RoboSatsExp/Resources/WebApp/.gitkeep
+desktop/build/
+desktop/release/
+desktop/arti-sidecar/target/
