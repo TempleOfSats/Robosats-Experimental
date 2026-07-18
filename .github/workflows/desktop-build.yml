@@ -1,0 +1,87 @@
+name: Desktop builds
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Desktop platform to package
+        type: choice
+        options:
+          - all
+          - linux
+          - windows
+          - macos
+        default: all
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    if: inputs.platform == 'all' || inputs.platform == 'linux'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 75
+    env:
+      RUSTUP_TOOLCHAIN: 1.94.1
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: rustup toolchain install 1.94.1 --profile minimal
+      - run: npm ci
+      - run: npm run build:desktop:linux
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: desktop-linux
+          path: desktop/release/*.AppImage
+          if-no-files-found: error
+
+  windows:
+    if: inputs.platform == 'all' || inputs.platform == 'windows'
+    runs-on: windows-2025
+    timeout-minutes: 75
+    env:
+      RUSTUP_TOOLCHAIN: 1.94.1
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: rustup toolchain install 1.94.1 --profile minimal
+      - run: npm ci
+      - run: npm run build:desktop:windows
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: desktop-windows
+          path: desktop/release/*.exe
+          if-no-files-found: error
+
+  macos:
+    if: inputs.platform == 'all' || inputs.platform == 'macos'
+    runs-on: macos-15
+    timeout-minutes: 75
+    env:
+      RUSTUP_TOOLCHAIN: 1.94.1
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: rustup toolchain install 1.94.1 --profile minimal
+      - run: npm ci
+      - run: npm run build:desktop:macos
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: desktop-macos
+          path: desktop/release/*.dmg
+          if-no-files-found: error

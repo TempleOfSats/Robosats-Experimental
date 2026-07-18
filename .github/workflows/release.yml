@@ -234,6 +234,58 @@ jobs:
           path: release-ios/*.ipa
           if-no-files-found: error
 
+  desktop:
+    needs: metadata
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            runner: ubuntu-22.04
+            script: build:desktop:linux
+            artifact: desktop/release/*.AppImage
+          - name: windows
+            runner: windows-2025
+            script: build:desktop:windows
+            artifact: desktop/release/*.exe
+          - name: macos
+            runner: macos-15
+            script: build:desktop:macos
+            artifact: desktop/release/*.dmg
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 75
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    env:
+      RUSTUP_TOOLCHAIN: 1.94.1
+    steps:
+      - name: Check out source
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install Rust
+        run: rustup toolchain install 1.94.1 --profile minimal
+      - run: npm ci
+      - run: npm run ${{ matrix.script }}
+      - name: Attest desktop packages
+        if: github.event.repository.visibility == 'public'
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4
+        with:
+          subject-path: ${{ matrix.artifact }}
+      - name: Upload desktop packages
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: desktop-${{ matrix.name }}
+          path: ${{ matrix.artifact }}
+          if-no-files-found: error
+
   altstore:
     needs:
       - publish
@@ -265,6 +317,7 @@ jobs:
       - web
       - android
       - ios
+      - desktop
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -276,7 +329,7 @@ jobs:
           merge-multiple: true
       - name: Create checksums
         working-directory: release-assets
-        run: sha256sum * > SHA256SUMS
+        run: sha256sum -- * > SHA256SUMS
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}

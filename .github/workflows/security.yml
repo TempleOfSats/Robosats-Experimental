@@ -88,3 +88,4 @@ jobs:
           cargo audit --file android/tor-native/Cargo.lock --ignore RUSTSEC-2023-0071
           cargo audit --file android/robo-identities-native/Cargo.lock
           cargo audit --file ios/tor-native/Cargo.lock --ignore RUSTSEC-2023-0071
+          cargo audit --file desktop/arti-sidecar/Cargo.lock --ignore RUSTSEC-2023-0071

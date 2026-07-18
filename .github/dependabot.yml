@@ -37,6 +37,7 @@ updates:
       - /android/tor-native
       - /android/robo-identities-native
       - /ios/tor-native
+      - /desktop/arti-sidecar
     schedule:
       interval: weekly
       day: monday
@@ -50,6 +51,15 @@ updates:
           - minor
           - patch
     open-pull-requests-limit: 10
+
+  - package-ecosystem: docker
+    directory: /nodeapp
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:50"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
 
   - package-ecosystem: github-actions
     directory: /

@@ -1,0 +1,16 @@
+services:
+  robosats-exp:
+    build:
+      context: ..
+      dockerfile: nodeapp/Dockerfile
+    image: robosats-exp-nodeapp:local
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:12596:12596"
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
