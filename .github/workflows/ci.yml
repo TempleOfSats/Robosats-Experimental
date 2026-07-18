@@ -133,6 +133,15 @@ jobs:
           cache: npm
       - name: Install Rust
         run: rustup toolchain install 1.94.1 --profile minimal
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            xdg-utils
       - run: npm ci
       - run: npm run check:desktop
       - run: npm run build:nodeapp

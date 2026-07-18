@@ -37,3 +37,7 @@ ios/RoboSatsExp/Resources/WebApp/*
 desktop/build/
 desktop/release/
 desktop/arti-sidecar/target/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
+desktop/src-tauri/binaries/*
+!desktop/src-tauri/binaries/.gitkeep

@@ -15,6 +15,13 @@ import {
   type AndroidNotificationState,
   type AndroidTorDiagnostics
 } from "@/domains/transport/androidBridge";
+import {
+  getDesktopNotificationState,
+  getDesktopTorDiagnostics,
+  isTauriDesktop,
+  retryDesktopTor,
+  setDesktopNotificationsEnabled
+} from "@/domains/transport/tauriBridge";
 
 const GarageRobotSettingsDialog = lazy(() =>
   import("@/domains/garage/RobotGaragePage").then((module) => ({ default: module.RobotSettingsDialog }))
@@ -40,7 +47,8 @@ export function SettingsPage() {
   const [ui, setUi] = useState(readUiPreferences);
   const androidRuntime = isAndroidApp();
   const iosRuntime = isIOSApp();
-  const nativeRuntime = androidRuntime || iosRuntime;
+  const desktopRuntime = isTauriDesktop();
+  const nativeRuntime = androidRuntime || iosRuntime || desktopRuntime;
   const [notificationState, setNotificationState] = useState<AndroidNotificationState | null>(null);
   const [torDiagnostics, setTorDiagnostics] = useState<AndroidTorDiagnostics | null>(null);
   const [showTorDetails, setShowTorDetails] = useState(false);
@@ -57,8 +65,18 @@ export function SettingsPage() {
   useEffect(() => {
     if (!nativeRuntime) return;
     const refresh = () => {
-      setNotificationState(getNativeNotificationState());
-      setTorDiagnostics(getNativeTorDiagnostics());
+      if (desktopRuntime) {
+        void Promise.all([
+          getDesktopNotificationState(),
+          getDesktopTorDiagnostics()
+        ]).then(([notifications, diagnostics]) => {
+          setNotificationState(notifications);
+          setTorDiagnostics(diagnostics);
+        });
+      } else {
+        setNotificationState(getNativeNotificationState());
+        setTorDiagnostics(getNativeTorDiagnostics());
+      }
     };
     refresh();
     window.addEventListener("robosats:native-notification-state", refresh);
@@ -67,7 +85,7 @@ export function SettingsPage() {
       window.removeEventListener("robosats:native-notification-state", refresh);
       window.removeEventListener("robosats:tor-reconnected", refresh);
     };
-  }, [nativeRuntime]);
+  }, [desktopRuntime, nativeRuntime]);
 
   return (
     <main className="page page-narrow page-settings">
@@ -77,15 +95,15 @@ export function SettingsPage() {
 
       <div className="settings-stack">
         {nativeRuntime ? (
-          <section className="settings-android-panel" aria-label={`${iosRuntime ? "iOS" : "Android"} privacy settings`}>
+          <section className="settings-android-panel" aria-label={`${desktopRuntime ? "Desktop" : iosRuntime ? "iOS" : "Android"} privacy settings`}>
             <header className="settings-android-header">
               <span className="settings-onion-mark"><OnionIcon /></span>
               <span>
-                <strong>{iosRuntime ? "iOS privacy" : "Android privacy"}</strong>
-                <small>{iosRuntime ? "Embedded Tor transport" : "Native Tor and background alerts"}</small>
+                <strong>{desktopRuntime ? "Desktop privacy" : iosRuntime ? "iOS privacy" : "Android privacy"}</strong>
+                <small>{desktopRuntime ? "Embedded Arti and system notifications" : iosRuntime ? "Embedded Tor transport" : "Native Tor and background alerts"}</small>
               </span>
             </header>
-            {androidRuntime ? <div className="settings-android-row">
+            {androidRuntime || desktopRuntime ? <div className="settings-android-row">
               <BellRing size={19} aria-hidden="true" />
               <span className="settings-android-row-copy">
                 <strong>Notifications</strong>
@@ -96,11 +114,17 @@ export function SettingsPage() {
                 type="button"
                 role="switch"
                 aria-checked={Boolean(notificationState?.enabled && notificationState.permissionGranted)}
-                aria-label="Enable Android notifications"
+                aria-label={`Enable ${desktopRuntime ? "desktop" : "Android"} notifications`}
                 onClick={() => {
                   const enabled = !Boolean(notificationState?.enabled && notificationState.permissionGranted);
                   setNotificationState((current) => current ? { ...current, enabled } : current);
-                  setNativeNotificationsEnabled(enabled);
+                  if (desktopRuntime) {
+                    void setDesktopNotificationsEnabled(enabled).catch(() => {
+                      void getDesktopNotificationState().then(setNotificationState);
+                    });
+                  } else {
+                    setNativeNotificationsEnabled(enabled);
+                  }
                 }}
               >
                 <span className={`toggle-switch ${notificationState?.enabled && notificationState.permissionGranted ? "toggle-switch-on" : ""}`} aria-hidden="true" />
@@ -110,8 +134,12 @@ export function SettingsPage() {
               className="settings-android-row settings-tor-command"
               type="button"
               onClick={() => {
-                setTorDiagnostics(getNativeTorDiagnostics());
                 setShowTorDetails(true);
+                if (desktopRuntime) {
+                  void getDesktopTorDiagnostics().then(setTorDiagnostics);
+                } else {
+                  setTorDiagnostics(getNativeTorDiagnostics());
+                }
               }}
             >
               <OnionIcon />
@@ -299,9 +327,17 @@ export function SettingsPage() {
             <Button
               variant="secondary"
               className="full-width"
-              onClick={() => setTorDiagnostics(getNativeTorDiagnostics())}
+              onClick={() => {
+                if (desktopRuntime) {
+                  void retryDesktopTor()
+                    .then(() => getDesktopTorDiagnostics())
+                    .then(setTorDiagnostics);
+                } else {
+                  setTorDiagnostics(getNativeTorDiagnostics());
+                }
+              }}
             >
-              Check connection
+              {desktopRuntime && torDiagnostics?.state === "failed" ? "Retry connection" : "Check connection"}
             </Button>
           </section>
         </div>
