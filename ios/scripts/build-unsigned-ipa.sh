@@ -17,6 +17,7 @@ for command in xcodebuild xcodegen xcrun rustup; do
 done
 
 cd "$APP_ROOT"
+node "$IOS_ROOT/scripts/prepare-build-config.mjs"
 node "$IOS_ROOT/scripts/check-build-config.mjs"
 npm run build:ios:web
 "$IOS_ROOT/scripts/build-rust.sh"

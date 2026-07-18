@@ -31,6 +31,7 @@ if ! swift sdk list 2>/dev/null | grep -qx 'darwin'; then
 fi
 
 cd "$APP_ROOT"
+node "$IOS_ROOT/scripts/prepare-build-config.mjs"
 node "$IOS_ROOT/scripts/check-build-config.mjs"
 npm run build:ios:web
 "$IOS_ROOT/scripts/build-rust-xtool.sh"

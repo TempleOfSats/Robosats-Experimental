@@ -59,6 +59,8 @@ jobs:
             manifest: android/robo-identities-native/Cargo.toml
           - name: iOS Arti
             manifest: ios/tor-native/Cargo.toml
+          - name: Desktop Arti
+            manifest: desktop/arti-sidecar/Cargo.toml
     steps:
       - name: Check out source
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
@@ -112,3 +114,59 @@ jobs:
       - name: Run Android lint
         working-directory: android
         run: ./gradlew --no-daemon lintDebug
+
+  desktop-and-container:
+    name: Desktop and container checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      RUSTUP_TOOLCHAIN: 1.94.1
+    steps:
+      - name: Check out source
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install Rust
+        run: rustup toolchain install 1.94.1 --profile minimal
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            xdg-utils
+      - run: npm ci
+      - run: npm run check:desktop
+      - run: npm run build:nodeapp
+      - name: Smoke-test node app container
+        run: |
+          docker run --rm -d \
+            --name robosats-exp-nodeapp-test \
+            --publish 127.0.0.1:12597:12596 \
+            --read-only \
+            --tmpfs /tmp:rw,noexec,nosuid,size=16m \
+            --cap-drop ALL \
+            --security-opt no-new-privileges \
+            robosats-exp-nodeapp:local
+          trap 'docker stop robosats-exp-nodeapp-test' EXIT
+          for attempt in {1..20}; do
+            if curl --fail --silent --show-error http://127.0.0.1:12597/healthz; then
+              break
+            fi
+            if [[ "$attempt" == 20 ]]; then
+              docker logs robosats-exp-nodeapp-test
+              exit 1
+            fi
+            sleep 1
+          done
+          test "$(docker inspect --format '{{.Config.User}}' robosats-exp-nodeapp-test)" = "nginx"
+          test "$(docker inspect --format '{{.HostConfig.ReadonlyRootfs}}' robosats-exp-nodeapp-test)" = "true"
+          curl --fail --silent --show-error http://127.0.0.1:12597/not-a-real-route |
+            grep -q '<div id="root"></div>'

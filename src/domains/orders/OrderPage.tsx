@@ -42,6 +42,7 @@ import { publishCoordinatorRating } from "@/domains/coordinators/coordinatorRati
 import { fetchChatMessages } from "@/domains/chat/chatApi";
 import { decryptChatMessage } from "@/domains/chat/chatCrypto";
 import { toUserMessage } from "@/lib/userError";
+import { showDesktopOrderNotification } from "@/domains/notifications/desktopNotifications";
 
 export function OrderPage() {
   const navigate = useNavigate();
@@ -132,7 +133,14 @@ export function OrderPage() {
     previousWasTaker.current = loadedOrder.is_taker;
     if (!previewOrder) {
       const audioEvent = tradeAudioEventForOrderTransition(lastStatus, loadedOrder.status);
-      if (audioEvent) void playTradeAudio(audioEvent).catch(() => undefined);
+      if (audioEvent) {
+        void playTradeAudio(audioEvent).catch(() => undefined);
+        void showDesktopOrderNotification(
+          orderId,
+          shortAlias,
+          tradeStatusLabel(loadedOrder)
+        );
+      }
     }
     if (!previewOrder && lastStatus !== undefined && ![4, 12].includes(lastStatus) && [4, 12].includes(loadedOrder.status)) {
       navigate("/offers", { replace: true });
