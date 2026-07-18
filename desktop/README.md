@@ -38,4 +38,5 @@ npm run build:desktop:macos
 
 Outputs are copied to `desktop/release/`. GitHub Actions builds each target on
 its native runner. Linux packages use the host Wayland runtime so the webview
-matches the installed graphics stack.
+matches the installed graphics stack. The Windows installer includes the
+Evergreen WebView2 offline installer.

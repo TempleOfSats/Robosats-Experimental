@@ -52,6 +52,11 @@
         "bundleMediaFramework": true
       }
     },
+    "windows": {
+      "webviewInstallMode": {
+        "type": "offlineInstaller"
+      }
+    },
     "macOS": {
       "minimumSystemVersion": "14.0"
     }
