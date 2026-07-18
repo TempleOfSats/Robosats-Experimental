@@ -9,8 +9,8 @@
       :root {
         color-scheme: dark;
         font-family: "Public Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        background: #0b1320;
-        color: #f4f7fb;
+        background: #0b0909;
+        color: #f4f1ed;
       }
       * { box-sizing: border-box; }
       body {
@@ -18,7 +18,7 @@
         margin: 0;
         display: grid;
         place-items: center;
-        background: #0b1320;
+        background: #0b0909;
       }
       main {
         width: min(320px, calc(100vw - 48px));
@@ -40,9 +40,9 @@
         inset: 0;
         border-radius: 50%;
       }
-      .mark::before { border: 2px solid #526980; }
+      .mark::before { border: 2px solid #443d40; }
       .mark::after {
-        background: conic-gradient(#90caf9 0deg 70deg, transparent 70deg);
+        background: conic-gradient(#ffb23f 0deg 70deg, transparent 70deg);
         mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
         animation: orbit 4.8s linear infinite;
       }
@@ -62,7 +62,7 @@
       .message {
         min-height: 42px;
         margin: 10px 0 18px;
-        color: #c3cedb;
+        color: #c5beb8;
         font-size: 14px;
         line-height: 1.5;
       }
@@ -70,17 +70,17 @@
         width: 100%;
         height: 4px;
         overflow: hidden;
-        background: #33475f;
+        background: #443d40;
       }
       .progress {
         width: 2%;
         height: 100%;
-        background: #90caf9;
+        background: #ffb23f;
         transition: width 180ms ease-out;
       }
       .percent {
         margin-top: 10px;
-        color: #a0aec0;
+        color: #9d9590;
         font-size: 12px;
         font-variant-numeric: tabular-nums;
       }
@@ -97,8 +97,8 @@
         border: 0;
         border-radius: 6px;
         padding: 10px 20px;
-        background: #90caf9;
-        color: #0b1320;
+        background: #ffb23f;
+        color: #211a16;
         font: 600 15px/20px inherit;
         cursor: pointer;
       }

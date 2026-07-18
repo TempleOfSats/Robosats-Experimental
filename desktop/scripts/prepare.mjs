@@ -11,9 +11,10 @@ const executableName = process.platform === "win32" ? "robosats-arti.exe" : "rob
 const source = path.join(desktop, "arti-sidecar", "target", "release", executableName);
 const destinationDirectory = path.join(desktop, "build", "bin");
 const destination = path.join(destinationDirectory, executableName);
+const typescriptCli = path.join(root, "node_modules", "typescript", "bin", "tsc");
 
 await run("cargo", ["build", "--release", "--locked", "--manifest-path", manifest], root);
-await run(process.platform === "win32" ? "npx.cmd" : "npx", ["tsc", "-p", "desktop/tsconfig.json"], root);
+await run(process.execPath, [typescriptCli, "-p", "desktop/tsconfig.json"], root);
 await mkdir(destinationDirectory, { recursive: true });
 await copyFile(source, destination);
 if (process.platform !== "win32") await chmod(destination, 0o755);

@@ -29,7 +29,7 @@ module.exports = {
     }
   ],
   asar: true,
-  compression: "maximum",
+  compression: "normal",
   npmRebuild: false,
   mac: {
     category: "public.app-category.finance",
@@ -42,6 +42,7 @@ module.exports = {
   },
   linux: {
     category: "Finance",
+    executableName: "robosats-exp",
     icon: "desktop/assets/icon.png",
     syncDesktopName: true,
     target: ["AppImage"]

@@ -21,17 +21,21 @@ export function isIOSApp(): boolean {
   return typeof window !== "undefined" && typeof window.IOSAppRobosats?.httpRequest === "function";
 }
 
+export function isDesktopApp(): boolean {
+  return typeof window !== "undefined" && typeof window.RoboSatsDesktop?.getTorDiagnostics === "function";
+}
+
 export function isNativeApp(): boolean {
   return nativeAppBridge() !== undefined;
 }
 
-export type AndroidNotificationState = {
+export type NativeNotificationState = {
   enabled: boolean;
   permissionGranted: boolean;
   permissionRequired: boolean;
 };
 
-export type AndroidTorDiagnostics = {
+export type NativeTorDiagnostics = {
   connected: boolean;
   state: "connected" | "connecting" | "failed" | "off";
   socksHost: string | null;
@@ -47,25 +51,25 @@ export type AndroidTorDiagnostics = {
   error: string | null;
 };
 
-export function getNativeNotificationState(): AndroidNotificationState | null {
-  const raw = nativeAppBridge()?.getNotificationState?.();
+export function getNativeNotificationState(): NativeNotificationState | null {
+  const raw = runtimeBridge()?.getNotificationState?.();
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as AndroidNotificationState;
+    return JSON.parse(raw) as NativeNotificationState;
   } catch {
     return null;
   }
 }
 
 export function setNativeNotificationsEnabled(enabled: boolean): void {
-  nativeAppBridge()?.setNotificationsEnabled?.(enabled);
+  runtimeBridge()?.setNotificationsEnabled?.(enabled);
 }
 
-export function getNativeTorDiagnostics(): AndroidTorDiagnostics | null {
-  const raw = nativeAppBridge()?.getTorDiagnostics?.();
+export function getNativeTorDiagnostics(): NativeTorDiagnostics | null {
+  const raw = runtimeBridge()?.getTorDiagnostics?.();
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as AndroidTorDiagnostics;
+    return JSON.parse(raw) as NativeTorDiagnostics;
   } catch {
     return null;
   }
@@ -231,6 +235,15 @@ export function nativeAppBridge(): RoboSatsNativeBridge | undefined {
   return window.AndroidAppRobosats ?? window.IOSAppRobosats;
 }
 
+function runtimeBridge(): Pick<
+  RoboSatsNativeBridge,
+  "getNotificationState" | "getTorDiagnostics" | "setNotificationsEnabled"
+> | RoboSatsDesktopBridge | undefined {
+  return nativeAppBridge() ?? (typeof window === "undefined" ? undefined : window.RoboSatsDesktop);
+}
+
+export type AndroidNotificationState = NativeNotificationState;
+export type AndroidTorDiagnostics = NativeTorDiagnostics;
 export const getAndroidNotificationState = getNativeNotificationState;
 export const setAndroidNotificationsEnabled = setNativeNotificationsEnabled;
 export const getAndroidTorDiagnostics = getNativeTorDiagnostics;

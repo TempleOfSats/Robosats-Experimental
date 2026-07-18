@@ -141,4 +141,41 @@ describe("Native transport bridge", () => {
     });
     expect(bridgeWindow.IOSAppRobosats.httpRequest).toHaveBeenCalledOnce();
   });
+
+  it("reads desktop runtime state without treating desktop as a native transport", async () => {
+    const setNotificationsEnabled = vi.fn();
+    vi.stubGlobal("window", {
+      RoboSatsDesktop: {
+        platform: "linux",
+        getNotificationState: () => JSON.stringify({
+          enabled: true,
+          permissionGranted: true,
+          permissionRequired: false
+        }),
+        getTorDiagnostics: () => JSON.stringify({
+          connected: true,
+          state: "connected",
+          socksHost: "127.0.0.1",
+          socksPort: 19234
+        }),
+        setNotificationsEnabled,
+        showNotification: vi.fn()
+      }
+    });
+
+    const {
+      getNativeNotificationState,
+      getNativeTorDiagnostics,
+      isDesktopApp,
+      isNativeApp,
+      setNativeNotificationsEnabled
+    } = await import("./androidBridge");
+
+    expect(isDesktopApp()).toBe(true);
+    expect(isNativeApp()).toBe(false);
+    expect(getNativeNotificationState()?.enabled).toBe(true);
+    expect(getNativeTorDiagnostics()?.socksPort).toBe(19234);
+    setNativeNotificationsEnabled(false);
+    expect(setNotificationsEnabled).toHaveBeenCalledWith(false);
+  });
 });

@@ -11,7 +11,14 @@ starts a native Arti sidecar before creating the application window.
 4. The frontend uses coordinator onion endpoints for HTTP and WebSocket
    traffic.
 5. If Arti exits, the application window is hidden and the session remains
-   configured for the now-closed proxy, preventing direct fallback.
+   configured for the now-closed proxy while the sidecar restarts, preventing
+   direct fallback.
+
+The loading window appears before Tor bootstrap and reports Arti progress.
+After system resume or network restoration, the application checks the local
+SOCKS listener before deciding whether to restart Arti. Desktop notifications
+are optional and can be enabled from Settings while the application is
+running.
 
 The renderer has Node integration disabled, context isolation and sandboxing
 enabled, no permission grants, and no access to the sidecar process. Static

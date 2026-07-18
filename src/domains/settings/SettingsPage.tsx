@@ -10,10 +10,11 @@ import {
   getNativeNotificationState,
   getNativeTorDiagnostics,
   isAndroidApp,
+  isDesktopApp,
   isIOSApp,
   setNativeNotificationsEnabled,
-  type AndroidNotificationState,
-  type AndroidTorDiagnostics
+  type NativeNotificationState,
+  type NativeTorDiagnostics
 } from "@/domains/transport/androidBridge";
 
 const GarageRobotSettingsDialog = lazy(() =>
@@ -40,9 +41,11 @@ export function SettingsPage() {
   const [ui, setUi] = useState(readUiPreferences);
   const androidRuntime = isAndroidApp();
   const iosRuntime = isIOSApp();
-  const nativeRuntime = androidRuntime || iosRuntime;
-  const [notificationState, setNotificationState] = useState<AndroidNotificationState | null>(null);
-  const [torDiagnostics, setTorDiagnostics] = useState<AndroidTorDiagnostics | null>(null);
+  const desktopRuntime = isDesktopApp();
+  const runtimeSettings = androidRuntime || iosRuntime || desktopRuntime;
+  const notificationRuntime = androidRuntime || desktopRuntime;
+  const [notificationState, setNotificationState] = useState<NativeNotificationState | null>(null);
+  const [torDiagnostics, setTorDiagnostics] = useState<NativeTorDiagnostics | null>(null);
   const [showTorDetails, setShowTorDetails] = useState(false);
   const [showRobotSettings, setShowRobotSettings] = useState(false);
   const [showRobotKeys, setShowRobotKeys] = useState(false);
@@ -55,7 +58,7 @@ export function SettingsPage() {
   }, [hydrateGarage]);
 
   useEffect(() => {
-    if (!nativeRuntime) return;
+    if (!runtimeSettings) return;
     const refresh = () => {
       setNotificationState(getNativeNotificationState());
       setTorDiagnostics(getNativeTorDiagnostics());
@@ -63,11 +66,13 @@ export function SettingsPage() {
     refresh();
     window.addEventListener("robosats:native-notification-state", refresh);
     window.addEventListener("robosats:tor-reconnected", refresh);
+    window.addEventListener("robosats:desktop-runtime-state", refresh);
     return () => {
       window.removeEventListener("robosats:native-notification-state", refresh);
       window.removeEventListener("robosats:tor-reconnected", refresh);
+      window.removeEventListener("robosats:desktop-runtime-state", refresh);
     };
-  }, [nativeRuntime]);
+  }, [runtimeSettings]);
 
   return (
     <main className="page page-narrow page-settings">
@@ -76,16 +81,16 @@ export function SettingsPage() {
       </div>
 
       <div className="settings-stack">
-        {nativeRuntime ? (
-          <section className="settings-android-panel" aria-label={`${iosRuntime ? "iOS" : "Android"} privacy settings`}>
+        {runtimeSettings ? (
+          <section className="settings-android-panel" aria-label={`${desktopRuntime ? "Desktop" : iosRuntime ? "iOS" : "Android"} privacy settings`}>
             <header className="settings-android-header">
               <span className="settings-onion-mark"><OnionIcon /></span>
               <span>
-                <strong>{iosRuntime ? "iOS privacy" : "Android privacy"}</strong>
-                <small>{iosRuntime ? "Embedded Tor transport" : "Native Tor and background alerts"}</small>
+                <strong>{desktopRuntime ? "Desktop privacy" : iosRuntime ? "iOS privacy" : "Android privacy"}</strong>
+                <small>{desktopRuntime ? "Embedded Arti and system notifications" : iosRuntime ? "Embedded Tor transport" : "Native Tor and background alerts"}</small>
               </span>
             </header>
-            {androidRuntime ? <div className="settings-android-row">
+            {notificationRuntime ? <div className="settings-android-row">
               <BellRing size={19} aria-hidden="true" />
               <span className="settings-android-row-copy">
                 <strong>Notifications</strong>
@@ -96,7 +101,7 @@ export function SettingsPage() {
                 type="button"
                 role="switch"
                 aria-checked={Boolean(notificationState?.enabled && notificationState.permissionGranted)}
-                aria-label="Enable Android notifications"
+                aria-label={`Enable ${desktopRuntime ? "desktop" : "Android"} notifications`}
                 onClick={() => {
                   const enabled = !Boolean(notificationState?.enabled && notificationState.permissionGranted);
                   setNotificationState((current) => current ? { ...current, enabled } : current);
@@ -348,7 +353,7 @@ export function SettingsPage() {
   }
 }
 
-function torStatusLabel(diagnostics: AndroidTorDiagnostics | null): string {
+function torStatusLabel(diagnostics: NativeTorDiagnostics | null): string {
   if (!diagnostics) return "Checking...";
   if (diagnostics.connected) return "Connected";
   if (diagnostics.state === "connecting") return "Connecting...";

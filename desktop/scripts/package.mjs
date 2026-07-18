@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
@@ -7,9 +8,9 @@ const requested = process.argv[2] ?? platformName();
 const targets = new Set(["linux", "win", "mac"]);
 if (!targets.has(requested)) throw new Error(`Unsupported desktop target: ${requested}`);
 
-const electronBuilder = process.platform === "win32" ? "npx.cmd" : "npx";
-await run(electronBuilder, [
-  "electron-builder",
+const electronBuilder = path.join(root, "node_modules", "electron-builder", "cli.js");
+await run(process.execPath, [
+  electronBuilder,
   "--config",
   "desktop/electron-builder.cjs",
   `--${requested}`,

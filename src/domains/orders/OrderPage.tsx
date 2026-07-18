@@ -27,6 +27,7 @@ import type { OrderDto, SubmitOrderActionPayload } from "@/domains/orders/order.
 import { buildRenewOrderPayload, createOrder } from "@/domains/maker/makerApi";
 import type { Auth } from "@/domains/transport/apiClient";
 import { tradeMotionClass } from "@/domains/motion/tradeMotion";
+import { showDesktopOrderNotification } from "@/domains/notifications/desktopNotifications";
 import { PaymentQrCard } from "@/domains/payments/PaymentQrCard";
 import { lightningPayoutAmount, lightningRoutingBudgetSats, onchainPayoutBreakdown } from "@/domains/payments/payoutAmounts";
 import { availableLnProxyServers, wrapLnProxyInvoice } from "@/domains/payments/lnProxy";
@@ -132,7 +133,10 @@ export function OrderPage() {
     previousWasTaker.current = loadedOrder.is_taker;
     if (!previewOrder) {
       const audioEvent = tradeAudioEventForOrderTransition(lastStatus, loadedOrder.status);
-      if (audioEvent) void playTradeAudio(audioEvent).catch(() => undefined);
+      if (audioEvent) {
+        void playTradeAudio(audioEvent).catch(() => undefined);
+        showDesktopOrderNotification(loadedOrder.id, shortAlias, getTradeViewState(loadedOrder).title);
+      }
     }
     if (!previewOrder && lastStatus !== undefined && ![4, 12].includes(lastStatus) && [4, 12].includes(loadedOrder.status)) {
       navigate("/offers", { replace: true });

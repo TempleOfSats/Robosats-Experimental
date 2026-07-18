@@ -22,6 +22,18 @@ interface RoboSatsNativeBridge {
     clientLog?(message: string): void;
 }
 
+interface RoboSatsDesktopBridge {
+  platform: string;
+  getTorDiagnostics(): string;
+  getNotificationState(): string;
+  setNotificationsEnabled(enabled: boolean): void;
+  showNotification(payload: {
+    title: string;
+    body: string;
+    route?: string;
+  }): void;
+}
+
 interface Window {
   RobosatsSettings?: string;
   AndroidDataRobosats?: {
@@ -29,6 +41,7 @@ interface Window {
   };
   AndroidAppRobosats?: RoboSatsNativeBridge;
   IOSAppRobosats?: RoboSatsNativeBridge;
+  RoboSatsDesktop?: RoboSatsDesktopBridge;
   __robosatsNativeTransport?: {
     resolve(requestId: string, result: import("@/domains/transport/androidBridge").NativeHttpResult): void;
     reject(requestId: string, message: string): void;

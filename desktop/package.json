@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "description": "Private RoboSats desktop client with embedded Arti",
-  "desktopName": "RoboSats Exp.",
+  "desktopName": "robosats-exp",
   "type": "commonjs",
   "main": "build/app/main.js"
 }
