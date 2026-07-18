@@ -1,0 +1,11 @@
+.git
+.github
+.vite
+android
+artifacts
+coverage
+desktop
+dist
+ios
+node_modules
+*.log

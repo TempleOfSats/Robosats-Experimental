@@ -19,7 +19,15 @@
     "build:ios:rust:linux": "bash ios/scripts/build-rust-xtool.sh",
     "build:ios:unsigned": "bash ios/scripts/build-unsigned-ipa.sh",
     "build:ios:unsigned:linux": "bash ios/scripts/build-unsigned-ipa-xtool.sh",
-    "check:ios:config": "node ios/scripts/check-build-config.mjs",
+    "build:desktop:prepare": "npm run build && node desktop/scripts/prepare.mjs",
+    "build:desktop": "npm run build:desktop:prepare && node desktop/scripts/package.mjs",
+    "build:desktop:linux": "npm run build:desktop:prepare && node desktop/scripts/package.mjs linux",
+    "build:desktop:windows": "npm run build:desktop:prepare && node desktop/scripts/package.mjs windows",
+    "build:desktop:macos": "npm run build:desktop:prepare && node desktop/scripts/package.mjs macos",
+    "dev:desktop": "npm run build:desktop:prepare && tauri dev --config desktop/src-tauri/tauri.conf.json --no-dev-server",
+    "check:desktop": "npm run build:desktop:prepare && cargo test --locked --manifest-path desktop/arti-sidecar/Cargo.toml && cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml",
+    "build:nodeapp": "docker build --file nodeapp/Dockerfile --tag robosats-exp-nodeapp:local .",
+    "check:ios:config": "node ios/scripts/prepare-build-config.mjs && node ios/scripts/check-build-config.mjs",
     "check:ios:rust": "cargo check --manifest-path ios/tor-native/Cargo.toml",
     "check:production-build": "node scripts/check-production-build.mjs",
     "check:typography": "node scripts/check-typography.mjs",
@@ -37,6 +45,7 @@
   "dependencies": {
     "@fontsource-variable/public-sans": "^5.2.7",
     "@noble/hashes": "^2.2.0",
+    "@tauri-apps/api": "^2.11.1",
     "js-sha256": "^0.11.1",
     "lucide-react": "^1.24.0",
     "nostr-tools": "^2.23.12",
@@ -49,6 +58,7 @@
     "zustand": "^5.0.0"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4",
     "@types/node": "^22.20.1",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",

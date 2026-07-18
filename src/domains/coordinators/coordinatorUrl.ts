@@ -12,7 +12,8 @@ export function detectCoordinatorOrigin(
   hostname = typeof window === "undefined" ? "" : window.location.hostname,
   nativeRuntime = typeof window !== "undefined" && (
     typeof window.AndroidAppRobosats?.httpRequest === "function" ||
-    typeof window.IOSAppRobosats?.httpRequest === "function"
+    typeof window.IOSAppRobosats?.httpRequest === "function" ||
+    window.RobosatsSettings?.startsWith("desktop-") === true
   )
 ): Origin {
   if (nativeRuntime) return "onion";

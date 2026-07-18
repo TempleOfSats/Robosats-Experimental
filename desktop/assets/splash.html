@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" />
+    <title>RoboSats Exp.</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: "Public Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #0b0909;
+        color: #f4f1ed;
+      }
+      * { box-sizing: border-box; }
+      body {
+        min-height: 100vh;
+        margin: 0;
+        display: grid;
+        place-items: center;
+        background: #0b0909;
+      }
+      main {
+        width: min(320px, calc(100vw - 48px));
+        display: grid;
+        justify-items: center;
+        text-align: center;
+      }
+      .mark {
+        position: relative;
+        width: 150px;
+        height: 150px;
+        display: grid;
+        place-items: center;
+      }
+      .mark::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+      }
+      .mark::after {
+        background: conic-gradient(#ffb23f 0deg 70deg, transparent 70deg);
+        mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+        animation: orbit 4.8s linear infinite;
+      }
+      img {
+        width: 98px;
+        height: 98px;
+        object-fit: contain;
+        filter: invert(1);
+        opacity: 0.95;
+      }
+      h1 {
+        margin: 28px 0 0;
+        font-size: 24px;
+        line-height: 1.25;
+        font-weight: 600;
+      }
+      .message {
+        min-height: 42px;
+        margin: 10px 0 18px;
+        color: #c5beb8;
+        font-size: 14px;
+        line-height: 1.5;
+      }
+      .track {
+        width: 100%;
+        height: 4px;
+        overflow: hidden;
+        background: #443d40;
+      }
+      .progress {
+        width: 2%;
+        height: 100%;
+        background: #ffb23f;
+        transition: width 180ms ease-out;
+      }
+      .percent {
+        margin-top: 10px;
+        color: #9d9590;
+        font-size: 12px;
+        font-variant-numeric: tabular-nums;
+      }
+      .error {
+        max-width: 42ch;
+        margin: 16px 0 0;
+        color: #ffb38a;
+        font-size: 13px;
+        line-height: 1.45;
+      }
+      button {
+        min-height: 44px;
+        margin-top: 18px;
+        border: 0;
+        border-radius: 6px;
+        padding: 10px 20px;
+        background: #ffb23f;
+        color: #211a16;
+        font: 600 15px/20px inherit;
+        cursor: pointer;
+      }
+      [hidden] { display: none; }
+      @keyframes orbit { to { transform: rotate(360deg); } }
+      @media (prefers-reduced-motion: reduce) {
+        .mark::after { animation: none; }
+        .progress { transition: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <main role="status" aria-live="polite">
+      <div class="mark" aria-hidden="true"><img src="./R-notext.svg" alt="" /></div>
+      <h1>Preparing RoboSats</h1>
+      <p class="message">Starting private connection...</p>
+      <div class="track" aria-hidden="true"><div class="progress"></div></div>
+      <div class="percent" aria-hidden="true">2%</div>
+      <p class="error" hidden></p>
+      <button type="button" hidden>Try again</button>
+    </main>
+    <script>
+      const message = document.querySelector(".message");
+      const progress = document.querySelector(".progress");
+      const percent = document.querySelector(".percent");
+      const error = document.querySelector(".error");
+      const retry = document.querySelector("button");
+
+      function applyStatus(status) {
+        if (!status || typeof status !== "object") return;
+        const value = Math.max(0, Math.min(100, Number(status.progress) || 0));
+        progress.style.width = `${value}%`;
+        percent.textContent = `${Math.round(value)}%`;
+        if (typeof status.message === "string") message.textContent = status.message;
+        const failed = typeof status.error === "string" && status.error.length > 0;
+        error.hidden = !failed;
+        retry.hidden = !failed;
+        if (failed) error.textContent = status.error;
+      }
+      window.__TAURI__.event.listen("desktop-runtime-status", ({ payload }) => applyStatus(payload));
+      window.__TAURI__.core.invoke("desktop_runtime_status").then(applyStatus);
+      retry.addEventListener("click", () => {
+        retry.hidden = true;
+        error.hidden = true;
+        window.__TAURI__.core.invoke("desktop_retry");
+      });
+    </script>
+  </body>
+</html>
