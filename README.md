@@ -1,9 +1,9 @@
 # RoboSats Experimental Frontend
 
-Experimental RoboSats client for web, Android, and iOS. The frontend uses
-React, TypeScript, Vite, Nostr orderbook transport, encrypted trade chat, and
-the current RoboSats coordinator API. The mobile packages embed Arti and route
-all coordinator traffic through a local SOCKS proxy.
+Experimental RoboSats client for web, Android, iOS, Linux, macOS, and Windows.
+The frontend uses React, TypeScript, Vite, Nostr orderbook transport, encrypted
+trade chat, and the current RoboSats coordinator API. Mobile and desktop
+packages embed Arti and route coordinator traffic through a local SOCKS proxy.
 
 **Live Client (Tor Hidden Service)**:
 
@@ -25,7 +25,7 @@ npm ci
 ```
 
 Use `npm ci` for reproducible builds from `package-lock.json`. Platform builds
-also require the Android or iOS tools listed below.
+also require the platform tools listed below.
 
 ## Development
 
@@ -162,6 +162,45 @@ library, disables code signing, and packages the application. Both iOS paths
 share the same source and build metadata. See [ios/README.md](ios/README.md)
 for xtool installation, SDK storage, version synchronization, and diagnostics.
 
+### Desktop applications
+
+Desktop packages require Rustup and the native toolchain for the target
+operating system. Build on the operating system being packaged:
+
+```bash
+npm run build:desktop:linux
+npm run build:desktop:windows
+npm run build:desktop:macos
+```
+
+Outputs are written to `desktop/release/` as AppImage, NSIS, or DMG packages.
+Each package includes an Electron shell, the production web bundle, and a
+native Arti sidecar. The shell waits for Tor bootstrap before opening the
+client and routes coordinator HTTP and WebSocket traffic through the sidecar.
+See [desktop/README.md](desktop/README.md) for the runtime boundary and local
+development command.
+
+GitHub's **Desktop builds** workflow can package any or all desktop platforms
+without creating a release.
+
+### Docker node app
+
+Build the self-hosted Nginx image:
+
+```bash
+npm run build:nodeapp
+```
+
+Run the local compose configuration:
+
+```bash
+docker compose -f nodeapp/compose.yml up --build
+```
+
+The client is available at `http://127.0.0.1:12596`. The image contains only
+the static frontend and Nginx; it does not proxy coordinator requests. See
+[nodeapp/README.md](nodeapp/README.md) for deployment and Tor Browser behavior.
+
 ### Installing on iOS (AltStore / SideStore)
 
 Every release publishes an unsigned IPA to [GitHub Releases](https://github.com/TempleOfSats/Robosats-Experimental/releases)
@@ -185,6 +224,7 @@ Run the repository checks independently with:
 ```bash
 npm run typecheck
 npm run check:typography
+npm run check:desktop
 npm test
 npm run build
 npm run check:production-build
