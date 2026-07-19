@@ -1,7 +1,7 @@
 {
   "name": "robosats-experimental-frontend",
   "private": true,
-  "version": "0.1.2-alpha.2",
+  "version": "0.1.2-alpha.3",
   "type": "module",
   "scripts": {
     "dev": "vite",
