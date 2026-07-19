@@ -8,22 +8,7 @@
   },
   "app": {
     "withGlobalTauri": true,
-    "windows": [
-      {
-        "label": "splash",
-        "title": "RoboSats Exp.",
-        "url": "desktop/splash.html",
-        "width": 390,
-        "height": 520,
-        "center": true,
-        "resizable": false,
-        "fullscreen": false,
-        "decorations": false,
-        "transparent": false,
-        "visible": true,
-        "backgroundColor": "#0b1320"
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": "default-src 'self' customprotocol: asset:; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' asset: data: blob: http: https:; connect-src 'self' ipc: http: https: ws: wss:; media-src 'self' data: blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
       "capabilities": [
@@ -54,7 +39,14 @@
     },
     "windows": {
       "webviewInstallMode": {
-        "type": "offlineInstaller"
+        "type": "embedBootstrapper",
+        "silent": true
+      },
+      "nsis": {
+        "compression": "zlib",
+        "installMode": "currentUser",
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico"
       }
     },
     "macOS": {

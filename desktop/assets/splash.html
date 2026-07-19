@@ -50,6 +50,7 @@
         object-fit: contain;
         filter: invert(1);
         opacity: 0.95;
+        transform: translateY(13px);
       }
       h1 {
         margin: 28px 0 0;
@@ -63,7 +64,10 @@
         color: #c5beb8;
         font-size: 14px;
         line-height: 1.5;
+        opacity: 1;
+        transition: opacity 160ms ease;
       }
+      .message[data-changing="true"] { opacity: 0; }
       .track {
         width: 100%;
         height: 4px;
@@ -104,6 +108,7 @@
       @keyframes orbit { to { transform: rotate(360deg); } }
       @media (prefers-reduced-motion: reduce) {
         .mark::after { animation: none; }
+        .message,
         .progress { transition: none; }
       }
     </style>
@@ -112,7 +117,7 @@
     <main role="status" aria-live="polite">
       <div class="mark" aria-hidden="true"><img src="./R-notext.svg" alt="" /></div>
       <h1>Preparing RoboSats</h1>
-      <p class="message">Starting private connection...</p>
+      <p class="message">Keeping your connection private...</p>
       <div class="track" aria-hidden="true"><div class="progress"></div></div>
       <div class="percent" aria-hidden="true">2%</div>
       <p class="error" hidden></p>
@@ -124,23 +129,70 @@
       const percent = document.querySelector(".percent");
       const error = document.querySelector(".error");
       const retry = document.querySelector("button");
+      const connectionMessages = [
+        "Keeping your connection private...",
+        "Contacting the Tor network...",
+        "Selecting privacy-preserving relays...",
+        "Building an encrypted circuit...",
+        "Checking the private route...",
+        "Preparing RoboSats over Tor..."
+      ];
+      const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      let messageIndex = 0;
+      let messageTimer;
+      let messageChangeTimer;
+
+      function setMessage(text) {
+        if (message.textContent === text) return;
+        window.clearTimeout(messageChangeTimer);
+        message.dataset.changing = "true";
+        messageChangeTimer = window.setTimeout(() => {
+          message.textContent = text;
+          message.dataset.changing = "false";
+        }, reducedMotion ? 0 : 160);
+      }
+
+      function startMessageCycle() {
+        if (messageTimer) return;
+        messageTimer = window.setInterval(() => {
+          messageIndex = (messageIndex + 1) % connectionMessages.length;
+          setMessage(connectionMessages[messageIndex]);
+        }, 3800);
+      }
+
+      function stopMessageCycle() {
+        window.clearInterval(messageTimer);
+        messageTimer = undefined;
+      }
 
       function applyStatus(status) {
         if (!status || typeof status !== "object") return;
         const value = Math.max(0, Math.min(100, Number(status.progress) || 0));
         progress.style.width = `${value}%`;
         percent.textContent = `${Math.round(value)}%`;
-        if (typeof status.message === "string") message.textContent = status.message;
         const failed = typeof status.error === "string" && status.error.length > 0;
         error.hidden = !failed;
         retry.hidden = !failed;
-        if (failed) error.textContent = status.error;
+        if (failed) {
+          stopMessageCycle();
+          setMessage("Private connection interrupted");
+          error.textContent = status.error;
+        } else if (status.state === "ready") {
+          stopMessageCycle();
+          setMessage("Secure connection established. Loading app...");
+        } else {
+          startMessageCycle();
+        }
       }
+      startMessageCycle();
       window.__TAURI__.event.listen("desktop-runtime-status", ({ payload }) => applyStatus(payload));
       window.__TAURI__.core.invoke("desktop_runtime_status").then(applyStatus);
       retry.addEventListener("click", () => {
         retry.hidden = true;
         error.hidden = true;
+        messageIndex = 0;
+        setMessage(connectionMessages[messageIndex]);
+        startMessageCycle();
         window.__TAURI__.core.invoke("desktop_retry");
       });
     </script>
