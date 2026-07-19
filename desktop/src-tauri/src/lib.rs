@@ -207,6 +207,8 @@ pub fn run() {
         .setup(move |app| {
             app.manage(PreferenceState(Mutex::new(preferences::load(app.handle()))));
             setup_tray(app)?;
+            runtime::create_splash_window(app.handle(), runtime_for_setup.status().socks_port)
+                .map_err(std::io::Error::other)?;
             runtime_for_setup.start(app.handle().clone(), false);
             Ok(())
         })

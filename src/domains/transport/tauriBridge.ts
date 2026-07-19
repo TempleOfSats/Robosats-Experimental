@@ -21,7 +21,7 @@ type DesktopNotificationState = {
 };
 
 export function isTauriDesktop(): boolean {
-  return typeof document !== "undefined" && document.documentElement.dataset.desktopApp === "true";
+  return typeof window !== "undefined" && window.RobosatsSettings?.startsWith("desktop-") === true;
 }
 
 export async function getDesktopTorDiagnostics(): Promise<AndroidTorDiagnostics | null> {
