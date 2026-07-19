@@ -19,8 +19,28 @@
           "version": "0.1.2",
           "buildVersion": "1021003",
           "date": "2026-07-19",
-          "localizedDescription": "RoboSats Exp. 0.1.2-alpha.3\nWindows desktop improvements and Tor bootstrap fixes.\n* [Android universal APK](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.1.2-alpha.3/robosats-exp-0.1.2-alpha.3-universal.apk)\n* [iOS unsigned IPA](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.1.2-alpha.3/robosats-exp-0.1.2-alpha.3-unsigned.ipa)\n* [Linux AppImage](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.1.2-alpha.3/RoboSats.Exp_0.1.2-alpha.3_amd64.AppImage)\n* [Windows installer](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.1.2-alpha.3/RoboSats.Exp_0.1.2-alpha.3_x64-setup.exe)\n* [macOS DMG](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.1.2-alpha.3/RoboSats.Exp_0.1.2-alpha.3_aarch64.dmg)\nDetached signatures and checksums are available in the release assets.\n<!-- Release notes generated using configuration in .github/release.yml at v0.1.2-alpha.3 -->\n**Full Changelog**: https://github.com/TempleOfSats/Robosats-Experimental/compare/v0.1.2-alpha.1...v0.1.2-alpha.3",
-          "size": 13024368,
+          "localizedDescription": "RoboSats Exp. 0.1.2-alpha.3\nImproves Windows desktop startup, Tor bootstrap reliability, installer behavior, and splash presentation.\n* [Android universal APK](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.1.2-alpha.3/robosats-exp-0.1.2-alpha.3-universal.apk)\n* [iOS unsigned IPA](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.1.2-alpha.3/robosats-exp-0.1.2-alpha.3-unsigned.ipa)\n* [Linux AppImage](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.1.2-alpha.3/RoboSats.Exp_0.1.2-alpha.3_amd64.AppImage)\n* [Windows installer](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.1.2-alpha.3/RoboSats.Exp_0.1.2-alpha.3_x64-setup.exe)\n* [macOS DMG](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.1.2-alpha.3/RoboSats.Exp_0.1.2-alpha.3_aarch64.dmg)\nDetached signatures and checksums are available in the release assets.\n<!-- Release notes generated using configuration in .github/release.yml at v0.1.2-alpha.3 -->\n**Full Changelog**: https://github.com/TempleOfSats/Robosats-Experimental/commits/v0.1.2-alpha.3",
+          "size": 13024390,
+          "minOSVersion": "16.0"
+        }
+      ]
+    },
+    {
+      "name": "RoboSats Exp.",
+      "bundleIdentifier": "com.robosats.exp.ios",
+      "developerName": "RoboSats",
+      "subtitle": "Peer-to-peer Bitcoin wallet",
+      "localizedDescription": "RoboSats is a peer-to-peer Bitcoin wallet with built-in Tor routing.\n\nFeatures:\n• Privacy-first P2P trading\n• Built-in Tor (Arti) for coordinator traffic\n• Encrypted trade chat via Nostr\n• Open source (AGPLv3)",
+      "iconURL": "https://raw.githubusercontent.com/TempleOfSats/Robosats-Experimental/main/ios/RoboSatsExp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
+      "tintColor": "FF6600",
+      "minOSVersion": "16.0",
+      "versions": [
+        {
+          "version": "0.1.2",
+          "buildVersion": "1021003",
+          "date": "0001-01-01",
+          "localizedDescription": "RoboSats Exp. 0.1.2-alpha.3\nImproves Windows desktop startup, Tor bootstrap reliability, installer behavior, and splash presentation.\n* [Android universal APK](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.1.2-alpha.3/robosats-exp-0.1.2-alpha.3-universal.apk)\n* [iOS unsigned IPA](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.1.2-alpha.3/robosats-exp-0.1.2-alpha.3-unsigned.ipa)\n* [Linux AppImage](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.1.2-alpha.3/RoboSats.Exp_0.1.2-alpha.3_amd64.AppImage)\n* [Windows installer](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.1.2-alpha.3/RoboSats.Exp_0.1.2-alpha.3_x64-setup.exe)\n* [macOS DMG](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.1.2-alpha.3/RoboSats.Exp_0.1.2-alpha.3_aarch64.dmg)\nDetached signatures and checksums are available in the release assets.\n<!-- Release notes generated using configuration in .github/release.yml at v0.1.2-alpha.3 -->\n**Full Changelog**: https://github.com/TempleOfSats/Robosats-Experimental/commits/v0.1.2-alpha.3",
+          "size": 13024390,
           "minOSVersion": "16.0"
         }
       ]
