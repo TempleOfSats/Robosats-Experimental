@@ -318,7 +318,6 @@ pub fn create_splash_window(app: &AppHandle, port: u16) -> Result<(), String> {
             .resizable(false)
             .fullscreen(false)
             .decorations(false)
-            .transparent(false)
             .visible(true)
             .background_color(tauri::webview::Color(11, 19, 32, 255));
     #[cfg(windows)]
