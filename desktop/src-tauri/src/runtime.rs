@@ -129,6 +129,9 @@ impl DesktopRuntime {
         let runtime = self.clone();
         tauri::async_runtime::spawn(async move {
             let status = runtime.status();
+            if health_check_deferred(&status) {
+                return;
+            }
             if status.connected
                 && tokio::time::timeout(
                     Duration::from_secs(2),
@@ -286,6 +289,10 @@ impl DesktopRuntime {
     }
 }
 
+fn health_check_deferred(status: &RuntimeStatus) -> bool {
+    matches!(status.state.as_str(), "starting" | "connecting")
+}
+
 fn allocate_loopback_port() -> Result<u16, String> {
     std::net::TcpListener::bind(("127.0.0.1", 0))
         .and_then(|listener| listener.local_addr())
@@ -392,5 +399,15 @@ mod tests {
             sanitize_error("failed to bind 127.0.0.1:1234"),
             "The local private connection could not start. Try again."
         );
+    }
+
+    #[test]
+    fn health_check_waits_for_bootstrap() {
+        let mut status = DesktopRuntime::new(19050).status();
+        assert!(health_check_deferred(&status));
+        status.state = "connecting".into();
+        assert!(health_check_deferred(&status));
+        status.state = "ready".into();
+        assert!(!health_check_deferred(&status));
     }
 }
