@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{
+    webview::PageLoadEvent, AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder,
+};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 use url::Url;
@@ -129,6 +131,9 @@ impl DesktopRuntime {
         let runtime = self.clone();
         tauri::async_runtime::spawn(async move {
             let status = runtime.status();
+            if health_check_deferred(&status) {
+                return;
+            }
             if status.connected
                 && tokio::time::timeout(
                     Duration::from_secs(2),
@@ -286,6 +291,10 @@ impl DesktopRuntime {
     }
 }
 
+fn health_check_deferred(status: &RuntimeStatus) -> bool {
+    matches!(status.state.as_str(), "starting" | "connecting")
+}
+
 fn allocate_loopback_port() -> Result<u16, String> {
     std::net::TcpListener::bind(("127.0.0.1", 0))
         .and_then(|listener| listener.local_addr())
@@ -297,12 +306,33 @@ pub fn create_runtime() -> Result<DesktopRuntime, String> {
     allocate_loopback_port().map(DesktopRuntime::new)
 }
 
+pub fn create_splash_window(app: &AppHandle, port: u16) -> Result<(), String> {
+    if app.get_webview_window("splash").is_some() {
+        return Ok(());
+    }
+    let builder =
+        WebviewWindowBuilder::new(app, "splash", WebviewUrl::App("desktop/splash.html".into()))
+            .title("RoboSats Exp.")
+            .inner_size(390.0, 520.0)
+            .center()
+            .resizable(false)
+            .fullscreen(false)
+            .decorations(false)
+            .transparent(false)
+            .visible(true)
+            .background_color(tauri::webview::Color(11, 19, 32, 255));
+    #[cfg(windows)]
+    let builder = builder.proxy_url(proxy_url(port)?);
+    #[cfg(not(windows))]
+    let _ = port;
+    builder.build().map_err(|error| error.to_string())?;
+    Ok(())
+}
+
 fn ensure_main_window(app: &AppHandle, port: u16) -> Result<(), String> {
     if app.get_webview_window("main").is_some() {
         return Ok(());
     }
-    let proxy =
-        Url::parse(&format!("socks5://127.0.0.1:{port}")).map_err(|error| error.to_string())?;
     let app_handle = app.clone();
     WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html#/garage".into()))
         .title("RoboSats Exp.")
@@ -312,10 +342,13 @@ fn ensure_main_window(app: &AppHandle, port: u16) -> Result<(), String> {
         .decorations(false)
         .visible(false)
         .background_color(tauri::webview::Color(11, 19, 32, 255))
-        .proxy_url(proxy)
-        .initialization_script(
-            "window.RobosatsSettings='desktop-basic';document.documentElement.dataset.desktopApp='true';",
-        )
+        .proxy_url(proxy_url(port)?)
+        .initialization_script("window.RobosatsSettings='desktop-basic';")
+        .on_page_load(|window, payload| {
+            if payload.event() == PageLoadEvent::Finished {
+                show_main_window(window.app_handle());
+            }
+        })
         .on_navigation(|url| {
             matches!(
                 (url.scheme(), url.host_str()),
@@ -324,13 +357,18 @@ fn ensure_main_window(app: &AppHandle, port: u16) -> Result<(), String> {
         })
         .on_new_window(move |url, _| {
             if matches!(url.scheme(), "http" | "https" | "mailto") {
-                let _ = tauri_plugin_opener::OpenerExt::opener(&app_handle).open_url(url.as_str(), None::<&str>);
+                let _ = tauri_plugin_opener::OpenerExt::opener(&app_handle)
+                    .open_url(url.as_str(), None::<&str>);
             }
             tauri::webview::NewWindowResponse::Deny
         })
         .build()
         .map_err(|error| error.to_string())?;
     Ok(())
+}
+
+fn proxy_url(port: u16) -> Result<Url, String> {
+    Url::parse(&format!("socks5://127.0.0.1:{port}")).map_err(|error| error.to_string())
 }
 
 fn show_main_window(app: &AppHandle) {
@@ -391,6 +429,24 @@ mod tests {
         assert_eq!(
             sanitize_error("failed to bind 127.0.0.1:1234"),
             "The local private connection could not start. Try again."
+        );
+    }
+
+    #[test]
+    fn health_check_waits_for_bootstrap() {
+        let mut status = DesktopRuntime::new(19050).status();
+        assert!(health_check_deferred(&status));
+        status.state = "connecting".into();
+        assert!(health_check_deferred(&status));
+        status.state = "ready".into();
+        assert!(!health_check_deferred(&status));
+    }
+
+    #[test]
+    fn proxy_url_uses_the_runtime_port() {
+        assert_eq!(
+            proxy_url(19050).expect("proxy URL parses").as_str(),
+            "socks5://127.0.0.1:19050"
         );
     }
 }
