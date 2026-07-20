@@ -1,11 +1,14 @@
-import { PlusCircle, Settings, Store, Workflow } from "lucide-react";
-import { useEffect } from "react";
+import { LayoutList, PlusCircle, Settings, Store, Workflow } from "lucide-react";
+import { useEffect, useMemo } from "react";
 import { NavLink } from "react-router-dom";
 import type { RoboSatsPlatform } from "@/app/platform";
 import { RoboSatsLogo } from "@/components/app/RoboSatsLogo";
 import { RobotIcon } from "@/components/ui/robotIcon";
 import type { RobotSlot } from "@/domains/garage/garageStore";
 import { useGarageStore } from "@/domains/garage/garageStore";
+import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
+import { classifyProTrade } from "@/domains/pro/proSelectors";
+import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
 
 const items = [
   { label: "Robot", to: "/garage", icon: RobotIcon },
@@ -19,6 +22,12 @@ export function AppSidebar({ platform: _platform }: { platform: RoboSatsPlatform
   const currentToken = useGarageStore((state) => state.currentToken);
   const activeSlot = slots.find((s) => s.token === currentToken) ?? slots[0];
   const activeTradePath = getActiveTradePath(activeSlot);
+  const proEnabled = useProPreferencesStore((state) => state.enabled);
+  const snapshots = useProTradeIndexStore((state) => state.snapshots);
+  const attentionCount = useMemo(
+    () => Object.values(snapshots).filter((snapshot) => classifyProTrade(snapshot) === "needs-action").length,
+    [snapshots]
+  );
 
   useEffect(() => {
     hydrate();
@@ -30,13 +39,22 @@ export function AppSidebar({ platform: _platform }: { platform: RoboSatsPlatform
         <RoboSatsLogo />
       </div>
 
-      <nav className="sidebar-nav" aria-label="Main navigation">
+      <nav className={proEnabled ? "sidebar-nav sidebar-nav-pro" : "sidebar-nav"} aria-label="Main navigation">
         {items.map((item) => (
           <NavLink key={item.to} to={item.to} className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")}>
             <item.icon size={18} />
             <span>{item.label}</span>
           </NavLink>
         ))}
+        {proEnabled ? (
+          <NavLink to="/pro" className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")}>
+            <LayoutList size={18} />
+            <span>Desk</span>
+            {attentionCount > 0 ? (
+              <small className="nav-attention-count" aria-label={`${attentionCount} trades need attention`}>{attentionCount}</small>
+            ) : null}
+          </NavLink>
+        ) : null}
         {activeTradePath ? (
           <NavLink to={activeTradePath} className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")}>
             <Workflow size={18} />
