@@ -37,7 +37,8 @@ export type ReconcileReason =
   | "nostr-hint"
   | "manual"
   | "interval"
-  | "order-action";
+  | "order-action"
+  | "countdown-expiry";
 
 export type SlotSyncState = {
   slotId: ProSlotId;

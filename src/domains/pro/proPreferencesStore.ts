@@ -4,24 +4,28 @@ import { systemClient } from "@/domains/transport/systemClient";
 export const PRO_PREFERENCES_KEY = "robosats_exp_pro_preferences_v1";
 
 export type ProView = "trades" | "robots";
+export type ProFilter = "all" | "needs-action" | "active" | "public" | "renewable";
 
 export type ProPreferences = {
   enabled: boolean;
   setupSeen: boolean;
   lastView: ProView;
+  lastFilter: ProFilter;
 };
 
 type ProPreferencesState = ProPreferences & {
   setEnabled: (enabled: boolean) => void;
   markSetupSeen: () => void;
   setLastView: (lastView: ProView) => void;
+  setLastFilter: (lastFilter: ProFilter) => void;
   reload: () => void;
 };
 
 export const defaultProPreferences: ProPreferences = {
   enabled: false,
   setupSeen: false,
-  lastView: "trades"
+  lastView: "trades",
+  lastFilter: "all"
 };
 
 export const useProPreferencesStore = create<ProPreferencesState>((set, get) => ({
@@ -29,6 +33,7 @@ export const useProPreferencesStore = create<ProPreferencesState>((set, get) => 
   setEnabled: (enabled) => update(set, get, { enabled }),
   markSetupSeen: () => update(set, get, { setupSeen: true }),
   setLastView: (lastView) => update(set, get, { lastView }),
+  setLastFilter: (lastFilter) => update(set, get, { lastFilter }),
   reload: () => set(readProPreferences())
 }));
 
@@ -39,7 +44,8 @@ export function parseProPreferences(raw: string | null): ProPreferences {
     return {
       enabled: parsed.enabled === true,
       setupSeen: parsed.setupSeen === true,
-      lastView: parsed.lastView === "robots" ? "robots" : "trades"
+      lastView: parsed.lastView === "robots" ? "robots" : "trades",
+      lastFilter: isProFilter(parsed.lastFilter) ? parsed.lastFilter : "all"
     };
   } catch {
     return { ...defaultProPreferences };
@@ -62,7 +68,8 @@ function update(
   const next: ProPreferences = {
     enabled: patch.enabled ?? get().enabled,
     setupSeen: patch.setupSeen ?? get().setupSeen,
-    lastView: patch.lastView ?? get().lastView
+    lastView: patch.lastView ?? get().lastView,
+    lastFilter: patch.lastFilter ?? get().lastFilter
   };
   try {
     systemClient.setItem(PRO_PREFERENCES_KEY, JSON.stringify(next));
@@ -70,4 +77,12 @@ function update(
     // A blocked storage backend must not prevent the runtime preference change.
   }
   set(next);
+}
+
+function isProFilter(value: unknown): value is ProFilter {
+  return value === "all"
+    || value === "needs-action"
+    || value === "active"
+    || value === "public"
+    || value === "renewable";
 }
