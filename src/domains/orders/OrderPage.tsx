@@ -118,11 +118,15 @@ export function OrderPage() {
     schedule();
     document.addEventListener("visibilitychange", onVisibilityChange);
     window.addEventListener("robosats:native-resume", refreshNow);
+    window.addEventListener("robosats:tor-reconnected", refreshNow);
+    window.addEventListener("online", refreshNow);
     return () => {
       disposed = true;
       if (timer !== undefined) window.clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("robosats:native-resume", refreshNow);
+      window.removeEventListener("robosats:tor-reconnected", refreshNow);
+      window.removeEventListener("online", refreshNow);
     };
   }, [coordinator, currentSlot?.token, loadedOrder?.status, loadOrder, orderId, previewOrder]);
 

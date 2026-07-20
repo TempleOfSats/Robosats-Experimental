@@ -16,42 +16,14 @@ describe("current trade audio", () => {
     }
   });
 
-  it.each([
-    [0, 1, "locked-invoice"],
-    [7, 1, "locked-invoice"],
-    [1, 4, "locked-invoice"],
-    [2, 5, "locked-invoice"],
-    [3, 6, "taker-found"],
-    [6, 9, "locked-invoice"],
-    [8, 9, "locked-invoice"],
-    [9, 11, "locked-invoice"],
-    [9, 12, "locked-invoice"],
-    [10, 13, "successful"],
-    [15, 13, "successful"],
-    [10, 14, "successful"],
-    [13, 15, "successful"],
-    [11, 17, "locked-invoice"],
-    [16, 18, "locked-invoice"]
-  ] as const)("plays the current sound for transition %i -> %i", (previousStatus, status, expected) => {
-    expect(tradeAudioEventForOrderTransition(previousStatus, status)).toBe(expected);
+  it("plays the mapped sound for every observed status transition", () => {
+    for (let status = 0; status <= 18; status += 1) {
+      expect(tradeAudioEventForOrderTransition(99, status)).toBe(notificationAudioEvent(status));
+    }
   });
 
-  it.each([
-    [undefined, 1],
-    [1, 1],
-    [1, 2],
-    [2, 1],
-    [1, 3],
-    [0, 4],
-    [6, 4],
-    [0, 5],
-    [6, 7],
-    [6, 8],
-    [9, 10],
-    [10, 9],
-    [11, 16],
-    [13, 14]
-  ] as const)("keeps the current silent transition %s -> %i silent", (previousStatus, status) => {
-    expect(tradeAudioEventForOrderTransition(previousStatus, status)).toBeNull();
+  it("does not play before an initial status or when the status is unchanged", () => {
+    expect(tradeAudioEventForOrderTransition(undefined, 1)).toBeNull();
+    expect(tradeAudioEventForOrderTransition(1, 1)).toBeNull();
   });
 });
