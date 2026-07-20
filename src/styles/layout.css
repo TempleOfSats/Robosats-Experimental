@@ -493,6 +493,7 @@
 }
 
 .nav-item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 0.75rem;
@@ -520,6 +521,19 @@
 .nav-item-disabled {
   opacity: 0.38;
   cursor: not-allowed;
+}
+
+.nav-attention-count {
+  min-width: 1.35rem;
+  margin-left: auto;
+  border: 1px solid var(--warning-border);
+  border-radius: 999px;
+  background: var(--warning-surface);
+  color: var(--warning-foreground);
+  padding: 0.05rem 0.3rem;
+  text-align: center;
+  font-size: var(--type-caption-size);
+  font-variant-numeric: tabular-nums lining-nums;
 }
 
 .sidebar-card {
@@ -929,6 +943,23 @@
   font-weight: 600;
   line-height: 1;
   text-transform: none;
+}
+
+.settings-toggle-control {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.settings-toggle-control > span:first-child {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.settings-toggle-control small {
+  color: var(--muted-foreground);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
 }
 
 .settings-control-divider {
@@ -6620,6 +6651,10 @@
     gap: 0.2rem;
   }
 
+  .sidebar-nav-pro {
+    grid-template-columns: repeat(6, minmax(2.5rem, 1fr));
+  }
+
   .nav-item {
     justify-content: center;
     min-height: 2.7rem;
@@ -6629,6 +6664,16 @@
   .nav-item span,
   .sidebar-card {
     display: none;
+  }
+
+  .nav-attention-count {
+    display: block;
+    position: absolute;
+    margin: -1.75rem 0 0 1.55rem;
+    min-width: 1rem;
+    border: 0;
+    padding: 0 0.18rem;
+    font-size: var(--type-caption-size);
   }
 
   .app-header {

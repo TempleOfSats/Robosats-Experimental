@@ -1,6 +1,7 @@
 import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AppLoadingSkeleton } from "@/components/app/AppLoadingWheel";
+import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
 
 const RobotGaragePage = lazy(() => import("@/domains/garage/RobotGaragePage").then((module) => ({ default: module.RobotGaragePage })));
 const OffersPage = lazy(() => import("@/domains/orderbook/OffersPage").then((module) => ({ default: module.OffersPage })));
@@ -8,6 +9,7 @@ const CreateOrderPage = lazy(() => import("@/domains/maker/CreateOrderPage").the
 const CoordinatorsPage = lazy(() => import("@/domains/coordinators/CoordinatorsPage").then((module) => ({ default: module.CoordinatorsPage })));
 const OrderPage = lazy(() => import("@/domains/orders/OrderPage").then((module) => ({ default: module.OrderPage })));
 const SettingsPage = lazy(() => import("@/domains/settings/SettingsPage").then((module) => ({ default: module.SettingsPage })));
+const ProWorkspacePage = lazy(() => import("@/domains/pro/ProWorkspacePage").then((module) => ({ default: module.ProWorkspacePage })));
 const TradeLabPage = (import.meta.env.DEV || import.meta.env.VITE_ENABLE_TRADE_LAB === "true")
   ? lazy(() => import("@/dev/TradeLabPage").then((module) => ({ default: module.TradeLabPage })))
   : null;
@@ -24,24 +26,31 @@ export function preloadAllAppRoutes(): void {
   void preloadCoordinatorsRoute();
   void preloadOrderRoute();
   void preloadSettingsRoute();
+  if (useProPreferencesStore.getState().enabled) void preloadProRoute();
 }
 
 export function AppRoutes() {
   return (
     <Suspense fallback={<RouteFallback />}>
       <Routes>
-        <Route path="/" element={<Navigate to="/garage" replace />} />
+        <Route path="/" element={<RootRedirect />} />
         <Route path="/garage/:token?" element={<RobotGaragePage />} />
         <Route path="/offers" element={<OffersPage />} />
         <Route path="/create" element={<CreateOrderPage />} />
         <Route path="/coordinators" element={<CoordinatorsPage />} />
         <Route path="/order/:shortAlias/:orderId" element={<OrderPage />} />
         <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/pro" element={<ProWorkspacePage />} />
         {TradeLabPage ? <Route path="/__dev/trade-lab" element={<TradeLabPage />} /> : null}
         <Route path="*" element={<Navigate to="/garage" replace />} />
       </Routes>
     </Suspense>
   );
+}
+
+function RootRedirect() {
+  const proEnabled = useProPreferencesStore((state) => state.enabled);
+  return <Navigate to={proEnabled ? "/pro" : "/garage"} replace />;
 }
 
 function RouteFallback() {
@@ -76,4 +85,8 @@ function preloadOrderRoute() {
 
 function preloadSettingsRoute() {
   return import("@/domains/settings/SettingsPage");
+}
+
+function preloadProRoute() {
+  return import("@/domains/pro/ProWorkspacePage");
 }
