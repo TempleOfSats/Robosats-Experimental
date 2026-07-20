@@ -4,6 +4,7 @@ import { Clock3, Copy, QrCode, WalletCards } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { resolvePaymentExpiry } from "@/domains/payments/paymentExpiry";
 import type { PaymentConcept } from "@/domains/payments/payment.types";
 import { formatSats } from "@/lib/format";
 import { readUiPreferences } from "@/domains/settings/uiPreferences";
@@ -32,6 +33,10 @@ export function PaymentQrCard({
   onCopy = copyToClipboard
 }: PaymentQrCardProps) {
   const paymentUri = openWalletHref ?? value;
+  const paymentExpiresAt = useMemo(
+    () => resolvePaymentExpiry(concept, value, expiresAt),
+    [concept, expiresAt, value]
+  );
   const hasWebLn = !previewMode && typeof window !== "undefined" && Boolean((window as Window & { webln?: WebLnProvider }).webln);
   const [qrTheme, setQrTheme] = useState(() => readUiPreferences().qrTheme);
 
@@ -68,10 +73,10 @@ export function PaymentQrCard({
                 <strong className="payment-amount tabular amount-mono">{formatSats(amountSats)}</strong>
               </div>
             ) : null}
-            {expiresAt ? (
+            {paymentExpiresAt ? (
               <div className="payment-expiry">
                 <Clock3 size={16} />
-                <PaymentCountdown expiresAt={expiresAt} />
+                <PaymentCountdown expiresAt={paymentExpiresAt} />
               </div>
             ) : null}
             <div className="payment-actions">

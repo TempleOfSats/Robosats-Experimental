@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { WalletCards } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { VisualSelect } from "@/components/ui/visualSelect";
 import { toUserMessage } from "@/lib/userError";
 import { Card, CardContent } from "@/components/ui/card";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
@@ -104,13 +105,21 @@ export function RewardWithdrawalPanel({
           {rewardRobots.length > 1 ? (
             <label className="field-block">
               Coordinator
-              <select value={selectedAlias} onChange={(event) => setSelectedAlias(event.target.value)}>
-                {rewardRobots.map((robot) => (
-                  <option key={robot.shortAlias} value={robot.shortAlias}>
-                    {robot.shortAlias} - {robot.earnedRewards ?? 0} sats
-                  </option>
-                ))}
-              </select>
+              <VisualSelect
+                ariaLabel="Select reward coordinator"
+                onChange={setSelectedAlias}
+                options={rewardRobots.flatMap((robot) => {
+                  if (!robot.shortAlias) return [];
+                  const rewardCoordinator = coordinators.find((item) => item.shortAlias === robot.shortAlias);
+                  return [{
+                    value: robot.shortAlias,
+                    label: rewardCoordinator?.longAlias ?? robot.shortAlias,
+                    description: `${robot.earnedRewards ?? 0} sats available`,
+                    icon: rewardCoordinator ? <img src={rewardCoordinator.smallAvatarUrl} alt="" /> : undefined
+                  }];
+                })}
+                value={selectedAlias}
+              />
             </label>
           ) : (
             <p className="muted-copy">Coordinator: {rewardRobot?.shortAlias}</p>

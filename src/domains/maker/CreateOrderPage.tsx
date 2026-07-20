@@ -20,6 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { InfoHint } from "@/components/ui/infoHint";
+import { VisualSelect } from "@/components/ui/visualSelect";
 import { CoordinatorDetailDialog } from "@/domains/coordinators/CoordinatorsPage";
 import { fetchCoordinatorRatings, type CoordinatorRating } from "@/domains/coordinators/coordinatorRatings";
 import { federationLottery } from "@/domains/coordinators/federationLottery";
@@ -526,6 +527,25 @@ function AmountStep({
           <InfoHint title="Optional trade instructions, privacy controls, bond size, and order timers." />
         </summary>
         <div className="maker-advanced-body">
+          <div className="maker-advanced-timers">
+            <TimeClockField
+              label="Public Duration (HH:mm)"
+              help="Public order length."
+              value={draft.publicDuration}
+              minSeconds={PUBLIC_DURATION_MIN_SECONDS}
+              maxSeconds={PUBLIC_DURATION_MAX_SECONDS}
+              presetSeconds={[3 * 60 * 60, 6 * 60 * 60, 8 * 60 * 60, 12 * 60 * 60, PUBLIC_DURATION_MAX_SECONDS]}
+              onChange={(value) => updateDraft({ publicDuration: value })}
+            />
+            <TimeClockField
+              label="Escrow/Invoice Timer (HH:mm)"
+              help="Escrow/invoice step length."
+              value={draft.escrowDuration}
+              minSeconds={ESCROW_DURATION_MIN_SECONDS}
+              maxSeconds={ESCROW_DURATION_MAX_SECONDS}
+              onChange={(value) => updateDraft({ escrowDuration: value })}
+            />
+          </div>
           <label className="field-block">
             <span>
               Description
@@ -558,24 +578,6 @@ function AmountStep({
             </span>
             <input inputMode="decimal" value={draft.bondSize} onChange={(event) => updateDraft({ bondSize: event.target.value })} />
           </label>
-          <div className="maker-advanced-timers">
-            <TimeClockField
-              label="Public order length"
-              help="How long the offer remains available in the orderbook before it expires without a taker."
-              value={draft.publicDuration}
-              minSeconds={PUBLIC_DURATION_MIN_SECONDS}
-              maxSeconds={PUBLIC_DURATION_MAX_SECONDS}
-              onChange={(value) => updateDraft({ publicDuration: value })}
-            />
-            <TimeClockField
-              label="Escrow / invoice timer"
-              help="How long a peer has to lock the next required bond, invoice, or escrow after taking the offer."
-              value={draft.escrowDuration}
-              minSeconds={ESCROW_DURATION_MIN_SECONDS}
-              maxSeconds={ESCROW_DURATION_MAX_SECONDS}
-              onChange={(value) => updateDraft({ escrowDuration: value })}
-            />
-          </div>
         </div>
       </details>
     </div>
@@ -715,29 +717,6 @@ function CoordinatorPicker({
           Coordinator
           <InfoHint title="The order host provides Lightning and communication infrastructure, sets trade fees, and handles disputes." />
         </span>
-      </div>
-      <div className="maker-coordinator-box" aria-label="The provider of the Lightning and communication infrastructure. Choose only coordinators you trust.">
-        <button
-          className="maker-coordinator-avatar-button"
-          type="button"
-          onClick={openCoordinatorDetails}
-          aria-label={selected ? `View ${selected.longAlias} details` : "View coordinator details"}
-          disabled={!selected}
-        >
-          {selected ? <img className="coordinator-avatar coordinator-avatar-lg" src={selected.smallAvatarUrl} alt="" /> : null}
-        </button>
-        <label className="maker-coordinator-select-shell">
-          <span>Order host</span>
-          <span className="maker-coordinator-select-control">
-            <select value={selectedShortAlias} onChange={(event) => onChange(event.target.value)}>
-              {coordinators.map((coordinator) => (
-                <option key={coordinator.shortAlias} value={coordinator.shortAlias}>
-                  {coordinator.longAlias}
-                </option>
-              ))}
-            </select>
-          </span>
-        </label>
         <button
           className="maker-coordinator-detail-button"
           type="button"
@@ -748,6 +727,22 @@ function CoordinatorPicker({
           <Info size={16} />
           <span>Details</span>
         </button>
+      </div>
+      <div className="maker-coordinator-box" aria-label="The provider of the Lightning and communication infrastructure. Choose only coordinators you trust.">
+        <VisualSelect
+          ariaLabel="Select order coordinator"
+          iconActionLabel={selected ? `View ${selected.longAlias} details` : "View coordinator details"}
+          onChange={onChange}
+          onIconClick={selected ? openCoordinatorDetails : undefined}
+          options={coordinators.map((coordinator) => ({
+            value: coordinator.shortAlias,
+            label: coordinator.longAlias,
+            description: coordinator.loading ? "Connecting" : coordinator.online ? "Connected" : "Unavailable",
+            icon: <img className="coordinator-avatar coordinator-avatar-lg" src={coordinator.smallAvatarUrl} alt="" />
+          }))}
+          triggerCaption="Order host"
+          value={selectedShortAlias}
+        />
       </div>
       <div className={statusClassName} aria-live="polite">
         {connecting ? <LoaderCircle className="maker-coordinator-spinner" size={17} /> : connected ? <CheckCircle2 size={17} /> : <AlertCircle size={17} />}
@@ -803,6 +798,7 @@ function TimeClockField({
   maxSeconds,
   minSeconds,
   onChange,
+  presetSeconds,
   value
 }: {
   help: string;
@@ -810,6 +806,7 @@ function TimeClockField({
   maxSeconds: number;
   minSeconds: number;
   onChange: (value: string) => void;
+  presetSeconds?: number[];
   value: string;
 }) {
   const seconds = clampDuration(parseInteger(value), minSeconds, maxSeconds);
@@ -917,7 +914,7 @@ function TimeClockField({
         </div>
       ) : null}
       <div className="maker-clock-presets">
-        {durationPresets(minSeconds, maxSeconds).map((option) => (
+        {durationPresets(minSeconds, maxSeconds, presetSeconds).map((option) => (
           <button
             className={option.value === String(seconds) ? "maker-clock-preset maker-clock-preset-active" : "maker-clock-preset"}
             key={option.value}
@@ -953,8 +950,8 @@ function formatClockDuration(seconds: number): string {
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
-function durationPresets(minSeconds: number, maxSeconds: number): Array<{ label: string; value: string }> {
-  const candidates = [15 * 60, 60 * 60, 3 * 60 * 60, 6 * 60 * 60, 8 * 60 * 60, 12 * 60 * 60, PUBLIC_DURATION_MAX_SECONDS];
+function durationPresets(minSeconds: number, maxSeconds: number, requested?: number[]): Array<{ label: string; value: string }> {
+  const candidates = requested ?? [15 * 60, 60 * 60, 3 * 60 * 60, 6 * 60 * 60, 8 * 60 * 60, 12 * 60 * 60, PUBLIC_DURATION_MAX_SECONDS];
   const unique = new Set(candidates.filter((value) => value >= minSeconds && value <= maxSeconds));
   return Array.from(unique).map((value) => ({ label: formatClockDuration(value), value: String(value) }));
 }

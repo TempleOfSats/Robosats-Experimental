@@ -1,13 +1,14 @@
-import { Bot, PlusCircle, Settings, Store, Workflow } from "lucide-react";
+import { PlusCircle, Settings, Store, Workflow } from "lucide-react";
 import { useEffect } from "react";
 import { NavLink } from "react-router-dom";
 import type { RoboSatsPlatform } from "@/app/platform";
 import { RoboSatsLogo } from "@/components/app/RoboSatsLogo";
+import { RobotIcon } from "@/components/ui/robotIcon";
 import type { RobotSlot } from "@/domains/garage/garageStore";
 import { useGarageStore } from "@/domains/garage/garageStore";
 
 const items = [
-  { label: "Robot", to: "/garage", icon: Bot },
+  { label: "Robot", to: "/garage", icon: RobotIcon },
   { label: "Offers", to: "/offers", icon: Store },
   { label: "Create", to: "/create", icon: PlusCircle }
 ];

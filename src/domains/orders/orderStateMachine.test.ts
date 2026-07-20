@@ -88,10 +88,32 @@ describe("getTradeViewState", () => {
   });
 
   it("reserves the public-order owner message for the maker", () => {
-    expect(getTradeViewState({ ...baseOrder, status: 1, is_maker: true, is_taker: false }).title).toBe("Your order is public");
+    const makerView = getTradeViewState({
+      ...baseOrder,
+      status: 1,
+      is_maker: true,
+      is_taker: false,
+      escrow_duration: 10_800
+    });
+    expect(makerView).toMatchObject({
+      title: "Your order is public",
+      message: {
+        body: "Be patient while robots check the book. This box will ring once a robot takes your order, then you will have 3h to reply. If you do not reply, you risk losing your bond.",
+        next: "If the order expires untaken, your bond will return to you (no action needed)."
+      }
+    });
     expect(getTradeViewState({ ...baseOrder, status: 1, is_maker: false, is_taker: false })).toMatchObject({
       title: "This order is public",
       panel: "wait"
+    });
+  });
+
+  it("uses the legacy taker-found wording for the maker", () => {
+    expect(getTradeViewState({ ...baseOrder, status: 3, is_maker: true, is_taker: false })).toMatchObject({
+      title: "A taker has been found!",
+      message: {
+        body: "Please wait for the taker to lock a bond. If the taker does not lock a bond in time, the order will be made public again."
+      }
     });
   });
 

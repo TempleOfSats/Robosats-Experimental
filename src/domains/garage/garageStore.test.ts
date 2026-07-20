@@ -180,6 +180,27 @@ describe("garage order sync", () => {
     expect(released.robots.lake.releasedOrderId).toBe(89895);
   });
 
+  it("detaches an unpaid taker reservation after it returns to the public book", () => {
+    useGarageStore.setState({ slots: [makeSlot("token")], currentToken: "token", hydrated: true });
+    useGarageStore.getState().setActiveOrder("token", "lake", 89895);
+
+    useGarageStore.getState().syncOrderSnapshot({
+      token: "token",
+      shortAlias: "lake",
+      orderId: 89895,
+      status: 1,
+      isMaker: false
+    });
+    useGarageStore.getState().releaseOrderReservation("token", "lake", 89895);
+
+    const released = useGarageStore.getState().slots[0];
+    expect(released.activeOrderId).toBeUndefined();
+    expect(released.lastOrderId).toBeUndefined();
+    expect(released.robots.lake.activeOrderId).toBeUndefined();
+    expect(released.robots.lake.lastOrderId).toBeUndefined();
+    expect(released.robots.lake.releasedOrderId).toBe(89895);
+  });
+
   it("clears the release marker when the same order is taken again", () => {
     useGarageStore.setState({ slots: [makeSlot("token")], currentToken: "token", hydrated: true });
     useGarageStore.getState().setActiveOrder("token", "lake", 89895);
