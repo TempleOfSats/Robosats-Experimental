@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDownLeft, ArrowUpRight, CircleDollarSign, Globe2, Repeat2 } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, ChevronDown, CircleDollarSign, Globe2, Repeat2 } from "lucide-react";
 import { matchedPaymentMethods, paymentIconSrc, type PaymentMethodOption } from "@/domains/orderbook/paymentMethods";
 
 export type IntentPickerOption = {
@@ -274,6 +274,7 @@ export function PaymentMethodPicker({
   onSelect?: (value: string) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const selected = options.find((option) => option.name === value);
@@ -344,6 +345,7 @@ export function PaymentMethodPicker({
         <input
           aria-label={label}
           className="image-select-input"
+          ref={inputRef}
           placeholder={allowCustom ? "Type or choose a method" : "ANY"}
           value={query}
           onChange={(event) => updateQuery(event.target.value)}
@@ -358,6 +360,19 @@ export function PaymentMethodPicker({
             }
           }}
         />
+        <button
+          aria-expanded={open}
+          aria-label="Browse payment methods"
+          className="image-select-browse"
+          type="button"
+          onPointerDown={(event) => event.preventDefault()}
+          onClick={() => {
+            inputRef.current?.blur();
+            setOpen((current) => !current);
+          }}
+        >
+          <ChevronDown size={17} aria-hidden="true" />
+        </button>
       </div>
       {open ? (
         <div className="image-select-menu">
