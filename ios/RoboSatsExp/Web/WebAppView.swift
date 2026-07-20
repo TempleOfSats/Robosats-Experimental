@@ -45,7 +45,7 @@ struct WebAppView: UIViewRepresentable {
         configuration.setURLSchemeHandler(WebAppSchemeHandler(), forURLScheme: WebBridge.appScheme)
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
         configuration.websiteDataStore = .default()
-        configuration.mediaTypesRequiringUserActionForPlayback = .all
+        configuration.mediaTypesRequiringUserActionForPlayback = []
 
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = context.coordinator

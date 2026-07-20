@@ -85,6 +85,7 @@ export function nativeHttpRequest(
   return new Promise((resolve, reject) => {
     const timeout = globalThis.setTimeout(() => {
       pendingRequests.delete(requestId);
+      bridge.cancelHttpRequest?.(requestId);
       reject(new Error(`Tor request timeout after ${timeoutMs}ms`));
     }, timeoutMs);
     pendingRequests.set(requestId, { resolve, reject, timeout });
