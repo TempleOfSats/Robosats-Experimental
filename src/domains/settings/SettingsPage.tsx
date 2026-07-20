@@ -1,12 +1,13 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { ALargeSmall, BellRing, BookOpen, ChevronRight, ExternalLink, Info, Link2, Palette, RadioTower, Users, WalletCards, X } from "lucide-react";
-import { Link } from "react-router-dom";
+import { ALargeSmall, BellRing, BookOpen, ChevronRight, ExternalLink, Info, Link2, Palette, PanelsTopLeft, RadioTower, Users, WalletCards, X } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { RobotIcon } from "@/components/ui/robotIcon";
 import { Card, CardContent } from "@/components/ui/card";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
 import { selectCurrentSlot, useGarageStore } from "@/domains/garage/garageStore";
 import { readUiPreferences, saveUiPreferences } from "@/domains/settings/uiPreferences";
+import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
 import {
   getNativeNotificationState,
   getNativeTorDiagnostics,
@@ -32,6 +33,7 @@ const GarageRobotCoordinatorDialog = lazy(() =>
 );
 
 export function SettingsPage() {
+  const navigate = useNavigate();
   const {
     connection,
     coordinators,
@@ -58,6 +60,10 @@ export function SettingsPage() {
   const [selectedRobotCoordinator, setSelectedRobotCoordinator] = useState<string>();
   const robotCoordinator = displayCoordinators.find((coordinator) => coordinator.shortAlias === selectedRobotCoordinator);
   const coordinatorRobot = robotCoordinator && activeSlot ? activeSlot.robots[robotCoordinator.shortAlias] : undefined;
+  const proEnabled = useProPreferencesStore((state) => state.enabled);
+  const proSetupSeen = useProPreferencesStore((state) => state.setupSeen);
+  const setProEnabled = useProPreferencesStore((state) => state.setEnabled);
+  const markProSetupSeen = useProPreferencesStore((state) => state.markSetupSeen);
 
   useEffect(() => {
     hydrateGarage();
@@ -156,6 +162,36 @@ export function SettingsPage() {
         ) : null}
 
         <section className="settings-control-panel" aria-label="Application settings">
+          <div className="settings-control-row settings-pro-control">
+            <PanelsTopLeft className="settings-control-icon" size={20} aria-hidden="true" />
+            <div className="settings-control-body settings-toggle-control">
+              <span>
+                <span className="settings-control-label">PRO workspace</span>
+                <small>Manage several robots and active trades from one view.</small>
+              </span>
+              <button
+                className="settings-native-toggle"
+                type="button"
+                role="switch"
+                aria-checked={proEnabled}
+                aria-label="PRO workspace"
+                onClick={() => {
+                  if (proEnabled) {
+                    setProEnabled(false);
+                    return;
+                  }
+                  setProEnabled(true);
+                  if (!proSetupSeen) markProSetupSeen();
+                  navigate("/pro");
+                }}
+              >
+                <span className={`toggle-switch ${proEnabled ? "toggle-switch-on" : ""}`} aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+
+          <div className="settings-control-divider" />
+
           <div className="settings-control-row">
             <Palette className="settings-control-icon" size={20} aria-hidden="true" />
             <div className="settings-control-body">
