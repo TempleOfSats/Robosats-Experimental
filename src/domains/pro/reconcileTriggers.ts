@@ -3,6 +3,7 @@ import {
   markProOrderActionStarted,
   type GarageReconcileController
 } from "@/domains/pro/garageReconciler";
+import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
 import type { OrderHint, ProTradeLocator, ReconcileReason } from "@/domains/pro/pro.types";
 
 type ReconcileTriggerOptions = {
@@ -83,6 +84,39 @@ export function registerReconcileTriggers(options: ReconcileTriggerOptions): () 
     window.removeEventListener("robosats:order-action-start", onOrderActionStart);
     window.removeEventListener("robosats:order-action-complete", onOrderActionComplete);
     document.removeEventListener("visibilitychange", onVisibility);
+  };
+}
+
+export function registerExpiryReconcileTrigger(
+  controller: GarageReconcileController,
+  now: () => number = Date.now
+): () => void {
+  let timer: number | undefined;
+  let stopped = false;
+
+  const schedule = () => {
+    if (timer !== undefined) window.clearTimeout(timer);
+    if (stopped) return;
+    const currentTime = now();
+    const next = Object.values(useProTradeIndexStore.getState().snapshots)
+      .map((snapshot) => ({ snapshot, deadline: Date.parse(snapshot.order?.expires_at ?? "") }))
+      .filter(({ snapshot, deadline }) => snapshot.freshness !== "refreshing" && Number.isFinite(deadline) && deadline > currentTime)
+      .sort((left, right) => left.deadline - right.deadline)[0];
+    if (!next) return;
+    timer = window.setTimeout(() => {
+      timer = undefined;
+      void controller.reconcileOrder(next.snapshot.locator, "countdown-expiry")
+        .catch(() => undefined)
+        .finally(schedule);
+    }, Math.min(next.deadline - currentTime + 250, 2_147_000_000));
+  };
+
+  const unsubscribe = useProTradeIndexStore.subscribe(schedule);
+  schedule();
+  return () => {
+    stopped = true;
+    unsubscribe();
+    if (timer !== undefined) window.clearTimeout(timer);
   };
 }
 
