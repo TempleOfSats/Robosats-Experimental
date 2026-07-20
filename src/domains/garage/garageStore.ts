@@ -1,4 +1,4 @@
-import { create } from "zustand";
+import { create, type StoreApi, type UseBoundStore } from "zustand";
 import { deriveRobotIdentity, type RobotIdentity } from "@/domains/identity/robotIdentity";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import { fetchRobot } from "@/domains/garage/robotApi";
@@ -9,8 +9,7 @@ import { toUserMessage } from "@/lib/userError";
 const GARAGE_SLOTS_KEY = "robosats_exp_garage_slots";
 const GARAGE_CURRENT_SLOT_KEY = "robosats_exp_garage_current_slot";
 
-let robotRefreshInFlight: Promise<void> | undefined;
-let robotRefreshInFlightKey = "";
+const robotRefreshes = new Map<string, Promise<RefreshRobotSlotResult>>();
 
 export type RobotSlot = RobotIdentity & {
   nickname: string;
@@ -22,7 +21,7 @@ export type RobotSlot = RobotIdentity & {
   robots: Record<string, RobotRecord>;
 };
 
-type GarageState = {
+export type GarageState = {
   slots: RobotSlot[];
   currentToken?: string;
   hydrated: boolean;
@@ -39,7 +38,23 @@ type GarageState = {
     token: string,
     details: { nickname?: string; keys?: { pubKey: string; encPrivKey: string } }
   ) => void;
+  refreshRobotSlot: (token: string, coordinators: CoordinatorSummary[]) => Promise<RefreshRobotSlotResult>;
   refreshRobots: (coordinators: CoordinatorSummary[]) => Promise<void>;
+};
+
+export type RefreshRobotCoordinatorResult = {
+  shortAlias: string;
+  found?: boolean;
+  activeOrderId?: number;
+  lastOrderId?: number;
+  renewableOrderId?: number;
+  releasedOrderId?: number;
+  error?: string;
+};
+
+export type RefreshRobotSlotResult = {
+  slotId: string;
+  coordinators: RefreshRobotCoordinatorResult[];
 };
 
 export type RobotRecord = {
@@ -75,7 +90,7 @@ type StoredRobotSlot = {
   lastOrderId?: number;
 };
 
-export const useGarageStore = create<GarageState>((set, get) => ({
+export const useGarageStore: UseBoundStore<StoreApi<GarageState>> = create<GarageState>((set, get) => ({
   slots: [],
   currentToken: undefined,
   hydrated: false,
@@ -233,17 +248,20 @@ export const useGarageStore = create<GarageState>((set, get) => ({
       persistSlots(slots, state.currentToken ?? token);
       return { ...state, slots };
     }),
-  refreshRobots: async (coordinators) => {
-    const slot = get().currentSlot();
-    if (!slot || !slot.hasEnoughEntropy) return;
+  refreshRobotSlot: async (token, coordinators) => {
+    const slot = get().slots.find((item) => item.token === token);
+    if (!slot || !slot.hasEnoughEntropy) {
+      return { slotId: slot?.tokenSHA256 ?? "", coordinators: [] };
+    }
 
     // Reachability is a stale hint, not an authorization boundary. A Tor
     // coordinator may recover between federation refresh and robot refresh.
     const targets = coordinators.filter((coordinator) => coordinator.enabled && coordinator.url);
-    if (targets.length === 0) return;
+    if (targets.length === 0) return { slotId: slot.tokenSHA256, coordinators: [] };
 
     const refreshKey = robotRefreshKey(slot, targets);
-    if (robotRefreshInFlight && robotRefreshInFlightKey === refreshKey) return robotRefreshInFlight;
+    const existingRefresh = robotRefreshes.get(refreshKey);
+    if (existingRefresh) return existingRefresh;
 
     const refresh = (async () => {
       const keys = await ensureSlotKeys(slot);
@@ -355,16 +373,31 @@ export const useGarageStore = create<GarageState>((set, get) => ({
         persistSlots(slots, state.currentToken ?? slot.token);
         return { ...state, slots };
       });
-    })().finally(() => {
-      if (robotRefreshInFlight === refresh) {
-        robotRefreshInFlight = undefined;
-        robotRefreshInFlightKey = "";
-      }
-    });
+      const refreshedSlot = get().slots.find((item) => item.token === slot.token);
+      return {
+        slotId: slot.tokenSHA256,
+        coordinators: results.map((result) => {
+          const robot = refreshedSlot?.robots[result.shortAlias];
+          return {
+            shortAlias: result.shortAlias,
+            found: robot?.found,
+            activeOrderId: robot?.activeOrderId,
+            lastOrderId: robot?.lastOrderId,
+            renewableOrderId: robot?.renewableOrderId,
+            releasedOrderId: robot?.releasedOrderId,
+            error: robot?.error
+          };
+        })
+      } satisfies RefreshRobotSlotResult;
+    })().finally(() => robotRefreshes.delete(refreshKey));
 
-    robotRefreshInFlight = refresh;
-    robotRefreshInFlightKey = refreshKey;
+    robotRefreshes.set(refreshKey, refresh);
     return refresh;
+  },
+  refreshRobots: async (coordinators) => {
+    const slot = get().currentSlot();
+    if (!slot) return;
+    await get().refreshRobotSlot(slot.token, coordinators);
   }
 }));
 

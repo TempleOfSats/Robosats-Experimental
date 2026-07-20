@@ -81,6 +81,7 @@ export const useOrderStore = create<OrderState>((set, get) => ({
     const requestId = ++requestSequence;
     const previousOrder = get().order;
     set({ submitting: true, refreshing: false, error: undefined });
+    dispatchOrderActionEvent("robosats:order-action-start", slot, coordinator.shortAlias, orderId);
     try {
       const order = {
         ...(await submitOrderAction(coordinator.url, orderId, payload, auth)),
@@ -107,6 +108,8 @@ export const useOrderStore = create<OrderState>((set, get) => ({
         submitting: false,
         error: toUserMessage(error, "Could not update the order.")
       });
+    } finally {
+      dispatchOrderActionEvent("robosats:order-action-complete", slot, coordinator.shortAlias, orderId);
     }
   },
   clearOrder: () => {
@@ -148,4 +151,16 @@ function isReleasedEarlyTake(
     && !previousOrder.is_maker
     && order.status === 1
     && !order.is_maker;
+}
+
+function dispatchOrderActionEvent(
+  name: "robosats:order-action-start" | "robosats:order-action-complete",
+  slot: RobotSlot | undefined,
+  shortAlias: string,
+  orderId: number
+): void {
+  if (!slot || typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(name, {
+    detail: { slotId: slot.tokenSHA256, shortAlias, orderId }
+  }));
 }
