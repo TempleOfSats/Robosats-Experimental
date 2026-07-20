@@ -489,14 +489,17 @@ function ContractPanel({
 
   return (
     <div className="trade-contract-stack">
-{isPublicMakerWait ? (
-        <div className="trade-public-wait-notice" role="status">
-          <Clock size={18} aria-hidden="true" />
-          <span>
-            <strong>Waiting for a taker</strong>
-            <small>Be patient while robots check the book.</small>
-          </span>
-        </div>
+      {isPublicMakerWait ? (
+        <>
+          <div className="trade-public-wait-notice" role="status">
+            <Clock size={18} aria-hidden="true" />
+            <span>
+              <strong>Waiting for a taker</strong>
+              <small>Be patient while robots check the book.</small>
+            </span>
+          </div>
+          <TradeActionSurface actions={actions} canSubmit={canSubmit} loading={loading} onSubmit={onSubmitCommand} />
+        </>
       ) : !isInvoicePaymentStep && !isChatStep && !isDisputeStep && !isPayoutStep && !isRenewalStep && !isSuccessStep && !isRoutingStep ? (
         <Card className="trade-contract-card">
           <CardHeader className="trade-contract-title-row">
@@ -622,7 +625,7 @@ function OrderDetailsPanel({
     (Boolean(order.escrow_invoice) && (order.status === 6 || order.status === 7));
   const coordinatorName = coordinator?.longAlias || coordinator?.shortAlias || order.shortAlias || coordinatorAlias || "Coordinator";
   const coordinatorAvatar = coordinator?.smallAvatarUrl || (coordinatorAlias ? getCoordinatorAvatarUrl(coordinatorAlias, "small") : "");
-  const preferenceKey = `robosats_order_details_${coordinatorAlias}_${order.id}`;
+  const preferenceKey = `robosats_order_details_${coordinatorAlias}_${order.id}_${order.status}`;
   const [detailsOpen, setDetailsOpen] = useState(() => readOrderDetailsPreference(preferenceKey, defaultOpen));
 
   useEffect(() => {
