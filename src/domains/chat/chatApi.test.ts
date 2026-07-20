@@ -39,7 +39,12 @@ describe("chatApi", () => {
 
     await fetchChatMessages("https://coordinator", 123, 4, auth, client);
 
-    expect(client.get).toHaveBeenCalledWith("https://coordinator", "/api/chat/?order_id=123&offset=4", auth);
+    expect(client.get).toHaveBeenCalledWith(
+      "https://coordinator",
+      "/api/chat/?order_id=123&offset=4",
+      auth,
+      { timeoutProfile: "background" }
+    );
   });
 
   it("posts encrypted chat messages with current field names", async () => {
@@ -60,7 +65,8 @@ describe("chatApi", () => {
         PGP_message: "-----BEGIN PGP MESSAGE-----\\body",
         offset: 4
       },
-      auth
+      auth,
+      { timeoutProfile: "action" }
     );
   });
 
@@ -86,7 +92,8 @@ describe("chatApi", () => {
         PGP_message: "# payment reference\nline 2",
         offset: 4
       },
-      auth
+      auth,
+      { timeoutProfile: "action" }
     );
   });
 });

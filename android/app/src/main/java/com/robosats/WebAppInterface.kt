@@ -36,6 +36,8 @@ class WebAppInterface(
     private val context: MainActivity,
     private val webView: WebView
 ) {
+    private val httpCalls = ConcurrentHashMap<String, Call>()
+    private val cancelledBeforeStart = ConcurrentHashMap.newKeySet<String>()
     private val webSockets = ConcurrentHashMap<String, WebSocket>()
     private val closedBeforeOpen = ConcurrentHashMap.newKeySet<String>()
     private val storageKey = Regex("^[A-Za-z0-9_.:-]{1,128}$")
@@ -157,23 +159,40 @@ class WebAppInterface(
 
                 runCatching { NativeNetworkClient.requireClient() }
                     .onSuccess { client ->
-                        client.newCall(request).enqueue(object : Callback {
+                        val call = client.newCall(request)
+                        if (cancelledBeforeStart.remove(requestId)) {
+                            call.cancel()
+                            return@onSuccess
+                        }
+                        httpCalls[requestId] = call
+                        call.enqueue(object : Callback {
                             override fun onFailure(call: Call, e: IOException) {
+                                if (!httpCalls.remove(requestId, call)) return
                                 reject(requestId, e.message ?: "Tor request failed")
                                 context.recoverTransportAfterFailure()
                             }
 
                             override fun onResponse(call: Call, response: Response) {
-                                response.use {
-                                    val responseHeaders = JSONObject()
-                                    response.headers.names().forEach { name ->
-                                        responseHeaders.put(name.lowercase(), response.headers.values(name).joinToString(", "))
+                                if (httpCalls[requestId] !== call) {
+                                    response.close()
+                                    return
+                                }
+                                try {
+                                    response.use {
+                                        val responseHeaders = JSONObject()
+                                        response.headers.names().forEach { name ->
+                                            responseHeaders.put(name.lowercase(), response.headers.values(name).joinToString(", "))
+                                        }
+                                        val result = JSONObject()
+                                            .put("status", response.code)
+                                            .put("headers", responseHeaders)
+                                            .put("body", response.body.string())
+                                        if (httpCalls.remove(requestId, call)) resolve(requestId, result)
                                     }
-                                    val result = JSONObject()
-                                        .put("status", response.code)
-                                        .put("headers", responseHeaders)
-                                        .put("body", response.body.string())
-                                    resolve(requestId, result)
+                                } catch (error: Throwable) {
+                                    if (!httpCalls.remove(requestId, call)) return
+                                    reject(requestId, error.message ?: "Tor response failed")
+                                    context.recoverTransportAfterFailure()
                                 }
                             }
                         })
@@ -188,6 +207,13 @@ class WebAppInterface(
             Log.e(TAG, "Native HTTP request failed", error)
             reject(requestId, error.message ?: "Tor request failed")
         }
+    }
+
+    @JavascriptInterface
+    fun cancelHttpRequest(requestId: String) {
+        if (!isIdentifier(requestId)) return
+        val call = httpCalls.remove(requestId)
+        if (call == null) cancelledBeforeStart.add(requestId) else call.cancel()
     }
 
     @JavascriptInterface
@@ -295,6 +321,9 @@ class WebAppInterface(
     }
 
     fun closeAll() {
+        httpCalls.values.forEach { it.cancel() }
+        httpCalls.clear()
+        cancelledBeforeStart.clear()
         webSockets.values.forEach { it.cancel() }
         webSockets.clear()
         closedBeforeOpen.clear()

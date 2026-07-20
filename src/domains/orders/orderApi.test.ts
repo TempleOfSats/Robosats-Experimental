@@ -19,12 +19,12 @@ describe("orderApi", () => {
       delete: vi.fn()
     } satisfies ApiClient;
 
-    await expect(fetchOrder("https://coordinator", 123, auth, client)).resolves.toMatchObject({
+    await expect(fetchOrder("https://coordinator", 123, auth, undefined, client)).resolves.toMatchObject({
       id: 123,
       status: 1,
       satoshis: 0
     });
-    expect(client.get).toHaveBeenCalledWith("https://coordinator", "/api/order/?order_id=123", auth);
+    expect(client.get).toHaveBeenCalledWith("https://coordinator", "/api/order/?order_id=123", auth, undefined);
   });
 
   it("submits current order action payloads", async () => {
@@ -47,7 +47,8 @@ describe("orderApi", () => {
       "https://coordinator",
       "/api/order/?order_id=123",
       { action: "update_invoice", invoice: "signed", routing_budget_ppm: 1000 },
-      { tokenSHA256: "robot-token" }
+      { tokenSHA256: "robot-token" },
+      { timeoutProfile: "action" }
     );
   });
 

@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { RobotAvatar } from "@/domains/identity/RobotAvatar";
 import { createWebSocket } from "@/domains/transport/androidBridge";
 import { playTradeAudio } from "@/domains/audio/audioController";
+import { chatPollDelayMs, chatReconnectDelayMs } from "@/domains/chat/chatRefresh";
 
 export function ChatStagePanel({
   auth,
@@ -62,16 +63,20 @@ export function ChatStagePanel({
   useEffect(() => {
     if (previewMode) return;
     const reconnect = () => setConnectionEpoch((value) => value + 1);
+    const reconnectWhenVisible = () => {
+      if (document.visibilityState === "visible") reconnect();
+    };
     window.addEventListener("robosats:tor-reconnected", reconnect);
-    return () => window.removeEventListener("robosats:tor-reconnected", reconnect);
+    window.addEventListener("robosats:native-resume", reconnect);
+    window.addEventListener("online", reconnect);
+    document.addEventListener("visibilitychange", reconnectWhenVisible);
+    return () => {
+      window.removeEventListener("robosats:tor-reconnected", reconnect);
+      window.removeEventListener("robosats:native-resume", reconnect);
+      window.removeEventListener("online", reconnect);
+      document.removeEventListener("visibilitychange", reconnectWhenVisible);
+    };
   }, [previewMode]);
-
-  useEffect(() => {
-    if (previewMode || !canLoad) return;
-    const catchUp = () => void loadMessages(lastIndex);
-    window.addEventListener("robosats:native-resume", catchUp);
-    return () => window.removeEventListener("robosats:native-resume", catchUp);
-  }, [canLoad, lastIndex, previewMode]);
 
   useEffect(() => {
     const element = messagesRef.current;
@@ -85,14 +90,14 @@ export function ChatStagePanel({
     void playTradeAudio("chat-open").catch(() => undefined);
   }, [messages.length, previewMode]);
 
-  async function loadMessages(offset = lastIndex) {
+  async function loadMessages(offset = lastIndex, reportError = true) {
     if (!baseUrl || !auth || !canLoad) return;
-    setError("");
+    if (reportError) setError("");
     try {
       const response = await fetchChatMessages(baseUrl, orderId, offset, auth);
       await applyChatResponse(response);
     } catch (loadError) {
-      setError(toUserMessage(loadError, "Could not load chat."));
+      if (reportError) setError(toUserMessage(loadError, "Could not load chat."));
     }
   }
 
@@ -182,8 +187,11 @@ export function ChatStagePanel({
   }, [canLoad, connectionEpoch, orderId, previewMode]);
 
   useEffect(() => {
-    if (!canLoad || previewMode || socketConnected) return;
-    const interval = window.setInterval(() => void loadMessages(lastIndex), 10000);
+    if (!canLoad || previewMode) return;
+    const interval = window.setInterval(
+      () => void loadMessages(lastIndex, false),
+      chatPollDelayMs(socketConnected)
+    );
     return () => window.clearInterval(interval);
   }, [canLoad, lastIndex, orderId, previewMode, socketConnected]);
 
@@ -211,9 +219,9 @@ export function ChatStagePanel({
       socket.onclose = () => {
         if (socketRef.current === socket) socketRef.current = undefined;
         setSocketConnected(false);
-        if (disposed || attempts >= 2) return;
+        if (disposed) return;
         attempts += 1;
-        reconnectTimer = window.setTimeout(connect, attempts * 1500);
+        reconnectTimer = window.setTimeout(connect, chatReconnectDelayMs(attempts));
       };
     };
 

@@ -9,7 +9,12 @@ export async function fetchChatMessages(
   auth: Auth,
   client: ApiClient = apiClient
 ): Promise<ChatResponse> {
-  const data = await client.get<ChatApiResponse>(baseUrl, apiRoutes.chat(orderId, offset), auth);
+  const data = await client.get<ChatApiResponse>(
+    baseUrl,
+    apiRoutes.chat(orderId, offset),
+    auth,
+    { timeoutProfile: "background" }
+  );
   return normalizeChatResponse(data);
 }
 
@@ -29,7 +34,8 @@ export async function postChatMessage(
       PGP_message: escapeChatPayload(encryptedMessage),
       offset
     },
-    auth
+    auth,
+    { timeoutProfile: "action" }
   );
   return normalizeChatResponse(data);
 }

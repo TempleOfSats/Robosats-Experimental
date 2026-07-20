@@ -5571,7 +5571,7 @@
 }
 
 .maker-method-field .image-select-input {
-  min-height: 2.35rem;
+  min-height: 3rem;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -5595,7 +5595,7 @@
 .maker-select-shell select {
   width: 100%;
   min-width: 0;
-  min-height: 2.35rem;
+  min-height: 3rem;
   color: var(--foreground);
   background: transparent;
   border: 0;
@@ -5737,7 +5737,14 @@
   cursor: pointer;
   color: var(--foreground);
   font-weight: 600;
-  padding: 0.75rem 0.9rem;
+  padding: 0.6rem 0.9rem;
+}
+
+.maker-step-panel .field-block input,
+.maker-step-panel .field-block select,
+.maker-step-panel .image-select-combo,
+.maker-step-panel .maker-clock-summary {
+  min-height: 3rem;
 }
 
 .maker-amount-advanced > .maker-grid,
@@ -8565,6 +8572,24 @@
   align-items: center;
   gap: 1.1rem;
   padding: 0 1.2rem;
+}
+
+.coordinator-avatar-button {
+  appearance: none;
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.coordinator-avatar-button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
 }
 
 .garage-robot-dialog header h2 {

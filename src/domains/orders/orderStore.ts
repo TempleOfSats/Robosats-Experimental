@@ -44,7 +44,10 @@ export const useOrderStore = create<OrderState>((set, get) => ({
     const requestId = ++requestSequence;
     set((state) => ({ loading: !state.order, refreshing: Boolean(state.order), error: undefined }));
     try {
-      const order = { ...(await fetchOrder(coordinator.url, orderId, auth)), shortAlias: coordinator.shortAlias };
+      const order = {
+        ...(await fetchOrder(coordinator.url, orderId, auth, { timeoutProfile: "background" })),
+        shortAlias: coordinator.shortAlias
+      };
       if (requestId !== requestSequence) return;
       syncGarageOrder(slot, coordinator.shortAlias, order);
       set({ order, loading: false, refreshing: false });

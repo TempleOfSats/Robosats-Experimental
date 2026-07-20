@@ -18,22 +18,5 @@ export function tradeAudioEventForOrderTransition(
   status: number
 ): TradeAudioEvent | null {
   if (previousStatus === undefined || previousStatus === status) return null;
-
-  if (status === 1) {
-    return previousStatus === 2 ? null : notificationAudioEvent(status);
-  }
-  if (status === 4 || status === 5) {
-    return [1, 2].includes(previousStatus) ? notificationAudioEvent(status) : null;
-  }
-  if (status === 9) {
-    return previousStatus === 10 ? null : notificationAudioEvent(status);
-  }
-  if (status === 14) {
-    return previousStatus === 13 ? null : notificationAudioEvent(status);
-  }
-  if ([6, 11, 12, 13, 15, 17, 18].includes(status)) {
-    return notificationAudioEvent(status);
-  }
-
-  return null;
+  return notificationAudioEvent(status);
 }

@@ -102,7 +102,6 @@
         translate: 3px 12px;
         filter: invert(1);
         opacity: 0.94;
-        animation: app-boot-breathe 2.4s ease-in-out infinite;
       }
 
       :root[data-theme="light"] .app-boot-mark img {
@@ -175,13 +174,6 @@
         to { transform: rotate(360deg); }
       }
 
-      @keyframes app-boot-breathe {
-        50% {
-          transform: scale(1.04);
-          opacity: 1;
-        }
-      }
-
       @media (prefers-reduced-motion: reduce) {
         #app-boot,
         .app-boot-message,
@@ -189,8 +181,7 @@
           transition-duration: 0.01ms;
         }
 
-        .app-boot-mark::after,
-        .app-boot-mark img {
+        .app-boot-mark::after {
           animation: none;
         }
       }

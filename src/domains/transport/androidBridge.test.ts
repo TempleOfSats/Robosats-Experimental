@@ -56,6 +56,25 @@ describe("Native transport bridge", () => {
     );
   });
 
+  it("cancels a native HTTP call when the browser timeout expires", async () => {
+    vi.useFakeTimers();
+    const cancelHttpRequest = vi.fn();
+    vi.stubGlobal("window", {
+      AndroidAppRobosats: {
+        httpRequest: vi.fn(),
+        cancelHttpRequest
+      }
+    });
+
+    const { nativeHttpRequest } = await import("./androidBridge");
+    const request = nativeHttpRequest("http://coordinator.onion/api/", {}, 1_000);
+    const rejection = expect(request).rejects.toThrow("Tor request timeout after 1000ms");
+    await vi.advanceTimersByTimeAsync(1_000);
+    await rejection;
+    expect(cancelHttpRequest).toHaveBeenCalledOnce();
+    vi.useRealTimers();
+  });
+
   it("discards sends after close like a browser WebSocket", async () => {
     const bridgeWindow = {
       AndroidAppRobosats: {
