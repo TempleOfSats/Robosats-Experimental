@@ -1,0 +1,114 @@
+import {
+  markProOrderActionFinished,
+  markProOrderActionStarted,
+  type GarageReconcileController
+} from "@/domains/pro/garageReconciler";
+import type { OrderHint, ProTradeLocator, ReconcileReason } from "@/domains/pro/pro.types";
+
+type ReconcileTriggerOptions = {
+  controller: GarageReconcileController;
+  proEnabled: () => boolean;
+  reconcileCurrent: (reason: ReconcileReason) => Promise<void>;
+  intervalMs?: number;
+  debounceMs?: number;
+};
+
+export function registerReconcileTriggers(options: ReconcileTriggerOptions): () => void {
+  const intervalMs = options.intervalMs ?? 60_000;
+  const debounceMs = options.debounceMs ?? 750;
+  let debounceTimer: number | undefined;
+  let intervalTimer: number | undefined;
+  let stopped = false;
+
+  const run = (reason: ReconcileReason) => {
+    if (stopped) return;
+    const operation = options.proEnabled()
+      ? options.controller.reconcileAll(reason)
+      : options.reconcileCurrent(reason);
+    void operation.catch(() => undefined);
+  };
+
+  const debounce = (reason: ReconcileReason) => {
+    if (debounceTimer !== undefined) window.clearTimeout(debounceTimer);
+    debounceTimer = window.setTimeout(() => run(reason), debounceMs);
+  };
+
+  const onTorReady = () => run("tor-ready");
+  const onTorReconnected = () => {
+    options.controller.invalidateEpoch();
+    run("tor-reconnected");
+  };
+  const onFocus = () => debounce("window-focus");
+  const onVisibility = () => {
+    if (document.visibilityState === "visible") debounce("visibility-resume");
+  };
+  const onOnline = () => debounce("online");
+  const onOrderHint = (event: Event) => {
+    const hint = validOrderHint((event as CustomEvent<unknown>).detail);
+    if (hint) void options.controller.handleOrderHint(hint).catch(() => undefined);
+  };
+  const onOrderActionStart = (event: Event) => {
+    const locator = validLocator((event as CustomEvent<unknown>).detail);
+    if (locator) markProOrderActionStarted(locator);
+  };
+  const onOrderActionComplete = (event: Event) => {
+    const locator = validLocator((event as CustomEvent<unknown>).detail);
+    if (!locator) return;
+    markProOrderActionFinished(locator);
+    void options.controller.reconcileOrder(locator, "order-action").catch(() => undefined);
+  };
+
+  window.addEventListener("robosats:tor-ready", onTorReady);
+  window.addEventListener("robosats:tor-reconnected", onTorReconnected);
+  window.addEventListener("focus", onFocus);
+  window.addEventListener("online", onOnline);
+  window.addEventListener("robosats:order-hint", onOrderHint);
+  window.addEventListener("robosats:order-action-start", onOrderActionStart);
+  window.addEventListener("robosats:order-action-complete", onOrderActionComplete);
+  document.addEventListener("visibilitychange", onVisibility);
+
+  intervalTimer = window.setInterval(() => {
+    if (options.proEnabled() && document.visibilityState === "visible") run("interval");
+  }, intervalMs);
+
+  return () => {
+    stopped = true;
+    if (debounceTimer !== undefined) window.clearTimeout(debounceTimer);
+    if (intervalTimer !== undefined) window.clearInterval(intervalTimer);
+    window.removeEventListener("robosats:tor-ready", onTorReady);
+    window.removeEventListener("robosats:tor-reconnected", onTorReconnected);
+    window.removeEventListener("focus", onFocus);
+    window.removeEventListener("online", onOnline);
+    window.removeEventListener("robosats:order-hint", onOrderHint);
+    window.removeEventListener("robosats:order-action-start", onOrderActionStart);
+    window.removeEventListener("robosats:order-action-complete", onOrderActionComplete);
+    document.removeEventListener("visibilitychange", onVisibility);
+  };
+}
+
+function validOrderHint(value: unknown): OrderHint | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const hint = value as Partial<OrderHint>;
+  if (!isString(hint.recipientPubkey) || !isString(hint.coordinatorPubkey)) return undefined;
+  if (!isString(hint.eventId) || !isFiniteNumber(hint.createdAt)) return undefined;
+  if (hint.shortAlias !== undefined && !isString(hint.shortAlias)) return undefined;
+  if (hint.orderId !== undefined && (!Number.isInteger(hint.orderId) || hint.orderId <= 0)) return undefined;
+  if (hint.status !== undefined && !Number.isInteger(hint.status)) return undefined;
+  return hint as OrderHint;
+}
+
+function validLocator(value: unknown): ProTradeLocator | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const locator = value as Partial<ProTradeLocator>;
+  if (!isString(locator.slotId) || !isString(locator.shortAlias)) return undefined;
+  if (!Number.isInteger(locator.orderId) || (locator.orderId ?? 0) <= 0) return undefined;
+  return locator as ProTradeLocator;
+}
+
+function isString(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0;
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
