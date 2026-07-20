@@ -1,7 +1,8 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { ALargeSmall, BellRing, BookOpen, Bot, ChevronRight, ExternalLink, Info, Link2, Palette, RadioTower, Users, WalletCards, X } from "lucide-react";
+import { ALargeSmall, BellRing, BookOpen, ChevronRight, ExternalLink, Info, Link2, Palette, RadioTower, Users, WalletCards, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import { RobotIcon } from "@/components/ui/robotIcon";
 import { Card, CardContent } from "@/components/ui/card";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
 import { selectCurrentSlot, useGarageStore } from "@/domains/garage/garageStore";
@@ -235,7 +236,7 @@ export function SettingsPage() {
           <div className="settings-control-divider" />
 
           <div className="settings-control-row settings-coordinator-control">
-            <Bot className="settings-control-icon" size={20} aria-hidden="true" />
+            <RobotIcon className="settings-control-icon" size={20} />
             <div className="settings-control-body">
               <button
                 className="settings-coordinators-button"
@@ -280,7 +281,7 @@ export function SettingsPage() {
               </details>
               <details className="settings-resource-disclosure">
                 <summary className="settings-resource-row">
-                  <Bot size={18} />
+                  <RobotIcon size={18} />
                   <span><strong>Client info</strong><small>Runtime and connection details</small></span>
                 </summary>
                 <dl className="settings-client-summary">

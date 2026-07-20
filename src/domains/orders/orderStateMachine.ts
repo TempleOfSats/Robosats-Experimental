@@ -17,7 +17,7 @@ function viewForOrder(order: OrderDto): ViewOverrides {
     case 1:
       return order.is_maker
         ? view("Your order is public", "default", "wait", order.maker_locked ? "locked" : "hide", "public_order",
-            "Waiting for a taker", publicWaitBody(order), "If the order expires untaken, your bond returns automatically.")
+            "Waiting for a taker", publicWaitBody(order), "If the order expires untaken, your bond will return to you (no action needed).")
         : wait("This order is public", "It is available in the order book, but it does not belong to this robot.");
     case 2:
       return view("Your order is paused", "muted", "none", order.is_maker && order.maker_locked ? "locked" : "hide", "paused_order",
@@ -26,8 +26,8 @@ function viewForOrder(order: OrderDto): ViewOverrides {
       return order.is_taker
         ? view("Lock your bond to take the order", "warning", "pay_bond", "hide", "bond_invoice",
             "Lock the taker bond", "This hold invoice formalizes the contract and freezes your fidelity bond.", "Once locked, collateral and payout setup begin.")
-        : view("A taker has been found", "warning", "wait", "locked", "taker_found",
-            "Waiting for the taker bond", "Please wait for the taker to lock a bond. If they do not lock it in time, the order becomes public again.", "No action is required from you.");
+        : view("A taker has been found!", "warning", "wait", "locked", "taker_found",
+            "Waiting for the taker bond", "Please wait for the taker to lock a bond. If the taker does not lock a bond in time, the order will be made public again.", "No action is required from you.");
     case 4:
       return view("Order cancelled", "muted", "none", "hide", "cancelled",
         "This order was cancelled", "The contract did not complete.", "You can create or take another order.");
@@ -139,7 +139,7 @@ function formatDuration(seconds = 0): string {
 }
 
 function publicWaitBody(order: OrderDto): string {
-  return `Be patient while robots check the book. Once a taker appears, you have ${formatDuration(order.escrow_duration)} to complete trade setup or you may risk your bond.`;
+  return `Be patient while robots check the book. This box will ring once a robot takes your order, then you will have ${formatDuration(order.escrow_duration)} to reply. If you do not reply, you risk losing your bond.`;
 }
 
 function routingFailureBody(order: OrderDto): string {
