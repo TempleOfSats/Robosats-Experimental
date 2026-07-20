@@ -534,7 +534,7 @@ function AmountStep({
               value={draft.publicDuration}
               minSeconds={PUBLIC_DURATION_MIN_SECONDS}
               maxSeconds={PUBLIC_DURATION_MAX_SECONDS}
-              presetSeconds={[3 * 60 * 60, 6 * 60 * 60, 8 * 60 * 60, 12 * 60 * 60, PUBLIC_DURATION_MAX_SECONDS]}
+              presetSeconds={[3 * 60 * 60, 6 * 60 * 60, 12 * 60 * 60, PUBLIC_DURATION_MAX_SECONDS]}
               onChange={(value) => updateDraft({ publicDuration: value })}
             />
             <TimeClockField
@@ -953,7 +953,10 @@ function formatClockDuration(seconds: number): string {
 function durationPresets(minSeconds: number, maxSeconds: number, requested?: number[]): Array<{ label: string; value: string }> {
   const candidates = requested ?? [15 * 60, 60 * 60, 3 * 60 * 60, 6 * 60 * 60, 8 * 60 * 60, 12 * 60 * 60, PUBLIC_DURATION_MAX_SECONDS];
   const unique = new Set(candidates.filter((value) => value >= minSeconds && value <= maxSeconds));
-  return Array.from(unique).map((value) => ({ label: formatClockDuration(value), value: String(value) }));
+  return Array.from(unique).map((value) => ({
+    label: value === PUBLIC_DURATION_MAX_SECONDS ? "24:00" : formatClockDuration(value),
+    value: String(value)
+  }));
 }
 
 function ReviewItem({ help, icon, label, value }: { help?: string; icon?: ReactNode; label: string; value: string }) {

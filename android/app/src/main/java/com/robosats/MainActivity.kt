@@ -3,7 +3,6 @@ package com.robosats
 import android.Manifest
 import android.annotation.SuppressLint
 import android.animation.ObjectAnimator
-import android.animation.PropertyValuesHolder
 import android.animation.ValueAnimator
 import android.content.Intent
 import android.content.pm.ApplicationInfo
@@ -16,7 +15,6 @@ import android.os.Bundle
 import android.os.SystemClock
 import android.util.Log
 import android.view.View
-import android.view.animation.AccelerateDecelerateInterpolator
 import android.view.animation.LinearInterpolator
 import android.webkit.ConsoleMessage
 import android.webkit.CookieManager
@@ -54,7 +52,6 @@ import kotlin.math.roundToInt
 class MainActivity : AppCompatActivity() {
     private lateinit var webView: WebView
     private lateinit var loadingContainer: View
-    private lateinit var appLogo: ImageView
     private lateinit var torOrbit: ImageView
     private lateinit var loadingTitleView: TextView
     private lateinit var statusTextView: TextView
@@ -116,7 +113,6 @@ class MainActivity : AppCompatActivity() {
 
         webView = findViewById(R.id.webView)
         loadingContainer = findViewById(R.id.loadingContainer)
-        appLogo = findViewById(R.id.appLogo)
         torOrbit = findViewById(R.id.torOrbit)
         loadingTitleView = findViewById(R.id.loadingTitleView)
         statusTextView = findViewById(R.id.statusTextView)
@@ -177,7 +173,7 @@ class MainActivity : AppCompatActivity() {
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             cacheMode = WebSettings.LOAD_DEFAULT
             setGeolocationEnabled(false)
-            mediaPlaybackRequiresUserGesture = true
+            mediaPlaybackRequiresUserGesture = false
             setSupportMultipleWindows(false)
             userAgentString = "$userAgentString RoboSatsExp/0.1"
         }
@@ -293,18 +289,6 @@ class MainActivity : AppCompatActivity() {
             duration = 5200L
             repeatCount = ValueAnimator.INFINITE
             interpolator = LinearInterpolator()
-            start()
-        }
-
-        ObjectAnimator.ofPropertyValuesHolder(
-            appLogo,
-            PropertyValuesHolder.ofFloat(View.SCALE_X, 1f, 1.045f, 1f),
-            PropertyValuesHolder.ofFloat(View.SCALE_Y, 1f, 1.045f, 1f),
-            PropertyValuesHolder.ofFloat(View.ALPHA, 0.88f, 1f, 0.88f)
-        ).apply {
-            duration = 2400L
-            repeatCount = ValueAnimator.INFINITE
-            interpolator = AccelerateDecelerateInterpolator()
             start()
         }
 

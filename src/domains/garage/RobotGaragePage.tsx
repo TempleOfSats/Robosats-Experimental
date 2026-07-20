@@ -7,7 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { VisualSelect } from "@/components/ui/visualSelect";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
+import { CoordinatorDetailDialog } from "@/domains/coordinators/CoordinatorsPage";
 import { compareCoordinatorsByEstablished } from "@/domains/coordinators/coordinatorOrder";
+import { fetchCoordinatorRatings, type CoordinatorRating } from "@/domains/coordinators/coordinatorRatings";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
 import { getRobotAuthForCoordinator, selectCurrentSlot, type RobotRecord, useGarageStore } from "@/domains/garage/garageStore";
 import { TelegramSetupDialog } from "@/domains/garage/TelegramSetupDialog";
@@ -566,7 +568,18 @@ export function RobotCoordinatorDialog({
   const canSetUpTelegram = Boolean(robot?.tgBotName && robot.tgToken);
   const [showTelegramSetup, setShowTelegramSetup] = useState(false);
   const [showRewardWithdrawal, setShowRewardWithdrawal] = useState(false);
+  const [showCoordinatorDetails, setShowCoordinatorDetails] = useState(false);
+  const [coordinatorRating, setCoordinatorRating] = useState<CoordinatorRating>({ score: 0, count: 0 });
   const refreshRobots = useGarageStore((state) => state.refreshRobots);
+  const network = useFederationStore((state) => state.network);
+  const lastRefreshed = useFederationStore((state) => state.lastRefreshed);
+
+  function openCoordinatorDetails() {
+    setShowCoordinatorDetails(true);
+    void fetchCoordinatorRatings([coordinator])
+      .then((ratings) => setCoordinatorRating(ratings[coordinator.shortAlias] ?? { score: 0, count: 0 }))
+      .catch(() => setCoordinatorRating({ score: 0, count: 0 }));
+  }
 
   return (
     <div className="garage-robot-dialog-overlay" onClick={onClose}>
@@ -575,7 +588,14 @@ export function RobotCoordinatorDialog({
           <X size={20} />
         </button>
         <header>
-          <img className="coordinator-avatar coordinator-avatar-sm" src={coordinator.smallAvatarUrl} alt="" />
+          <button
+            className="coordinator-avatar-button"
+            type="button"
+            aria-label={`View ${coordinator.longAlias} details`}
+            onClick={openCoordinatorDetails}
+          >
+            <img className="coordinator-avatar coordinator-avatar-sm" src={coordinator.smallAvatarUrl} alt="" />
+          </button>
           <h2>{coordinator.longAlias}</h2>
         </header>
 
@@ -622,6 +642,17 @@ export function RobotCoordinatorDialog({
 
       {showTelegramSetup && robot?.tgBotName && robot.tgToken ? (
         <TelegramSetupDialog botName={robot.tgBotName} token={robot.tgToken} onClose={() => setShowTelegramSetup(false)} />
+      ) : null}
+
+      {showCoordinatorDetails ? (
+        <CoordinatorDetailDialog
+          compact
+          coordinator={coordinator}
+          lastRefreshed={lastRefreshed}
+          network={network}
+          rating={coordinatorRating}
+          onClose={() => setShowCoordinatorDetails(false)}
+        />
       ) : null}
 
       {showRewardWithdrawal && rewards > 0 ? (

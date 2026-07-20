@@ -451,6 +451,7 @@ export function OffersPage() {
                 <div className="filter-select-field filter-select-field-wide">
                   <span>{intentIsSwap(intentFilter) ? "Destination" : "Method"}</span>
                   <PaymentMethodPicker
+                    defaultIcon={<CurrencyFlag code="ANY" size={18} />}
                     label={intentIsSwap(intentFilter) ? "Filter by swap destination" : "Filter by payment method"}
                     options={methodOptions}
                     value={methodFilter}
