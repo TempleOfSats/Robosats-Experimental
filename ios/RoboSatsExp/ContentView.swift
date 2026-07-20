@@ -22,7 +22,7 @@ struct ContentView: View {
                 .transition(.opacity)
             }
         }
-        .background(Color(red: 0.043, green: 0.035, blue: 0.035))
+        .background(Color(red: 0.035, green: 0.043, blue: 0.063))
         .task { tor.start() }
         .onChange(of: scenePhase) { phase in
             if phase == .active { tor.resume() }

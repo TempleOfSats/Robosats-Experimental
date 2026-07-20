@@ -42,7 +42,6 @@
   width: 1.25rem;
   height: 1.25rem;
   flex: 0 0 auto;
-  filter: invert(1);
 }
 
 .desktop-titlebar-brand strong {
@@ -81,7 +80,7 @@
 }
 
 .desktop-titlebar-status.connected > span:first-child {
-  background: var(--success);
+  background: var(--coordinator-online);
 }
 
 .desktop-window-command {
@@ -473,7 +472,6 @@
   max-width: 100%;
   height: auto;
   margin-top: 0.1rem;
-  filter: invert(1);
 }
 
 .robosats-logo-picture {
@@ -817,7 +815,7 @@
 }
 
 .settings-tor-connected {
-  color: var(--success) !important;
+  color: var(--info-foreground) !important;
 }
 
 .settings-control-row {
@@ -883,8 +881,8 @@
 }
 
 .settings-tor-health.connected > span {
-  background: var(--success);
-  box-shadow: 0 0 0 0.2rem color-mix(in srgb, var(--success) 14%, transparent);
+  background: var(--coordinator-online);
+  box-shadow: 0 0 0 0.2rem color-mix(in srgb, var(--coordinator-online) 14%, transparent);
 }
 
 .settings-tor-details {
@@ -1433,11 +1431,11 @@
 }
 
 .trade-flow-line .trade-flow-icon-lightning {
-  color: #ffd166;
+  color: var(--warning);
 }
 
 .trade-flow-line .trade-flow-icon-fiat {
-  color: #1faba6;
+  color: var(--secondary);
 }
 
 .trade-time-box {
@@ -1706,7 +1704,7 @@
 
 .robot-avatar-loading {
   position: relative;
-  background: #303030 !important;
+  background: var(--surface-raised) !important;
   border-color: var(--border);
   box-shadow:
     inset 0 0 0 1px color-mix(in srgb, var(--foreground) 5%, transparent),
@@ -1756,6 +1754,17 @@
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
+}
+
+.orderbook-card-title {
+  display: grid;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.orderbook-card-title .muted-copy {
+  font-size: 0.75rem;
+  line-height: 1rem;
 }
 
 .orderbook-refresh-state {
@@ -2373,16 +2382,10 @@
 }
 
 .offer-bond-cell {
-  display: grid;
-  grid-template-columns: auto auto;
+  display: inline-flex;
   align-items: center;
   justify-content: end;
   justify-self: end;
-  gap: 0.45rem;
-}
-
-.offer-bond-cell svg {
-  color: var(--primary);
 }
 
 .offer-bond-cell strong,
@@ -3488,7 +3491,7 @@
 }
 
 .chat-presence-online::before {
-  background: var(--success);
+  background: var(--coordinator-online);
 }
 
 .chat-stack {
@@ -4269,13 +4272,13 @@
 .primary-link-button {
   background: var(--primary);
   color: var(--primary-foreground);
-  box-shadow: 0 0.35rem 1rem rgba(255, 178, 63, 0.16);
+  box-shadow: 0 0.35rem 1rem color-mix(in srgb, var(--primary) 18%, transparent);
 }
 
 .secondary-link-button {
   border: 1px solid var(--border);
   color: var(--foreground);
-  background: #11110f;
+  background: var(--surface-subtle);
 }
 
 .path-card,
@@ -4301,11 +4304,11 @@
 .path-card:hover,
 .action-tile:hover {
   border-color: color-mix(in srgb, var(--primary) 42%, var(--border));
-  background: #131310;
+  background: var(--interactive-hover);
 }
 
 .path-card-primary {
-  background: #14110c;
+  background: var(--interactive-selected);
 }
 
 .path-icon {
@@ -4341,7 +4344,7 @@
   border-radius: var(--radius-md);
   padding: 0.6rem 0.7rem;
   color: var(--muted-foreground);
-  background: #0d0d0b;
+  background: var(--surface-subtle);
 }
 
 .wizard-step span {
@@ -4360,7 +4363,7 @@
 .wizard-step.active {
   color: var(--foreground);
   border-color: color-mix(in srgb, var(--primary) 48%, var(--border));
-  background: rgba(255, 178, 63, 0.08);
+  background: color-mix(in srgb, var(--primary) 9%, var(--surface-subtle));
 }
 
 .wizard-step.complete span {
@@ -4373,7 +4376,7 @@
   gap: 1rem;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  background: #0d0d0b;
+  background: var(--surface-subtle);
   padding: clamp(1rem, 2vw, 1.25rem);
   animation: section-in 180ms cubic-bezier(0.2, 0, 0, 1);
 }
@@ -4506,7 +4509,7 @@
 }
 
 .action-tile-primary {
-  background: #14110c;
+  background: var(--interactive-selected);
 }
 
 .garage-profile-stage .action-tile {
@@ -5058,7 +5061,6 @@
 .settings-wordmark img {
   width: min(12rem, 62vw);
   height: auto;
-  filter: invert(1);
 }
 
 .settings-wordmark p {
@@ -5066,13 +5068,9 @@
   color: var(--muted-foreground);
 }
 
-:root[data-theme="light"] .settings-wordmark img {
-  filter: none;
-}
-
 .garage-switcher-item.active {
   border-color: color-mix(in srgb, var(--primary) 52%, var(--border));
-  background: #15130f;
+  background: var(--interactive-selected);
 }
 
 .garage-switcher-item-info {
@@ -5571,7 +5569,7 @@
 }
 
 .maker-method-field .image-select-input {
-  min-height: 2.35rem;
+  min-height: 2.75rem;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -5689,7 +5687,7 @@
   overflow: auto;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  background: #11110f;
+  background: var(--surface-raised);
   box-shadow: var(--shadow-lg);
   padding: 0.35rem;
 }
@@ -5724,20 +5722,20 @@
 }
 
 .maker-amount-advanced {
-  margin-top: 0.4rem;
+  margin-top: 0.15rem;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--card) 88%, var(--muted));
 }
 
 .maker-amount-advanced > summary {
-  min-height: 3rem;
+  min-height: 2.75rem;
   display: flex;
   align-items: center;
   cursor: pointer;
   color: var(--foreground);
   font-weight: 600;
-  padding: 0.75rem 0.9rem;
+  padding: 0.6rem 0.8rem;
 }
 
 .maker-amount-advanced > .maker-grid,
@@ -5751,15 +5749,21 @@
 
 .maker-advanced-body {
   display: grid;
-  gap: 0.9rem;
+  gap: 0.75rem;
   border-top: 1px solid var(--border);
-  padding: 0.9rem;
+  padding: 0.75rem;
 }
 
 .maker-advanced-timers {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.85rem;
+  gap: 0.75rem;
+}
+
+.maker-step-panel .image-select-button,
+.maker-step-panel .image-select-combo,
+.maker-step-panel .field-block > input {
+  min-height: 2.75rem;
 }
 
 .maker-clock-selector {
@@ -7164,10 +7168,6 @@
     gap: 0.2rem;
   }
 
-  .orderbook-refresh-state .muted-copy {
-    display: none;
-  }
-
   .orderbook-secondary-filters {
     grid-template-columns: 0.82fr 0.82fr 1.36fr;
     gap: 0.4rem;
@@ -7590,11 +7590,11 @@
   display: inline-flex;
   align-items: center;
   gap: 0.02rem;
-  color: #ffb000;
+  color: var(--warning);
 }
 
 .coordinator-dialog-rating .coordinator-rating-stars {
-  color: #ffb000;
+  color: var(--warning);
 }
 
 .coordinator-star-empty {
@@ -7607,7 +7607,7 @@
 }
 
 .coordinator-directory-row-online .coordinator-status-cell {
-  color: #63db73;
+  color: var(--coordinator-online);
 }
 
 .coordinator-enabled-cell {
@@ -7709,10 +7709,6 @@
 :root[data-theme="light"] .nav-item:hover,
 :root[data-theme="light"] .nav-item.active {
   background: var(--muted);
-}
-
-:root[data-theme="light"] .robosats-logo {
-  filter: none;
 }
 
 :root[data-theme="light"] .secondary-link-button,
@@ -7996,8 +7992,8 @@
 }
 
 .coordinator-live-status-online > span {
-  background: var(--success);
-  box-shadow: 0 0 0 0.2rem color-mix(in srgb, var(--success) 14%, transparent);
+  background: var(--coordinator-online);
+  box-shadow: 0 0 0 0.2rem color-mix(in srgb, var(--coordinator-online) 14%, transparent);
 }
 
 .coordinator-live-status-checking > span {
@@ -8080,7 +8076,7 @@
 }
 
 .coordinator-section-heading > span {
-  color: var(--success);
+  color: var(--info-foreground);
   font-size: 0.75rem;
   font-weight: 600;
   text-transform: none;
@@ -8280,7 +8276,7 @@
 }
 
 :root[data-theme="light"] .coordinator-technical-list a {
-  color: color-mix(in srgb, var(--primary) 74%, #4a3000);
+  color: var(--brand-primary-ink);
 }
 
 @media (max-width: 560px) {
@@ -8565,6 +8561,24 @@
   align-items: center;
   gap: 1.1rem;
   padding: 0 1.2rem;
+}
+
+.garage-coordinator-avatar-button {
+  appearance: none;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+
+.garage-coordinator-avatar-button:hover,
+.garage-coordinator-avatar-button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
 }
 
 .garage-robot-dialog header h2 {
@@ -8950,12 +8964,12 @@
 }
 
 .maker-coordinator-status-success {
-  color: var(--success-foreground);
-  background: var(--success-surface);
+  color: var(--info-foreground);
+  background: var(--info-surface);
 }
 
 .maker-coordinator-status-success > svg {
-  color: var(--success);
+  color: var(--coordinator-online);
 }
 
 .maker-coordinator-status-loading {
@@ -9380,7 +9394,7 @@
 }
 
 .coordinator-directory-row-online .coordinator-status-cell {
-  color: var(--success);
+  color: var(--coordinator-online);
 }
 
 .coordinator-enabled-cell svg {

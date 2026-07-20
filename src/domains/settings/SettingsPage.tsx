@@ -292,7 +292,7 @@ export function SettingsPage() {
               </details>
             </nav>
             <div className="settings-wordmark">
-              <img src="/static/assets/vector/Robosats.svg" alt="" />
+              <img src="/static/assets/vector/Robosats-brand.svg" alt="" />
               <p>A Simple and Private LN P2P Exchange</p>
             </div>
           </CardContent>

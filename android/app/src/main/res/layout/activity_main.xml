@@ -21,7 +21,7 @@
         android:id="@+id/loadingContainer"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        android:background="#000000"
+        android:background="#090B10"
         android:visibility="visible"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
@@ -57,7 +57,7 @@
                     android:layout_gravity="center"
                     android:contentDescription="@string/app_name"
                     android:scaleType="fitCenter"
-                    android:src="@drawable/ic_notification" />
+                    android:src="@drawable/robosats_mark_color" />
             </FrameLayout>
 
             <TextView
@@ -67,7 +67,7 @@
                 android:layout_marginTop="24dp"
                 android:gravity="center"
                 android:text="@string/private_connection_title"
-                android:textColor="#F5F3EF"
+                android:textColor="#F3F6FA"
                 android:textSize="22sp"
                 android:textStyle="bold" />
 
@@ -79,7 +79,7 @@
                 android:gravity="center"
                 android:minHeight="44dp"
                 android:text="@string/preparing_tor"
-                android:textColor="#AAA69F"
+                android:textColor="#98A6B7"
                 android:textSize="14sp" />
 
             <ProgressBar
@@ -91,8 +91,8 @@
                 android:indeterminate="false"
                 android:max="100"
                 android:progress="2"
-                android:progressBackgroundTint="#292824"
-                android:progressTint="#FFB23F" />
+                android:progressBackgroundTint="#354052"
+                android:progressTint="#90CAF9" />
 
             <TextView
                 android:id="@+id/progressTextView"
@@ -101,7 +101,7 @@
                 android:layout_marginTop="10dp"
                 android:gravity="center"
                 android:text="@string/tor_progress_initial"
-                android:textColor="#77736D"
+                android:textColor="#98A6B7"
                 android:textSize="12sp" />
 
             <Button
@@ -109,10 +109,10 @@
                 android:layout_width="wrap_content"
                 android:layout_height="48dp"
                 android:layout_marginTop="18dp"
-                android:backgroundTint="#FFB23F"
+                android:backgroundTint="#90CAF9"
                 android:text="@string/retry_tor"
                 android:textAllCaps="false"
-                android:textColor="#14120F"
+                android:textColor="#08121C"
                 android:textStyle="bold"
                 android:visibility="gone" />
         </LinearLayout>

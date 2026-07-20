@@ -2,8 +2,14 @@
 <!-- Generator: Adobe Illustrator 16.0.0, SVG Export Plug-In . SVG Version: 6.00 Build 0)  -->
 <!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
 <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
-	 width="1000px" height="1000px" viewBox="0 0 1000 1000" enable-background="new 0 0 1000 1000" xml:space="preserve">
-<g>
+	 width="667px" height="723px" viewBox="175 9 667 723" xml:space="preserve">
+<defs>
+	<linearGradient id="brand-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+		<stop offset="8%" stop-color="#1976D2"/>
+		<stop offset="92%" stop-color="#A951B8"/>
+	</linearGradient>
+</defs>
+<g fill="url(#brand-gradient)">
 	<path d="M602.336,731.51c16.747-16.94,29.249-35.524,37.504-56.694c18.792-48.193,16.967-94.996-10.46-139.81
 		c-10.255-16.756-24.983-29.293-39.461-42.103c-67.731-59.932-135.412-119.919-203.104-179.895
 		c-0.368-0.326-0.644-0.755-1.331-1.579c18.529-12.477,36.983-24.903,55.872-37.62c-9.61-6.799-18.917-13.385-28.648-20.27

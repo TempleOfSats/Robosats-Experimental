@@ -62,7 +62,7 @@
 }
 
 .bg-primary:hover:not(:disabled) {
-  background: var(--brand-amber-hover);
+  background: var(--brand-primary-hover);
   box-shadow: var(--glow-primary);
 }
 
@@ -105,7 +105,7 @@
 }
 
 .shadow-primary {
-  box-shadow: 0 0.35rem 1rem rgba(255, 178, 63, 0.16);
+  box-shadow: 0 0.35rem 1rem color-mix(in srgb, var(--primary) 18%, transparent);
 }
 
 .h-8 {

@@ -257,6 +257,7 @@ export function IntentPicker({
 }
 
 export function PaymentMethodPicker({
+  allIcon,
   allowCustom = false,
   label,
   options,
@@ -264,6 +265,7 @@ export function PaymentMethodPicker({
   onChange,
   onSelect
 }: {
+  allIcon?: ReactNode;
   allowCustom?: boolean;
   label: string;
   options: Array<PaymentMethodOption | { name: string; icon?: string }>;
@@ -275,7 +277,9 @@ export function PaymentMethodPicker({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const selected = options.find((option) => option.name === value);
-  const selectedIcon = selected?.icon ? <PaymentMethodImage icon={selected.icon} name={selected.name} size={18} /> : undefined;
+  const selectedIcon = selected?.icon
+    ? <PaymentMethodImage icon={selected.icon} name={selected.name} size={18} />
+    : value === "all" ? allIcon : undefined;
   const filteredOptions = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     if (!normalizedQuery) return options;
@@ -369,7 +373,7 @@ export function PaymentMethodPicker({
           ) : !allowCustom ? (
             <ImageSelectOption
               active={value === "all"}
-              icon={null}
+              icon={allIcon ?? null}
               label="ANY"
               onClick={() => {
                 selectOption("all");

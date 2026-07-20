@@ -13,6 +13,8 @@ function variablesFor(selector: string) {
 
 const dark = variablesFor(":root");
 const light = { ...dark, ...variablesFor(':root[data-theme="light"]') };
+const amberDark = { ...dark, ...variablesFor(':root[data-color-scheme="amber"]') };
+const amberLight = { ...amberDark, ...variablesFor(':root[data-color-scheme="amber"][data-theme="light"]') };
 
 function resolve(tokens: Record<string, string>, key: string, seen = new Set<string>()): string {
   if (seen.has(key)) throw new Error(`Circular color token: ${key}`);
@@ -47,7 +49,7 @@ const textPairs = [
   ["text-primary", "surface"],
   ["text-secondary", "surface"],
   ["text-supporting", "surface"],
-  ["brand-amber-foreground", "brand-amber"],
+  ["brand-primary-foreground", "brand-primary"],
   ["success-foreground", "success-surface"],
   ["danger-foreground", "danger-surface"],
   ["warning-foreground", "warning-surface"],
@@ -74,6 +76,8 @@ const graphicalPairs = [
 describe.each([
   ["dark", dark],
   ["light", light],
+  ["amber dark", amberDark],
+  ["amber light", amberLight],
 ])("%s color palette", (_, tokens) => {
   it.each(textPairs)("keeps %s readable on %s", (foreground, background) => {
     expect(contrast(tokens, foreground, background)).toBeGreaterThanOrEqual(4.5);
@@ -85,9 +89,16 @@ describe.each([
 });
 
 it("retains the approved anchor families", () => {
-  expect(resolve(light, "brand-amber")).toBe("#ffb23f");
-  expect(resolve(light, "secondary")).toBe("#8f3b68");
-  expect(resolve(light, "success-border")).toBe("#008f8a");
+  expect(resolve(light, "brand-primary")).toBe("#1976d2");
+  expect(resolve(dark, "brand-primary")).toBe("#90caf9");
+  expect(resolve(light, "secondary")).toBe("#a951b8");
+  expect(resolve(dark, "secondary")).toBe("#ce93d8");
+  expect(resolve(light, "success-border")).toBe("#008a67");
   expect(resolve(light, "danger-border")).toBe("#d55e00");
-  expect(resolve(light, "info-border")).toBe("#0072b2");
+  expect(resolve(light, "warning-border")).toBe("#c57c00");
+});
+
+it("retains the optional amber palette", () => {
+  expect(resolve(amberDark, "brand-primary")).toBe("#ffb23f");
+  expect(resolve(amberLight, "brand-primary")).toBe("#ffb23f");
 });

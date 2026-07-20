@@ -1,7 +1,7 @@
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="dark" data-color-scheme="modern">
   <head>
-    <link rel="icon" href="/static/assets/vector/R-notext.svg" type="image/svg+xml" />
+    <link rel="icon" href="/static/assets/vector/R-brand.svg" type="image/svg+xml" />
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>RoboSats Exp.</title>
@@ -15,18 +15,46 @@
     </script>
     <style>
       :root {
+        --boot-background: #090b10;
+        --boot-foreground: #f3f6fa;
+        --boot-muted: #98a6b7;
+        --boot-track: #354052;
+        --boot-primary: #90caf9;
+        --boot-primary-foreground: #08121c;
+      }
+
+      :root[data-theme="light"] {
+        --boot-background: #f5f7fa;
+        --boot-foreground: #142033;
+        --boot-muted: #66768a;
+        --boot-track: #c7d1de;
+        --boot-primary: #1976d2;
+        --boot-primary-foreground: #ffffff;
+      }
+
+      :root[data-color-scheme="amber"] {
         --boot-background: #0b0909;
         --boot-foreground: #f4f1ed;
         --boot-muted: #c5beb8;
         --boot-track: #443d40;
         --boot-primary: #ffb23f;
+        --boot-primary-foreground: #211a16;
       }
 
-      :root[data-theme="light"] {
+      :root[data-color-scheme="amber"][data-theme="light"] {
         --boot-background: #f7f6f3;
         --boot-foreground: #211a16;
         --boot-muted: #5f5953;
         --boot-track: #c8c4ba;
+      }
+
+      :root[data-color-scheme="amber"] .app-boot-mark img {
+        translate: 3px 12px;
+        filter: invert(1);
+      }
+
+      :root[data-color-scheme="amber"][data-theme="light"] .app-boot-mark img {
+        filter: none;
       }
 
       body {
@@ -99,14 +127,8 @@
         position: relative;
         width: 94px;
         height: 94px;
-        translate: 3px 12px;
-        filter: invert(1);
         opacity: 0.94;
         animation: app-boot-breathe 2.4s ease-in-out infinite;
-      }
-
-      :root[data-theme="light"] .app-boot-mark img {
-        filter: none;
       }
 
       .app-boot-title {
@@ -162,7 +184,7 @@
         border-radius: 6px;
         padding: 10px 18px;
         background: var(--boot-primary);
-        color: #211a16;
+        color: var(--boot-primary-foreground);
         font: 600 15px/20px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         cursor: pointer;
       }
@@ -200,7 +222,7 @@
     <div id="app-boot" role="status" aria-live="polite" aria-label="Preparing RoboSats">
       <div class="app-boot-content">
         <div class="app-boot-mark" aria-hidden="true">
-          <img src="/static/assets/vector/R-notext.svg" alt="" />
+          <img src="/static/assets/vector/R-brand.svg" alt="" />
         </div>
         <h1 class="app-boot-title">Preparing RoboSats</h1>
         <p class="app-boot-message">Loading the private interface...</p>

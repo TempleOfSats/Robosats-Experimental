@@ -11,7 +11,6 @@ import {
   Check,
   Copy,
   Download,
-  Lock,
   RefreshCw,
   Repeat2,
   WifiOff,
@@ -406,11 +405,15 @@ export function OffersPage() {
       <section className="orderbook-layout">
         <Card className="orderbook-table-card">
           <CardHeader className="orderbook-card-header">
-            <CardTitle>Public offers</CardTitle>
+            <div className="orderbook-card-title">
+              <CardTitle>Public offers</CardTitle>
+              {!refreshing && !error && lastUpdated ? (
+                <span className="muted-copy">Updated {new Date(lastUpdated).toLocaleTimeString()}</span>
+              ) : null}
+            </div>
             <div className="orderbook-refresh-state">
               {refreshing ? <span className="orderbook-refreshing">Refreshing</span> : null}
               {!refreshing && error && orders.length > 0 ? <span className="orderbook-refreshing">Reconnecting</span> : null}
-              {!refreshing && !error && lastUpdated ? <span className="muted-copy">Updated {new Date(lastUpdated).toLocaleTimeString()}</span> : null}
               <Button
                 size="icon"
                 variant="ghost"
@@ -451,6 +454,7 @@ export function OffersPage() {
                 <div className="filter-select-field filter-select-field-wide">
                   <span>{intentIsSwap(intentFilter) ? "Destination" : "Method"}</span>
                   <PaymentMethodPicker
+                    allIcon={<CurrencyFlag code="ANY" size={18} />}
                     label={intentIsSwap(intentFilter) ? "Filter by swap destination" : "Filter by payment method"}
                     options={methodOptions}
                     value={methodFilter}
@@ -473,9 +477,9 @@ export function OffersPage() {
             <div className="offer-table-scroll">
               <div className="offer-table">
                 <div className="offer-table-header" role="row">
-                  <span className="offer-table-header-cell">Type</span>
+                  <span className="offer-table-header-cell">Side</span>
                   <SortHeader active={sortColumn === "amount"} direction={sortDirection} onClick={() => toggleSort("amount")}>
-                    Amount
+                    Amount and method
                   </SortHeader>
                   <SortHeader active={sortColumn === "premium"} direction={sortDirection} onClick={() => toggleSort("premium")}>
                     Premium
@@ -486,7 +490,7 @@ export function OffersPage() {
                   <SortHeader active={sortColumn === "expiry"} direction={sortDirection} onClick={() => toggleSort("expiry")}>
                     Expiry
                   </SortHeader>
-                  <span className="offer-table-header-cell offer-table-header-center">Coordinator</span>
+                  <span className="offer-table-header-cell offer-table-header-center">Host</span>
                 </div>
 
                 {error && orders.length === 0 ? (
@@ -1069,11 +1073,7 @@ function BondDisplay({ order }: { order: PublicOrder }) {
 
   return (
     <span className="offer-bond-cell">
-      <Lock size={14} />
-      <span>
-        <strong className="amount-mono">{bond.sats > 0 ? formatSats(bond.sats) : percentLabel ?? "-"}</strong>
-        {bond.sats > 0 && percentLabel ? <small>{percentLabel}</small> : null}
-      </span>
+      <strong className="amount-mono">{percentLabel ?? "-"}</strong>
     </span>
   );
 }

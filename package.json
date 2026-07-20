@@ -6,8 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "build:amber": "VITE_COLOR_SCHEME=amber npm run build",
     "deploy:nginx": "node scripts/deploy-nginx.mjs",
     "build:nginx": "npm run build && npm run deploy:nginx",
+    "build:nginx:amber": "npm run build:amber && npm run deploy:nginx",
     "build:nginx:lab": "VITE_ENABLE_TRADE_LAB=true npm run build && npm run deploy:nginx",
     "build:android:web": "npm run build && node scripts/sync-android-assets.mjs",
     "build:android:native": "bash android/build-native.sh",

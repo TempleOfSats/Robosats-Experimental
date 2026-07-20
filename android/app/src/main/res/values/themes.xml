@@ -1,3 +1,10 @@
 <resources>
-    <style name="Theme.Robosats" parent="Theme.Material3.DayNight.NoActionBar" />
+    <style name="Theme.Robosats" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:windowBackground">#090B10</item>
+        <item name="android:statusBarColor">#090B10</item>
+        <item name="android:navigationBarColor">#090B10</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="colorAccent">#90CAF9</item>
+    </style>
 </resources>

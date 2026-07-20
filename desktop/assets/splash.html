@@ -9,8 +9,8 @@
       :root {
         color-scheme: dark;
         font-family: "Public Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        background: #0b0909;
-        color: #f4f1ed;
+        background: #090b10;
+        color: #f3f6fa;
       }
       * { box-sizing: border-box; }
       body {
@@ -18,7 +18,7 @@
         margin: 0;
         display: grid;
         place-items: center;
-        background: #0b0909;
+        background: #090b10;
       }
       main {
         width: min(320px, calc(100vw - 48px));
@@ -40,7 +40,7 @@
         border-radius: 50%;
       }
       .mark::after {
-        background: conic-gradient(#ffb23f 0deg 70deg, transparent 70deg);
+        background: conic-gradient(#90caf9 0deg 70deg, transparent 70deg);
         mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
         animation: orbit 4.8s linear infinite;
       }
@@ -48,9 +48,7 @@
         width: 98px;
         height: 98px;
         object-fit: contain;
-        filter: invert(1);
         opacity: 0.95;
-        transform: translateY(13px);
       }
       h1 {
         margin: 28px 0 0;
@@ -61,7 +59,7 @@
       .message {
         min-height: 42px;
         margin: 10px 0 18px;
-        color: #c5beb8;
+        color: #98a6b7;
         font-size: 14px;
         line-height: 1.5;
         opacity: 1;
@@ -72,24 +70,24 @@
         width: 100%;
         height: 4px;
         overflow: hidden;
-        background: #443d40;
+        background: #354052;
       }
       .progress {
         width: 2%;
         height: 100%;
-        background: #ffb23f;
+        background: #90caf9;
         transition: width 180ms ease-out;
       }
       .percent {
         margin-top: 10px;
-        color: #9d9590;
+        color: #98a6b7;
         font-size: 12px;
         font-variant-numeric: tabular-nums;
       }
       .error {
         max-width: 42ch;
         margin: 16px 0 0;
-        color: #ffb38a;
+        color: #ff9b73;
         font-size: 13px;
         line-height: 1.45;
       }
@@ -99,8 +97,8 @@
         border: 0;
         border-radius: 6px;
         padding: 10px 20px;
-        background: #ffb23f;
-        color: #211a16;
+        background: #90caf9;
+        color: #08121c;
         font: 600 15px/20px inherit;
         cursor: pointer;
       }
@@ -115,7 +113,7 @@
   </head>
   <body>
     <main role="status" aria-live="polite">
-      <div class="mark" aria-hidden="true"><img src="./R-notext.svg" alt="" /></div>
+      <div class="mark" aria-hidden="true"><img src="./R-brand.svg" alt="" /></div>
       <h1>Preparing RoboSats</h1>
       <p class="message">Keeping your connection private...</p>
       <div class="track" aria-hidden="true"><div class="progress"></div></div>

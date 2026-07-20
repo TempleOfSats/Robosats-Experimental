@@ -22,7 +22,7 @@ await mkdir(destinationDirectory, { recursive: true });
 await mkdir(splashDirectory, { recursive: true });
 await copyFile(source, destination);
 await copyFile(path.join(desktop, "assets", "splash.html"), path.join(splashDirectory, "splash.html"));
-await copyFile(path.join(desktop, "assets", "R-notext.svg"), path.join(splashDirectory, "R-notext.svg"));
+await copyFile(path.join(desktop, "assets", "R-brand.svg"), path.join(splashDirectory, "R-brand.svg"));
 if (process.platform !== "win32") await chmod(destination, 0o755);
 
 async function rustHostTriple() {

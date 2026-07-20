@@ -29,7 +29,7 @@ export function DesktopTitleBar() {
   return (
     <header className="desktop-titlebar" data-tauri-drag-region>
       <span className="desktop-titlebar-brand" data-tauri-drag-region>
-        <img src="/static/assets/vector/R-notext.svg" alt="" />
+        <img src="/static/assets/vector/R-brand.svg" alt="" />
         <strong data-tauri-drag-region>RoboSats Exp.</strong>
         <small data-tauri-drag-region>Desktop</small>
       </span>

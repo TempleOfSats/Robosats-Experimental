@@ -17,13 +17,27 @@ const disabledTradePreviewFixturesPath = fileURLToPath(
 
 export default defineConfig(({ command }) => {
   const tradeLabEnabled = command === "serve" || process.env.VITE_ENABLE_TRADE_LAB === "true";
+  const colorScheme = process.env.VITE_COLOR_SCHEME === "amber" ? "amber" : "modern";
   const assetDirectory = command === "build" ? `assets/${buildRevision()}` : "assets";
 
   return {
     server: {
       allowedHosts: true
     },
-    plugins: [wasm(), react()],
+    plugins: [
+      {
+        name: "robosats-color-scheme",
+        transformIndexHtml(html) {
+          const themedHtml = html.replace('data-color-scheme="modern"', `data-color-scheme="${colorScheme}"`);
+          if (colorScheme !== "amber") return themedHtml;
+          return themedHtml
+            .replaceAll("/static/assets/vector/R-brand.svg", "/static/assets/vector/R-notext.svg")
+            .replaceAll("/static/assets/vector/Robosats-brand.svg", "/static/assets/vector/Robosats.svg");
+        }
+      },
+      wasm(),
+      react()
+    ],
     resolve: {
       alias: [
         {

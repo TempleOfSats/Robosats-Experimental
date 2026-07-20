@@ -6,7 +6,9 @@ import { AppLoadingSkeleton } from "@/components/app/AppLoadingWheel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { VisualSelect } from "@/components/ui/visualSelect";
+import { CoordinatorDetailDialog } from "@/domains/coordinators/CoordinatorsPage";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
+import { fetchCoordinatorRatings, type CoordinatorRating } from "@/domains/coordinators/coordinatorRatings";
 import { compareCoordinatorsByEstablished } from "@/domains/coordinators/coordinatorOrder";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
 import { getRobotAuthForCoordinator, selectCurrentSlot, type RobotRecord, useGarageStore } from "@/domains/garage/garageStore";
@@ -566,7 +568,19 @@ export function RobotCoordinatorDialog({
   const canSetUpTelegram = Boolean(robot?.tgBotName && robot.tgToken);
   const [showTelegramSetup, setShowTelegramSetup] = useState(false);
   const [showRewardWithdrawal, setShowRewardWithdrawal] = useState(false);
+  const [showCoordinatorDetails, setShowCoordinatorDetails] = useState(false);
+  const [rating, setRating] = useState<CoordinatorRating>({ score: 0, count: 0 });
   const refreshRobots = useGarageStore((state) => state.refreshRobots);
+  const lastRefreshed = useFederationStore((state) => state.lastRefreshed);
+  const network = useFederationStore((state) => state.network);
+
+  function openCoordinatorDetails() {
+    setShowCoordinatorDetails(true);
+    setRating({ score: 0, count: 0 });
+    void fetchCoordinatorRatings([coordinator])
+      .then((ratings) => setRating(ratings[coordinator.shortAlias] ?? { score: 0, count: 0 }))
+      .catch(() => undefined);
+  }
 
   return (
     <div className="garage-robot-dialog-overlay" onClick={onClose}>
@@ -575,7 +589,14 @@ export function RobotCoordinatorDialog({
           <X size={20} />
         </button>
         <header>
-          <img className="coordinator-avatar coordinator-avatar-sm" src={coordinator.smallAvatarUrl} alt="" />
+          <button
+            className="garage-coordinator-avatar-button"
+            type="button"
+            onClick={openCoordinatorDetails}
+            aria-label={`View ${coordinator.longAlias} details`}
+          >
+            <img className="coordinator-avatar coordinator-avatar-sm" src={coordinator.smallAvatarUrl} alt="" />
+          </button>
           <h2>{coordinator.longAlias}</h2>
         </header>
 
@@ -618,6 +639,17 @@ export function RobotCoordinatorDialog({
         <Button className="garage-dialog-back" type="button" variant="ghost" onClick={onClose}>
           Back
         </Button>
+
+        {showCoordinatorDetails ? (
+          <CoordinatorDetailDialog
+            compact
+            coordinator={coordinator}
+            lastRefreshed={lastRefreshed}
+            network={network}
+            rating={rating}
+            onClose={() => setShowCoordinatorDetails(false)}
+          />
+        ) : null}
       </aside>
 
       {showTelegramSetup && robot?.tgBotName && robot.tgToken ? (

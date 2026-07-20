@@ -534,7 +534,7 @@ function AmountStep({
               value={draft.publicDuration}
               minSeconds={PUBLIC_DURATION_MIN_SECONDS}
               maxSeconds={PUBLIC_DURATION_MAX_SECONDS}
-              presetSeconds={[3 * 60 * 60, 6 * 60 * 60, 8 * 60 * 60, 12 * 60 * 60, PUBLIC_DURATION_MAX_SECONDS]}
+              presetSeconds={[3 * 60 * 60, 6 * 60 * 60, 12 * 60 * 60, PUBLIC_DURATION_MAX_SECONDS]}
               onChange={(value) => updateDraft({ publicDuration: value })}
             />
             <TimeClockField

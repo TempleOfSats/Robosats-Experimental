@@ -1910,7 +1910,7 @@ function CompletedTradeSummary({ order }: { order: OrderDto }) {
           <span>Maker</span>
         </button>
         <button className={side === "platform" ? "active" : ""} onClick={() => setSide("platform")} role="tab" type="button" aria-label="RoboSats summary">
-          <img alt="" src="/static/assets/vector/R-notext.svg" />
+          <img alt="" src="/static/assets/vector/R-brand.svg" />
         </button>
         <button className={side === "taker" ? "active" : ""} onClick={() => setSide("taker")} role="tab" type="button">
           <span>Taker</span>
