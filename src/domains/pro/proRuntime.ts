@@ -10,6 +10,7 @@ let stopRuntime: (() => void) | undefined;
 export function startProRuntime(): () => void {
   if (stopRuntime) return stopRuntime;
 
+  useGarageStore.getState().hydrate();
   const stopTriggers = registerReconcileTriggers({
     controller: garageReconciler,
     proEnabled: () => useProPreferencesStore.getState().enabled,
