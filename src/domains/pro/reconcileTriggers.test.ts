@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GarageReconcileController } from "@/domains/pro/garageReconciler";
-import { registerReconcileTriggers } from "@/domains/pro/reconcileTriggers";
+import { registerExpiryReconcileTrigger, registerReconcileTriggers } from "@/domains/pro/reconcileTriggers";
+import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
 
 let windowTarget: EventTarget & Pick<typeof globalThis, "setTimeout" | "clearTimeout" | "setInterval" | "clearInterval">;
 let documentTarget: EventTarget & { visibilityState: DocumentVisibilityState };
@@ -16,6 +17,7 @@ beforeEach(() => {
   documentTarget = Object.assign(new EventTarget(), { visibilityState: "visible" as DocumentVisibilityState });
   vi.stubGlobal("window", windowTarget);
   vi.stubGlobal("document", documentTarget);
+  useProTradeIndexStore.getState().resetRuntimeCache();
 });
 
 afterEach(() => {
@@ -74,6 +76,29 @@ describe("reconciliation triggers", () => {
     windowTarget.dispatchEvent(new Event("robosats:tor-reconnected"));
     expect(controller.invalidateEpoch).toHaveBeenCalledOnce();
     expect(controller.reconcileAll).toHaveBeenCalledWith("tor-reconnected");
+    cleanup();
+  });
+
+  it("refreshes an order when its displayed deadline expires", async () => {
+    const controller = fakeController();
+    useProTradeIndexStore.getState().upsertSnapshot({
+      key: "slot:lake:42",
+      locator: { slotId: "slot", shortAlias: "lake", orderId: 42 },
+      nickname: "Robot",
+      hashId: "hash",
+      order: { expires_at: new Date(1_500).toISOString() } as never,
+      renewable: false,
+      released: false,
+      freshness: "fresh"
+    });
+
+    const cleanup = registerExpiryReconcileTrigger(controller, () => 1_000);
+    await vi.advanceTimersByTimeAsync(750);
+
+    expect(controller.reconcileOrder).toHaveBeenCalledWith(
+      { slotId: "slot", shortAlias: "lake", orderId: 42 },
+      "countdown-expiry"
+    );
     cleanup();
   });
 });

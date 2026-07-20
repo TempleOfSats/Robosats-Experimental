@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { AlertTriangle, RotateCcw, WifiOff } from "lucide-react";
 import type { OrderDto } from "@/domains/orders/order.types";
 import { toProTradePresentation } from "@/domains/pro/proPresentation";
 import type { ProTradeSnapshot } from "@/domains/pro/pro.types";
@@ -18,12 +19,14 @@ describe("PRO trade presentation", () => {
     expect(presentation.amountLabel).toBe("25 - 100 USD");
     expect(presentation.directionLabel).toBe("Sell BTC");
     expect(presentation.methodLabel).toBe("Revolut");
+    expect(presentation.statusIcon).toBe(AlertTriangle);
   });
 
   it("marks an expired maker offer as renewable", () => {
     const presentation = toProTradePresentation(snapshot({ status: 5, is_maker: true, is_taker: false }));
     expect(presentation.group).toBe("renewable");
     expect(presentation.statusLabel).toBe("The order has expired");
+    expect(presentation.statusIcon).toBe(RotateCcw);
   });
 
   it("retains the last status while clearly marking stale data", () => {
@@ -32,6 +35,7 @@ describe("PRO trade presentation", () => {
     const presentation = toProTradePresentation(value);
     expect(presentation.statusLabel).toBe("Chat with the buyer · Stale");
     expect(presentation.statusTone).toBe("muted");
+    expect(presentation.statusIcon).toBe(WifiOff);
   });
 });
 
