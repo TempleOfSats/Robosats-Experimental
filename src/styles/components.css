@@ -271,6 +271,173 @@
   animation: skeleton 1400ms ease-in-out infinite;
 }
 
+.visual-select {
+  position: relative;
+  min-width: 0;
+}
+
+.visual-select-trigger,
+.visual-select-option {
+  appearance: none;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--input);
+  color: var(--foreground);
+  padding: 0.55rem 0.75rem;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.visual-select-trigger {
+  min-height: 4rem;
+}
+
+.visual-select-has-icon-action .visual-select-trigger {
+  padding-left: 4.25rem;
+}
+
+.visual-select-icon-action {
+  appearance: none;
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  left: 0.75rem;
+  width: 3rem;
+  height: 3rem;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+.visual-select-icon-action:hover {
+  filter: brightness(1.08);
+}
+
+.visual-select-icon-action:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px var(--focus-inner);
+}
+
+.visual-select-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.visual-select-open .visual-select-trigger {
+  border-color: var(--primary);
+}
+
+.visual-select-icon {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+}
+
+.visual-select-icon > img {
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.visual-select-trigger-copy,
+.visual-select-option-copy {
+  min-width: 0;
+  display: grid;
+  gap: 0.15rem;
+}
+
+.visual-select-trigger-copy strong,
+.visual-select-trigger-copy small,
+.visual-select-option-copy strong,
+.visual-select-option-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.visual-select-trigger-copy strong,
+.visual-select-option-copy strong {
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.visual-select-trigger-copy small,
+.visual-select-option-copy small {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.visual-select-chevron {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--muted-foreground);
+  transition: transform 140ms ease;
+}
+
+.visual-select-open .visual-select-chevron {
+  transform: rotate(180deg);
+}
+
+.visual-select-menu {
+  position: absolute;
+  z-index: 140;
+  top: calc(100% + 0.35rem);
+  right: 0;
+  left: 0;
+  max-height: min(20rem, 50vh);
+  overflow-y: auto;
+  display: grid;
+  gap: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-lg);
+  padding: 0.35rem;
+}
+
+.visual-select-option {
+  min-height: 3.6rem;
+  border-color: transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+}
+
+.visual-select-option:hover,
+.visual-select-option:focus-visible {
+  border-color: var(--border-strong);
+  background: var(--interactive-hover);
+  outline: 0;
+}
+
+.visual-select-option-active {
+  border-color: var(--secondary);
+  background: var(--interactive-selected);
+}
+
+.visual-select-check {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--primary);
+}
+
+.visual-select-trigger:focus-visible,
+.visual-select-option:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px var(--focus-inner);
+}
+
 @keyframes spin {
   to {
     transform: rotate(360deg);
