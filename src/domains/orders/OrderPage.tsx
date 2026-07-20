@@ -54,6 +54,7 @@ export function OrderPage() {
   const slots = useGarageStore((state) => state.slots);
   const currentToken = useGarageStore((state) => state.currentToken);
   const hydrateGarage = useGarageStore((state) => state.hydrate);
+  const releaseOrderReservation = useGarageStore((state) => state.releaseOrderReservation);
   const setActiveOrder = useGarageStore((state) => state.setActiveOrder);
   const { order: loadedOrder, submitting, error, loadOrder, submitAction, clearOrder } = useOrderStore();
   const currentSlot = selectCurrentSlot(slots, currentToken);
@@ -147,10 +148,13 @@ export function OrderPage() {
       return;
     }
     if (!previewOrder && shouldReturnExpiredTakeToOffers(lastStatus, wasTaker, loadedOrder)) {
+      if (currentSlot && orderId) {
+        releaseOrderReservation(currentSlot.token, shortAlias, orderId);
+      }
       navigate("/offers", { replace: true });
       return;
     }
-  }, [loadedOrder, navigate, previewOrder]);
+  }, [currentSlot, loadedOrder, navigate, orderId, previewOrder, releaseOrderReservation, shortAlias]);
 
   const visibleOrder = previewOrder ?? loadedOrder;
 
@@ -212,7 +216,7 @@ export function OrderPage() {
       {!isQuietPaymentState ? (
         <div className="page-heading">
           <div>
-            <p className="app-eyebrow">Order #{order.id || "preview"}</p>
+            <OrderEyebrow order={order} />
             <h2>{view.title}</h2>
           </div>
           {view.tone === "danger" ? (
@@ -224,7 +228,7 @@ export function OrderPage() {
         </div>
       ) : (
         <div className="trade-quiet-order-heading">
-          <p className="app-eyebrow">Order #{order.id || "preview"}</p>
+          <OrderEyebrow order={order} />
         </div>
       )}
 
@@ -338,6 +342,19 @@ export function OrderPage() {
         ) : null}
       </section>
     </main>
+  );
+}
+
+function OrderEyebrow({ order }: { order: OrderDto }) {
+  const currencyCode = currencyCodeFromId(order.currency) ?? String(order.currency);
+  return (
+    <p className="app-eyebrow trade-order-eyebrow">
+      <span>Order #{order.id || "preview"}</span>
+      <span aria-hidden="true">·</span>
+      <small className="trade-order-summary-order">
+        {formatOrderAmount(order, currencyCode)} · {order.payment_method || "Method not specified"}
+      </small>
+    </p>
   );
 }
 
@@ -473,7 +490,7 @@ function ContractPanel({
           <Clock size={18} aria-hidden="true" />
           <span>
             <strong>Waiting for a taker</strong>
-            <small>Your offer is live in the order book.</small>
+            <small>Be patient while robots check the book.</small>
           </span>
         </div>
       ) : !isInvoicePaymentStep && !isChatStep && !isDisputeStep && !isPayoutStep && !isRenewalStep && !isSuccessStep && !isRoutingStep ? (

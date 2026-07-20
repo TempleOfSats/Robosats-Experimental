@@ -5,6 +5,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { AppLoadingSkeleton } from "@/components/app/AppLoadingWheel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { VisualSelect } from "@/components/ui/visualSelect";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import { compareCoordinatorsByEstablished } from "@/domains/coordinators/coordinatorOrder";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
@@ -457,20 +458,18 @@ export function RobotSettingsDialog({
 
         <h2>Your Robot</h2>
 
-        <label className="garage-robot-select">
-          <span className="sr-only">Select robot</span>
-          <span className="garage-robot-select-face">
-            <RobotAvatar hashId={slot.hashId} label={slot.nickname} size="md" />
-            <strong>{slot.nickname}</strong>
-          </span>
-          <select value={activeToken} onChange={(event) => onTokenChange(event.target.value)}>
-            {slots.map((item) => (
-              <option key={item.token} value={item.token}>
-                {item.nickname}
-              </option>
-            ))}
-          </select>
-        </label>
+        <VisualSelect
+          ariaLabel="Select robot"
+          className="garage-robot-select"
+          onChange={onTokenChange}
+          options={slots.map((item) => ({
+            value: item.token,
+            label: item.nickname,
+            description: item.activeOrderId ? `Order #${item.activeOrderId}` : item.lastOrderId ? `Last #${item.lastOrderId}` : "No orders",
+            icon: <RobotAvatar hashId={item.hashId} label={item.nickname} size="md" />
+          }))}
+          value={activeToken}
+        />
 
         <Button className="garage-keys-button" type="button" onClick={toggleKeys}>
           <KeyRound size={18} />
