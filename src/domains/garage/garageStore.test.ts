@@ -325,6 +325,23 @@ describe("garage order sync", () => {
     expect(robot.encPrivKey).toBe("coordinator-priv");
   });
 
+  it("refreshes an explicit slot without changing the selected robot", async () => {
+    const alpha = { ...slotWithCoordinatorKeys(), token: "alpha", tokenSHA256: "slot-alpha", nickname: "Alpha" };
+    const beta = { ...slotWithCoordinatorKeys(), token: "beta", tokenSHA256: "slot-beta", nickname: "Beta" };
+    useGarageStore.setState({ slots: [alpha, beta], currentToken: "alpha", hydrated: true });
+    fetchRobotMock.mockResolvedValue(robotSnapshot({ activeOrderId: 91234, lastOrderId: 91234 }));
+
+    const result = await useGarageStore.getState().refreshRobotSlot("beta", [coordinator]);
+
+    expect(useGarageStore.getState().currentToken).toBe("alpha");
+    expect(useGarageStore.getState().slots[0].activeOrderId).toBeUndefined();
+    expect(useGarageStore.getState().slots[1].activeOrderId).toBe(91234);
+    expect(result).toMatchObject({
+      slotId: "slot-beta",
+      coordinators: [{ shortAlias: "lake", activeOrderId: 91234, lastOrderId: 91234 }]
+    });
+  }, 30000);
+
   it("does not resurrect a released reservation from a stale robot snapshot", async () => {
     const activeSlot = slotWithCoordinatorKeys({ activeOrderId: 89895, lastOrderId: 89895 });
     useGarageStore.setState({ slots: [activeSlot], currentToken: "token", hydrated: true });
