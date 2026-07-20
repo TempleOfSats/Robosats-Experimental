@@ -10,7 +10,7 @@ import {
   RotateCcw,
   Store
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,7 +20,7 @@ import { useGarageStore } from "@/domains/garage/garageStore";
 import { formatExpiryCountdown, formatExpiryTitle } from "@/domains/orderbook/offerDisplay";
 import { garageReconciler } from "@/domains/pro/garageReconciler";
 import { toProTradePresentation } from "@/domains/pro/proPresentation";
-import { useProPreferencesStore, type ProView } from "@/domains/pro/proPreferencesStore";
+import { useProPreferencesStore, type ProFilter, type ProView } from "@/domains/pro/proPreferencesStore";
 import {
   classifyProTrade,
   selectRelevantTrades,
@@ -30,10 +30,8 @@ import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
 import type { ProTradeLocator, ProTradeSnapshot } from "@/domains/pro/pro.types";
 import "@/domains/pro/proWorkspace.css";
 
-type SummaryFilter = "all" | "needs-action" | "active" | "public" | "renewable";
-
 const summaryItems: Array<{
-  key: Exclude<SummaryFilter, "all">;
+  key: Exclude<ProFilter, "all">;
   label: string;
   icon: typeof AlertTriangle;
 }> = [
@@ -46,7 +44,9 @@ const summaryItems: Array<{
 export function ProWorkspacePage() {
   const enabled = useProPreferencesStore((state) => state.enabled);
   const lastView = useProPreferencesStore((state) => state.lastView);
+  const filter = useProPreferencesStore((state) => state.lastFilter);
   const setLastView = useProPreferencesStore((state) => state.setLastView);
+  const setFilter = useProPreferencesStore((state) => state.setLastFilter);
   const slots = useGarageStore((state) => state.slots);
   const hydrated = useGarageStore((state) => state.hydrated);
   const hydrate = useGarageStore((state) => state.hydrate);
@@ -54,10 +54,12 @@ export function ProWorkspacePage() {
   const coordinators = useFederationStore((state) => state.coordinators);
   const snapshots = useProTradeIndexStore((state) => state.snapshots);
   const syncBySlot = useProTradeIndexStore((state) => state.syncBySlot);
+  const removeTrade = useProTradeIndexStore((state) => state.removeTrade);
   const navigate = useNavigate();
-  const [filter, setFilter] = useState<SummaryFilter>("all");
   const [robotFilter, setRobotFilter] = useState<string>();
   const [announcement, setAnnouncement] = useState("");
+  const tradesTab = useRef<HTMLButtonElement>(null);
+  const robotsTab = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!enabled) return;
@@ -71,6 +73,9 @@ export function ProWorkspacePage() {
     [filter, robotFilter, trades]
   );
   const counts = useMemo(() => summaryCounts(trades), [trades]);
+  const failedRobotNames = useMemo(() => robotSummaries
+    .filter((summary) => Boolean(syncBySlot[summary.slotId]?.error))
+    .map((summary) => summary.nickname), [robotSummaries, syncBySlot]);
   const refreshing = Object.values(syncBySlot).some((sync) => sync.inFlight);
 
   if (!enabled) return <Navigate to="/garage" replace />;
@@ -78,15 +83,14 @@ export function ProWorkspacePage() {
   function selectView(view: ProView) {
     setLastView(view);
     if (view === "robots") {
-      setFilter("all");
       setRobotFilter(undefined);
     }
   }
 
-  function selectSummaryFilter(next: Exclude<SummaryFilter, "all">) {
+  function selectSummaryFilter(next: Exclude<ProFilter, "all">) {
     setLastView("trades");
     setRobotFilter(undefined);
-    setFilter((current) => current === next ? "all" : next);
+    setFilter(filter === next ? "all" : next);
   }
 
   function selectRobot(slotId: string) {
@@ -100,6 +104,28 @@ export function ProWorkspacePage() {
     if (!slot) return;
     setCurrentToken(slot.token);
     navigate(path);
+  }
+
+  function openTrade(locator: ProTradeLocator) {
+    const slot = slots.find((item) => item.tokenSHA256 === locator.slotId);
+    if (!slot) {
+      removeTrade(locator);
+      setAnnouncement(`Order ${locator.orderId} was removed because its robot is no longer in the Garage`);
+      return;
+    }
+    setCurrentToken(slot.token);
+    navigate(`/order/${locator.shortAlias}/${locator.orderId}`);
+  }
+
+  function moveTab(event: KeyboardEvent<HTMLButtonElement>, view: ProView) {
+    let next: ProView | undefined;
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") next = view === "trades" ? "robots" : "trades";
+    if (event.key === "Home") next = "trades";
+    if (event.key === "End") next = "robots";
+    if (!next) return;
+    event.preventDefault();
+    selectView(next);
+    (next === "trades" ? tradesTab : robotsTab).current?.focus();
   }
 
   async function refresh() {
@@ -128,7 +154,7 @@ export function ProWorkspacePage() {
             <RefreshCw size={17} />
           </Button>
           <Button className="pro-add-robot-button" onClick={() => navigate("/garage?add=1")}>
-            <Bot size={17} /> Add robot
+            <Bot size={17} /> <span>Add robot</span>
           </Button>
         </div>
       </header>
@@ -139,6 +165,7 @@ export function ProWorkspacePage() {
         {summaryItems.map((item) => {
           const Icon = item.icon;
           const selected = filter === item.key && lastView === "trades";
+          const stale = summaryHasStale(trades, item.key);
           return (
             <button
               className={selected ? "pro-summary-item active" : "pro-summary-item"}
@@ -149,7 +176,7 @@ export function ProWorkspacePage() {
             >
               <Icon size={17} aria-hidden="true" />
               <strong>{counts[item.key]}</strong>
-              <span>{item.label}</span>
+              <span>{item.label}{stale ? <small>Stale</small> : null}</span>
             </button>
           );
         })}
@@ -159,17 +186,27 @@ export function ProWorkspacePage() {
         <header className="pro-workspace-toolbar">
           <div className="pro-view-tabs" role="tablist" aria-label="Trade desk view">
             <button
+              id="pro-trades-tab"
+              ref={tradesTab}
               type="button"
               role="tab"
               aria-selected={lastView === "trades"}
+              aria-controls="pro-workspace-content"
+              tabIndex={lastView === "trades" ? 0 : -1}
+              onKeyDown={(event) => moveTab(event, "trades")}
               onClick={() => selectView("trades")}
             >
               Trades
             </button>
             <button
+              id="pro-robots-tab"
+              ref={robotsTab}
               type="button"
               role="tab"
               aria-selected={lastView === "robots"}
+              aria-controls="pro-workspace-content"
+              tabIndex={lastView === "robots" ? 0 : -1}
+              onKeyDown={(event) => moveTab(event, "robots")}
               onClick={() => selectView("robots")}
             >
               Robots
@@ -182,11 +219,30 @@ export function ProWorkspacePage() {
           ) : null}
         </header>
 
-        <div className="pro-workspace-content" aria-busy={refreshing}>
+        {failedRobotNames.length > 0 ? (
+          <div className="pro-refresh-warning" role="status">
+            <AlertTriangle size={18} aria-hidden="true" />
+            <span>
+              <strong>{failedRobotNames.length === 1
+                ? `Could not refresh ${failedRobotNames[0]}`
+                : `Could not refresh ${failedRobotNames.length} robots`}</strong>
+              <small>Last known trade states are preserved.</small>
+            </span>
+            <Button size="sm" variant="ghost" onClick={() => void refresh()}>Retry</Button>
+          </div>
+        ) : null}
+
+        <div
+          id="pro-workspace-content"
+          className="pro-workspace-content"
+          role="tabpanel"
+          aria-labelledby={lastView === "trades" ? "pro-trades-tab" : "pro-robots-tab"}
+          aria-busy={refreshing}
+        >
           {lastView === "trades" ? (
             <TradeList
               coordinators={coordinators}
-              onOpen={(locator) => useRobot(locator.slotId, `/order/${locator.shortAlias}/${locator.orderId}`)}
+              onOpen={openTrade}
               snapshots={filteredTrades}
             />
           ) : (
@@ -235,40 +291,45 @@ function TradeList({
         <span>Deadline</span>
         <span className="sr-only">Open</span>
       </div>
-      {snapshots.map((snapshot) => {
+      {snapshots.map((snapshot, index) => {
         const presentation = toProTradePresentation(snapshot);
+        const StatusIcon = presentation.statusIcon;
         const coordinator = coordinators.find((item) => item.shortAlias === snapshot.locator.shortAlias);
+        const previous = snapshots[index - 1];
+        const showGroup = !previous || toProTradePresentation(previous).group !== presentation.group;
         return (
-          <button
-            className="pro-trade-row"
-            key={snapshot.key}
-            type="button"
-            aria-label={`Open order ${snapshot.locator.orderId} for ${snapshot.nickname}`}
-            onClick={() => onOpen(snapshot.locator)}
-          >
-            <span className="pro-trade-robot">
-              <RobotAvatar hashId={snapshot.hashId} label={snapshot.nickname} size="sm" />
-              <span><strong>{snapshot.nickname}</strong><small>{presentation.directionLabel}</small></span>
-            </span>
-            <span className="pro-trade-order">
-              <strong>{presentation.amountLabel}</strong>
-              <small>{presentation.methodLabel} · #{snapshot.locator.orderId}</small>
-            </span>
-            <span className="pro-trade-coordinator">
-              {coordinator ? <img className="coordinator-avatar coordinator-avatar-xs" src={coordinator.smallAvatarUrl} alt="" /> : null}
-              <span>{coordinator?.longAlias ?? snapshot.locator.shortAlias}</span>
-            </span>
-            <span>
-              <Badge tone={presentation.statusTone}>{presentation.statusLabel}</Badge>
-            </span>
-            <span className="pro-trade-deadline" title={formatExpiryTitle(snapshot.order?.expires_at)}>
-              <Clock3 size={15} aria-hidden="true" />
-              {presentation.deadline ? formatExpiryCountdown(snapshot.order?.expires_at) : "-"}
-            </span>
-            <span className="pro-trade-open" aria-hidden="true">
-              <ChevronRight size={18} />
-            </span>
-          </button>
+          <Fragment key={snapshot.key}>
+            {showGroup ? <div className="pro-trade-group">{groupLabel(presentation.group)}</div> : null}
+            <button
+              className="pro-trade-row"
+              type="button"
+              aria-label={`Open order ${snapshot.locator.orderId} for ${snapshot.nickname}`}
+              onClick={() => onOpen(snapshot.locator)}
+            >
+              <span className="pro-trade-robot">
+                <RobotAvatar hashId={snapshot.hashId} label={snapshot.nickname} size="sm" />
+                <span><strong>{snapshot.nickname}</strong><small>{presentation.directionLabel}</small></span>
+              </span>
+              <span className="pro-trade-order">
+                <strong>{presentation.amountLabel}</strong>
+                <small>{presentation.methodLabel} · #{snapshot.locator.orderId}</small>
+              </span>
+              <span className="pro-trade-coordinator">
+                {coordinator ? <img className="coordinator-avatar coordinator-avatar-xs" src={coordinator.smallAvatarUrl} alt="" /> : null}
+                <span>{coordinator?.longAlias ?? snapshot.locator.shortAlias}</span>
+              </span>
+              <span>
+                <Badge tone={presentation.statusTone} icon={<StatusIcon size={12} />}>{presentation.statusLabel}</Badge>
+              </span>
+              <span className="pro-trade-deadline" title={formatExpiryTitle(snapshot.order?.expires_at)}>
+                <Clock3 size={15} aria-hidden="true" />
+                {presentation.deadline ? formatExpiryCountdown(snapshot.order?.expires_at) : "-"}
+              </span>
+              <span className="pro-trade-open" aria-hidden="true">
+                <ChevronRight size={18} />
+              </span>
+            </button>
+          </Fragment>
         );
       })}
     </div>
@@ -353,7 +414,7 @@ function EmptyState({ icon: Icon, title, body }: { icon: typeof Bot; title: stri
   );
 }
 
-function summaryCounts(trades: ProTradeSnapshot[]): Record<Exclude<SummaryFilter, "all">, number> {
+function summaryCounts(trades: ProTradeSnapshot[]): Record<Exclude<ProFilter, "all">, number> {
   return {
     "needs-action": trades.filter((trade) => classifyProTrade(trade) === "needs-action").length,
     active: trades.filter((trade) => isActiveTrade(trade)).length,
@@ -362,13 +423,31 @@ function summaryCounts(trades: ProTradeSnapshot[]): Record<Exclude<SummaryFilter
   };
 }
 
-function matchesFilter(snapshot: ProTradeSnapshot, filter: SummaryFilter, robotFilter?: string): boolean {
+function summaryHasStale(trades: ProTradeSnapshot[], filter: Exclude<ProFilter, "all">): boolean {
+  return trades.some((trade) => {
+    if (trade.freshness !== "error" && trade.freshness !== "stale") return false;
+    if (filter === "needs-action") return classifyProTrade({ ...trade, freshness: "fresh" }) === "needs-action";
+    if (filter === "active") return isActiveTrade(trade);
+    if (filter === "public") return trade.order?.status === 1 && trade.order.is_maker;
+    return trade.renewable;
+  });
+}
+
+function matchesFilter(snapshot: ProTradeSnapshot, filter: ProFilter, robotFilter?: string): boolean {
   if (robotFilter && snapshot.locator.slotId !== robotFilter) return false;
   if (filter === "all") return true;
   if (filter === "needs-action") return classifyProTrade(snapshot) === "needs-action";
   if (filter === "active") return isActiveTrade(snapshot);
   if (filter === "public") return snapshot.order?.status === 1 && snapshot.order.is_maker;
   return snapshot.renewable;
+}
+
+function groupLabel(group: ReturnType<typeof classifyProTrade>): string {
+  if (group === "needs-action") return "Needs action";
+  if (group === "in-progress") return "In progress";
+  if (group === "waiting") return "Waiting and public";
+  if (group === "renewable") return "Renewable";
+  return "Refresh needed";
 }
 
 function isActiveTrade(snapshot: ProTradeSnapshot): boolean {

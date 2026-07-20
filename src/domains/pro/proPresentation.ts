@@ -10,6 +10,7 @@ export type ProTradePresentation = {
   group: ProTradeGroup;
   statusLabel: string;
   statusTone: ProStatusTone;
+  statusIcon: LucideIcon;
   directionLabel: string;
   amountLabel: string;
   methodLabel: string;
@@ -27,6 +28,7 @@ export function toProTradePresentation(snapshot: ProTradeSnapshot): ProTradePres
       group,
       statusLabel: snapshot.freshness === "error" ? "Refresh failed" : "Trade unavailable",
       statusTone: "muted",
+      statusIcon: WifiOff,
       directionLabel: "Trade",
       amountLabel: "Amount unavailable",
       methodLabel: "Method unavailable",
@@ -41,12 +43,26 @@ export function toProTradePresentation(snapshot: ProTradeSnapshot): ProTradePres
     group,
     statusLabel: snapshot.freshness === "error" ? `${view.title} · Stale` : view.title,
     statusTone: statusTone(view.tone, snapshot.freshness),
+    statusIcon: statusIcon(group, view.tone, snapshot.freshness),
     directionLabel: roleIntentLabel(order.type, order.currency === 1000, role),
     amountLabel: formatOrderAmount(order),
     methodLabel: formatPaymentMethods(order.payment_method),
     deadline: Number.isFinite(deadline) ? deadline : undefined,
     actionable: group === "needs-action"
   };
+}
+
+function statusIcon(
+  group: ProTradeGroup,
+  tone: ReturnType<typeof getTradeViewState>["tone"],
+  freshness: ProTradeSnapshot["freshness"]
+): LucideIcon {
+  if (freshness === "error" || freshness === "stale") return WifiOff;
+  if (freshness === "refreshing") return RefreshCw;
+  if (group === "renewable") return RotateCcw;
+  if (group === "needs-action" || tone === "danger" || tone === "warning") return AlertTriangle;
+  if (tone === "success") return CircleCheck;
+  return Clock3;
 }
 
 function formatOrderAmount(order: NonNullable<ProTradeSnapshot["order"]>): string {
@@ -71,3 +87,4 @@ function statusTone(
   if (tone === "default") return "default";
   return tone;
 }
+import { AlertTriangle, CircleCheck, Clock3, RefreshCw, RotateCcw, WifiOff, type LucideIcon } from "lucide-react";
