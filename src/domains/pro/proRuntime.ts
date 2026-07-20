@@ -2,7 +2,7 @@ import { useFederationStore } from "@/domains/coordinators/federationStore";
 import { useGarageStore } from "@/domains/garage/garageStore";
 import { garageReconciler } from "@/domains/pro/garageReconciler";
 import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
-import { registerReconcileTriggers } from "@/domains/pro/reconcileTriggers";
+import { registerExpiryReconcileTrigger, registerReconcileTriggers } from "@/domains/pro/reconcileTriggers";
 import type { ReconcileReason } from "@/domains/pro/pro.types";
 
 let stopRuntime: (() => void) | undefined;
@@ -16,6 +16,7 @@ export function startProRuntime(): () => void {
     proEnabled: () => useProPreferencesStore.getState().enabled,
     reconcileCurrent
   });
+  const stopExpiryTrigger = registerExpiryReconcileTrigger(garageReconciler);
   const startupRefresh = useProPreferencesStore.getState().enabled
     ? garageReconciler.reconcileAll("startup")
     : reconcileCurrent("startup");
@@ -23,6 +24,7 @@ export function startProRuntime(): () => void {
 
   stopRuntime = () => {
     stopTriggers();
+    stopExpiryTrigger();
     stopRuntime = undefined;
   };
   return stopRuntime;

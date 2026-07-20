@@ -30,18 +30,30 @@ describe("PRO preferences", () => {
   it("persists workflow state without any robot secret", () => {
     useProPreferencesStore.getState().setEnabled(true);
     useProPreferencesStore.getState().setLastView("robots");
+    useProPreferencesStore.getState().setLastFilter("needs-action");
     useProPreferencesStore.getState().markSetupSeen();
 
     expect(JSON.parse(storage.get(PRO_PREFERENCES_KEY) ?? "{}")).toEqual({
       enabled: true,
       setupSeen: true,
-      lastView: "robots"
+      lastView: "robots",
+      lastFilter: "needs-action"
     });
   });
 
   it("reloads a valid local preference", () => {
-    storage.set(PRO_PREFERENCES_KEY, JSON.stringify({ enabled: true, setupSeen: false, lastView: "robots" }));
+    storage.set(PRO_PREFERENCES_KEY, JSON.stringify({
+      enabled: true,
+      setupSeen: false,
+      lastView: "robots",
+      lastFilter: "renewable"
+    }));
     useProPreferencesStore.getState().reload();
-    expect(useProPreferencesStore.getState()).toMatchObject({ enabled: true, setupSeen: false, lastView: "robots" });
+    expect(useProPreferencesStore.getState()).toMatchObject({
+      enabled: true,
+      setupSeen: false,
+      lastView: "robots",
+      lastFilter: "renewable"
+    });
   });
 });
