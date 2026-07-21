@@ -7129,13 +7129,21 @@
 @media (max-width: 900px) {
   .maker-method-field .image-select-combo,
   .maker-method-field .image-select-combo-no-icon {
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 0.35rem;
-    padding: 0 0.2rem 0 0.8rem;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0;
+    padding: 0;
   }
 
-  .maker-method-field .image-select-icon {
+  .maker-method-field .image-select-combo > .image-select-icon {
     display: none;
+  }
+
+  .maker-method-field .image-select-input {
+    grid-column: 2;
+    grid-row: 1;
+    width: 100%;
+    height: 100%;
+    padding: 0 0.75rem;
   }
 
   .maker-method-field .image-select-input::placeholder {
@@ -7143,13 +7151,16 @@
   }
 
   .maker-method-field .image-select-browse {
-    width: auto;
+    grid-column: 1;
+    grid-row: 1;
+    width: 100%;
     min-height: 2.75rem;
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 0.35rem;
-    border-left: 1px solid var(--border);
-    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    border-right: 1px solid var(--border);
+    border-radius: var(--radius-sm) 0 0 var(--radius-sm);
     padding: 0 0.65rem;
     color: var(--foreground);
   }
