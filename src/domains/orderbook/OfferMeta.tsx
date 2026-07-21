@@ -346,7 +346,7 @@ export function PaymentMethodPicker({
           aria-label={label}
           className="image-select-input"
           ref={inputRef}
-          placeholder={allowCustom ? "Type custom method" : "ANY"}
+          placeholder={allowCustom ? "Type Method" : "ANY"}
           value={query}
           onChange={(event) => updateQuery(event.target.value)}
           onFocus={() => setOpen(true)}
