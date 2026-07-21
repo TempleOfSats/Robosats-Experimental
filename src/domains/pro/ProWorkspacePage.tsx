@@ -39,6 +39,7 @@ import { downloadRobotTokenBackup } from "@/domains/garage/tokenBackup";
 import { formatExpiryCountdown, formatExpiryTitle } from "@/domains/orderbook/offerDisplay";
 import { OrderPage } from "@/domains/orders/OrderPage";
 import { submitOrderAction } from "@/domains/orders/orderApi";
+import { isAlreadyCancelledError } from "@/domains/orders/orderStore";
 import {
   garageReconciler,
   markProOrderActionFinished,
@@ -246,8 +247,24 @@ export function ProWorkspacePage() {
       });
       const result = action === "pause" ? "paused" : action === "resume" ? "resumed" : "cancelled";
       setAnnouncement(`Order ${snapshot.locator.orderId} ${result}.`);
+      if (action === "cancel") {
+        removeTrade(snapshot.locator);
+        return;
+      }
       await garageReconciler.reconcileOrder(snapshot.locator, "order-action");
-    } catch {
+    } catch (error) {
+      if (action === "cancel" && isAlreadyCancelledError(error)) {
+        syncOrderSnapshot({
+          token: slot.token,
+          shortAlias: coordinator.shortAlias,
+          orderId: snapshot.locator.orderId,
+          status: 4,
+          isMaker: snapshot.order?.is_maker
+        });
+        removeTrade(snapshot.locator);
+        setAnnouncement(`Order ${snapshot.locator.orderId} was already cancelled.`);
+        return;
+      }
       setAnnouncement(`Could not ${action} order ${snapshot.locator.orderId}. Try again.`);
     } finally {
       markProOrderActionFinished(snapshot.locator);
@@ -582,6 +599,8 @@ function TradeList({
                 {snapshot.order?.status === 1 && snapshot.order.is_maker ? (
                   <>
                     <Button
+                      aria-label={`Pause order ${snapshot.locator.orderId}`}
+                      className="pro-trade-action-button"
                       disabled={Boolean(quickActionKey)}
                       loading={quickActionKey === `${snapshot.key}:pause`}
                       onClick={() => onPause(snapshot)}
@@ -589,15 +608,25 @@ function TradeList({
                       title="Hide this offer from the public order book"
                       variant="outline"
                     >
-                      <Pause size={14} /> Pause
+                      <Pause size={14} /> <span className="pro-trade-action-label">Pause</span>
                     </Button>
-                    <Button disabled={Boolean(quickActionKey)} onClick={() => onCancel(snapshot)} size="sm" variant="destructive">
-                      <X size={14} /> Cancel
+                    <Button
+                      aria-label={`Cancel order ${snapshot.locator.orderId}`}
+                      className="pro-trade-action-button"
+                      disabled={Boolean(quickActionKey)}
+                      onClick={() => onCancel(snapshot)}
+                      size="sm"
+                      title="Cancel this offer"
+                      variant="destructive"
+                    >
+                      <X size={14} /> <span className="pro-trade-action-label">Cancel</span>
                     </Button>
                   </>
                 ) : snapshot.order?.status === 2 && snapshot.order.is_maker ? (
                   <>
                     <Button
+                      aria-label={`Resume order ${snapshot.locator.orderId}`}
+                      className="pro-trade-action-button"
                       disabled={Boolean(quickActionKey)}
                       loading={quickActionKey === `${snapshot.key}:resume`}
                       onClick={() => onResume(snapshot)}
@@ -605,7 +634,7 @@ function TradeList({
                       title="Return this offer to the public order book"
                       variant="outline"
                     >
-                      <Play size={14} /> Resume
+                      <Play size={14} /> <span className="pro-trade-action-label">Resume</span>
                     </Button>
                     <button className="pro-trade-open-icon" type="button" aria-label={`Open order ${snapshot.locator.orderId}`} onClick={() => onOpen(snapshot.locator)}>
                       <ChevronRight size={18} />
