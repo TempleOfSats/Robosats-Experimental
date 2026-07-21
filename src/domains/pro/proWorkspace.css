@@ -369,6 +369,10 @@
   gap: 0.15rem;
 }
 
+.pro-robot-identity > span {
+  overflow: hidden;
+}
+
 .pro-robot-state {
   display: flex;
   align-items: center;
@@ -389,13 +393,94 @@
 }
 
 .pro-robot-identity strong {
-  overflow-wrap: anywhere;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pro-robot-actions {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: 0.35rem;
+}
+
+.pro-robot-create-button,
+.pro-robot-garage-button {
+  gap: 0.4rem;
+}
+
+.pro-create-robot-picker {
+  width: min(100%, 30rem);
+}
+
+.pro-create-robot-picker .garage-switcher-header > span {
+  min-width: 0;
+  display: grid;
+  gap: 0.15rem;
+}
+
+.pro-create-robot-picker .garage-switcher-header small {
+  color: var(--text-supporting);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
+}
+
+.pro-create-robot-option > svg {
+  color: var(--text-supporting);
+}
+
+.pro-create-robot-option:hover > svg,
+.pro-create-robot-option:focus-visible > svg {
+  color: var(--primary);
+}
+
+.pro-create-robot-empty {
+  min-height: 12rem;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 0.4rem;
+  padding: 1.5rem;
+  color: var(--text-supporting);
+  text-align: center;
+}
+
+.pro-create-robot-empty strong {
+  color: var(--foreground);
+}
+
+.pro-create-robot-empty p {
+  max-width: 34ch;
+  margin: 0;
+  font-size: var(--type-compact-size);
+  line-height: var(--type-compact-line);
+}
+
+.pro-robot-added-notice {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 210;
+  width: min(calc(100vw - 2rem), 24rem);
+  min-height: 4rem;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--success) 52%, var(--border));
+  border-radius: var(--radius-md);
+  background: var(--card);
+  color: var(--foreground);
+  padding: 0.65rem 0.75rem;
+  box-shadow: 0 1rem 2.5rem rgba(0, 0, 0, 0.38);
+}
+
+.pro-robot-added-notice strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--type-compact-size);
 }
 
 .pro-trade-dialog-overlay {
@@ -666,15 +751,50 @@
   }
 
   .pro-robot-row {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.45rem;
+    padding-inline: 0.65rem;
   }
 
   .pro-robot-actions {
-    grid-column: 1;
+    grid-column: auto;
+    flex-wrap: nowrap;
+    justify-content: flex-end;
+    gap: 0.15rem;
   }
 
-  .pro-robot-actions {
-    justify-content: flex-start;
+  .pro-robot-actions .ui-button {
+    width: 2rem;
+    min-width: 2rem;
+    height: 2rem;
+    padding: 0;
+  }
+
+  .pro-robot-action-label {
+    display: none;
+  }
+
+  .pro-robot-identity {
+    gap: 0.45rem;
+  }
+
+  .pro-robot-identity strong {
+    font-size: var(--type-compact-size);
+  }
+
+  .pro-robot-state {
+    gap: 0.25rem;
+  }
+
+  .pro-robot-state .ui-badge,
+  .pro-robot-state small {
+    font-size: var(--type-caption-size);
+  }
+
+  .pro-robot-added-notice {
+    right: 0.75rem;
+    bottom: 0.75rem;
+    width: calc(100vw - 1.5rem);
   }
 
   .pro-trade-actions {
