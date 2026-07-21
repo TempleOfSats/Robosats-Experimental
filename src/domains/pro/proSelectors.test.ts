@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { deriveRobotIdentity } from "@/domains/identity/robotIdentity";
+import type { RobotSlot } from "@/domains/garage/garageStore";
 import type { OrderDto } from "@/domains/orders/order.types";
-import { classifyProTrade, compareProTrades } from "@/domains/pro/proSelectors";
+import {
+  classifyProTrade,
+  compareProTrades,
+  selectOfferReadyRobots,
+  summarizeProRobots
+} from "@/domains/pro/proSelectors";
 import type { ProTradeSnapshot } from "@/domains/pro/pro.types";
 
 describe("PRO trade selectors", () => {
@@ -18,7 +25,43 @@ describe("PRO trade selectors", () => {
   it("classifies renewable maker offers independently", () => {
     expect(classifyProTrade({ ...snapshot({ status: 5, is_maker: true }), renewable: true })).toBe("renewable");
   });
+
+  it("offers only fresh robots without active work for new offers", () => {
+    const ready = robotSlot("ready-token", "Ready Robot");
+    const reserved = { ...robotSlot("reserved-token", "Reserved Robot"), activeOrderId: 8 };
+    const stale = robotSlot("stale-token", "Stale Robot");
+    const active = robotSlot("active-token", "Active Robot");
+    const snapshots = {
+      stale: { ...snapshot({ id: 3, status: 1, is_maker: true }), locator: locator(stale, 3), freshness: "stale" as const },
+      active: { ...snapshot({ id: 4, status: 9 }), locator: locator(active, 4) }
+    };
+    const slots = [ready, reserved, stale, active];
+
+    expect(selectOfferReadyRobots(slots, summarizeProRobots(slots, snapshots)).map((robot) => robot.nickname))
+      .toEqual(["Ready Robot"]);
+  });
 });
+
+function robotSlot(token: string, nickname: string): RobotSlot {
+  const identity = deriveRobotIdentity(token.padEnd(40, "x"));
+  return {
+    ...identity,
+    nickname,
+    earnedRewards: 0,
+    robots: {
+      local: {
+        token: identity.token,
+        shortAlias: "local",
+        tokenSHA256: identity.tokenSHA256,
+        nostrPubKey: identity.nostrPubKey
+      }
+    }
+  };
+}
+
+function locator(slot: RobotSlot, orderId: number) {
+  return { slotId: slot.tokenSHA256, shortAlias: "lake", orderId };
+}
 
 function snapshot(overrides: Partial<OrderDto> = {}): ProTradeSnapshot {
   const order = {
