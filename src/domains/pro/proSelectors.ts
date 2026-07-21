@@ -87,6 +87,21 @@ export function summarizeProRobots(
   });
 }
 
+export function selectOfferReadyRobots(
+  slots: RobotSlot[],
+  summaries: ProRobotSummary[]
+): ProRobotSummary[] {
+  const slotsById = new Map(slots.map((slot) => [slot.tokenSHA256, slot]));
+  return summaries.filter((summary) => {
+    const slot = slotsById.get(summary.slotId);
+    return Boolean(slot)
+      && !slot?.activeOrderId
+      && !summary.stale
+      && summary.activeTradeCount === 0
+      && summary.needsAttentionCount === 0;
+  });
+}
+
 function deadline(snapshot: ProTradeSnapshot): number {
   const parsed = snapshot.order?.expires_at ? Date.parse(snapshot.order.expires_at) : Number.NaN;
   return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
