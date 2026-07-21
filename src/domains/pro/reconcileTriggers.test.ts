@@ -79,6 +79,35 @@ describe("reconciliation triggers", () => {
     cleanup();
   });
 
+  it("removes a terminal order immediately after its foreground action", () => {
+    const controller = fakeController();
+    useProTradeIndexStore.getState().upsertSnapshot({
+      key: "slot:lake:42",
+      locator: { slotId: "slot", shortAlias: "lake", orderId: 42 },
+      nickname: "Robot",
+      hashId: "hash",
+      order: { id: 42, status: 1, is_maker: true } as never,
+      renewable: false,
+      released: false,
+      freshness: "fresh"
+    });
+    const cleanup = registerReconcileTriggers({
+      controller,
+      proEnabled: () => true,
+      reconcileCurrent: vi.fn(async () => undefined)
+    });
+    const event = new Event("robosats:order-action-complete");
+    Object.defineProperty(event, "detail", {
+      value: { slotId: "slot", shortAlias: "lake", orderId: 42, status: 4, isMaker: true }
+    });
+
+    windowTarget.dispatchEvent(event);
+
+    expect(useProTradeIndexStore.getState().snapshots["slot:lake:42"]).toBeUndefined();
+    expect(controller.reconcileOrder).not.toHaveBeenCalled();
+    cleanup();
+  });
+
   it("refreshes an order when its displayed deadline expires", async () => {
     const controller = fakeController();
     useProTradeIndexStore.getState().upsertSnapshot({

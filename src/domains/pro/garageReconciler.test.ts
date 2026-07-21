@@ -98,6 +98,60 @@ describe("GarageReconciler", () => {
     expect(useProTradeIndexStore.getState().snapshots["slot-beta:lake:91234"]).toBeUndefined();
   });
 
+  it("ignores an order failure made obsolete by a foreground action", async () => {
+    let rejectOrder: ((reason: Error) => void) | undefined;
+    const fetchOrder = vi.fn(() => new Promise<OrderDto>((_resolve, reject) => {
+      rejectOrder = reject;
+    }));
+    const prior = existingSnapshot();
+    useProTradeIndexStore.getState().upsertSnapshot(prior);
+    const reconciler = makeReconciler({
+      refreshRobotSlot: async () => robotResult(91234),
+      fetchOrder
+    });
+    const locator: ProTradeLocator = { slotId: "slot-beta", shortAlias: "lake", orderId: 91234 };
+
+    const refresh = reconciler.reconcileOrder(locator, "order-action");
+    await vi.waitFor(() => expect(fetchOrder).toHaveBeenCalledOnce());
+    markProOrderActionStarted(locator);
+    useProTradeIndexStore.getState().removeTrade(locator);
+    markProOrderActionFinished(locator);
+    rejectOrder?.(new Error("The coordinator is temporarily unavailable."));
+    await refresh;
+
+    expect(useProTradeIndexStore.getState().snapshots[prior.key]).toBeUndefined();
+  });
+
+  it("removes a cancelled order when its follow-up GET returns error 1043", async () => {
+    const activeBeta = {
+      ...beta,
+      activeOrderId: 91234,
+      lastOrderId: 91234,
+      robots: {
+        lake: { ...beta.robots.lake, activeOrderId: 91234, lastOrderId: 91234 }
+      }
+    };
+    useGarageStore.setState({ slots: [alpha, activeBeta], currentToken: "alpha", hydrated: true });
+    const prior = {
+      ...existingSnapshot(),
+      order: order({ id: 91234, status: 1, is_maker: true, is_taker: false })
+    };
+    useProTradeIndexStore.getState().upsertSnapshot(prior);
+    const reconciler = makeReconciler({
+      refreshRobotSlot: async () => robotResult(91234),
+      fetchOrder: async () => {
+        throw new Error('RoboSats API 400: {"error_code":1043,"bad_request":"This order has been cancelled"}');
+      }
+    });
+
+    await reconciler.reconcileOrder(prior.locator, "order-action");
+
+    const refreshed = useGarageStore.getState().slots[1];
+    expect(refreshed.activeOrderId).toBeUndefined();
+    expect(refreshed.lastOrderId).toBe(91234);
+    expect(useProTradeIndexStore.getState().snapshots[prior.key]).toBeUndefined();
+  });
+
   it("removes an expired taker reservation after authoritative public status", async () => {
     const activeBeta = {
       ...beta,
