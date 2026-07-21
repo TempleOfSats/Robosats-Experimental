@@ -487,11 +487,11 @@ export function RobotSettingsDialog({
         />
 
         <div className="garage-settings-security-actions">
-          <Button type="button" variant="secondary" onClick={onTokenBackup}>
+          <Button className="garage-security-button" type="button" variant="secondary" onClick={onTokenBackup}>
             <Download size={18} />
             Token backup
           </Button>
-          <Button className="garage-keys-button" type="button" onClick={toggleKeys}>
+          <Button className="garage-security-button garage-keys-button" type="button" onClick={toggleKeys}>
             <KeyRound size={18} />
             PGP / NOSTR keys
           </Button>
