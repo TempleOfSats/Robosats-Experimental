@@ -1,6 +1,7 @@
 import {
   markProOrderActionFinished,
   markProOrderActionStarted,
+  isTerminalForProDesk,
   type GarageReconcileController
 } from "@/domains/pro/garageReconciler";
 import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
@@ -53,10 +54,15 @@ export function registerReconcileTriggers(options: ReconcileTriggerOptions): () 
     if (locator) markProOrderActionStarted(locator);
   };
   const onOrderActionComplete = (event: Event) => {
-    const locator = validLocator((event as CustomEvent<unknown>).detail);
-    if (!locator) return;
-    markProOrderActionFinished(locator);
-    void options.controller.reconcileOrder(locator, "order-action").catch(() => undefined);
+    const result = validOrderActionResult((event as CustomEvent<unknown>).detail);
+    if (!result) return;
+    markProOrderActionFinished(result);
+    if (result.status !== undefined && result.isMaker !== undefined
+      && isTerminalForProDesk(result.status, result.isMaker)) {
+      useProTradeIndexStore.getState().removeTrade(result);
+      return;
+    }
+    void options.controller.reconcileOrder(result, "order-action").catch(() => undefined);
   };
 
   window.addEventListener("robosats:tor-ready", onTorReady);
@@ -137,6 +143,15 @@ function validLocator(value: unknown): ProTradeLocator | undefined {
   if (!isString(locator.slotId) || !isString(locator.shortAlias)) return undefined;
   if (!Number.isInteger(locator.orderId) || (locator.orderId ?? 0) <= 0) return undefined;
   return locator as ProTradeLocator;
+}
+
+function validOrderActionResult(value: unknown): (ProTradeLocator & { status?: number; isMaker?: boolean }) | undefined {
+  const locator = validLocator(value);
+  if (!locator) return undefined;
+  const result = value as { status?: unknown; isMaker?: unknown };
+  if (result.status !== undefined && !Number.isInteger(result.status)) return undefined;
+  if (result.isMaker !== undefined && typeof result.isMaker !== "boolean") return undefined;
+  return { ...locator, status: result.status as number | undefined, isMaker: result.isMaker as boolean | undefined };
 }
 
 function isString(value: unknown): value is string {
