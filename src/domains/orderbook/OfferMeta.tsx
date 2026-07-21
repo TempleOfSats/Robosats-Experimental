@@ -346,7 +346,7 @@ export function PaymentMethodPicker({
           aria-label={label}
           className="image-select-input"
           ref={inputRef}
-          placeholder={allowCustom ? "Type or choose a method" : "ANY"}
+          placeholder={allowCustom ? "Type custom method" : "ANY"}
           value={query}
           onChange={(event) => updateQuery(event.target.value)}
           onFocus={() => setOpen(true)}
@@ -372,6 +372,7 @@ export function PaymentMethodPicker({
           }}
         >
           <ChevronDown size={17} aria-hidden="true" />
+          <span className="image-select-browse-label">Browse</span>
         </button>
       </div>
       {open ? (
