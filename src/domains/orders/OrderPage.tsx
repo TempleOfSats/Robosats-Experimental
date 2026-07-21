@@ -44,12 +44,18 @@ import { decryptChatMessage } from "@/domains/chat/chatCrypto";
 import { toUserMessage } from "@/lib/userError";
 import { showDesktopOrderNotification } from "@/domains/notifications/desktopNotifications";
 
-export function OrderPage() {
+export function OrderPage({
+  embeddedLocator,
+  onEmbeddedClose
+}: {
+  embeddedLocator?: { shortAlias: string; orderId: number };
+  onEmbeddedClose?: () => void;
+} = {}) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const params = useParams();
-  const shortAlias = params.shortAlias ?? "local";
-  const orderId = Number(params.orderId ?? 0);
+  const shortAlias = embeddedLocator?.shortAlias ?? params.shortAlias ?? "local";
+  const orderId = embeddedLocator?.orderId ?? Number(params.orderId ?? 0);
   const coordinators = useFederationStore((state) => state.coordinators);
   const slots = useGarageStore((state) => state.slots);
   const currentToken = useGarageStore((state) => state.currentToken);
@@ -148,17 +154,19 @@ export function OrderPage() {
       }
     }
     if (!previewOrder && lastStatus !== undefined && ![4, 12].includes(lastStatus) && [4, 12].includes(loadedOrder.status)) {
-      navigate("/offers", { replace: true });
+      if (onEmbeddedClose) onEmbeddedClose();
+      else navigate("/offers", { replace: true });
       return;
     }
     if (!previewOrder && shouldReturnExpiredTakeToOffers(lastStatus, wasTaker, loadedOrder)) {
       if (currentSlot && orderId) {
         releaseOrderReservation(currentSlot.token, shortAlias, orderId);
       }
-      navigate("/offers", { replace: true });
+      if (onEmbeddedClose) onEmbeddedClose();
+      else navigate("/offers", { replace: true });
       return;
     }
-  }, [currentSlot, loadedOrder, navigate, orderId, previewOrder, releaseOrderReservation, shortAlias]);
+  }, [currentSlot, loadedOrder, navigate, onEmbeddedClose, orderId, previewOrder, releaseOrderReservation, shortAlias]);
 
   const visibleOrder = previewOrder ?? loadedOrder;
 
@@ -216,7 +224,7 @@ export function OrderPage() {
   const isQuietPaymentState = view.panel === "sending_sats" || view.panel === "routing_failed" || view.panel === "success";
 
   return (
-    <main className={`page page-trade${isPayoutRoutingState ? " page-trade-routing" : ""}`}>
+    <main className={`page page-trade${embeddedLocator ? " page-trade-embedded" : ""}${isPayoutRoutingState ? " page-trade-routing" : ""}`}>
       {!isQuietPaymentState ? (
         <div className="page-heading">
           <div>
@@ -290,11 +298,17 @@ export function OrderPage() {
               if (!response.id) throw new Error("Coordinator did not return a renewed order id.");
 
               setActiveOrder(currentSlot.token, shortAlias, response.id);
-              navigate(`/order/${shortAlias}/${response.id}`, { replace: true });
+              if (onEmbeddedClose) onEmbeddedClose();
+              else navigate(`/order/${shortAlias}/${response.id}`, { replace: true });
             }}
-            onStartAgain={() => previewOrder
-              ? setPreviewNotice("Start again simulated locally. No route change was made.")
-              : navigate("/create")}
+            onStartAgain={() => {
+              if (previewOrder) {
+                setPreviewNotice("Start again simulated locally. No route change was made.");
+                return;
+              }
+              onEmbeddedClose?.();
+              navigate("/create");
+            }}
             onPublishRating={previewOrder || !coordinator || !coordinatorAuth || !currentSlot ? undefined : async (rating) => {
               const identity = deriveRobotIdentity(currentSlot.token);
               const review = await requestReviewToken(coordinator.url, identity.nostrPubKey, coordinatorAuth);
@@ -319,7 +333,8 @@ export function OrderPage() {
               void submitAction({ coordinator, orderId: order.id, slot: currentSlot, payload: action.payload }).then(() => {
                 const updated = useOrderStore.getState();
                 if (!updated.error && shouldLeaveTradeAfterAction(action.key, updated.order)) {
-                  navigate("/offers", { replace: true });
+                  if (onEmbeddedClose) onEmbeddedClose();
+                  else navigate("/offers", { replace: true });
                 }
               });
             }}
