@@ -13,6 +13,7 @@ import { fetchCoordinatorRatings, type CoordinatorRating } from "@/domains/coord
 import { useFederationStore } from "@/domains/coordinators/federationStore";
 import { getRobotAuthForCoordinator, selectCurrentSlot, type RobotRecord, useGarageStore } from "@/domains/garage/garageStore";
 import { TelegramSetupDialog } from "@/domains/garage/TelegramSetupDialog";
+import { RobotTokenBackupDialog } from "@/domains/garage/RobotTokenBackupDialog";
 import { downloadRobotTokenBackup } from "@/domains/garage/tokenBackup";
 import { RobotAvatar } from "@/domains/identity/RobotAvatar";
 import { deriveRobotIdentity } from "@/domains/identity/robotIdentity";
@@ -52,6 +53,7 @@ export function RobotGaragePage() {
   const [showRobotSettings, setShowRobotSettings] = useState(false);
   const [showToken, setShowToken] = useState(false);
   const [showKeys, setShowKeys] = useState(false);
+  const [showSettingsTokenBackup, setShowSettingsTokenBackup] = useState(false);
   const [showLastOrder, setShowLastOrder] = useState(false);
   const [showRecovery, setShowRecovery] = useState(false);
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
@@ -309,12 +311,21 @@ export function RobotGaragePage() {
             setSelectedAlias(undefined);
           }}
           onCoordinatorSelect={setSelectedAlias}
+          onTokenBackup={() => setShowSettingsTokenBackup(true)}
           onTokenChange={setCurrentToken}
           selectedAlias={selectedAlias}
           showKeys={showKeys}
           slot={activeSlot}
           slots={slots}
           toggleKeys={() => setShowKeys((open) => !open)}
+        />
+      ) : null}
+
+      {showSettingsTokenBackup ? (
+        <RobotTokenBackupDialog
+          onClose={() => setShowSettingsTokenBackup(false)}
+          robotName={activeSlot.nickname}
+          token={activeSlot.token}
         />
       ) : null}
 
@@ -434,6 +445,7 @@ export function RobotSettingsDialog({
   coordinators,
   onClose,
   onCoordinatorSelect,
+  onTokenBackup,
   onTokenChange,
   showKeys,
   slot,
@@ -444,6 +456,7 @@ export function RobotSettingsDialog({
   coordinators: CoordinatorSummary[];
   onClose: () => void;
   onCoordinatorSelect: (shortAlias: string) => void;
+  onTokenBackup: () => void;
   onTokenChange: (token: string) => void;
   selectedAlias?: string;
   showKeys: boolean;
@@ -473,10 +486,16 @@ export function RobotSettingsDialog({
           value={activeToken}
         />
 
-        <Button className="garage-keys-button" type="button" onClick={toggleKeys}>
-          <KeyRound size={18} />
-          Keys
-        </Button>
+        <div className="garage-settings-security-actions">
+          <Button type="button" variant="secondary" onClick={onTokenBackup}>
+            <Download size={18} />
+            Token backup
+          </Button>
+          <Button className="garage-keys-button" type="button" onClick={toggleKeys}>
+            <KeyRound size={18} />
+            PGP / NOSTR keys
+          </Button>
+        </div>
 
         {showKeys ? (
           <Suspense fallback={null}>
