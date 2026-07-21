@@ -13,6 +13,7 @@
 .pro-workspace-header h2 {
   margin: 0;
   font-size: var(--type-h1-size);
+  font-weight: 600;
   line-height: var(--type-h1-line);
 }
 
@@ -245,6 +246,10 @@
   padding: 0.5rem 0.75rem 0.5rem 0;
 }
 
+.pro-trade-action-button {
+  flex: 0 0 auto;
+}
+
 .pro-trade-open-icon {
   width: 2rem;
   height: 2rem;
@@ -284,6 +289,13 @@
   overflow-wrap: anywhere;
   font-size: var(--type-compact-size);
   font-weight: 600;
+}
+
+.pro-trade-robot strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pro-trade-robot small,
@@ -504,13 +516,39 @@
   gap: 0.4rem;
 }
 
+@media (max-width: 1400px) {
+  .pro-trade-header {
+    grid-template-columns:
+      minmax(10.5rem, 1.15fr)
+      minmax(13rem, 1.55fr)
+      minmax(9rem, 1fr)
+      minmax(10rem, 1.2fr)
+      minmax(6rem, 0.65fr)
+      minmax(5rem, auto);
+  }
+
+  .pro-trade-actions {
+    min-width: 5rem;
+  }
+
+  .pro-trade-action-button {
+    width: 2.25rem;
+    min-width: 2.25rem;
+    padding-inline: 0;
+  }
+
+  .pro-trade-action-label {
+    display: none;
+  }
+}
+
 @media (max-width: 1180px) {
   .pro-trade-header {
-    grid-template-columns: minmax(10rem, 1fr) minmax(12rem, 1.4fr) minmax(9rem, 1fr) minmax(6rem, 0.7fr) minmax(8rem, auto);
+    grid-template-columns: minmax(8rem, 1fr) minmax(9rem, 1.2fr) minmax(7rem, 1fr) minmax(5.5rem, 0.7fr) minmax(5rem, auto);
   }
 
   .pro-trade-row-open {
-    grid-template-columns: minmax(10rem, 1fr) minmax(12rem, 1.4fr) minmax(9rem, 1fr) minmax(6rem, 0.7fr);
+    grid-template-columns: minmax(8rem, 1fr) minmax(9rem, 1.2fr) minmax(7rem, 1fr) minmax(5.5rem, 0.7fr);
   }
 
   .pro-trade-header > :nth-child(3),
@@ -569,11 +607,6 @@
     align-items: flex-start;
   }
 
-  .pro-workspace-header h2 {
-    font-size: var(--type-h2-size);
-    line-height: var(--type-h2-line);
-  }
-
   .pro-add-robot-button {
     width: 2.5rem;
     padding: 0;
@@ -607,15 +640,29 @@
   }
 
   .pro-trade-row {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
   .pro-trade-row-open {
-    min-height: 7.5rem;
+    min-height: 5.75rem;
+    grid-template-areas:
+      "robot status status"
+      "order coordinator deadline";
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 0.35rem 0.5rem;
+    padding: 0.65rem 0.5rem 0.65rem 0.75rem;
   }
 
   .pro-trade-row .ui-badge {
     max-width: 9.5rem;
+  }
+
+  .pro-trade-coordinator {
+    gap: 0;
+  }
+
+  .pro-trade-coordinator span {
+    display: none;
   }
 
   .pro-robot-row {
@@ -631,9 +678,19 @@
   }
 
   .pro-trade-actions {
-    min-width: 0;
-    justify-content: flex-end;
-    padding: 0 0.75rem 0.75rem;
+    min-width: 2.6rem;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.3rem;
+    padding: 0.45rem 0.45rem 0.45rem 0;
+  }
+
+  .pro-trade-action-button,
+  .pro-trade-open-icon {
+    width: 2.15rem;
+    height: 2.15rem;
+    min-width: 2.15rem;
+    padding: 0;
   }
 
   .pro-empty-state {
@@ -656,19 +713,7 @@
     padding-inline: 0.35rem;
   }
 
-  .pro-trade-row-open {
-    grid-template-areas:
-      "robot robot"
-      "status status"
-      "order order"
-      "coordinator deadline";
-  }
-
-  .pro-trade-row-open > span:nth-child(4) {
-    justify-self: start;
-  }
-
   .pro-trade-row .ui-badge {
-    max-width: 100%;
+    max-width: 8.25rem;
   }
 }
