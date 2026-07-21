@@ -1,11 +1,12 @@
 import {
   AlertTriangle,
-  ArrowRight,
   Bot,
   BriefcaseBusiness,
   ChevronRight,
+  CirclePlus,
   Clock3,
   Download,
+  House,
   ListChecks,
   Pause,
   Play,
@@ -49,6 +50,7 @@ import { toProTradePresentation } from "@/domains/pro/proPresentation";
 import { useProPreferencesStore, type ProFilter, type ProView } from "@/domains/pro/proPreferencesStore";
 import {
   classifyProTrade,
+  selectOfferReadyRobots,
   selectRelevantTrades,
   summarizeProRobots
 } from "@/domains/pro/proSelectors";
@@ -88,6 +90,8 @@ export function ProWorkspacePage() {
   const navigate = useNavigate();
   const [announcement, setAnnouncement] = useState("");
   const [addingRobot, setAddingRobot] = useState(false);
+  const [addedRobot, setAddedRobot] = useState<{ slotId: string; hashId: string; nickname: string }>();
+  const [createPickerOpen, setCreatePickerOpen] = useState(false);
   const [settingsSlotId, setSettingsSlotId] = useState<string>();
   const [settingsAlias, setSettingsAlias] = useState<string>();
   const [showKeys, setShowKeys] = useState(false);
@@ -108,6 +112,10 @@ export function ProWorkspacePage() {
 
   const trades = useMemo(() => selectRelevantTrades(snapshots), [snapshots]);
   const robotSummaries = useMemo(() => summarizeProRobots(slots, snapshots), [slots, snapshots]);
+  const offerReadyRobots = useMemo(
+    () => selectOfferReadyRobots(slots, robotSummaries),
+    [robotSummaries, slots]
+  );
   const filteredTrades = useMemo(
     () => trades.filter((snapshot) => matchesFilter(snapshot, filter)),
     [filter, trades]
@@ -126,6 +134,12 @@ export function ProWorkspacePage() {
   const deleteSlot = slots.find((slot) => slot.tokenSHA256 === deleteSlotId);
   const settingsCoordinator = displayCoordinators.find((coordinator) => coordinator.shortAlias === settingsAlias);
   const settingsRobot = settingsCoordinator && settingsSlot ? settingsSlot.robots[settingsCoordinator.shortAlias] : undefined;
+
+  useEffect(() => {
+    if (!addedRobot) return;
+    const timeout = window.setTimeout(() => setAddedRobot(undefined), 5000);
+    return () => window.clearTimeout(timeout);
+  }, [addedRobot]);
 
   if (!enabled) return <Navigate to="/garage" replace />;
 
@@ -195,13 +209,18 @@ export function ProWorkspacePage() {
         }
       }
     });
+    setAddedRobot({ slotId: identity.tokenSHA256, hashId: identity.hashId, nickname: fallbackName });
     setAnnouncement("New robot added. Download its token backup before trading.");
     setAddingRobot(false);
 
     void import("@/domains/identity/roboidentitiesClient")
       .then(({ generateRoboname, prewarmRobotIdentity }) => {
         prewarmRobotIdentity(identity.hashId);
-        updateSlotIdentityDetails(token, { nickname: generateRoboname(identity.hashId) });
+        const nickname = generateRoboname(identity.hashId);
+        updateSlotIdentityDetails(token, { nickname });
+        setAddedRobot((current) => current?.slotId === identity.tokenSHA256
+          ? { ...current, nickname }
+          : current);
       })
       .catch(() => undefined);
     window.setTimeout(() => {
@@ -406,6 +425,7 @@ export function ProWorkspacePage() {
           {lastView === "trades" ? (
             <TradeList
               coordinators={coordinators}
+              onCreate={() => setCreatePickerOpen(true)}
               onOpen={openTrade}
               onCancel={setCancelTrade}
               onPause={(snapshot) => void runQuickTradeAction(snapshot, "pause")}
@@ -415,7 +435,7 @@ export function ProWorkspacePage() {
             />
           ) : (
             <RobotList
-              onCreate={(slotId) => useRobot(slotId, "/create")}
+              onCreate={() => setCreatePickerOpen(true)}
               onDelete={setDeleteSlotId}
               onDownload={(slotId) => {
                 const slot = slots.find((item) => item.tokenSHA256 === slotId);
@@ -441,6 +461,17 @@ export function ProWorkspacePage() {
             <OrderPage embeddedLocator={selectedTrade} onEmbeddedClose={closeTrade} />
           </section>
         </div>
+      ) : null}
+
+      {createPickerOpen ? (
+        <CreateOfferRobotPicker
+          onClose={() => setCreatePickerOpen(false)}
+          onSelect={(slotId) => {
+            setCreatePickerOpen(false);
+            useRobot(slotId, "/create");
+          }}
+          robots={offerReadyRobots}
+        />
       ) : null}
 
       {settingsSlot ? (
@@ -518,6 +549,10 @@ export function ProWorkspacePage() {
           orderId={cancelTrade.locator.orderId}
         />
       ) : null}
+
+      {addedRobot ? (
+        <RobotAddedNotice robot={addedRobot} onClose={() => setAddedRobot(undefined)} />
+      ) : null}
     </main>
   );
 }
@@ -525,6 +560,7 @@ export function ProWorkspacePage() {
 function TradeList({
   coordinators,
   onCancel,
+  onCreate,
   onOpen,
   onPause,
   onResume,
@@ -533,6 +569,7 @@ function TradeList({
 }: {
   coordinators: ReturnType<typeof useFederationStore.getState>["coordinators"];
   onCancel: (snapshot: ProTradeSnapshot) => void;
+  onCreate: () => void;
   onOpen: (locator: ProTradeLocator) => void;
   onPause: (snapshot: ProTradeSnapshot) => void;
   onResume: (snapshot: ProTradeSnapshot) => void;
@@ -545,6 +582,7 @@ function TradeList({
         icon={ListChecks}
         title="No matching trades"
         body="Active trades and public offers for every robot will appear here."
+        onCreate={onCreate}
       />
     );
   }
@@ -665,7 +703,7 @@ function RobotList({
   summaries,
   syncBySlot
 }: {
-  onCreate: (slotId: string) => void;
+  onCreate: () => void;
   onDelete: (slotId: string) => void;
   onDownload: (slotId: string) => void;
   onSettings: (slotId: string) => void;
@@ -708,8 +746,23 @@ function RobotList({
               <Button size="icon" variant="ghost" onClick={() => onTelegram(summary.slotId)} aria-label={`Enable Telegram for ${summary.nickname}`} title="Enable Telegram">
                 <Send size={16} />
               </Button>
-              <Button size="sm" variant="ghost" onClick={() => onCreate(summary.slotId)}>Create offer</Button>
-              <Button size="sm" variant="secondary" onClick={() => onUse(summary.slotId)}>Use robot <ArrowRight size={15} /></Button>
+              <Button
+                aria-label="Create an offer with an available robot"
+                className="pro-robot-create-button"
+                size="sm"
+                onClick={onCreate}
+              >
+                <CirclePlus size={16} /> <span className="pro-robot-action-label">Create offer</span>
+              </Button>
+              <Button
+                aria-label={`Open ${summary.nickname} in Garage`}
+                className="pro-robot-garage-button"
+                size="sm"
+                variant="ghost"
+                onClick={() => onUse(summary.slotId)}
+              >
+                <House size={16} /> <span className="pro-robot-action-label">To Garage</span>
+              </Button>
               <Button size="icon" variant="ghost" onClick={() => onDelete(summary.slotId)} aria-label={`Delete ${summary.nickname}`} title="Delete robot">
                 <Trash2 size={16} />
               </Button>
@@ -721,7 +774,92 @@ function RobotList({
   );
 }
 
-function EmptyState({ icon: Icon, title, body }: { icon: typeof Bot; title: string; body: string }) {
+function CreateOfferRobotPicker({
+  onClose,
+  onSelect,
+  robots
+}: {
+  onClose: () => void;
+  onSelect: (slotId: string) => void;
+  robots: ReturnType<typeof selectOfferReadyRobots>;
+}) {
+  return (
+    <div className="confirm-overlay" onClick={onClose}>
+      <section
+        aria-labelledby="pro-create-robot-title"
+        aria-modal="true"
+        className="garage-switcher-panel pro-create-robot-picker"
+        onClick={(event) => event.stopPropagation()}
+        role="dialog"
+      >
+        <header className="garage-switcher-header">
+          <span>
+            <h3 id="pro-create-robot-title">With which robot?</h3>
+            <small>Ready robots without an active trade</small>
+          </span>
+          <button className="icon-button" onClick={onClose} type="button" aria-label="Close robot selector">
+            <X size={18} />
+          </button>
+        </header>
+        {robots.length > 0 ? (
+          <div className="garage-switcher-list">
+            {robots.map((robot) => (
+              <button
+                className="garage-switcher-item pro-create-robot-option"
+                key={robot.slotId}
+                onClick={() => onSelect(robot.slotId)}
+                type="button"
+              >
+                <RobotAvatar hashId={robot.hashId} label={robot.nickname} size="md" />
+                <span className="garage-switcher-item-info">
+                  <strong className="garage-switcher-item-name">{robot.nickname}</strong>
+                  <small className="garage-switcher-item-status">Ready to create an offer</small>
+                </span>
+                <ChevronRight size={18} aria-hidden="true" />
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="pro-create-robot-empty">
+            <RobotGlyph size={24} />
+            <strong>No robot is available</strong>
+            <p>Finish or refresh active trades before creating another offer.</p>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function RobotAddedNotice({
+  onClose,
+  robot
+}: {
+  onClose: () => void;
+  robot: { hashId: string; nickname: string };
+}) {
+  return (
+    <aside className="pro-robot-added-notice" role="status" aria-live="polite">
+      <RobotAvatar hashId={robot.hashId} label={robot.nickname} size="sm" />
+      <strong>{robot.nickname} has been added!</strong>
+      <button className="icon-button" onClick={onClose} type="button" aria-label="Dismiss robot added message">
+        <X size={16} />
+      </button>
+    </aside>
+  );
+}
+
+function EmptyState({
+  body,
+  icon: Icon,
+  onCreate,
+  title
+}: {
+  body: string;
+  icon: typeof Bot;
+  onCreate?: () => void;
+  title: string;
+}) {
   const navigate = useNavigate();
   const noRobots = title.includes("No robots");
   return (
@@ -732,7 +870,7 @@ function EmptyState({ icon: Icon, title, body }: { icon: typeof Bot; title: stri
         <Button size="sm" variant="secondary" onClick={() => navigate(noRobots ? "/garage?add=1" : "/offers")}>
           {noRobots ? "Add robot" : "Browse offers"}
         </Button>
-        {!noRobots ? <Button size="sm" variant="ghost" onClick={() => navigate("/create")}>Create offer</Button> : null}
+        {!noRobots ? <Button size="sm" variant="ghost" onClick={onCreate}>Create offer</Button> : null}
       </div>
     </div>
   );
