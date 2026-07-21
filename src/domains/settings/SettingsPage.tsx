@@ -31,6 +31,9 @@ const GarageRobotSettingsDialog = lazy(() =>
 const GarageRobotCoordinatorDialog = lazy(() =>
   import("@/domains/garage/RobotGaragePage").then((module) => ({ default: module.RobotCoordinatorDialog }))
 );
+const GarageRobotTokenBackupDialog = lazy(() =>
+  import("@/domains/garage/RobotTokenBackupDialog").then((module) => ({ default: module.RobotTokenBackupDialog }))
+);
 
 export function SettingsPage() {
   const navigate = useNavigate();
@@ -57,6 +60,7 @@ export function SettingsPage() {
   const [showTorDetails, setShowTorDetails] = useState(false);
   const [showRobotSettings, setShowRobotSettings] = useState(false);
   const [showRobotKeys, setShowRobotKeys] = useState(false);
+  const [showRobotTokenBackup, setShowRobotTokenBackup] = useState(false);
   const [selectedRobotCoordinator, setSelectedRobotCoordinator] = useState<string>();
   const robotCoordinator = displayCoordinators.find((coordinator) => coordinator.shortAlias === selectedRobotCoordinator);
   const coordinatorRobot = robotCoordinator && activeSlot ? activeSlot.robots[robotCoordinator.shortAlias] : undefined;
@@ -391,12 +395,23 @@ export function SettingsPage() {
               setSelectedRobotCoordinator(undefined);
             }}
             onCoordinatorSelect={setSelectedRobotCoordinator}
+            onTokenBackup={() => setShowRobotTokenBackup(true)}
             onTokenChange={setCurrentToken}
             selectedAlias={selectedRobotCoordinator}
             showKeys={showRobotKeys}
             slot={activeSlot}
             slots={slots}
             toggleKeys={() => setShowRobotKeys((open) => !open)}
+          />
+        </Suspense>
+      ) : null}
+
+      {showRobotTokenBackup && activeSlot ? (
+        <Suspense fallback={null}>
+          <GarageRobotTokenBackupDialog
+            onClose={() => setShowRobotTokenBackup(false)}
+            robotName={activeSlot.nickname}
+            token={activeSlot.token}
           />
         </Suspense>
       ) : null}
