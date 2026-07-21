@@ -8449,6 +8449,13 @@
   gap: 0.65rem;
 }
 
+.garage-settings-security-actions .garage-security-button {
+  min-height: 2.5rem;
+  font-size: var(--type-compact-size);
+  font-weight: 600;
+  line-height: var(--type-compact-line);
+}
+
 @media (max-width: 430px) {
   .garage-settings-security-actions {
     align-items: stretch;
