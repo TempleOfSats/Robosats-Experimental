@@ -109,7 +109,14 @@ export const useOrderStore = create<OrderState>((set, get) => ({
         error: toUserMessage(error, "Could not update the order.")
       });
     } finally {
-      dispatchOrderActionEvent("robosats:order-action-complete", slot, coordinator.shortAlias, orderId);
+      const completedOrder = get().order;
+      dispatchOrderActionEvent(
+        "robosats:order-action-complete",
+        slot,
+        coordinator.shortAlias,
+        orderId,
+        completedOrder ? { status: completedOrder.status, isMaker: completedOrder.is_maker } : undefined
+      );
     }
   },
   clearOrder: () => {
@@ -157,10 +164,11 @@ function dispatchOrderActionEvent(
   name: "robosats:order-action-start" | "robosats:order-action-complete",
   slot: RobotSlot | undefined,
   shortAlias: string,
-  orderId: number
+  orderId: number,
+  result?: { status: number; isMaker: boolean }
 ): void {
   if (!slot || typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent(name, {
-    detail: { slotId: slot.tokenSHA256, shortAlias, orderId }
+    detail: { slotId: slot.tokenSHA256, shortAlias, orderId, ...result }
   }));
 }

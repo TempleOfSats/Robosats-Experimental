@@ -8,6 +8,7 @@ import {
   useGarageStore
 } from "@/domains/garage/garageStore";
 import { fetchOrder } from "@/domains/orders/orderApi";
+import { isAlreadyCancelledError } from "@/domains/orders/orderStore";
 import type { OrderDto } from "@/domains/orders/order.types";
 import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
 import {
@@ -276,8 +277,19 @@ export class GarageReconciler implements GarageReconcileController {
       };
       useProTradeIndexStore.getState().upsertSnapshot(snapshot);
       useProTradeIndexStore.getState().clearDirty(locator);
-    } catch {
-      if (epoch !== this.epoch) return;
+    } catch (error) {
+      if (epoch !== this.epoch || actionGeneration !== (actionSequences.get(key) ?? 0)) return;
+      if (isAlreadyCancelledError(error)) {
+        useGarageStore.getState().syncOrderSnapshot({
+          token: slot.token,
+          shortAlias: locator.shortAlias,
+          orderId: locator.orderId,
+          status: 4,
+          isMaker: previous?.order?.is_maker
+        });
+        useProTradeIndexStore.getState().removeTrade(locator);
+        return;
+      }
       if (previous) {
         useProTradeIndexStore.getState().upsertSnapshot({
           ...previous,
@@ -366,7 +378,11 @@ function isReleasedPublicTake(order: OrderDto, robot?: RefreshRobotCoordinatorRe
 }
 
 function isTerminalForDesk(order: OrderDto, renewable: boolean): boolean {
-  return !renewable && [4, 5, 12, 14, 17, 18].includes(order.status);
+  return !renewable && isTerminalForProDesk(order.status, order.is_maker);
+}
+
+export function isTerminalForProDesk(status: number, isMaker: boolean): boolean {
+  return [4, 12, 14, 17, 18].includes(status) || (status === 5 && !isMaker);
 }
 
 function orderChanged(previous: OrderDto, current: OrderDto): boolean {
