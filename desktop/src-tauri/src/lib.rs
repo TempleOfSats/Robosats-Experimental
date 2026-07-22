@@ -1,5 +1,6 @@
 mod preferences;
 mod runtime;
+mod secure_storage;
 
 use preferences::Preferences;
 use runtime::{DesktopRuntime, RuntimeStatus};
@@ -154,6 +155,21 @@ fn desktop_quit(app: AppHandle) {
     app.exit(0);
 }
 
+#[tauri::command]
+fn desktop_secret_get(app: AppHandle, key: String) -> Result<Option<String>, String> {
+    secure_storage::get(&app, &key)
+}
+
+#[tauri::command]
+fn desktop_secret_set(app: AppHandle, key: String, value: String) -> Result<(), String> {
+    secure_storage::set(&app, &key, &value)
+}
+
+#[tauri::command]
+fn desktop_secret_delete(app: AppHandle, key: String) -> Result<(), String> {
+    secure_storage::delete(&app, &key)
+}
+
 fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     let menu = MenuBuilder::new(app)
         .text("show", "Show RoboSats")
@@ -202,7 +218,10 @@ pub fn run() {
             desktop_app_ready,
             desktop_network_changed,
             desktop_open_external,
-            desktop_quit
+            desktop_quit,
+            desktop_secret_get,
+            desktop_secret_set,
+            desktop_secret_delete
         ])
         .setup(move |app| {
             app.manage(PreferenceState(Mutex::new(preferences::load(app.handle()))));
