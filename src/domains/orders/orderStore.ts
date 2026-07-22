@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { toUserMessage } from "@/lib/userError";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import { getRobotAuthForCoordinator, type RobotSlot, useGarageStore } from "@/domains/garage/garageStore";
+import { ingestCoordinatorOrder } from "@/domains/orders/orderActivity";
 import { fetchOrder, submitOrderAction } from "@/domains/orders/orderApi";
 import type { OrderDto, SubmitOrderActionPayload } from "@/domains/orders/order.types";
 
@@ -80,6 +81,7 @@ export const useOrderStore = create<OrderState>((set, get) => ({
 
     const requestId = ++requestSequence;
     const previousOrder = get().order;
+    let snapshotApplied = false;
     set({ submitting: true, refreshing: false, error: undefined });
     dispatchOrderActionEvent("robosats:order-action-start", slot, coordinator.shortAlias, orderId);
     try {
@@ -90,6 +92,7 @@ export const useOrderStore = create<OrderState>((set, get) => ({
       };
       if (requestId !== requestSequence) return;
       syncGarageOrder(slot, coordinator.shortAlias, order);
+      snapshotApplied = true;
       if (isReleasedEarlyTake(previousOrder, order, payload) && slot) {
         useGarageStore.getState().releaseOrderReservation(slot.token, coordinator.shortAlias, orderId);
       }
@@ -100,7 +103,10 @@ export const useOrderStore = create<OrderState>((set, get) => ({
       if (isAlreadyCancelledError(error)) {
         const current = get().order;
         const order = current ? { ...current, status: 4, status_message: "Order cancelled" } : current;
-        if (order) syncGarageOrder(slot, coordinator.shortAlias, order);
+        if (order) {
+          syncGarageOrder(slot, coordinator.shortAlias, order);
+          snapshotApplied = true;
+        }
         set({ order, submitting: false, error: undefined });
         return;
       }
@@ -109,13 +115,15 @@ export const useOrderStore = create<OrderState>((set, get) => ({
         error: toUserMessage(error, "Could not update the order.")
       });
     } finally {
-      const completedOrder = get().order;
+      const completedOrder = snapshotApplied ? get().order : undefined;
       dispatchOrderActionEvent(
         "robosats:order-action-complete",
         slot,
         coordinator.shortAlias,
         orderId,
-        completedOrder ? { status: completedOrder.status, isMaker: completedOrder.is_maker } : undefined
+        completedOrder
+          ? { status: completedOrder.status, isMaker: completedOrder.is_maker, snapshotApplied: true }
+          : undefined
       );
     }
   },
@@ -138,13 +146,10 @@ export function isTransientOrderLoadError(error: unknown): boolean {
 }
 
 function syncGarageOrder(slot: RobotSlot | undefined, shortAlias: string, order: OrderDto): void {
-  if (!slot || !order.id) return;
-  useGarageStore.getState().syncOrderSnapshot({
-    token: slot.token,
+  ingestCoordinatorOrder({
+    order,
     shortAlias,
-    orderId: order.id,
-    status: order.status,
-    isMaker: order.is_maker
+    slot
   });
 }
 
@@ -165,7 +170,7 @@ function dispatchOrderActionEvent(
   slot: RobotSlot | undefined,
   shortAlias: string,
   orderId: number,
-  result?: { status: number; isMaker: boolean }
+  result?: { status: number; isMaker: boolean; snapshotApplied: boolean }
 ): void {
   if (!slot || typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent(name, {

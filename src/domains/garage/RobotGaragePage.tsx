@@ -11,12 +11,13 @@ import { CoordinatorDetailDialog } from "@/domains/coordinators/CoordinatorsPage
 import { compareCoordinatorsByEstablished } from "@/domains/coordinators/coordinatorOrder";
 import { fetchCoordinatorRatings, type CoordinatorRating } from "@/domains/coordinators/coordinatorRatings";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
-import { getRobotAuthForCoordinator, selectCurrentSlot, type RobotRecord, useGarageStore } from "@/domains/garage/garageStore";
+import { getRobotAuthForCoordinator, selectCurrentSlot, type RobotRecord, type RobotSlot, useGarageStore } from "@/domains/garage/garageStore";
 import { TelegramSetupDialog } from "@/domains/garage/TelegramSetupDialog";
 import { RobotTokenBackupDialog } from "@/domains/garage/RobotTokenBackupDialog";
 import { downloadRobotTokenBackup } from "@/domains/garage/tokenBackup";
 import { RobotAvatar } from "@/domains/identity/RobotAvatar";
 import { deriveRobotIdentity } from "@/domains/identity/robotIdentity";
+import { ingestCoordinatorOrder } from "@/domains/orders/orderActivity";
 import { fetchOrder } from "@/domains/orders/orderApi";
 import type { OrderDto } from "@/domains/orders/order.types";
 import { currencyOptions } from "@/domains/orderbook/currencies";
@@ -57,6 +58,8 @@ export function RobotGaragePage() {
   const [showLastOrder, setShowLastOrder] = useState(false);
   const [showRecovery, setShowRecovery] = useState(false);
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
+  const [removeError, setRemoveError] = useState("");
+  const [removingRobot, setRemovingRobot] = useState(false);
   const [selectedAlias, setSelectedAlias] = useState<string | undefined>();
   const selectedCoordinator = displayCoordinators.find((coordinator) => coordinator.shortAlias === selectedAlias);
   const selectedRobot = selectedCoordinator && activeSlot ? activeSlot.robots[selectedCoordinator.shortAlias] : undefined;
@@ -82,6 +85,25 @@ export function RobotGaragePage() {
     await navigator.clipboard?.writeText(activeSlot.token);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1500);
+  };
+
+  const removeRobotFromGarage = async (slot: RobotSlot) => {
+    setRemovingRobot(true);
+    setRemoveError("");
+    try {
+      const { selectProGarageSlots, useGarageVaultStore } = await import("@/domains/pro/garageVaultStore");
+      await useGarageVaultStore.getState().initialize();
+      const vault = useGarageVaultStore.getState();
+      if (selectProGarageSlots([slot], vault.manifest).length > 0) {
+        await vault.removeRobot(slot.token);
+      }
+      removeSlot(slot.token);
+      setShowDeleteConfirmation(false);
+    } catch (error) {
+      setRemoveError(toUserMessage(error, "Could not remove this robot."));
+    } finally {
+      setRemovingRobot(false);
+    }
   };
 
   if (slots.length === 0 || showFirstRunWizard) {
@@ -216,12 +238,15 @@ export function RobotGaragePage() {
 
           <button
             className="garage-utility-btn"
-            onClick={() => setShowDeleteConfirmation(true)}
+            onClick={() => {
+              setRemoveError("");
+              setShowDeleteConfirmation(true);
+            }}
             type="button"
-            title="Delete this robot"
+            title="Remove this robot"
           >
             <Trash2 size={18} />
-            <span>Delete</span>
+            <span>Remove</span>
           </button>
 
           <button
@@ -281,20 +306,20 @@ export function RobotGaragePage() {
           <section className="confirm-sheet" onClick={(event) => event.stopPropagation()}>
             <div className="confirm-header">
               <span className="confirm-icon-shell" aria-hidden="true"><AlertTriangle size={24} /></span>
-              <h3 id="delete-robot-title">Delete {activeSlot.nickname}?</h3>
+              <h3 id="delete-robot-title">Remove {activeSlot.nickname}?</h3>
             </div>
-            <p className="confirm-body">This removes the robot and its token from this device. This cannot be undone.</p>
+            <p className="confirm-body">This removes the robot from your Garage. This cannot be undone.</p>
+            {removeError ? <p className="field-error" role="alert">{removeError}</p> : null}
             <div className="confirm-actions">
-              <Button variant="secondary" type="button" onClick={() => setShowDeleteConfirmation(false)}>Keep robot</Button>
+              <Button variant="secondary" type="button" disabled={removingRobot} onClick={() => setShowDeleteConfirmation(false)}>Keep robot</Button>
               <Button
                 variant="destructive"
                 type="button"
-                onClick={() => {
-                  setShowDeleteConfirmation(false);
-                  removeSlot(activeSlot.token);
-                }}
+                disabled={removingRobot}
+                onClick={() => void removeRobotFromGarage(activeSlot)}
               >
-                <Trash2 size={16} /> Delete robot
+                {removingRobot ? <span className="ui-spinner" aria-hidden="true" /> : <Trash2 size={16} />}
+                Remove from Garage
               </Button>
             </div>
           </section>
@@ -731,7 +756,15 @@ function LatestOrderDialog({ coordinators, onClose, orderId, slot }: {
     }
     let disposed = false;
     void fetchOrder(coordinator.url, orderId, auth)
-      .then((value) => { if (!disposed) setOrder(value); })
+      .then((value) => {
+        if (disposed) return;
+        setOrder(ingestCoordinatorOrder({
+          order: value,
+          orderId,
+          shortAlias: robot.shortAlias!,
+          slot
+        }));
+      })
       .catch((reason) => { if (!disposed) setError(toUserMessage(reason, "Could not load the order.")); });
     return () => { disposed = true; };
   }, [coordinator, orderId, robot?.shortAlias, slot]);

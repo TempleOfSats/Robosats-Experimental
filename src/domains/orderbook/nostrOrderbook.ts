@@ -1,6 +1,7 @@
 import { type Event, type Filter, verifyEvent } from "nostr-tools";
-import { SimplePool } from "nostr-tools/pool";
+import type { SimplePool } from "nostr-tools/pool";
 import type { CoordinatorSummary, Network } from "@/domains/coordinators/coordinator.types";
+import { getSharedRelayPool } from "@/domains/nostr/sharedRelayPool";
 import { currencyIdFromCode } from "@/domains/orderbook/currencies";
 import type { PublicOrder } from "@/domains/orderbook/orderbook.types";
 import { isIOSApp } from "@/domains/transport/androidBridge";
@@ -118,13 +119,13 @@ function getNostrOrderbookSession(
 
 class NostrOrderbookSession {
   readonly key: string;
-  private readonly pool = new SimplePool({ enableReconnect: true });
+  private readonly pool = getSharedRelayPool();
   private readonly filters: Filter[];
   private readonly listeners = new Set<NostrOrderbookListener>();
   private readonly events = new Map<string, Event>();
   private readonly relayEoses = new Map<number, Set<number>>();
   private readonly closedRelays = new Set<number>();
-  private readonly subscriptions: Array<ReturnType<SimplePool["subscribeMany"]>> = [];
+  private readonly subscriptions = new Map<string, ReturnType<SimplePool["subscribeMany"]>>();
   private readonly fallbackTimers: Array<ReturnType<typeof setTimeout>> = [];
   private readonly maxWaitMs: number;
   private readonly coordinators: CoordinatorSummary[];
@@ -168,7 +169,7 @@ class NostrOrderbookSession {
     const since = nowSeconds ?? Math.floor(Date.now() / 1000);
     this.filters = [
       { authors, kinds: [ORDER_KIND], "#s": ["pending"] },
-      { authors, kinds: [ORDER_KIND], "#s": ["success", "canceled", "in-progress"], since }
+      { authors, kinds: [ORDER_KIND], "#s": ["pending", "success", "canceled", "in-progress"], since }
     ];
   }
 
@@ -213,7 +214,7 @@ class NostrOrderbookSession {
     this.closed = true;
     this.clearTimers();
     this.subscriptions.forEach((subscription) => void subscription.close("complete"));
-    this.pool.destroy();
+    this.subscriptions.clear();
     this.listeners.clear();
     if (sharedSession === this) sharedSession = undefined;
   }
@@ -225,14 +226,15 @@ class NostrOrderbookSession {
     const subscriptionId = `robosats-orderbook-${Date.now()}-${relayIndex}`;
 
     this.filters.forEach((filter, filterIndex) => {
+      const subscriptionKey = `${relayIndex}:${filterIndex}`;
       const subscription = this.pool.subscribeMany([relay], filter, {
         id: `${subscriptionId}-${filterIndex}`,
         maxWait: this.maxWaitMs,
         onevent: (event) => this.handleEvent(event),
-        oneose: () => this.markEose(relayIndex, filterIndex),
-        onclose: () => this.handleRelayClose(relayIndex, relay)
+        oneose: () => this.markEose(relayIndex, filterIndex, subscriptionKey),
+        onclose: () => this.handleRelayClose(relayIndex, relay, filterIndex)
       });
-      this.subscriptions.push(subscription);
+      this.subscriptions.set(subscriptionKey, subscription);
     });
   }
 
@@ -253,11 +255,16 @@ class NostrOrderbookSession {
     }, PROGRESS_EMIT_INTERVAL_MS);
   }
 
-  private markEose(relayIndex: number, filterIndex: number): void {
-    if (this.closed || this.initialSettled) return;
+  private markEose(relayIndex: number, filterIndex: number, subscriptionKey: string): void {
+    if (this.closed) return;
     const completedFilters = this.relayEoses.get(relayIndex);
     if (!completedFilters) return;
     completedFilters.add(filterIndex);
+    if (filterIndex === 0) {
+      this.subscriptions.get(subscriptionKey)?.close("snapshot-complete");
+      this.subscriptions.delete(subscriptionKey);
+    }
+    if (this.initialSettled) return;
     if (completedFilters.size !== this.filters.length) return;
     markRelayHealthy(this.relays[relayIndex]);
 
@@ -275,7 +282,8 @@ class NostrOrderbookSession {
     }
   }
 
-  private handleRelayClose(relayIndex: number, relay: string): void {
+  private handleRelayClose(relayIndex: number, relay: string, filterIndex: number): void {
+    if (filterIndex === 0 && this.relayEoses.get(relayIndex)?.has(filterIndex)) return;
     if (this.closed || this.closedRelays.has(relayIndex)) return;
     this.closedRelays.add(relayIndex);
     markRelayUnavailable(relay);

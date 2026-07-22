@@ -6,7 +6,8 @@ import type { Auth } from "@/domains/transport/apiClient";
 import { systemClient } from "@/domains/transport/systemClient";
 import { toUserMessage } from "@/lib/userError";
 
-const GARAGE_SLOTS_KEY = "robosats_exp_garage_slots";
+const GARAGE_SLOTS_KEY = "robosats_exp_garage_slots_v1";
+const LEGACY_GARAGE_SLOTS_KEY = "robosats_exp_garage_slots";
 const GARAGE_CURRENT_SLOT_KEY = "robosats_exp_garage_current_slot";
 
 const robotRefreshes = new Map<string, Promise<RefreshRobotSlotResult>>();
@@ -90,13 +91,20 @@ type StoredRobotSlot = {
   lastOrderId?: number;
 };
 
+type StoredGarageV1 = {
+  format: "robosats-exp-garage-slots";
+  version: 1;
+  slots: StoredRobotSlot[];
+};
+
 export const useGarageStore: UseBoundStore<StoreApi<GarageState>> = create<GarageState>((set, get) => ({
   slots: [],
   currentToken: undefined,
   hydrated: false,
   hydrate: () => {
     if (get().hydrated) return;
-    const rawSlots = systemClient.getItem(GARAGE_SLOTS_KEY);
+    const rawSlots = systemClient.getItem(GARAGE_SLOTS_KEY)
+      ?? systemClient.getItem(LEGACY_GARAGE_SLOTS_KEY);
     const currentToken = systemClient.getItem(GARAGE_CURRENT_SLOT_KEY) ?? undefined;
     const slots = parseStoredSlots(rawSlots);
     const nextCurrentToken = currentToken ?? slots[0]?.token;
@@ -452,8 +460,7 @@ function parseStoredSlots(rawSlots: string | null): RobotSlot[] {
   if (!rawSlots) return [];
   try {
     const parsed = JSON.parse(rawSlots) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    const records = parsed.filter(isStoredRobotSlot);
+    const records = storedSlotRecords(parsed).filter(isStoredRobotSlot);
     const byToken = new Map(records.map((slot) => [slot.token, slot]));
     return [...byToken.values()].map((slot) => {
         const identity = deriveRobotIdentity(slot.token);
@@ -483,8 +490,25 @@ function persistSlots(slots: RobotSlot[], currentToken: string): void {
       lastOrderId: slot.lastOrderId,
       robots: slot.robots
     }));
-  systemClient.setItem(GARAGE_SLOTS_KEY, JSON.stringify(stored));
+  const versioned: StoredGarageV1 = {
+    format: "robosats-exp-garage-slots",
+    version: 1,
+    slots: stored
+  };
+  systemClient.setItem(GARAGE_SLOTS_KEY, JSON.stringify(versioned));
+  systemClient.setItem(LEGACY_GARAGE_SLOTS_KEY, JSON.stringify(stored));
   systemClient.setItem(GARAGE_CURRENT_SLOT_KEY, currentToken);
+}
+
+function storedSlotRecords(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  if (!value || typeof value !== "object") return [];
+  const stored = value as Partial<StoredGarageV1>;
+  return stored.format === "robosats-exp-garage-slots"
+    && stored.version === 1
+    && Array.isArray(stored.slots)
+    ? stored.slots
+    : [];
 }
 
 function isStoredRobotSlot(value: unknown): value is StoredRobotSlot {
