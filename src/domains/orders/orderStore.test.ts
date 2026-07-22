@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import type { RobotSlot } from "@/domains/garage/garageStore";
+import {
+  resetCoordinatorOrderActivityForTests,
+  subscribeCoordinatorOrderActivity
+} from "@/domains/orders/orderActivity";
 import type { OrderDto } from "@/domains/orders/order.types";
 
 const submitOrderActionMock = vi.hoisted(() => vi.fn());
@@ -23,8 +27,27 @@ beforeEach(() => {
   });
   submitOrderActionMock.mockReset();
   fetchOrderMock.mockReset();
+  resetCoordinatorOrderActivityForTests();
   useGarageStore.setState({ slots: [slot], currentToken: slot.token, hydrated: true });
   useOrderStore.getState().clearOrder();
+});
+
+describe("order API propagation", () => {
+  it("publishes the same authoritative snapshot returned by a foreground GET", async () => {
+    const listener = vi.fn();
+    subscribeCoordinatorOrderActivity(listener);
+    fetchOrderMock.mockResolvedValue({ id: 123, status: 0, is_maker: true, is_taker: false });
+
+    await useOrderStore.getState().loadOrder({ coordinator, orderId: 123, slot });
+
+    expect(listener).toHaveBeenCalledOnce();
+    expect(listener).toHaveBeenCalledWith(expect.objectContaining({
+      slotId: slot.tokenSHA256,
+      shortAlias: coordinator.shortAlias,
+      authoritative: true,
+      order: expect.objectContaining({ id: 123, status: 0, shortAlias: coordinator.shortAlias })
+    }));
+  });
 });
 
 describe("order cancellation reconciliation", () => {

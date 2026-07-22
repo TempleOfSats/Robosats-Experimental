@@ -10,7 +10,10 @@ import {
 import { fetchOrder } from "@/domains/orders/orderApi";
 import { isAlreadyCancelledError } from "@/domains/orders/orderStore";
 import type { OrderDto } from "@/domains/orders/order.types";
+import { applyProOrderSnapshot } from "@/domains/pro/proOrderActivity";
 import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
+import { selectProGarageSlots, useGarageVaultStore } from "@/domains/pro/garageVaultStore";
+import { classifyProTrade } from "@/domains/pro/proSelectors";
 import {
   type OrderHint,
   type ProTradeLocator,
@@ -61,11 +64,13 @@ export class GarageReconciler implements GarageReconcileController {
   private readonly inFlightSlots = new Map<string, Promise<void>>();
   private readonly orderLimiter = new AsyncLimiter(PRO_RECONCILE_POLICY.maxOrderRequests);
   private readonly handledHintIds = new Set<string>();
+  private readonly lastDiscoveryBySlot = new Map<string, number>();
 
   constructor(private readonly dependencies: GarageReconcilerDependencies) {}
 
   async reconcileAll(reason: ReconcileReason): Promise<void> {
-    const slots = prioritizeSlots(this.dependencies.getSlots());
+    const tradeIndex = useProTradeIndexStore.getState();
+    const slots = prioritizeSlots(this.dependencies.getSlots(), tradeIndex.snapshots, tradeIndex.dirtyKeys);
     await mapWithConcurrency(slots, PRO_RECONCILE_POLICY.maxRobotRequests, (slot) =>
       this.reconcileSlot(slot.tokenSHA256, reason)
     );
@@ -140,7 +145,15 @@ export class GarageReconciler implements GarageReconcileController {
       error: undefined
     });
 
-    const coordinators = selectRefreshCoordinators(slot, this.dependencies.getCoordinators(), reason);
+    const selection = selectRefreshCoordinators(
+      slot,
+      this.dependencies.getCoordinators(),
+      reason,
+      startedAt,
+      this.lastDiscoveryBySlot.get(slotId)
+    );
+    const coordinators = selection.coordinators;
+    if (selection.discovery) this.lastDiscoveryBySlot.set(slotId, startedAt);
     if (coordinators.length === 0) {
       useProTradeIndexStore.getState().setSlotSync({
         slotId,
@@ -233,50 +246,16 @@ export class GarageReconciler implements GarageReconcileController {
       const order = await this.orderLimiter.run(() => this.dependencies.fetchOrder(coordinator, locator.orderId, slot));
       if (epoch !== this.epoch || actionGeneration !== (actionSequences.get(key) ?? 0)) return;
 
-      if (isReleasedPublicTake(order, robot)) {
-        useGarageStore.getState().releaseOrderReservation(slot.token, locator.shortAlias, locator.orderId);
-        useProTradeIndexStore.getState().removeTrade(locator);
-        return;
-      }
-
-      const renewable = order.status === 5 && order.is_maker;
-      if (isTerminalForDesk(order, renewable)) {
-        useGarageStore.getState().syncOrderSnapshot({
-          token: slot.token,
-          shortAlias: locator.shortAlias,
-          orderId: locator.orderId,
-          status: order.status,
-          isMaker: order.is_maker
-        });
-        useProTradeIndexStore.getState().removeTrade(locator);
-        return;
-      }
-
-      useGarageStore.getState().syncOrderSnapshot({
-        token: slot.token,
-        shortAlias: locator.shortAlias,
-        orderId: locator.orderId,
-        status: order.status,
-        isMaker: order.is_maker
-      });
-      const updatedAt = this.dependencies.now();
-      const changed = !previous?.order || orderChanged(previous.order, order);
-      const snapshot: ProTradeSnapshot = {
-        key,
-        locator,
-        nickname: slot.nickname,
-        hashId: slot.hashId,
-        order: { ...order, shortAlias: locator.shortAlias },
+      applyProOrderSnapshot({
         activeOrderId: robot?.activeOrderId,
+        authoritative: true,
         lastOrderId: robot?.lastOrderId,
-        renewable,
-        released: false,
-        freshness: "fresh",
-        updatedAt,
-        changedAt: changed ? updatedAt : previous.changedAt
-      };
-      useProTradeIndexStore.getState().upsertSnapshot(snapshot);
-      useProTradeIndexStore.getState().clearDirty(locator);
+        observedAt: this.dependencies.now(),
+        order: { ...order, shortAlias: locator.shortAlias },
+        releasePublicTake: isReleasedPublicTake(order, robot),
+        shortAlias: locator.shortAlias,
+        slot
+      });
     } catch (error) {
       if (epoch !== this.epoch || actionGeneration !== (actionSequences.get(key) ?? 0)) return;
       if (isAlreadyCancelledError(error)) {
@@ -316,7 +295,10 @@ export function markProOrderActionFinished(locator: ProTradeLocator): void {
 
 export const garageReconciler = new GarageReconciler({
   now: Date.now,
-  getSlots: () => useGarageStore.getState().slots,
+  getSlots: () => selectProGarageSlots(
+    useGarageStore.getState().slots,
+    useGarageVaultStore.getState().manifest
+  ),
   getCoordinators: () => useFederationStore.getState().coordinators,
   refreshRobotSlot: (token, coordinators) => useGarageStore.getState().refreshRobotSlot(token, coordinators),
   fetchOrder: async (coordinator, orderId, slot) => {
@@ -332,19 +314,54 @@ export const garageReconciler = new GarageReconciler({
 function selectRefreshCoordinators(
   slot: RobotSlot,
   coordinators: CoordinatorSummary[],
-  reason: ReconcileReason
-): CoordinatorSummary[] {
+  reason: ReconcileReason,
+  now: number,
+  lastDiscoveryAt?: number
+): { coordinators: CoordinatorSummary[]; discovery: boolean } {
   const enabled = coordinators.filter((coordinator) => coordinator.enabled && coordinator.url && coordinator.shortAlias !== "local");
-  if (reason === "manual") return enabled;
+  if (reason === "manual") return { coordinators: enabled, discovery: true };
   const known = new Set(Object.keys(slot.robots).filter((alias) => alias !== "local"));
-  return enabled.filter((coordinator) => known.has(coordinator.shortAlias));
+  const discoveryDue = reason === "interval"
+    && (!lastDiscoveryAt || now - lastDiscoveryAt >= PRO_RECONCILE_POLICY.fullDiscoveryMinMs);
+  if ((reason === "startup" && known.size === 0) || discoveryDue) {
+    return { coordinators: enabled, discovery: true };
+  }
+  return {
+    coordinators: enabled.filter((coordinator) => known.has(coordinator.shortAlias)),
+    discovery: false
+  };
 }
 
-function prioritizeSlots(slots: RobotSlot[]): RobotSlot[] {
+function prioritizeSlots(
+  slots: RobotSlot[],
+  snapshots: Record<string, ProTradeSnapshot>,
+  dirtyKeys: Partial<Record<string, true>>
+): RobotSlot[] {
+  const bySlot = new Map<string, ProTradeSnapshot[]>();
+  for (const snapshot of Object.values(snapshots)) {
+    const entries = bySlot.get(snapshot.locator.slotId) ?? [];
+    entries.push(snapshot);
+    bySlot.set(snapshot.locator.slotId, entries);
+  }
   return [...slots].sort((left, right) => {
-    const active = Number(Boolean(right.activeOrderId)) - Number(Boolean(left.activeOrderId));
-    return active || left.nickname.localeCompare(right.nickname);
+    const priority = slotPriority(left, bySlot.get(left.tokenSHA256) ?? [], dirtyKeys)
+      - slotPriority(right, bySlot.get(right.tokenSHA256) ?? [], dirtyKeys);
+    return priority || left.nickname.localeCompare(right.nickname);
   });
+}
+
+function slotPriority(
+  slot: RobotSlot,
+  snapshots: ProTradeSnapshot[],
+  dirtyKeys: Partial<Record<string, true>>
+): number {
+  if (snapshots.some((snapshot) => dirtyKeys[snapshot.key])) return 0;
+  if (snapshots.some((snapshot) => classifyProTrade(snapshot) === "needs-action")) return 1;
+  if (slot.activeOrderId) return 2;
+  if (snapshots.some((snapshot) => snapshot.renewable)) return 3;
+  if (snapshots.some((snapshot) => snapshot.order?.status === 1)) return 4;
+  if (snapshots.length > 0) return 5;
+  return 6;
 }
 
 function uniqueOrderIds(robot: RefreshRobotCoordinatorResult): number[] {
@@ -375,23 +392,6 @@ function markCoordinatorSnapshotsFailed(slotId: string, shortAlias: string, erro
 
 function isReleasedPublicTake(order: OrderDto, robot?: RefreshRobotCoordinatorResult): boolean {
   return order.status === 1 && !order.is_maker && robot?.activeOrderId === order.id;
-}
-
-function isTerminalForDesk(order: OrderDto, renewable: boolean): boolean {
-  return !renewable && isTerminalForProDesk(order.status, order.is_maker);
-}
-
-export function isTerminalForProDesk(status: number, isMaker: boolean): boolean {
-  return [4, 12, 14, 17, 18].includes(status) || (status === 5 && !isMaker);
-}
-
-function orderChanged(previous: OrderDto, current: OrderDto): boolean {
-  return previous.status !== current.status
-    || previous.expires_at !== current.expires_at
-    || previous.amount !== current.amount
-    || previous.min_amount !== current.min_amount
-    || previous.max_amount !== current.max_amount
-    || previous.payment_method !== current.payment_method;
 }
 
 function isRecentHint(hint: OrderHint, now: number): boolean {

@@ -55,6 +55,29 @@ describe("GarageReconciler", () => {
     expect(useGarageStore.getState().currentToken).toBe("alpha");
   });
 
+  it("discovers enabled coordinators on startup for a restored robot with no coordinator record", async () => {
+    const restored = {
+      ...beta,
+      robots: {
+        local: {
+          token: beta.token,
+          tokenSHA256: beta.tokenSHA256,
+          shortAlias: "local"
+        }
+      }
+    };
+    useGarageStore.setState({ slots: [restored], currentToken: restored.token, hydrated: true });
+    const refreshRobotSlot = vi.fn(async () => ({ slotId: restored.tokenSHA256, coordinators: [] }));
+    const reconciler = makeReconciler({
+      refreshRobotSlot,
+      fetchOrder: vi.fn()
+    });
+
+    await reconciler.reconcileSlot(restored.tokenSHA256, "startup");
+
+    expect(refreshRobotSlot).toHaveBeenCalledWith(restored.token, [coordinator]);
+  });
+
   it("preserves prior data when a coordinator refresh fails", async () => {
     const prior = existingSnapshot();
     useProTradeIndexStore.getState().upsertSnapshot(prior);
@@ -120,6 +143,30 @@ describe("GarageReconciler", () => {
     await refresh;
 
     expect(useProTradeIndexStore.getState().snapshots[prior.key]).toBeUndefined();
+  });
+
+  it("does not let an older background response overwrite a renewed maker offer", async () => {
+    let resolveOrder: ((value: OrderDto) => void) | undefined;
+    const fetchOrder = vi.fn(() => new Promise<OrderDto>((resolve) => {
+      resolveOrder = resolve;
+    }));
+    const expired = {
+      ...existingSnapshot(),
+      order: order({ id: 91234, status: 5, is_maker: true, is_taker: false }),
+      renewable: true
+    };
+    useProTradeIndexStore.getState().upsertSnapshot(expired);
+    const reconciler = makeReconciler({ refreshRobotSlot: async () => robotResult(91234), fetchOrder });
+
+    const refresh = reconciler.reconcileOrder(expired.locator, "interval");
+    await vi.waitFor(() => expect(fetchOrder).toHaveBeenCalledOnce());
+    markProOrderActionStarted(expired.locator);
+    useProTradeIndexStore.getState().removeTrade(expired.locator);
+    markProOrderActionFinished(expired.locator);
+    resolveOrder?.(expired.order!);
+    await refresh;
+
+    expect(useProTradeIndexStore.getState().snapshots[expired.key]).toBeUndefined();
   });
 
   it("removes a cancelled order when its follow-up GET returns error 1043", async () => {

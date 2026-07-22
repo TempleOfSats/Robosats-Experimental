@@ -12,6 +12,7 @@ export type ProRobotSummary = {
   activeTradeCount: number;
   publicOfferCount: number;
   needsAttentionCount: number;
+  relevantOrderCount: number;
   stale: boolean;
 };
 
@@ -82,6 +83,7 @@ export function summarizeProRobots(
       activeTradeCount: trades.filter((trade) => !trade.released && !trade.renewable).length,
       publicOfferCount: trades.filter((trade) => trade.order?.status === 1 && trade.order.is_maker).length,
       needsAttentionCount: trades.filter((trade) => classifyProTrade(trade) === "needs-action").length,
+      relevantOrderCount: trades.filter((trade) => !trade.released).length,
       stale: trades.some((trade) => trade.freshness === "error" || trade.freshness === "stale")
     };
   });
@@ -97,7 +99,7 @@ export function selectOfferReadyRobots(
     return Boolean(slot)
       && !slot?.activeOrderId
       && !summary.stale
-      && summary.activeTradeCount === 0
+      && summary.relevantOrderCount === 0
       && summary.needsAttentionCount === 0;
   });
 }

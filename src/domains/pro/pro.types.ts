@@ -33,6 +33,7 @@ export type ReconcileReason =
   | "tor-reconnected"
   | "window-focus"
   | "visibility-resume"
+  | "native-resume"
   | "online"
   | "nostr-hint"
   | "manual"

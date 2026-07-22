@@ -1,29 +1,21 @@
 import {
   AlertTriangle,
-  Bot,
+  BookmarkCheck,
   BriefcaseBusiness,
-  ChevronRight,
   CirclePlus,
-  Clock3,
-  Download,
-  House,
+  KeyRound,
   ListChecks,
-  Pause,
-  Play,
+  LogOut,
   RefreshCw,
   RotateCcw,
-  Send,
   Store,
-  Trash2,
   X
 } from "lucide-react";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
-import { Badge } from "@/components/ui/badge";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
 import { compareCoordinatorsByEstablished } from "@/domains/coordinators/coordinatorOrder";
-import { RobotAvatar } from "@/domains/identity/RobotAvatar";
 import { deriveRobotIdentity } from "@/domains/identity/robotIdentity";
 import {
   getRobotAuthForCoordinator,
@@ -35,10 +27,9 @@ import {
 } from "@/domains/garage/RobotGaragePage";
 import { RobotTokenBackupDialog } from "@/domains/garage/RobotTokenBackupDialog";
 import { TelegramSetupDialog } from "@/domains/garage/TelegramSetupDialog";
-import { generateRobotToken } from "@/domains/garage/token";
 import { downloadRobotTokenBackup } from "@/domains/garage/tokenBackup";
-import { formatExpiryCountdown, formatExpiryTitle } from "@/domains/orderbook/offerDisplay";
 import { OrderPage } from "@/domains/orders/OrderPage";
+import { ingestCoordinatorOrder } from "@/domains/orders/orderActivity";
 import { submitOrderAction } from "@/domains/orders/orderApi";
 import { isAlreadyCancelledError } from "@/domains/orders/orderStore";
 import {
@@ -46,16 +37,42 @@ import {
   markProOrderActionFinished,
   markProOrderActionStarted
 } from "@/domains/pro/garageReconciler";
-import { toProTradePresentation } from "@/domains/pro/proPresentation";
 import { useProPreferencesStore, type ProFilter, type ProView } from "@/domains/pro/proPreferencesStore";
 import {
-  classifyProTrade,
   selectOfferReadyRobots,
   selectRelevantTrades,
   summarizeProRobots
 } from "@/domains/pro/proSelectors";
 import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
 import type { ProTradeLocator, ProTradeSnapshot } from "@/domains/pro/pro.types";
+import { GarageSetupDialog } from "@/domains/pro/GarageSetupDialog";
+import { GarageRecoveryDialog } from "@/domains/pro/GarageRecoveryDialog";
+import { FleetKeyDialog } from "@/domains/pro/FleetKeyDialog";
+import { OfferPresetsDialog } from "@/domains/pro/OfferPresetsDialog";
+import { garageSyncEngine, stopGarageSyncSchedule } from "@/domains/pro/garageSync";
+import {
+  FLEET_ROBOT_LIMIT_MESSAGE,
+  GARAGE_LIMITS,
+  hasGarageRobotCapacity
+} from "@/domains/pro/garageVault";
+import { selectProGarageSlots, useGarageVaultStore } from "@/domains/pro/garageVaultStore";
+import { activeOfferPresets, type OfferPreset } from "@/domains/pro/portableSettings";
+import { usePortableSettingsStore } from "@/domains/pro/portableSettingsStore";
+import {
+  ConfirmCancelOffer,
+  ConfirmDeleteRobot,
+  CreateOfferRobotPicker,
+  RobotAddedNotice,
+  TelegramCoordinatorPicker
+} from "@/domains/pro/ProWorkspaceDialogs";
+import { FleetGlyph, RobotGlyph } from "@/domains/pro/ProWorkspaceIcons";
+import { RobotList, TradeList } from "@/domains/pro/ProWorkspaceLists";
+import {
+  matchesFilter,
+  summaryCounts,
+  summaryHasStale,
+  uniquePresetName
+} from "@/domains/pro/proWorkspacePresentation";
 import "@/domains/pro/proWorkspace.css";
 
 const summaryItems: Array<{
@@ -75,23 +92,41 @@ export function ProWorkspacePage() {
   const filter = useProPreferencesStore((state) => state.lastFilter);
   const setLastView = useProPreferencesStore((state) => state.setLastView);
   const setFilter = useProPreferencesStore((state) => state.setLastFilter);
-  const slots = useGarageStore((state) => state.slots);
+  const setProEnabled = useProPreferencesStore((state) => state.setEnabled);
+  const vaultStatus = useGarageVaultStore((state) => state.status);
+  const initializeVault = useGarageVaultStore((state) => state.initialize);
+  const createDerivedRobot = useGarageVaultStore((state) => state.createDerivedRobot);
+  const renameVaultRobot = useGarageVaultStore((state) => state.renameRobot);
+  const removeVaultRobot = useGarageVaultStore((state) => state.removeRobot);
+  const abandonFleet = useGarageVaultStore((state) => state.abandon);
+  const manifest = useGarageVaultStore((state) => state.manifest);
+  const portableManifest = usePortableSettingsStore((state) => state.manifest);
+  const savePreset = usePortableSettingsStore((state) => state.savePreset);
+  const removePreset = usePortableSettingsStore((state) => state.removePreset);
+  const allSlots = useGarageStore((state) => state.slots);
   const hydrated = useGarageStore((state) => state.hydrated);
   const hydrate = useGarageStore((state) => state.hydrate);
   const setCurrentToken = useGarageStore((state) => state.setCurrentToken);
   const addSlot = useGarageStore((state) => state.addSlot);
   const removeSlot = useGarageStore((state) => state.removeSlot);
-  const syncOrderSnapshot = useGarageStore((state) => state.syncOrderSnapshot);
   const updateSlotIdentityDetails = useGarageStore((state) => state.updateSlotIdentityDetails);
   const coordinators = useFederationStore((state) => state.coordinators);
   const snapshots = useProTradeIndexStore((state) => state.snapshots);
   const syncBySlot = useProTradeIndexStore((state) => state.syncBySlot);
   const removeTrade = useProTradeIndexStore((state) => state.removeTrade);
+  const location = useLocation();
   const navigate = useNavigate();
   const [announcement, setAnnouncement] = useState("");
   const [addingRobot, setAddingRobot] = useState(false);
+  const [garageSetupOpen, setGarageSetupOpen] = useState(false);
+  const [garageRecoveryOpen, setGarageRecoveryOpen] = useState(false);
+  const [fleetKeyOpen, setFleetKeyOpen] = useState(false);
+  const [presetsOpen, setPresetsOpen] = useState(() => Boolean((location.state as { openPresets?: boolean } | null)?.openPresets));
+  const [abandonFleetOpen, setAbandonFleetOpen] = useState(false);
+  const [abandoningFleet, setAbandoningFleet] = useState(false);
   const [addedRobot, setAddedRobot] = useState<{ slotId: string; hashId: string; nickname: string }>();
   const [createPickerOpen, setCreatePickerOpen] = useState(false);
+  const [pendingPresetId, setPendingPresetId] = useState<string>();
   const [settingsSlotId, setSettingsSlotId] = useState<string>();
   const [settingsAlias, setSettingsAlias] = useState<string>();
   const [showKeys, setShowKeys] = useState(false);
@@ -108,22 +143,23 @@ export function ProWorkspacePage() {
   useEffect(() => {
     if (!enabled) return;
     hydrate();
-  }, [enabled, hydrate]);
+    void initializeVault();
+  }, [enabled, hydrate, initializeVault]);
 
+  const slots = useMemo(() => selectProGarageSlots(allSlots, manifest), [allSlots, manifest]);
   const trades = useMemo(() => selectRelevantTrades(snapshots), [snapshots]);
   const robotSummaries = useMemo(() => summarizeProRobots(slots, snapshots), [slots, snapshots]);
   const offerReadyRobots = useMemo(
     () => selectOfferReadyRobots(slots, robotSummaries),
     [robotSummaries, slots]
   );
+  const offerPresets = useMemo(() => activeOfferPresets(portableManifest), [portableManifest]);
+  const fleetFull = Boolean(manifest && !hasGarageRobotCapacity(manifest));
   const filteredTrades = useMemo(
     () => trades.filter((snapshot) => matchesFilter(snapshot, filter)),
     [filter, trades]
   );
   const counts = useMemo(() => summaryCounts(trades), [trades]);
-  const failedRobotNames = useMemo(() => robotSummaries
-    .filter((summary) => Boolean(syncBySlot[summary.slotId]?.error))
-    .map((summary) => summary.nickname), [robotSummaries, syncBySlot]);
   const refreshing = Object.values(syncBySlot).some((sync) => sync.inFlight);
   const displayCoordinators = useMemo(() => coordinators
     .filter((coordinator) => coordinator.shortAlias !== "local")
@@ -152,18 +188,40 @@ export function ProWorkspacePage() {
     setFilter(filter === next ? "all" : next);
   }
 
-  function useRobot(slotId: string, path: string) {
+  function startCreateOffer(slotId: string, presetId?: string) {
     const slot = slots.find((item) => item.tokenSHA256 === slotId);
     if (!slot) return;
     setCurrentToken(slot.token);
-    navigate(path);
+    navigate("/create", {
+      state: {
+        creatingOfferAs: { hashId: slot.hashId, nickname: slot.nickname },
+        presetId
+      }
+    });
+  }
+
+  function useOfferPreset(preset: OfferPreset) {
+    setPresetsOpen(false);
+    setPendingPresetId(preset.id);
+    setCreatePickerOpen(true);
+  }
+
+  function editOfferPreset(preset?: OfferPreset) {
+    setPresetsOpen(false);
+    navigate("/create", { state: { presetEditor: { id: preset?.id } } });
+  }
+
+  function duplicateOfferPreset(preset: OfferPreset) {
+    const { id: _id, revision: _revision, deviceId: _deviceId, deleted: _deleted, updatedAt: _updatedAt, ...input } = preset;
+    savePreset({ ...input, name: uniquePresetName(`${preset.name} copy`, offerPresets) });
+    setAnnouncement(`${preset.name} duplicated.`);
   }
 
   function openTrade(locator: ProTradeLocator) {
     const slot = slots.find((item) => item.tokenSHA256 === locator.slotId);
     if (!slot) {
       removeTrade(locator);
-      setAnnouncement(`Order ${locator.orderId} was removed because its robot is no longer in the Garage`);
+      setAnnouncement(`Order ${locator.orderId} was removed because its robot is no longer in the Fleet`);
       return;
     }
     setCurrentToken(slot.token);
@@ -190,50 +248,107 @@ export function ProWorkspacePage() {
     setShowKeys(false);
   }
 
-  function addRobotQuickly() {
+  async function addRobotQuickly() {
     setAddingRobot(true);
-    const token = generateRobotToken();
-    const identity = deriveRobotIdentity(token);
-    const fallbackName = `Robot ${identity.hashId.slice(0, 8)}`;
-    addSlot({
-      ...identity,
-      nickname: fallbackName,
-      earnedRewards: 0,
-      robots: {
-        local: {
-          token,
-          shortAlias: "local",
-          nostrPubKey: identity.nostrPubKey,
-          tokenSHA256: identity.tokenSHA256,
-          earnedRewards: 0
-        }
-      }
-    });
-    setAddedRobot({ slotId: identity.tokenSHA256, hashId: identity.hashId, nickname: fallbackName });
-    setAnnouncement("New robot added. Download its token backup before trading.");
-    setAddingRobot(false);
-
-    void import("@/domains/identity/roboidentitiesClient")
-      .then(({ generateRoboname, prewarmRobotIdentity }) => {
-        prewarmRobotIdentity(identity.hashId);
-        const nickname = generateRoboname(identity.hashId);
-        updateSlotIdentityDetails(token, { nickname });
-        setAddedRobot((current) => current?.slotId === identity.tokenSHA256
-          ? { ...current, nickname }
-          : current);
-      })
-      .catch(() => undefined);
-    window.setTimeout(() => {
-      void import("@/domains/crypto/pgp")
-        .then(({ generatePgpKeyPair }) => generatePgpKeyPair(token))
-        .then((keyPair) => updateSlotIdentityDetails(token, {
-          keys: {
-            pubKey: keyPair.publicKeyArmored,
-            encPrivKey: keyPair.encryptedPrivateKeyArmored
+    try {
+      const entry = await createDerivedRobot();
+      const token = entry.token;
+      const identity = deriveRobotIdentity(token);
+      const fallbackName = `Robot ${identity.hashId.slice(0, 8)}`;
+      addSlot({
+        ...identity,
+        nickname: fallbackName,
+        earnedRewards: 0,
+        robots: {
+          local: {
+            token,
+            shortAlias: "local",
+            nostrPubKey: identity.nostrPubKey,
+            tokenSHA256: identity.tokenSHA256,
+            earnedRewards: 0
           }
-        }))
+        }
+      });
+      setAddedRobot({ slotId: identity.tokenSHA256, hashId: identity.hashId, nickname: fallbackName });
+      setAnnouncement("New robot added.");
+
+      void import("@/domains/identity/roboidentitiesClient")
+        .then(({ generateRoboname, prewarmRobotIdentity }) => {
+          prewarmRobotIdentity(identity.hashId);
+          const nickname = generateRoboname(identity.hashId);
+          updateSlotIdentityDetails(token, { nickname });
+          void renameVaultRobot(token, nickname);
+          setAddedRobot((current) => current?.slotId === identity.tokenSHA256
+            ? { ...current, nickname }
+            : current);
+        })
         .catch(() => undefined);
-    }, 600);
+      window.setTimeout(() => {
+        void import("@/domains/crypto/pgp")
+          .then(({ generatePgpKeyPair }) => generatePgpKeyPair(token))
+          .then((keyPair) => updateSlotIdentityDetails(token, {
+            keys: {
+              pubKey: keyPair.publicKeyArmored,
+              encPrivKey: keyPair.encryptedPrivateKeyArmored
+            }
+          }))
+          .catch(() => undefined);
+      }, 600);
+    } catch (error) {
+      setAnnouncement(error instanceof Error ? error.message : "Could not add robot.");
+    } finally {
+      setAddingRobot(false);
+    }
+  }
+
+  async function requestRobotCreation() {
+    if (vaultStatus === "idle" || vaultStatus === "loading") {
+      await initializeVault();
+    }
+    if (useGarageVaultStore.getState().status !== "ready") {
+      setGarageSetupOpen(true);
+      return;
+    }
+    if (fleetFull) {
+      setAnnouncement(FLEET_ROBOT_LIMIT_MESSAGE);
+      return;
+    }
+    await addRobotQuickly();
+  }
+
+  function finishFleetSetup() {
+    setGarageSetupOpen(false);
+    setGarageRecoveryOpen(false);
+    setLastView("robots");
+    navigate("/pro");
+  }
+
+  function openFleetRecovery() {
+    setGarageSetupOpen(false);
+    setGarageRecoveryOpen(true);
+  }
+
+  function useStandardGarage() {
+    setProEnabled(false);
+    navigate("/garage");
+  }
+
+  async function abandonFleetNow() {
+    setAbandoningFleet(true);
+    stopGarageSyncSchedule();
+    try {
+      await abandonFleet();
+      for (const slot of slots) removeSlot(slot.token);
+      useProTradeIndexStore.getState().resetRuntimeCache();
+      setAbandonFleetOpen(false);
+      setLastView("robots");
+      setAnnouncement("Fleet removed from this device.");
+    } catch (error) {
+      garageSyncEngine.start(() => coordinators);
+      setAnnouncement(error instanceof Error ? error.message : "Could not abandon Fleet.");
+    } finally {
+      setAbandoningFleet(false);
+    }
   }
 
   async function runQuickTradeAction(snapshot: ProTradeSnapshot, action: "pause" | "resume" | "cancel") {
@@ -257,30 +372,25 @@ export function ProWorkspacePage() {
           : { action: "cancel", cancel_status: snapshot.order?.status },
         auth
       );
-      syncOrderSnapshot({
-        token: slot.token,
-        shortAlias: coordinator.shortAlias,
+      ingestCoordinatorOrder({
+        order,
         orderId: snapshot.locator.orderId,
-        status: order.status,
-        isMaker: order.is_maker
+        shortAlias: coordinator.shortAlias,
+        slot
       });
       const result = action === "pause" ? "paused" : action === "resume" ? "resumed" : "cancelled";
       setAnnouncement(`Order ${snapshot.locator.orderId} ${result}.`);
-      if (action === "cancel") {
-        removeTrade(snapshot.locator);
-        return;
-      }
-      await garageReconciler.reconcileOrder(snapshot.locator, "order-action");
     } catch (error) {
       if (action === "cancel" && isAlreadyCancelledError(error)) {
-        syncOrderSnapshot({
-          token: slot.token,
-          shortAlias: coordinator.shortAlias,
-          orderId: snapshot.locator.orderId,
-          status: 4,
-          isMaker: snapshot.order?.is_maker
-        });
-        removeTrade(snapshot.locator);
+        if (snapshot.order) {
+          ingestCoordinatorOrder({
+            order: { ...snapshot.order, status: 4, status_message: "Order cancelled" },
+            shortAlias: coordinator.shortAlias,
+            slot
+          });
+        } else {
+          removeTrade(snapshot.locator);
+        }
         setAnnouncement(`Order ${snapshot.locator.orderId} was already cancelled.`);
         return;
       }
@@ -292,13 +402,24 @@ export function ProWorkspacePage() {
     }
   }
 
-  function deleteRobotNow(slotId: string) {
+  async function deleteRobotNow(slotId: string) {
     const slot = slots.find((item) => item.tokenSHA256 === slotId);
     if (!slot) return;
-    removeSlot(slot.token);
-    removeTradeSnapshots(slotId);
-    setDeleteSlotId(undefined);
-    setAnnouncement(`${slot.nickname} removed from this device.`);
+    const summary = robotSummaries.find((item) => item.slotId === slotId);
+    if (summary?.relevantOrderCount) {
+      setDeleteSlotId(undefined);
+      setAnnouncement(`${slot.nickname} cannot be removed while it has an order.`);
+      return;
+    }
+    try {
+      await removeVaultRobot(slot.token);
+      removeSlot(slot.token);
+      removeTradeSnapshots(slotId);
+      setDeleteSlotId(undefined);
+      setAnnouncement(`${slot.nickname} removed from the Fleet.`);
+    } catch (error) {
+      setAnnouncement(error instanceof Error ? error.message : `Could not remove ${slot.nickname}.`);
+    }
   }
 
   function removeTradeSnapshots(slotId: string) {
@@ -319,15 +440,14 @@ export function ProWorkspacePage() {
   async function refresh() {
     setAnnouncement("Refreshing trade desk");
     await garageReconciler.reconcileAll("manual");
-    setAnnouncement("Trade desk refreshed");
+    setAnnouncement("Trade Desk refreshed");
   }
 
   return (
     <main className="page page-wide pro-workspace-page">
       <header className="pro-workspace-header">
         <div>
-          <p className="app-eyebrow">PRO</p>
-          <h2>Trade desk</h2>
+          <p className="app-eyebrow">Pro Desk</p>
         </div>
         <div className="pro-workspace-commands">
           <Button
@@ -341,13 +461,44 @@ export function ProWorkspacePage() {
           >
             <RefreshCw className={refreshing ? "pro-refresh-icon pro-refresh-icon-active" : "pro-refresh-icon"} size={17} />
           </Button>
-          <Button className="pro-add-robot-button" loading={addingRobot} onClick={addRobotQuickly}>
-            <RobotGlyph size={18} /> <span>Add robot</span>
-          </Button>
+          {lastView === "trades" ? (
+            <Button
+              aria-label="Create an offer"
+              className="pro-create-offer-button"
+              onClick={() => setCreatePickerOpen(true)}
+              variant="outline"
+            >
+              <CirclePlus size={18} /> <span>Create offer</span>
+            </Button>
+          ) : (
+            <Button
+              aria-label={fleetFull ? `Fleet is full at ${GARAGE_LIMITS.activeRobots} robots` : "Add robot"}
+              className="pro-add-robot-button"
+              disabled={fleetFull}
+              loading={addingRobot}
+              onClick={() => void requestRobotCreation()}
+              title={fleetFull ? FLEET_ROBOT_LIMIT_MESSAGE : "Add robot"}
+            >
+              <RobotGlyph size={18} /> <span>{fleetFull ? "Fleet full" : "Add robot"}</span>
+            </Button>
+          )}
         </div>
       </header>
 
       <p className="sr-only" aria-live="polite">{announcement}</p>
+      {!garageRecoveryOpen && (garageSetupOpen || vaultStatus === "unconfigured" || vaultStatus === "needs-backup") ? (
+        <GarageSetupDialog
+          onComplete={finishFleetSetup}
+          onRestore={openFleetRecovery}
+          onUseStandardGarage={useStandardGarage}
+        />
+      ) : null}
+      {garageRecoveryOpen ? (
+        <GarageRecoveryDialog
+          onClose={() => setGarageRecoveryOpen(false)}
+          onRestored={finishFleetSetup}
+        />
+      ) : null}
 
       <section className="pro-summary-strip" aria-label="Trade summary">
         {summaryItems.map((item) => {
@@ -372,7 +523,7 @@ export function ProWorkspacePage() {
 
       <section className="pro-workspace-surface">
         <header className="pro-workspace-toolbar">
-          <div className="pro-view-tabs" role="tablist" aria-label="Trade desk view">
+          <div className="pro-view-tabs" role="tablist" aria-label="Trade Desk view">
             <button
               id="pro-trades-tab"
               ref={tradesTab}
@@ -384,7 +535,7 @@ export function ProWorkspacePage() {
               onKeyDown={(event) => moveTab(event, "trades")}
               onClick={() => selectView("trades")}
             >
-              Trades
+              <ListChecks size={16} aria-hidden="true" /> Trades
             </button>
             <button
               id="pro-robots-tab"
@@ -397,23 +548,10 @@ export function ProWorkspacePage() {
               onKeyDown={(event) => moveTab(event, "robots")}
               onClick={() => selectView("robots")}
             >
-              Robots
+              <FleetGlyph size={16} /> Robot Fleet
             </button>
           </div>
         </header>
-
-        {failedRobotNames.length > 0 ? (
-          <div className="pro-refresh-warning" role="status">
-            <AlertTriangle size={18} aria-hidden="true" />
-            <span>
-              <strong>{failedRobotNames.length === 1
-                ? `Could not refresh ${failedRobotNames[0]}`
-                : `Could not refresh ${failedRobotNames.length} robots`}</strong>
-              <small>Last known trade states are preserved.</small>
-            </span>
-            <Button size="sm" variant="ghost" onClick={() => void refresh()}>Retry</Button>
-          </div>
-        ) : null}
 
         <div
           id="pro-workspace-content"
@@ -435,7 +573,7 @@ export function ProWorkspacePage() {
             />
           ) : (
             <RobotList
-              onCreate={() => setCreatePickerOpen(true)}
+              onCreate={startCreateOffer}
               onDelete={setDeleteSlotId}
               onDownload={(slotId) => {
                 const slot = slots.find((item) => item.tokenSHA256 === slotId);
@@ -443,7 +581,6 @@ export function ProWorkspacePage() {
               }}
               onSettings={openRobotSettings}
               onTelegram={setTelegramSlotId}
-              onUse={(slotId) => useRobot(slotId, "/garage")}
               slots={slots}
               summaries={robotSummaries}
               syncBySlot={syncBySlot}
@@ -451,6 +588,20 @@ export function ProWorkspacePage() {
           )}
         </div>
       </section>
+
+      {vaultStatus === "ready" ? (
+        <div className="garage-utility-bar pro-fleet-utility-bar" aria-label="Fleet controls">
+          <button className="garage-utility-btn" type="button" onClick={() => setFleetKeyOpen(true)}>
+            <KeyRound size={18} /> <span>Back up Fleet</span>
+          </button>
+          <button className="garage-utility-btn" type="button" onClick={() => setPresetsOpen(true)}>
+            <BookmarkCheck size={18} /> <span>Offer presets</span>
+          </button>
+          <button className="garage-utility-btn" type="button" onClick={() => setAbandonFleetOpen(true)}>
+            <LogOut size={18} /> <span>Abandon Fleet</span>
+          </button>
+        </div>
+      ) : null}
 
       {selectedTrade ? (
         <div className="pro-trade-dialog-overlay" role="dialog" aria-modal="true" aria-label={`Order ${selectedTrade.orderId}`} onClick={closeTrade}>
@@ -465,10 +616,14 @@ export function ProWorkspacePage() {
 
       {createPickerOpen ? (
         <CreateOfferRobotPicker
-          onClose={() => setCreatePickerOpen(false)}
+          onAddRobot={() => void requestRobotCreation()}
+          addingRobot={addingRobot}
+          fleetFull={fleetFull}
+          onClose={() => { setCreatePickerOpen(false); setPendingPresetId(undefined); }}
           onSelect={(slotId) => {
             setCreatePickerOpen(false);
-            useRobot(slotId, "/create");
+            startCreateOffer(slotId, pendingPresetId);
+            setPendingPresetId(undefined);
           }}
           robots={offerReadyRobots}
         />
@@ -536,7 +691,7 @@ export function ProWorkspacePage() {
       {deleteSlot ? (
         <ConfirmDeleteRobot
           onCancel={() => setDeleteSlotId(undefined)}
-          onConfirm={() => deleteRobotNow(deleteSlot.tokenSHA256)}
+          onConfirm={() => void deleteRobotNow(deleteSlot.tokenSHA256)}
           robotName={deleteSlot.nickname}
         />
       ) : null}
@@ -550,494 +705,42 @@ export function ProWorkspacePage() {
         />
       ) : null}
 
+      {fleetKeyOpen && vaultStatus === "ready" ? <FleetKeyDialog onClose={() => setFleetKeyOpen(false)} /> : null}
+
+      {presetsOpen && vaultStatus === "ready" ? (
+        <OfferPresetsDialog
+          onClose={() => setPresetsOpen(false)}
+          onCreate={() => editOfferPreset()}
+          onDuplicate={duplicateOfferPreset}
+          onEdit={editOfferPreset}
+          onRemove={(id) => { removePreset(id); setAnnouncement("Offer preset removed."); }}
+          onUse={useOfferPreset}
+          presets={offerPresets}
+        />
+      ) : null}
+
+      {abandonFleetOpen ? (
+        <div className="confirm-overlay" role="dialog" aria-modal="true" aria-labelledby="abandon-fleet-title" onClick={() => { if (!abandoningFleet) setAbandonFleetOpen(false); }}>
+          <section className="confirm-sheet pro-abandon-fleet-sheet" onClick={(event) => event.stopPropagation()}>
+            <div>
+              <h3 id="abandon-fleet-title">Abandon Fleet?</h3>
+            </div>
+            <p>
+              This removes the Fleet key and every associated robot from this device. It does not cancel coordinator orders.
+              Without a Fleet key backup, these robot identities cannot be restored.
+            </p>
+            <div className="pro-abandon-fleet-actions">
+              <Button variant="outline" onClick={() => { setAbandonFleetOpen(false); setFleetKeyOpen(true); }}><KeyRound size={17} /> Back up Fleet</Button>
+              <Button loading={abandoningFleet} variant="destructive" onClick={() => void abandonFleetNow()}><LogOut size={17} /> Abandon Fleet</Button>
+              <Button disabled={abandoningFleet} variant="ghost" onClick={() => setAbandonFleetOpen(false)}>Keep Fleet</Button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
       {addedRobot ? (
         <RobotAddedNotice robot={addedRobot} onClose={() => setAddedRobot(undefined)} />
       ) : null}
     </main>
   );
-}
-
-function TradeList({
-  coordinators,
-  onCancel,
-  onCreate,
-  onOpen,
-  onPause,
-  onResume,
-  quickActionKey,
-  snapshots
-}: {
-  coordinators: ReturnType<typeof useFederationStore.getState>["coordinators"];
-  onCancel: (snapshot: ProTradeSnapshot) => void;
-  onCreate: () => void;
-  onOpen: (locator: ProTradeLocator) => void;
-  onPause: (snapshot: ProTradeSnapshot) => void;
-  onResume: (snapshot: ProTradeSnapshot) => void;
-  quickActionKey: string;
-  snapshots: ProTradeSnapshot[];
-}) {
-  if (snapshots.length === 0) {
-    return (
-      <EmptyState
-        icon={ListChecks}
-        title="No matching trades"
-        body="Active trades and public offers for every robot will appear here."
-        onCreate={onCreate}
-      />
-    );
-  }
-
-  return (
-    <div className="pro-trade-list" aria-label="Trades">
-      <div className="pro-trade-header" aria-hidden="true">
-        <span>Robot</span>
-        <span>Order</span>
-        <span>Coordinator</span>
-        <span>Status</span>
-        <span>Deadline</span>
-        <span>Actions</span>
-      </div>
-      {snapshots.map((snapshot, index) => {
-        const presentation = toProTradePresentation(snapshot);
-        const StatusIcon = presentation.statusIcon;
-        const coordinator = coordinators.find((item) => item.shortAlias === snapshot.locator.shortAlias);
-        const previous = snapshots[index - 1];
-        const showGroup = !previous || toProTradePresentation(previous).group !== presentation.group;
-        return (
-          <Fragment key={snapshot.key}>
-            {showGroup ? <div className="pro-trade-group">{groupLabel(presentation.group)}</div> : null}
-            <div className="pro-trade-row">
-              <button
-                className="pro-trade-row-open"
-                type="button"
-                aria-label={`Open order ${snapshot.locator.orderId} for ${snapshot.nickname}`}
-                onClick={() => onOpen(snapshot.locator)}
-              >
-                <span className="pro-trade-robot">
-                  <RobotAvatar hashId={snapshot.hashId} label={snapshot.nickname} size="sm" />
-                  <span><strong>{snapshot.nickname}</strong><small>{presentation.directionLabel}</small></span>
-                </span>
-                <span className="pro-trade-order">
-                  <strong>{presentation.amountLabel}</strong>
-                  <small>{presentation.methodLabel} · #{snapshot.locator.orderId}</small>
-                </span>
-                <span className="pro-trade-coordinator">
-                  {coordinator ? <img className="coordinator-avatar coordinator-avatar-xs" src={coordinator.smallAvatarUrl} alt="" /> : null}
-                  <span>{coordinator?.longAlias ?? snapshot.locator.shortAlias}</span>
-                </span>
-                <span>
-                  <Badge tone={presentation.statusTone} icon={<StatusIcon size={12} />}>{presentation.statusLabel}</Badge>
-                </span>
-                <span className="pro-trade-deadline" title={formatExpiryTitle(snapshot.order?.expires_at)}>
-                  <Clock3 size={15} aria-hidden="true" />
-                  {presentation.deadline ? formatExpiryCountdown(snapshot.order?.expires_at) : "-"}
-                </span>
-              </button>
-              <span className="pro-trade-actions">
-                {snapshot.order?.status === 1 && snapshot.order.is_maker ? (
-                  <>
-                    <Button
-                      aria-label={`Pause order ${snapshot.locator.orderId}`}
-                      className="pro-trade-action-button"
-                      disabled={Boolean(quickActionKey)}
-                      loading={quickActionKey === `${snapshot.key}:pause`}
-                      onClick={() => onPause(snapshot)}
-                      size="sm"
-                      title="Hide this offer from the public order book"
-                      variant="outline"
-                    >
-                      <Pause size={14} /> <span className="pro-trade-action-label">Pause</span>
-                    </Button>
-                    <Button
-                      aria-label={`Cancel order ${snapshot.locator.orderId}`}
-                      className="pro-trade-action-button"
-                      disabled={Boolean(quickActionKey)}
-                      onClick={() => onCancel(snapshot)}
-                      size="sm"
-                      title="Cancel this offer"
-                      variant="destructive"
-                    >
-                      <X size={14} /> <span className="pro-trade-action-label">Cancel</span>
-                    </Button>
-                  </>
-                ) : snapshot.order?.status === 2 && snapshot.order.is_maker ? (
-                  <>
-                    <Button
-                      aria-label={`Resume order ${snapshot.locator.orderId}`}
-                      className="pro-trade-action-button"
-                      disabled={Boolean(quickActionKey)}
-                      loading={quickActionKey === `${snapshot.key}:resume`}
-                      onClick={() => onResume(snapshot)}
-                      size="sm"
-                      title="Return this offer to the public order book"
-                      variant="outline"
-                    >
-                      <Play size={14} /> <span className="pro-trade-action-label">Resume</span>
-                    </Button>
-                    <button className="pro-trade-open-icon" type="button" aria-label={`Open order ${snapshot.locator.orderId}`} onClick={() => onOpen(snapshot.locator)}>
-                      <ChevronRight size={18} />
-                    </button>
-                  </>
-                ) : (
-                  <button className="pro-trade-open-icon" type="button" aria-label={`Open order ${snapshot.locator.orderId}`} onClick={() => onOpen(snapshot.locator)}>
-                    <ChevronRight size={18} />
-                  </button>
-                )}
-              </span>
-            </div>
-          </Fragment>
-        );
-      })}
-    </div>
-  );
-}
-
-function RobotList({
-  onCreate,
-  onDelete,
-  onDownload,
-  onSettings,
-  onTelegram,
-  onUse,
-  slots,
-  summaries,
-  syncBySlot
-}: {
-  onCreate: () => void;
-  onDelete: (slotId: string) => void;
-  onDownload: (slotId: string) => void;
-  onSettings: (slotId: string) => void;
-  onTelegram: (slotId: string) => void;
-  onUse: (slotId: string) => void;
-  slots: ReturnType<typeof useGarageStore.getState>["slots"];
-  summaries: ReturnType<typeof summarizeProRobots>;
-  syncBySlot: ReturnType<typeof useProTradeIndexStore.getState>["syncBySlot"];
-}) {
-  if (slots.length === 0) {
-    return <EmptyState icon={Bot} title="No robots in this Garage" body="Create or recover a robot from the normal Garage." />;
-  }
-
-  return (
-    <div className="pro-robot-list">
-      {summaries.map((summary) => {
-        const slot = slots.find((item) => item.tokenSHA256 === summary.slotId);
-        const sync = syncBySlot[summary.slotId];
-        if (!slot) return null;
-        return (
-          <article className="pro-robot-row" key={summary.slotId}>
-            <div className="pro-robot-identity">
-              <button className="pro-robot-avatar-button" type="button" onClick={() => onSettings(summary.slotId)} aria-label={`Open ${summary.nickname} settings`}>
-                <RobotAvatar hashId={summary.hashId} label={summary.nickname} size="md" />
-              </button>
-              <span>
-                <strong>{summary.nickname}</strong>
-                <span className="pro-robot-state">
-                  <Badge tone={summary.stale ? "muted" : summary.needsAttentionCount ? "warning" : "success"}>
-                    {summary.stale ? "Stale" : summary.needsAttentionCount ? "Needs attention" : "Ready"}
-                  </Badge>
-                  <small>{formatLastRefresh(sync?.lastSuccessAt)}</small>
-                </span>
-              </span>
-            </div>
-            <div className="pro-robot-actions">
-              <Button size="icon" variant="ghost" onClick={() => onDownload(summary.slotId)} aria-label={`Download ${summary.nickname} recovery JSON`} title="Download recovery JSON">
-                <Download size={16} />
-              </Button>
-              <Button size="icon" variant="ghost" onClick={() => onTelegram(summary.slotId)} aria-label={`Enable Telegram for ${summary.nickname}`} title="Enable Telegram">
-                <Send size={16} />
-              </Button>
-              <Button
-                aria-label="Create an offer with an available robot"
-                className="pro-robot-create-button"
-                size="sm"
-                onClick={onCreate}
-              >
-                <CirclePlus size={16} /> <span className="pro-robot-action-label">Create offer</span>
-              </Button>
-              <Button
-                aria-label={`Open ${summary.nickname} in Garage`}
-                className="pro-robot-garage-button"
-                size="sm"
-                variant="ghost"
-                onClick={() => onUse(summary.slotId)}
-              >
-                <House size={16} /> <span className="pro-robot-action-label">To Garage</span>
-              </Button>
-              <Button size="icon" variant="ghost" onClick={() => onDelete(summary.slotId)} aria-label={`Delete ${summary.nickname}`} title="Delete robot">
-                <Trash2 size={16} />
-              </Button>
-            </div>
-          </article>
-        );
-      })}
-    </div>
-  );
-}
-
-function CreateOfferRobotPicker({
-  onClose,
-  onSelect,
-  robots
-}: {
-  onClose: () => void;
-  onSelect: (slotId: string) => void;
-  robots: ReturnType<typeof selectOfferReadyRobots>;
-}) {
-  return (
-    <div className="confirm-overlay" onClick={onClose}>
-      <section
-        aria-labelledby="pro-create-robot-title"
-        aria-modal="true"
-        className="garage-switcher-panel pro-create-robot-picker"
-        onClick={(event) => event.stopPropagation()}
-        role="dialog"
-      >
-        <header className="garage-switcher-header">
-          <span>
-            <h3 id="pro-create-robot-title">With which robot?</h3>
-            <small>Ready robots without an active trade</small>
-          </span>
-          <button className="icon-button" onClick={onClose} type="button" aria-label="Close robot selector">
-            <X size={18} />
-          </button>
-        </header>
-        {robots.length > 0 ? (
-          <div className="garage-switcher-list">
-            {robots.map((robot) => (
-              <button
-                className="garage-switcher-item pro-create-robot-option"
-                key={robot.slotId}
-                onClick={() => onSelect(robot.slotId)}
-                type="button"
-              >
-                <RobotAvatar hashId={robot.hashId} label={robot.nickname} size="md" />
-                <span className="garage-switcher-item-info">
-                  <strong className="garage-switcher-item-name">{robot.nickname}</strong>
-                  <small className="garage-switcher-item-status">Ready to create an offer</small>
-                </span>
-                <ChevronRight size={18} aria-hidden="true" />
-              </button>
-            ))}
-          </div>
-        ) : (
-          <div className="pro-create-robot-empty">
-            <RobotGlyph size={24} />
-            <strong>No robot is available</strong>
-            <p>Finish or refresh active trades before creating another offer.</p>
-          </div>
-        )}
-      </section>
-    </div>
-  );
-}
-
-function RobotAddedNotice({
-  onClose,
-  robot
-}: {
-  onClose: () => void;
-  robot: { hashId: string; nickname: string };
-}) {
-  return (
-    <aside className="pro-robot-added-notice" role="status" aria-live="polite">
-      <RobotAvatar hashId={robot.hashId} label={robot.nickname} size="sm" />
-      <strong>{robot.nickname} has been added!</strong>
-      <button className="icon-button" onClick={onClose} type="button" aria-label="Dismiss robot added message">
-        <X size={16} />
-      </button>
-    </aside>
-  );
-}
-
-function EmptyState({
-  body,
-  icon: Icon,
-  onCreate,
-  title
-}: {
-  body: string;
-  icon: typeof Bot;
-  onCreate?: () => void;
-  title: string;
-}) {
-  const navigate = useNavigate();
-  const noRobots = title.includes("No robots");
-  return (
-    <div className="pro-empty-state">
-      <Icon size={22} aria-hidden="true" />
-      <div><strong>{title}</strong><p>{body}</p></div>
-      <div>
-        <Button size="sm" variant="secondary" onClick={() => navigate(noRobots ? "/garage?add=1" : "/offers")}>
-          {noRobots ? "Add robot" : "Browse offers"}
-        </Button>
-        {!noRobots ? <Button size="sm" variant="ghost" onClick={onCreate}>Create offer</Button> : null}
-      </div>
-    </div>
-  );
-}
-
-function RobotGlyph({ size = 18 }: { size?: number }) {
-  return (
-    <svg aria-hidden="true" fill="none" height={size} stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" width={size} xmlns="http://www.w3.org/2000/svg">
-      <path d="M20 9V7a2 2 0 0 0-2-2h-3a3 3 0 0 0-6 0H6a2 2 0 0 0-2 2v2a3 3 0 0 0-3 3 3 3 0 0 0 3 3v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4a3 3 0 0 0 3-3 3 3 0 0 0-3-3Z" />
-      <circle cx="9" cy="11.5" r="1" />
-      <circle cx="15" cy="11.5" r="1" />
-      <path d="M8 17h8" />
-    </svg>
-  );
-}
-
-function TelegramCoordinatorPicker({
-  coordinators,
-  onClose,
-  onSelect,
-  slot
-}: {
-  coordinators: ReturnType<typeof useFederationStore.getState>["coordinators"];
-  onClose: () => void;
-  onSelect: (botName: string, token: string) => void;
-  slot: ReturnType<typeof useGarageStore.getState>["slots"][number];
-}) {
-  return (
-    <div className="confirm-overlay" role="dialog" aria-modal="true" aria-labelledby="pro-telegram-title" onClick={onClose}>
-      <section className="confirm-sheet pro-telegram-picker" onClick={(event) => event.stopPropagation()}>
-        <button className="take-modal-close" onClick={onClose} type="button" aria-label="Close Telegram coordinator picker">
-          <X size={20} />
-        </button>
-        <div>
-          <h3 id="pro-telegram-title">Choose notification coordinator</h3>
-          <p className="muted-copy">Each coordinator operates its own notification bot. Telegram enrollment applies only to the coordinator you choose.</p>
-        </div>
-        <div className="pro-telegram-coordinator-list">
-          {coordinators.map((coordinator) => {
-            const robot = slot.robots[coordinator.shortAlias];
-            const available = Boolean(robot?.tgBotName && robot.tgToken);
-            return (
-              <button
-                className="pro-telegram-coordinator"
-                disabled={!available}
-                key={coordinator.shortAlias}
-                onClick={() => {
-                  if (robot?.tgBotName && robot.tgToken) onSelect(robot.tgBotName, robot.tgToken);
-                }}
-                type="button"
-              >
-                <img className="coordinator-avatar coordinator-avatar-sm" src={coordinator.smallAvatarUrl} alt="" />
-                <span>
-                  <strong>{coordinator.longAlias}</strong>
-                  <small>{available ? "Telegram setup available" : "Connect this robot first"}</small>
-                </span>
-                <ChevronRight size={17} aria-hidden="true" />
-              </button>
-            );
-          })}
-        </div>
-        <div className="confirm-actions">
-          <Button variant="secondary" onClick={onClose}>Back</Button>
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function ConfirmDeleteRobot({
-  onCancel,
-  onConfirm,
-  robotName
-}: {
-  onCancel: () => void;
-  onConfirm: () => void;
-  robotName: string;
-}) {
-  return (
-    <div className="confirm-overlay" role="dialog" aria-modal="true" aria-labelledby="pro-delete-robot-title" onClick={onCancel}>
-      <section className="confirm-sheet" onClick={(event) => event.stopPropagation()}>
-        <div className="confirm-header">
-          <span className="confirm-icon-shell" aria-hidden="true"><AlertTriangle size={22} /></span>
-          <h3 id="pro-delete-robot-title">Delete {robotName}?</h3>
-        </div>
-        <p className="confirm-body">This removes the robot and its token from this device. Download the recovery JSON first if you may need it again.</p>
-        <div className="confirm-actions">
-          <Button variant="secondary" onClick={onCancel}>Keep robot</Button>
-          <Button variant="destructive" onClick={onConfirm}><Trash2 size={16} /> Delete robot</Button>
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function ConfirmCancelOffer({
-  loading,
-  onCancel,
-  onConfirm,
-  orderId
-}: {
-  loading: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
-  orderId: number;
-}) {
-  return (
-    <div className="confirm-overlay" role="dialog" aria-modal="true" aria-labelledby="pro-cancel-offer-title" onClick={onCancel}>
-      <section className="confirm-sheet" onClick={(event) => event.stopPropagation()}>
-        <div className="confirm-header">
-          <span className="confirm-icon-shell" aria-hidden="true"><AlertTriangle size={22} /></span>
-          <h3 id="pro-cancel-offer-title">Cancel order #{orderId}?</h3>
-        </div>
-        <p className="confirm-body">The offer will be removed from the public order book. This cannot be undone.</p>
-        <div className="confirm-actions">
-          <Button disabled={loading} variant="secondary" onClick={onCancel}>Keep offer</Button>
-          <Button loading={loading} variant="destructive" onClick={onConfirm}><X size={16} /> Cancel offer</Button>
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function summaryCounts(trades: ProTradeSnapshot[]): Record<Exclude<ProFilter, "all">, number> {
-  return {
-    "needs-action": trades.filter((trade) => classifyProTrade(trade) === "needs-action").length,
-    active: trades.filter((trade) => isActiveTrade(trade)).length,
-    public: trades.filter((trade) => trade.order?.status === 1 && trade.order.is_maker).length,
-    renewable: trades.filter((trade) => trade.renewable).length
-  };
-}
-
-function summaryHasStale(trades: ProTradeSnapshot[], filter: Exclude<ProFilter, "all">): boolean {
-  return trades.some((trade) => {
-    if (trade.freshness !== "error" && trade.freshness !== "stale") return false;
-    if (filter === "needs-action") return classifyProTrade({ ...trade, freshness: "fresh" }) === "needs-action";
-    if (filter === "active") return isActiveTrade(trade);
-    if (filter === "public") return trade.order?.status === 1 && trade.order.is_maker;
-    return trade.renewable;
-  });
-}
-
-function matchesFilter(snapshot: ProTradeSnapshot, filter: ProFilter): boolean {
-  if (filter === "all") return true;
-  if (filter === "needs-action") return classifyProTrade(snapshot) === "needs-action";
-  if (filter === "active") return isActiveTrade(snapshot);
-  if (filter === "public") return snapshot.order?.status === 1 && snapshot.order.is_maker;
-  return snapshot.renewable;
-}
-
-function groupLabel(group: ReturnType<typeof classifyProTrade>): string {
-  if (group === "needs-action") return "Needs action";
-  if (group === "in-progress") return "In progress";
-  if (group === "waiting") return "Waiting and public";
-  if (group === "renewable") return "Renewable";
-  return "Refresh needed";
-}
-
-function isActiveTrade(snapshot: ProTradeSnapshot): boolean {
-  const status = snapshot.order?.status;
-  return status != null && status >= 3 && ![4, 5, 12, 14, 17, 18].includes(status);
-}
-
-function formatLastRefresh(value?: number): string {
-  if (!value) return "Not refreshed";
-  const elapsedMinutes = Math.max(0, Math.floor((Date.now() - value) / 60_000));
-  if (elapsedMinutes < 1) return "Updated now";
-  if (elapsedMinutes < 60) return `Updated ${elapsedMinutes}m ago`;
-  return `Updated ${Math.floor(elapsedMinutes / 60)}h ago`;
 }
