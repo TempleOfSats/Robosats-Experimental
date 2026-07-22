@@ -27,6 +27,7 @@ import { filterPublicOrders } from "@/domains/orderbook/orderbookFilters";
 import { buildTakeOfferPayload, defaultTakeAmount, validateTakeOffer } from "@/domains/orderbook/takeOffer";
 import { getRobotAuthForCoordinator, useGarageStore } from "@/domains/garage/garageStore";
 import { downloadRobotTokenBackup } from "@/domains/garage/tokenBackup";
+import { ingestCoordinatorOrder } from "@/domains/orders/orderActivity";
 import { fetchOrder, submitOrderAction } from "@/domains/orders/orderApi";
 import { roleBuysBitcoin, roleIntentLabel } from "@/domains/orders/orderRole";
 import type { OrderDto } from "@/domains/orders/order.types";
@@ -60,7 +61,6 @@ export function OffersPage() {
   const { orders, loading, refreshing, error, lastUpdated, refreshOrderbook, applyLiveOrders } = useOrderbookStore();
   const hydrateGarage = useGarageStore((state) => state.hydrate);
   const activeSlot = useGarageStore((state) => state.currentSlot());
-  const setActiveOrder = useGarageStore((state) => state.setActiveOrder);
   const [intentFilter, setIntentFilter] = useState<IntentFilter>("any");
   const [currencyFilter, setCurrencyFilter] = useState("all");
   const [methodFilter, setMethodFilter] = useState("all");
@@ -391,8 +391,13 @@ export function OffersPage() {
         setTakeError(toUserMessage(order.bad_request, "The coordinator could not take this offer."));
         return;
       }
-      const orderId = order.id ?? selectedOrder.id;
-      setActiveOrder(activeSlot.token, selectedCoordinator.shortAlias, orderId);
+      const orderId = order.id || selectedOrder.id;
+      ingestCoordinatorOrder({
+        order,
+        orderId,
+        shortAlias: selectedCoordinator.shortAlias,
+        slot: activeSlot
+      });
       navigate(`/order/${selectedCoordinator.shortAlias}/${orderId}`);
     } catch (error) {
       setTakeError(toUserMessage(error, "Could not take this offer."));

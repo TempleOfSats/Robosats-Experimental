@@ -40,7 +40,12 @@ export function AppSidebar({ platform: _platform }: { platform: RoboSatsPlatform
       </div>
 
       <nav className={proEnabled ? "sidebar-nav sidebar-nav-pro" : "sidebar-nav"} aria-label="Main navigation">
-        {items.map((item) => (
+        {items.map((item) => item.to === "/garage" && proEnabled ? (
+          <span className="nav-item nav-item-disabled" aria-disabled="true" key={item.to} title="Disable PRO to use the standard Garage">
+            <item.icon size={18} />
+            <span>{item.label}</span>
+          </span>
+        ) : (
           <NavLink key={item.to} to={item.to} className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")}>
             <item.icon size={18} />
             <span>{item.label}</span>
@@ -49,7 +54,7 @@ export function AppSidebar({ platform: _platform }: { platform: RoboSatsPlatform
         {proEnabled ? (
           <NavLink to="/pro" className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")}>
             <LayoutList size={18} />
-            <span>Desk</span>
+            <span>Pro Desk</span>
             {attentionCount > 0 ? (
               <small className="nav-attention-count" aria-label={`${attentionCount} trades need attention`}>{attentionCount}</small>
             ) : null}

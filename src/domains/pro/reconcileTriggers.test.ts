@@ -79,6 +79,22 @@ describe("reconciliation triggers", () => {
     cleanup();
   });
 
+  it("reconciles after a native application resume", async () => {
+    const controller = fakeController();
+    const cleanup = registerReconcileTriggers({
+      controller,
+      proEnabled: () => true,
+      reconcileCurrent: vi.fn(async () => undefined),
+      debounceMs: 10
+    });
+
+    windowTarget.dispatchEvent(new Event("robosats:native-resume"));
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(controller.reconcileAll).toHaveBeenCalledWith("native-resume");
+    cleanup();
+  });
+
   it("removes a terminal order immediately after its foreground action", () => {
     const controller = fakeController();
     useProTradeIndexStore.getState().upsertSnapshot({
@@ -104,6 +120,31 @@ describe("reconciliation triggers", () => {
     windowTarget.dispatchEvent(event);
 
     expect(useProTradeIndexStore.getState().snapshots["slot:lake:42"]).toBeUndefined();
+    expect(controller.reconcileOrder).not.toHaveBeenCalled();
+    cleanup();
+  });
+
+  it("does not refetch an order whose foreground response was already applied", () => {
+    const controller = fakeController();
+    const cleanup = registerReconcileTriggers({
+      controller,
+      proEnabled: () => true,
+      reconcileCurrent: vi.fn(async () => undefined)
+    });
+    const event = new Event("robosats:order-action-complete");
+    Object.defineProperty(event, "detail", {
+      value: {
+        slotId: "slot",
+        shortAlias: "lake",
+        orderId: 42,
+        status: 9,
+        isMaker: false,
+        snapshotApplied: true
+      }
+    });
+
+    windowTarget.dispatchEvent(event);
+
     expect(controller.reconcileOrder).not.toHaveBeenCalled();
     cleanup();
   });

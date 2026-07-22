@@ -46,6 +46,7 @@
   "dependencies": {
     "@fontsource-variable/public-sans": "^5.2.7",
     "@noble/hashes": "^2.2.0",
+    "@scure/base": "^2.2.0",
     "@tauri-apps/api": "^2.11.1",
     "js-sha256": "^0.11.1",
     "light-bolt11-decoder": "^3.2.0",
