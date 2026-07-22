@@ -76,6 +76,21 @@ export async function retryDesktopTor(): Promise<void> {
   await invoke("desktop_retry");
 }
 
+export async function loadDesktopSecret(key: string): Promise<string | null> {
+  if (!isTauriDesktop()) return null;
+  return invoke<string | null>("desktop_secret_get", { key });
+}
+
+export async function saveDesktopSecret(key: string, value: string): Promise<void> {
+  if (!isTauriDesktop()) return;
+  await invoke("desktop_secret_set", { key, value });
+}
+
+export async function removeDesktopSecret(key: string): Promise<void> {
+  if (!isTauriDesktop()) return;
+  await invoke("desktop_secret_delete", { key });
+}
+
 export function initializeDesktopRuntimeBridge(): void {
   if (!isTauriDesktop()) return;
 

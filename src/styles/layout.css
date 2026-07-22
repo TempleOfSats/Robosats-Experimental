@@ -1219,6 +1219,58 @@
   gap: 1.15rem;
 }
 
+.settings-pro-advanced {
+  width: 100%;
+  padding: 0.25rem 1rem;
+}
+
+.settings-pro-advanced > summary {
+  cursor: pointer;
+  color: var(--muted-foreground);
+  font-size: var(--type-compact-size);
+  font-weight: 600;
+  padding: 0.7rem 0;
+}
+
+.settings-pro-advanced-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.25rem 0 0.85rem;
+}
+
+.settings-pro-advanced-content > span {
+  min-width: 0;
+  display: grid;
+  gap: 0.15rem;
+}
+
+.settings-pro-advanced-content small {
+  color: var(--muted-foreground);
+}
+
+.settings-pro-advanced-content > div {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.pro-garage-recovery-sheet {
+  width: min(calc(100vw - 2rem), 37rem);
+}
+
+@media (max-width: 600px) {
+  .settings-pro-advanced-content {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .settings-pro-advanced-content > div {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .token-backup-sheet h3,
 .token-backup-sheet p {
   margin: 0;
@@ -5178,6 +5230,38 @@
   margin-inline: auto;
 }
 
+.maker-create-identity-notice {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 210;
+  width: min(calc(100vw - 2rem), 24rem);
+  min-height: 4rem;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.75rem;
+  border: 1px solid #e1a0c5;
+  border-radius: var(--radius-md);
+  background: var(--card);
+  color: var(--muted-foreground);
+  padding: 0.65rem 0.75rem;
+  box-shadow: 0 1rem 2.5rem rgba(0, 0, 0, 0.38);
+  font-size: var(--type-compact-size);
+}
+
+.maker-create-identity-notice > span {
+  min-width: 0;
+  display: grid;
+  gap: 0.1rem;
+}
+
+.maker-create-identity-notice strong {
+  overflow-wrap: anywhere;
+  color: var(--foreground);
+  font-size: var(--type-compact-size);
+}
+
 .maker-layout,
 .maker-form {
   width: 100%;
@@ -5195,6 +5279,82 @@
 .maker-wizard-card-header {
   display: grid;
   gap: 1rem;
+}
+
+.maker-preset-panel {
+  display: grid;
+  gap: 0.625rem;
+  margin-block-end: 1rem;
+  padding-block-end: 1rem;
+  border-block-end: 1px solid var(--border);
+}
+
+.maker-preset-name-field {
+  display: grid;
+  gap: 0.35rem;
+  padding: 1rem 1rem 0;
+  color: var(--text-muted);
+  font-size: var(--type-compact-size);
+  font-weight: 600;
+}
+
+.maker-preset-name-field input {
+  min-height: 2.75rem;
+}
+
+.maker-preset-name-field-step {
+  margin-block-end: 1rem;
+  padding: 0;
+}
+
+.maker-preset-main {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.maker-preset-main > select {
+  min-inline-size: 0;
+  block-size: 2.5rem;
+}
+
+.maker-preset-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+@media (max-width: 600px) {
+  .maker-preset-main {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .maker-preset-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+  }
+}
+
+.maker-preset-save {
+  display: flex;
+  align-items: end;
+  gap: 0.5rem;
+}
+
+.maker-preset-save > label {
+  display: grid;
+  flex: 1;
+  gap: 0.3rem;
+  min-inline-size: 0;
+  color: var(--text-muted);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
+  font-weight: 600;
+}
+
+.maker-preset-save input {
+  block-size: 2.5rem;
 }
 
 .maker-stepper {
@@ -6620,6 +6780,12 @@
 }
 
 @media (max-width: 900px) {
+  .maker-create-identity-notice {
+    right: 0.75rem;
+    bottom: 0.75rem;
+    width: calc(100vw - 1.5rem);
+  }
+
   .app-shell {
     display: block;
   }

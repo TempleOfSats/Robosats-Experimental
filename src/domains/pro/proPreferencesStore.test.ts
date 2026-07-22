@@ -56,4 +56,18 @@ describe("PRO preferences", () => {
       lastFilter: "renewable"
     });
   });
+
+  it("preserves the selected desk view across disable and re-enable", () => {
+    useProPreferencesStore.getState().setEnabled(true);
+    useProPreferencesStore.getState().setLastView("robots");
+    useProPreferencesStore.getState().setLastFilter("public");
+    useProPreferencesStore.getState().setEnabled(false);
+    useProPreferencesStore.getState().setEnabled(true);
+
+    expect(useProPreferencesStore.getState()).toMatchObject({
+      enabled: true,
+      lastView: "robots",
+      lastFilter: "public"
+    });
+  });
 });

@@ -26,6 +26,20 @@ describe("PRO trade selectors", () => {
     expect(classifyProTrade({ ...snapshot({ status: 5, is_maker: true }), renewable: true })).toBe("renewable");
   });
 
+  it("maps every coordinator order status to a stable desk group", () => {
+    const groups = new Set(["needs-action", "in-progress", "waiting", "renewable", "stale"]);
+    for (let status = 0; status <= 18; status += 1) {
+      expect(groups.has(classifyProTrade(snapshot({ status })))).toBe(true);
+    }
+  });
+
+  it("sorts equal-priority trades by their nearest deadline", () => {
+    const later = snapshot({ id: 2, status: 1, is_maker: true, expires_at: "2026-07-21T13:00:00Z" });
+    const sooner = snapshot({ id: 1, status: 1, is_maker: true, expires_at: "2026-07-21T12:00:00Z" });
+
+    expect([later, sooner].sort(compareProTrades).map((item) => item.locator.orderId)).toEqual([1, 2]);
+  });
+
   it("offers only fresh robots without active work for new offers", () => {
     const ready = robotSlot("ready-token", "Ready Robot");
     const reserved = { ...robotSlot("reserved-token", "Reserved Robot"), activeOrderId: 8 };

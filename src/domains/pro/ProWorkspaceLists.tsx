@@ -1,0 +1,259 @@
+import {
+  ChevronRight,
+  CirclePlus,
+  Clock3,
+  Download,
+  ListChecks,
+  Pause,
+  Play,
+  Send,
+  Trash2,
+  X
+} from "lucide-react";
+import { Fragment } from "react";
+import { useNavigate } from "react-router-dom";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
+import type { RobotSlot } from "@/domains/garage/garageStore";
+import { RobotAvatar } from "@/domains/identity/RobotAvatar";
+import { formatExpiryCountdown, formatExpiryTitle } from "@/domains/orderbook/offerDisplay";
+import { toProTradePresentation } from "@/domains/pro/proPresentation";
+import { FleetGlyph } from "@/domains/pro/ProWorkspaceIcons";
+import { selectOfferReadyRobots, summarizeProRobots } from "@/domains/pro/proSelectors";
+import type { ProTradeLocator, ProTradeSnapshot, SlotSyncState } from "@/domains/pro/pro.types";
+import { formatLastRefresh, groupLabel } from "@/domains/pro/proWorkspacePresentation";
+
+export function TradeList({
+  coordinators,
+  onCancel,
+  onCreate,
+  onOpen,
+  onPause,
+  onResume,
+  quickActionKey,
+  snapshots
+}: {
+  coordinators: CoordinatorSummary[];
+  onCancel: (snapshot: ProTradeSnapshot) => void;
+  onCreate: () => void;
+  onOpen: (locator: ProTradeLocator) => void;
+  onPause: (snapshot: ProTradeSnapshot) => void;
+  onResume: (snapshot: ProTradeSnapshot) => void;
+  quickActionKey: string;
+  snapshots: ProTradeSnapshot[];
+}) {
+  if (snapshots.length === 0) return <TradeEmptyState onCreate={onCreate} />;
+
+  return (
+    <div className="pro-trade-list" aria-label="Trades">
+      <div className="pro-trade-header" aria-hidden="true">
+        <span>Robot</span>
+        <span>Order</span>
+        <span>Coordinator</span>
+        <span>Status</span>
+        <span>Deadline</span>
+        <span>Actions</span>
+      </div>
+      {snapshots.map((snapshot, index) => {
+        const presentation = toProTradePresentation(snapshot);
+        const StatusIcon = presentation.statusIcon;
+        const coordinator = coordinators.find((item) => item.shortAlias === snapshot.locator.shortAlias);
+        const previous = snapshots[index - 1];
+        const showGroup = !previous || toProTradePresentation(previous).group !== presentation.group;
+        return (
+          <Fragment key={snapshot.key}>
+            {showGroup ? <div className="pro-trade-group">{groupLabel(presentation.group)}</div> : null}
+            <div className="pro-trade-row">
+              <button
+                className="pro-trade-row-open"
+                type="button"
+                aria-label={`Open order ${snapshot.locator.orderId} for ${snapshot.nickname}`}
+                onClick={() => onOpen(snapshot.locator)}
+              >
+                <span className="pro-trade-robot">
+                  <RobotAvatar hashId={snapshot.hashId} label={snapshot.nickname} size="sm" />
+                  <span><strong>{snapshot.nickname}</strong><small>{presentation.directionLabel}</small></span>
+                </span>
+                <span className="pro-trade-order">
+                  <strong>{presentation.amountLabel}</strong>
+                  <small>{presentation.methodLabel} · #{snapshot.locator.orderId}</small>
+                </span>
+                <span className="pro-trade-coordinator">
+                  {coordinator ? <img className="coordinator-avatar coordinator-avatar-xs" src={coordinator.smallAvatarUrl} alt="" /> : null}
+                  <span>{coordinator?.longAlias ?? snapshot.locator.shortAlias}</span>
+                </span>
+                <span>
+                  <Badge tone={presentation.statusTone} icon={<StatusIcon size={12} />}>{presentation.statusLabel}</Badge>
+                </span>
+                <span className="pro-trade-deadline" title={formatExpiryTitle(snapshot.order?.expires_at)}>
+                  <Clock3 size={15} aria-hidden="true" />
+                  {presentation.deadline ? formatExpiryCountdown(snapshot.order?.expires_at) : "-"}
+                </span>
+              </button>
+              <span className="pro-trade-actions">
+                {snapshot.order?.status === 1 && snapshot.order.is_maker ? (
+                  <>
+                    <Button
+                      aria-label={`Pause order ${snapshot.locator.orderId}`}
+                      className="pro-trade-action-button"
+                      disabled={Boolean(quickActionKey)}
+                      loading={quickActionKey === `${snapshot.key}:pause`}
+                      onClick={() => onPause(snapshot)}
+                      size="sm"
+                      title="Hide this offer from the public order book"
+                      variant="outline"
+                    >
+                      <Pause size={14} /> <span className="pro-trade-action-label">Pause</span>
+                    </Button>
+                    <Button
+                      aria-label={`Cancel order ${snapshot.locator.orderId}`}
+                      className="pro-trade-action-button"
+                      disabled={Boolean(quickActionKey)}
+                      onClick={() => onCancel(snapshot)}
+                      size="sm"
+                      title="Cancel this offer"
+                      variant="destructive"
+                    >
+                      <X size={14} /> <span className="pro-trade-action-label">Cancel</span>
+                    </Button>
+                  </>
+                ) : snapshot.order?.status === 2 && snapshot.order.is_maker ? (
+                  <>
+                    <Button
+                      aria-label={`Resume order ${snapshot.locator.orderId}`}
+                      className="pro-trade-action-button"
+                      disabled={Boolean(quickActionKey)}
+                      loading={quickActionKey === `${snapshot.key}:resume`}
+                      onClick={() => onResume(snapshot)}
+                      size="sm"
+                      title="Return this offer to the public order book"
+                      variant="outline"
+                    >
+                      <Play size={14} /> <span className="pro-trade-action-label">Resume</span>
+                    </Button>
+                    <OpenTradeButton onClick={() => onOpen(snapshot.locator)} orderId={snapshot.locator.orderId} />
+                  </>
+                ) : (
+                  <OpenTradeButton onClick={() => onOpen(snapshot.locator)} orderId={snapshot.locator.orderId} />
+                )}
+              </span>
+            </div>
+          </Fragment>
+        );
+      })}
+    </div>
+  );
+}
+
+export function RobotList({
+  onCreate,
+  onDelete,
+  onDownload,
+  onSettings,
+  onTelegram,
+  slots,
+  summaries,
+  syncBySlot
+}: {
+  onCreate: (slotId: string) => void;
+  onDelete: (slotId: string) => void;
+  onDownload: (slotId: string) => void;
+  onSettings: (slotId: string) => void;
+  onTelegram: (slotId: string) => void;
+  slots: RobotSlot[];
+  summaries: ReturnType<typeof summarizeProRobots>;
+  syncBySlot: Record<string, SlotSyncState>;
+}) {
+  if (slots.length === 0) {
+    return (
+      <div className="pro-empty-state pro-fleet-empty-state">
+        <span className="pro-fleet-empty-mark" aria-hidden="true"><FleetGlyph size={28} /></span>
+        <div className="pro-fleet-empty-copy">
+          <strong>Your Fleet is ready</strong>
+          <p>Add robots to manage their offers and active trades together from the Pro Desk. Each robot has its own portable RoboSats token and remains compatible with other RoboSats frontends.</p>
+          <p>Your Fleet key restores the complete Fleet on another device and keeps its robots synchronized.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="pro-robot-list">
+      {summaries.map((summary) => {
+        const slot = slots.find((item) => item.tokenSHA256 === summary.slotId);
+        const sync = syncBySlot[summary.slotId];
+        if (!slot) return null;
+        return (
+          <article className="pro-robot-row" key={summary.slotId}>
+            <div className="pro-robot-identity">
+              <button className="pro-robot-avatar-button" type="button" onClick={() => onSettings(summary.slotId)} aria-label={`Open ${summary.nickname} settings`}>
+                <RobotAvatar hashId={summary.hashId} label={summary.nickname} size="md" />
+              </button>
+              <span>
+                <strong>{summary.nickname}</strong>
+                <span className="pro-robot-state">
+                  <Badge tone={summary.stale ? "muted" : summary.needsAttentionCount ? "warning" : "success"}>
+                    {summary.stale ? "Stale" : summary.needsAttentionCount ? "Needs attention" : "Ready"}
+                  </Badge>
+                  <small>{formatLastRefresh(sync?.lastSuccessAt)}</small>
+                </span>
+              </span>
+            </div>
+            <div className="pro-robot-actions">
+              <Button size="icon" variant="ghost" onClick={() => onDownload(summary.slotId)} aria-label={`Download ${summary.nickname} recovery JSON`} title="Download recovery JSON">
+                <Download size={16} />
+              </Button>
+              <Button size="icon" variant="ghost" onClick={() => onTelegram(summary.slotId)} aria-label={`Enable Telegram for ${summary.nickname}`} title="Enable Telegram">
+                <Send size={16} />
+              </Button>
+              <Button
+                aria-label="Create an offer with an available robot"
+                className="pro-robot-create-button"
+                size="sm"
+                onClick={() => onCreate(summary.slotId)}
+                variant="outline"
+              >
+                <CirclePlus size={16} /> <span className="pro-robot-action-label">Create offer</span>
+              </Button>
+              <Button
+                size="icon"
+                variant="ghost"
+                disabled={summary.relevantOrderCount > 0}
+                onClick={() => onDelete(summary.slotId)}
+                aria-label={`Remove ${summary.nickname} from Fleet`}
+                title={summary.relevantOrderCount > 0 ? "Finish the current order before removing this robot" : "Remove from Fleet"}
+              >
+                <Trash2 size={16} />
+              </Button>
+            </div>
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
+function TradeEmptyState({ onCreate }: { onCreate: () => void }) {
+  const navigate = useNavigate();
+  return (
+    <div className="pro-empty-state">
+      <ListChecks size={22} aria-hidden="true" />
+      <div><strong>No matching trades</strong><p>Active trades and public offers for every robot will appear here.</p></div>
+      <div>
+        <Button size="sm" variant="secondary" onClick={() => navigate("/offers")}>Browse offers</Button>
+        <Button size="sm" variant="ghost" onClick={onCreate}>Create offer</Button>
+      </div>
+    </div>
+  );
+}
+
+function OpenTradeButton({ onClick, orderId }: { onClick: () => void; orderId: number }) {
+  return (
+    <button className="pro-trade-open-icon" type="button" aria-label={`Open order ${orderId}`} onClick={onClick}>
+      <ChevronRight size={18} />
+    </button>
+  );
+}
+
+export type OfferReadyRobots = ReturnType<typeof selectOfferReadyRobots>;
