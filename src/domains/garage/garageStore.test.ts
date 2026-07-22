@@ -90,11 +90,35 @@ describe("garage order sync", () => {
     useGarageStore.getState().addSlot(makeSlot("gamma"));
 
     expect(useGarageStore.getState().slots.map((item) => item.token)).toEqual(["alpha", "beta", "gamma"]);
+    expect(JSON.parse(storage.get("robosats_exp_garage_slots_v1") ?? "{}")).toMatchObject({
+      format: "robosats-exp-garage-slots",
+      version: 1,
+      slots: [
+        { token: "alpha" },
+        { token: "beta" },
+        { token: "gamma" }
+      ]
+    });
     expect(JSON.parse(storage.get("robosats_exp_garage_slots") ?? "[]")).toMatchObject([
       { token: "alpha" },
       { token: "beta" },
       { token: "gamma" }
     ]);
+  });
+
+  it("hydrates the versioned Garage payload before the compatibility payload", () => {
+    storage.set("robosats_exp_garage_slots_v1", JSON.stringify({
+      format: "robosats-exp-garage-slots",
+      version: 1,
+      slots: [{ token: "current", nickname: "Current", robots: {} }]
+    }));
+    storage.set("robosats_exp_garage_slots", JSON.stringify([
+      { token: "legacy", nickname: "Legacy", robots: {} }
+    ]));
+
+    useGarageStore.getState().hydrate();
+
+    expect(useGarageStore.getState().slots.map((item) => item.token)).toEqual(["current"]);
   });
 
   it("replaces an existing slot with a newly added local robot for the same token", () => {

@@ -24,7 +24,8 @@ import { useOrderStore } from "@/domains/orders/orderStore";
 import { tradePreviewOrder } from "@/domains/orders/tradePreviewFixtures";
 import { isOrderReferenceSatsApproximate, orderReferenceSats, orderReferenceSatsRange } from "@/domains/orders/orderModel";
 import type { OrderDto, SubmitOrderActionPayload } from "@/domains/orders/order.types";
-import { buildRenewOrderPayload, createOrder } from "@/domains/maker/makerApi";
+import { buildProvisionalMakerOrder, buildRenewOrderPayload, createOrder } from "@/domains/maker/makerApi";
+import { ingestCoordinatorOrder } from "@/domains/orders/orderActivity";
 import type { Auth } from "@/domains/transport/apiClient";
 import { tradeMotionClass } from "@/domains/motion/tradeMotion";
 import { PaymentQrCard } from "@/domains/payments/PaymentQrCard";
@@ -61,7 +62,6 @@ export function OrderPage({
   const currentToken = useGarageStore((state) => state.currentToken);
   const hydrateGarage = useGarageStore((state) => state.hydrate);
   const releaseOrderReservation = useGarageStore((state) => state.releaseOrderReservation);
-  const setActiveOrder = useGarageStore((state) => state.setActiveOrder);
   const { order: loadedOrder, submitting, error, loadOrder, submitAction, clearOrder } = useOrderStore();
   const currentSlot = selectCurrentSlot(slots, currentToken);
   const coordinator = coordinators.find((item) => item.shortAlias === shortAlias) ?? coordinators.find((item) => item.shortAlias === "local");
@@ -285,11 +285,8 @@ export function OrderPage({
                 throw new Error("Load the robot that created this offer before renewing it.");
               }
 
-              const response = await createOrder(
-                coordinator.url,
-                buildRenewOrderPayload(order, password),
-                coordinatorAuth
-              );
+              const renewalPayload = buildRenewOrderPayload(order, password);
+              const response = await createOrder(coordinator.url, renewalPayload, coordinatorAuth);
               const backendError = response.bad_request
                 ?? response.bad_amount
                 ?? response.bad_payment_method
@@ -297,7 +294,12 @@ export function OrderPage({
               if (backendError) throw new Error(backendError);
               if (!response.id) throw new Error("Coordinator did not return a renewed order id.");
 
-              setActiveOrder(currentSlot.token, shortAlias, response.id);
+              ingestCoordinatorOrder({
+                authoritative: false,
+                order: buildProvisionalMakerOrder(response.id, shortAlias, renewalPayload, currentSlot),
+                shortAlias,
+                slot: currentSlot
+              });
               if (onEmbeddedClose) onEmbeddedClose();
               else navigate(`/order/${shortAlias}/${response.id}`, { replace: true });
             }}

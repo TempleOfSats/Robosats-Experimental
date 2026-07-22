@@ -1,9 +1,9 @@
 import {
   markProOrderActionFinished,
   markProOrderActionStarted,
-  isTerminalForProDesk,
   type GarageReconcileController
 } from "@/domains/pro/garageReconciler";
+import { isTerminalForProDesk } from "@/domains/pro/proOrderActivity";
 import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
 import type { OrderHint, ProTradeLocator, ReconcileReason } from "@/domains/pro/pro.types";
 
@@ -44,6 +44,7 @@ export function registerReconcileTriggers(options: ReconcileTriggerOptions): () 
   const onVisibility = () => {
     if (document.visibilityState === "visible") debounce("visibility-resume");
   };
+  const onNativeResume = () => debounce("native-resume");
   const onOnline = () => debounce("online");
   const onOrderHint = (event: Event) => {
     const hint = validOrderHint((event as CustomEvent<unknown>).detail);
@@ -62,6 +63,7 @@ export function registerReconcileTriggers(options: ReconcileTriggerOptions): () 
       useProTradeIndexStore.getState().removeTrade(result);
       return;
     }
+    if (result.snapshotApplied) return;
     void options.controller.reconcileOrder(result, "order-action").catch(() => undefined);
   };
 
@@ -69,6 +71,7 @@ export function registerReconcileTriggers(options: ReconcileTriggerOptions): () 
   window.addEventListener("robosats:tor-reconnected", onTorReconnected);
   window.addEventListener("focus", onFocus);
   window.addEventListener("online", onOnline);
+  window.addEventListener("robosats:native-resume", onNativeResume);
   window.addEventListener("robosats:order-hint", onOrderHint);
   window.addEventListener("robosats:order-action-start", onOrderActionStart);
   window.addEventListener("robosats:order-action-complete", onOrderActionComplete);
@@ -86,6 +89,7 @@ export function registerReconcileTriggers(options: ReconcileTriggerOptions): () 
     window.removeEventListener("robosats:tor-reconnected", onTorReconnected);
     window.removeEventListener("focus", onFocus);
     window.removeEventListener("online", onOnline);
+    window.removeEventListener("robosats:native-resume", onNativeResume);
     window.removeEventListener("robosats:order-hint", onOrderHint);
     window.removeEventListener("robosats:order-action-start", onOrderActionStart);
     window.removeEventListener("robosats:order-action-complete", onOrderActionComplete);
@@ -145,13 +149,23 @@ function validLocator(value: unknown): ProTradeLocator | undefined {
   return locator as ProTradeLocator;
 }
 
-function validOrderActionResult(value: unknown): (ProTradeLocator & { status?: number; isMaker?: boolean }) | undefined {
+function validOrderActionResult(value: unknown): (ProTradeLocator & {
+  status?: number;
+  isMaker?: boolean;
+  snapshotApplied?: boolean;
+}) | undefined {
   const locator = validLocator(value);
   if (!locator) return undefined;
-  const result = value as { status?: unknown; isMaker?: unknown };
+  const result = value as { status?: unknown; isMaker?: unknown; snapshotApplied?: unknown };
   if (result.status !== undefined && !Number.isInteger(result.status)) return undefined;
   if (result.isMaker !== undefined && typeof result.isMaker !== "boolean") return undefined;
-  return { ...locator, status: result.status as number | undefined, isMaker: result.isMaker as boolean | undefined };
+  if (result.snapshotApplied !== undefined && typeof result.snapshotApplied !== "boolean") return undefined;
+  return {
+    ...locator,
+    status: result.status as number | undefined,
+    isMaker: result.isMaker as boolean | undefined,
+    snapshotApplied: result.snapshotApplied as boolean | undefined
+  };
 }
 
 function isString(value: unknown): value is string {

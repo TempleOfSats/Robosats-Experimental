@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { ALargeSmall, BellRing, BookOpen, ChevronRight, ExternalLink, Info, Link2, Palette, PanelsTopLeft, RadioTower, Users, WalletCards, X } from "lucide-react";
+import { ALargeSmall, BellRing, BookOpen, ChevronRight, ExternalLink, Info, KeyRound, Link2, Palette, PanelsTopLeft, RadioTower, RefreshCw, Users, WalletCards, X } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { RobotIcon } from "@/components/ui/robotIcon";
@@ -8,6 +8,8 @@ import { useFederationStore } from "@/domains/coordinators/federationStore";
 import { selectCurrentSlot, useGarageStore } from "@/domains/garage/garageStore";
 import { readUiPreferences, saveUiPreferences } from "@/domains/settings/uiPreferences";
 import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
+import { syncAllProDataNow } from "@/domains/pro/proRuntime";
+import { useGarageVaultStore } from "@/domains/pro/garageVaultStore";
 import {
   getNativeNotificationState,
   getNativeTorDiagnostics,
@@ -24,6 +26,7 @@ import {
   retryDesktopTor,
   setDesktopNotificationsEnabled
 } from "@/domains/transport/tauriBridge";
+import "@/domains/pro/proWorkspace.css";
 
 const GarageRobotSettingsDialog = lazy(() =>
   import("@/domains/garage/RobotGaragePage").then((module) => ({ default: module.RobotSettingsDialog }))
@@ -33,6 +36,15 @@ const GarageRobotCoordinatorDialog = lazy(() =>
 );
 const GarageRobotTokenBackupDialog = lazy(() =>
   import("@/domains/garage/RobotTokenBackupDialog").then((module) => ({ default: module.RobotTokenBackupDialog }))
+);
+const GarageRecoveryDialog = lazy(() =>
+  import("@/domains/pro/GarageRecoveryDialog").then((module) => ({ default: module.GarageRecoveryDialog }))
+);
+const GarageSetupDialog = lazy(() =>
+  import("@/domains/pro/GarageSetupDialog").then((module) => ({ default: module.GarageSetupDialog }))
+);
+const FleetKeyDialog = lazy(() =>
+  import("@/domains/pro/FleetKeyDialog").then((module) => ({ default: module.FleetKeyDialog }))
 );
 
 export function SettingsPage() {
@@ -62,16 +74,33 @@ export function SettingsPage() {
   const [showRobotKeys, setShowRobotKeys] = useState(false);
   const [showRobotTokenBackup, setShowRobotTokenBackup] = useState(false);
   const [selectedRobotCoordinator, setSelectedRobotCoordinator] = useState<string>();
+  const [showFleetRecovery, setShowFleetRecovery] = useState(false);
+  const [showFleetKey, setShowFleetKey] = useState(false);
   const robotCoordinator = displayCoordinators.find((coordinator) => coordinator.shortAlias === selectedRobotCoordinator);
   const coordinatorRobot = robotCoordinator && activeSlot ? activeSlot.robots[robotCoordinator.shortAlias] : undefined;
   const proEnabled = useProPreferencesStore((state) => state.enabled);
   const proSetupSeen = useProPreferencesStore((state) => state.setupSeen);
   const setProEnabled = useProPreferencesStore((state) => state.setEnabled);
   const markProSetupSeen = useProPreferencesStore((state) => state.markSetupSeen);
+  const setProLastView = useProPreferencesStore((state) => state.setLastView);
+  const garageVaultStatus = useGarageVaultStore((state) => state.status);
+  const initializeGarageVault = useGarageVaultStore((state) => state.initialize);
+  const garageSyncStatus = useGarageVaultStore((state) => state.syncStatus);
+  const garageLastSyncAt = useGarageVaultStore((state) => state.lastSyncAt);
 
   useEffect(() => {
     hydrateGarage();
   }, [hydrateGarage]);
+
+  useEffect(() => {
+    if (proEnabled) void initializeGarageVault();
+  }, [initializeGarageVault, proEnabled]);
+
+  useEffect(() => {
+    const refreshUiPreferences = () => setUi(readUiPreferences());
+    window.addEventListener("robosats-ui-preferences", refreshUiPreferences);
+    return () => window.removeEventListener("robosats-ui-preferences", refreshUiPreferences);
+  }, []);
 
   useEffect(() => {
     if (!nativeRuntime) return;
@@ -186,7 +215,6 @@ export function SettingsPage() {
                   }
                   setProEnabled(true);
                   if (!proSetupSeen) markProSetupSeen();
-                  navigate("/pro");
                 }}
               >
                 <span className={`toggle-switch ${proEnabled ? "toggle-switch-on" : ""}`} aria-hidden="true" />
@@ -195,6 +223,42 @@ export function SettingsPage() {
           </div>
 
           <div className="settings-control-divider" />
+
+          {proEnabled && (garageVaultStatus === "unconfigured" || garageVaultStatus === "needs-backup") ? (
+            <Suspense fallback={null}>
+              <GarageSetupDialog
+                onComplete={() => {
+                  setProLastView("robots");
+                  navigate("/pro");
+                }}
+                onRestore={() => setShowFleetRecovery(true)}
+                onUseStandardGarage={() => setProEnabled(false)}
+              />
+            </Suspense>
+          ) : null}
+
+          {proEnabled && garageVaultStatus === "ready" ? (
+            <details className="settings-pro-advanced">
+              <summary>PRO advanced</summary>
+              <div className="settings-pro-advanced-content">
+                <span><strong>Fleet</strong><small>{syncStatusLabel(garageSyncStatus, garageLastSyncAt)}</small></span>
+                <div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={garageVaultStatus !== "ready"}
+                    loading={garageSyncStatus === "saving"}
+                    onClick={() => void syncAllProDataNow(coordinators, { forcePublish: true }).catch(() => undefined)}
+                  >
+                    <RefreshCw size={16} /> Sync now
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setShowFleetKey(true)}><KeyRound size={16} /> Fleet key</Button>
+                </div>
+              </div>
+            </details>
+          ) : null}
+
+          {proEnabled ? <div className="settings-control-divider" /> : null}
 
           <div className="settings-control-row">
             <Palette className="settings-control-icon" size={20} aria-hidden="true" />
@@ -338,6 +402,20 @@ export function SettingsPage() {
           </CardContent>
         </Card>
       </div>
+      {showFleetRecovery ? (
+        <Suspense fallback={null}>
+          <GarageRecoveryDialog
+            onClose={() => setShowFleetRecovery(false)}
+            onRestored={() => {
+              setProLastView("robots");
+              navigate("/pro");
+            }}
+          />
+        </Suspense>
+      ) : null}
+      {showFleetKey && garageVaultStatus === "ready" ? (
+        <Suspense fallback={null}><FleetKeyDialog onClose={() => setShowFleetKey(false)} /></Suspense>
+      ) : null}
 
       {showTorDetails ? (
         <div className="confirm-overlay" role="dialog" aria-modal="true" aria-labelledby="tor-details-title" onClick={() => setShowTorDetails(false)}>
@@ -442,6 +520,13 @@ function torStatusLabel(diagnostics: AndroidTorDiagnostics | null): string {
   if (diagnostics.state === "connecting") return "Connecting...";
   if (diagnostics.state === "failed") return "Connection failed";
   return "Disconnected";
+}
+
+function syncStatusLabel(status: "idle" | "saving" | "up-to-date" | "offline", lastSyncAt?: number): string {
+  if (status === "saving") return "Saving";
+  if (status === "offline") return "Offline, changes will sync";
+  if (status !== "up-to-date" || !lastSyncAt) return "Not saved yet";
+  return `Up to date · ${new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(lastSyncAt)}`;
 }
 
 function OnionIcon({ size = 20 }: { size?: number }) {
