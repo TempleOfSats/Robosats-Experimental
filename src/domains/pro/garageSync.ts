@@ -1,7 +1,18 @@
 import { finalizeEvent, getPublicKey, verifyEvent, type Event } from "nostr-tools/pure";
 import type { SimplePool, SubCloser } from "nostr-tools/pool";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
-import { getSharedRelayPool, runRelayQuery } from "@/domains/nostr/sharedRelayPool";
+import { recordRelayPerformance } from "@/domains/diagnostics/networkPerformance";
+import { getSharedRelayPool, runRelayQuery, withRelayQueryPool } from "@/domains/nostr/sharedRelayPool";
+import {
+  isRelayLiveHealthy,
+  noteRelayConnected,
+  noteRelayDisconnected,
+  noteRelayEose,
+  noteRelayEvent,
+  noteRelayFailure,
+  noteRelaySuccess,
+  orderRelays
+} from "@/domains/nostr/relayHealth";
 import { buildNostrRelayUrl } from "@/domains/orderbook/nostrOrderbook";
 import { systemClient } from "@/domains/transport/systemClient";
 import { decryptGaragePayload, deriveGarageDomainKey, encryptGaragePayload, type GarageKeyDomain } from "@/domains/pro/garageCrypto";
@@ -31,19 +42,16 @@ const CURSOR_OVERLAP_SECONDS = 120;
 const FULL_PULL_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const FALLBACK_PULL_MIN_MS = 30_000;
 const FALLBACK_PULL_JITTER_MS = 30_000;
+const HEALTHY_FALLBACK_PULL_MIN_MS = 3 * 60_000;
+const HEALTHY_FALLBACK_PULL_JITTER_MS = 2 * 60_000;
 const HEARTBEAT_MS = 14 * 24 * 60 * 60 * 1000;
 const MUTATION_DEBOUNCE_MS = 250;
+const RESUME_SYNC_COOLDOWN_MS = 15_000;
 const retryDelays = [5_000, 15_000, 45_000, 120_000, 300_000] as const;
 const encoder = new TextEncoder();
 const CURSOR_STORAGE_KEY = "robosats_exp_garage_sync_cursors_v3";
 
 type SyncDomain = Extract<GarageKeyDomain, "garage-sync" | "settings-sync">;
-
-type RelayHealth = {
-  failures: number;
-  latencyMs: number;
-  lastSuccessAt: number;
-};
 
 type PullCursor = {
   since: number;
@@ -62,7 +70,7 @@ type GarageSyncOptions = {
 export class GarageSyncEngine {
   private readonly pool = getSharedRelayPool();
   private coordinators: () => CoordinatorSummary[] = () => [];
-  private subscription?: SubCloser;
+  private readonly subscriptions = new Map<string, SubCloser>();
   private relayKey = "";
   private stopped = true;
   private syncInFlight?: Promise<number>;
@@ -73,7 +81,8 @@ export class GarageSyncEngine {
   private fallbackTimer?: ReturnType<typeof setTimeout>;
   private retryIndex = 0;
   private generation = 0;
-  private relayHealth = new Map<string, RelayHealth>();
+  private lastSynchronizationStartedAt = 0;
+  private readonly liveRelaysWithEvents = new Set<string>();
 
   start(coordinators: () => CoordinatorSummary[], synchronize = true): void {
     const shouldSynchronize = this.stopped && synchronize;
@@ -87,8 +96,7 @@ export class GarageSyncEngine {
   stop(): void {
     this.stopped = true;
     this.generation += 1;
-    this.subscription?.close("stopped");
-    this.subscription = undefined;
+    this.closeSubscriptions("stopped");
     this.relayKey = "";
     if (this.mutationTimer) clearTimeout(this.mutationTimer);
     if (this.retryTimer) clearTimeout(this.retryTimer);
@@ -100,20 +108,25 @@ export class GarageSyncEngine {
 
   reconfigure(): void {
     if (this.stopped) return;
+    const previousRelayKey = this.relayKey;
     this.ensureSubscription();
+    if (this.relayKey === previousRelayKey) return;
     void this.synchronize().catch(() => undefined);
   }
 
   resume(): void {
     if (this.stopped || !isForeground()) return;
+    const hadSubscriptions = this.subscriptions.size > 0;
     this.ensureSubscription();
     this.scheduleFallbackPull();
+    if (this.syncInFlight) return;
+    const reopenedSubscriptions = !hadSubscriptions && this.subscriptions.size > 0;
+    if (!reopenedSubscriptions && Date.now() - this.lastSynchronizationStartedAt < RESUME_SYNC_COOLDOWN_MS) return;
     void this.synchronize().catch(() => undefined);
   }
 
   pause(): void {
-    this.subscription?.close("paused");
-    this.subscription = undefined;
+    this.closeSubscriptions("paused");
     this.relayKey = "";
     if (this.fallbackTimer) clearTimeout(this.fallbackTimer);
     this.fallbackTimer = undefined;
@@ -133,6 +146,7 @@ export class GarageSyncEngine {
     this.syncRequested = true;
     this.forceRequested ||= options.forcePublish === true;
     if (this.syncInFlight) return this.syncInFlight;
+    this.lastSynchronizationStartedAt = Date.now();
     this.syncInFlight = this.runSynchronization().finally(() => { this.syncInFlight = undefined; });
     return this.syncInFlight;
   }
@@ -149,13 +163,8 @@ export class GarageSyncEngine {
         const secret = getGarageSecret();
         const relays = this.orderedRelays();
         if (!secret || relays.length === 0) throw new Error("No coordinator relay is available.");
-        const resumeSubscription = this.suspendSubscription();
-        try {
-          await this.pullRoutineRecords(secret, relays, force);
-          lastPublicationAt = await this.flushOutbox(secret, relays);
-        } finally {
-          resumeSubscription();
-        }
+        await this.pullRoutineRecords(secret, relays, force);
+        lastPublicationAt = await this.flushOutbox(secret, relays);
       } while (this.syncRequested);
       this.retryIndex = 0;
       useGarageVaultStore.getState().setSyncState("up-to-date", Date.now(), undefined, lastPublicationAt || undefined);
@@ -229,31 +238,51 @@ export class GarageSyncEngine {
     const relays = this.orderedRelays();
     if (this.stopped || !secret || relays.length === 0 || !isForeground()) return;
     const key = relays.slice().sort().join("|");
-    if (this.subscription && key === this.relayKey) return;
-    this.subscription?.close("reconfigured");
+    if (this.subscriptions.size > 0 && key === this.relayKey) return;
+    this.closeSubscriptions("reconfigured");
     this.relayKey = key;
     const authors = syncAuthors(secret);
-    this.subscription = this.pool.subscribeMany(relays, {
-      authors,
-      kinds: [APPLICATION_DATA_KIND],
-      since: Math.floor(Date.now() / 1000) - 30
-    }, {
-      onevent: (event) => {
-        const observed = decodeGarageRecordEvent(event, secret);
-        if (!observed) return;
-        useGarageVaultStore.getState().applyRemoteRecords([observed]);
-      }
+    relays.forEach((relay) => {
+      const startedAt = Date.now();
+      noteRelayConnected(relay);
+      recordRelayPerformance(relay, "connect", 0);
+      let subscription: SubCloser;
+      subscription = this.pool.subscribeMany([relay], {
+        authors,
+        kinds: [APPLICATION_DATA_KIND],
+        since: Math.floor(Date.now() / 1000) - 30
+      }, {
+        onevent: (event) => {
+          noteRelayEvent(relay);
+          if (!this.liveRelaysWithEvents.has(relay)) {
+            this.liveRelaysWithEvents.add(relay);
+            recordRelayPerformance(relay, "first-event", Date.now() - startedAt);
+          }
+          const observed = decodeGarageRecordEvent(event, secret);
+          if (!observed) return;
+          useGarageVaultStore.getState().applyRemoteRecords([observed]);
+        },
+        oneose: () => {
+          noteRelayEose(relay, Date.now() - startedAt);
+          recordRelayPerformance(relay, "eose", Date.now() - startedAt);
+        },
+        onclose: () => {
+          noteRelayDisconnected(relay);
+          this.liveRelaysWithEvents.delete(relay);
+          recordRelayPerformance(relay, "close", Date.now() - startedAt, "network-error");
+          if (this.subscriptions.get(relay) === subscription) this.subscriptions.delete(relay);
+          if (!this.stopped && isForeground()) this.scheduleFallbackPull();
+        }
+      });
+      this.subscriptions.set(relay, subscription);
     });
   }
 
-  private suspendSubscription(): () => void {
-    const shouldResume = !this.stopped && isForeground();
-    this.subscription?.close("synchronizing");
-    this.subscription = undefined;
-    this.relayKey = "";
-    return () => {
-      if (shouldResume) this.ensureSubscription();
-    };
+  private closeSubscriptions(reason: string): void {
+    const subscriptions = [...this.subscriptions.values()];
+    this.subscriptions.clear();
+    this.liveRelaysWithEvents.clear();
+    subscriptions.forEach((subscription) => subscription.close(reason));
   }
 
   private scheduleRetry(): void {
@@ -269,7 +298,10 @@ export class GarageSyncEngine {
   private scheduleFallbackPull(): void {
     if (this.stopped || !isForeground()) return;
     if (this.fallbackTimer) clearTimeout(this.fallbackTimer);
-    const delay = FALLBACK_PULL_MIN_MS + Math.floor(Math.random() * (FALLBACK_PULL_JITTER_MS + 1));
+    const healthy = this.relays().some((relay) => isRelayLiveHealthy(relay));
+    const minimum = healthy ? HEALTHY_FALLBACK_PULL_MIN_MS : FALLBACK_PULL_MIN_MS;
+    const jitter = healthy ? HEALTHY_FALLBACK_PULL_JITTER_MS : FALLBACK_PULL_JITTER_MS;
+    const delay = minimum + Math.floor(Math.random() * (jitter + 1));
     this.fallbackTimer = setTimeout(() => {
       this.fallbackTimer = undefined;
       void this.synchronize().catch(() => undefined);
@@ -282,7 +314,7 @@ export class GarageSyncEngine {
   }
 
   private orderedRelays(): string[] {
-    return this.relays().sort((left, right) => compareRelayHealth(this.relayHealth.get(left), this.relayHealth.get(right)));
+    return orderRelays(this.relays());
   }
 
   private async pullRoutineRecords(secret: Uint8Array, relays: string[], waitForAll: boolean): Promise<void> {
@@ -309,11 +341,14 @@ export class GarageSyncEngine {
   private async pullRelay(secret: Uint8Array, identity: string, relay: string): Promise<RelayPullResult> {
     const startedAt = Date.now();
     try {
-      const records = await queryRelayRecords(this.pool, secret, identity, relay, ROUTINE_RELAY_TIMEOUT_MS);
-      this.noteRelaySuccess(relay, Date.now() - startedAt);
+      const records = await withRelayQueryPool((pool) =>
+        queryRelayRecords(pool, secret, identity, relay, ROUTINE_RELAY_TIMEOUT_MS));
+      noteRelaySuccess(relay, Date.now() - startedAt);
+      recordRelayPerformance(relay, "eose", Date.now() - startedAt);
       return { relay, records };
     } catch (error) {
-      this.noteRelayFailure(relay);
+      noteRelayFailure(relay);
+      recordRelayPerformance(relay, "close", Date.now() - startedAt, "network-error");
       throw error;
     }
   }
@@ -364,7 +399,7 @@ export class GarageSyncEngine {
           accepted.add(relay);
           latestPublishedAt = Math.max(latestPublishedAt, observed.publishedAt);
           useGarageVaultStore.getState().recordOutboxAcknowledgements(item.key, item.revision, [relay], observed);
-          this.noteRelaySuccess(relay, Date.now() - startedAt);
+          noteRelaySuccess(relay, Date.now() - startedAt);
           if (!firstSettled) {
             firstSettled = true;
             resolveFirst(true);
@@ -373,7 +408,7 @@ export class GarageSyncEngine {
             useGarageVaultStore.getState().acknowledgeOutbox(item.key, item.revision, observed);
           }
         }, () => {
-          this.noteRelayFailure(relay);
+          noteRelayFailure(relay);
         }).finally(() => {
           settled += 1;
           finish();
@@ -395,23 +430,6 @@ export class GarageSyncEngine {
     this.scheduleRetry();
   }
 
-  private noteRelaySuccess(relay: string, latencyMs: number): void {
-    const previous = this.relayHealth.get(relay);
-    this.relayHealth.set(relay, {
-      failures: Math.max(0, (previous?.failures ?? 0) - 1),
-      latencyMs: previous ? Math.round(previous.latencyMs * 0.7 + latencyMs * 0.3) : latencyMs,
-      lastSuccessAt: Date.now()
-    });
-  }
-
-  private noteRelayFailure(relay: string): void {
-    const previous = this.relayHealth.get(relay);
-    this.relayHealth.set(relay, {
-      failures: Math.min(10, (previous?.failures ?? 0) + 1),
-      latencyMs: previous?.latencyMs ?? ROUTINE_RELAY_TIMEOUT_MS,
-      lastSuccessAt: previous?.lastSuccessAt ?? 0
-    });
-  }
 }
 
 export const garageSyncEngine = new GarageSyncEngine();
@@ -462,16 +480,24 @@ export async function queryGarageRecords(
   pool: SimplePool,
   secret: Uint8Array,
   relays: string[],
-  maxWait = BOOTSTRAP_TIMEOUT_MS
+  maxWait = BOOTSTRAP_TIMEOUT_MS,
+  onFirstNonempty?: (records: ObservedGarageSyncRecord[]) => void | Promise<void>
 ): Promise<ObservedGarageSyncRecord[]> {
-  const queries = relays.flatMap((relay) => syncAuthors(secret).map((author) =>
-    queryAuthorRecords(pool, relay, author, maxWait)));
+  let firstApplied = false;
+  const queries = orderRelays(relays).map(async (relay) => {
+    const result = await queryAuthorRecords(pool, relay, syncAuthors(secret), maxWait);
+    const records = decodeLatestRecords(result.events, secret);
+    if (!firstApplied && records.length > 0) {
+      firstApplied = true;
+      await onFirstNonempty?.(records);
+    }
+    return records;
+  });
   const results = await Promise.allSettled(queries);
   if (!results.some((result) => result.status === "fulfilled")) {
     throw new Error("No coordinator relay is available.");
   }
-  const events = results.flatMap((result) => result.status === "fulfilled" ? result.value.events : []);
-  return decodeLatestRecords(events, secret);
+  return mergeObservedRecords(results.flatMap((result) => result.status === "fulfilled" ? result.value : []));
 }
 
 async function queryRelayRecords(
@@ -482,21 +508,28 @@ async function queryRelayRecords(
   maxWait: number
 ): Promise<ObservedGarageSyncRecord[]> {
   const queryStartedAt = Math.floor(Date.now() / 1000);
-  const events: Event[] = [];
-  for (const { domain, author } of syncDomainAuthors(secret)) {
-    const cursor = readPullCursor(identity, relay, domain);
-    const full = !cursor || Date.now() - cursor.lastFullAt >= FULL_PULL_INTERVAL_MS;
-    const since = full ? undefined : Math.max(0, cursor.since - CURSOR_OVERLAP_SECONDS);
-    const result = await queryAuthorRecords(pool, relay, author, maxWait, since);
-    events.push(...result.events);
-    if (result.complete) {
+  const domains = syncDomainAuthors(secret);
+  const cursors = domains.map(({ domain }) => ({ domain, cursor: readPullCursor(identity, relay, domain) }));
+  const full = cursors.some(({ cursor }) => !cursor || Date.now() - cursor.lastFullAt >= FULL_PULL_INTERVAL_MS);
+  const since = full
+    ? undefined
+    : Math.max(0, Math.min(...cursors.map(({ cursor }) => cursor?.since ?? 0)) - CURSOR_OVERLAP_SECONDS);
+  const result = await queryAuthorRecords(
+    pool,
+    relay,
+    domains.map(({ author }) => author),
+    maxWait,
+    since
+  );
+  if (result.complete) {
+    cursors.forEach(({ domain, cursor }) => {
       writePullCursor(identity, relay, domain, {
         since: queryStartedAt,
-        lastFullAt: full ? Date.now() : cursor.lastFullAt
+        lastFullAt: full ? Date.now() : cursor?.lastFullAt ?? Date.now()
       });
-    }
+    });
   }
-  return decodeLatestRecords(events, secret);
+  return decodeLatestRecords(result.events, secret);
 }
 
 type PagedEventQuery = {
@@ -507,7 +540,7 @@ type PagedEventQuery = {
 async function queryAuthorRecords(
   pool: SimplePool,
   relay: string,
-  author: string,
+  authors: string[],
   maxWait: number,
   since?: number
 ): Promise<PagedEventQuery> {
@@ -517,7 +550,7 @@ async function queryAuthorRecords(
   while (events.size < GARAGE_SYNC_LIMITS.queryRecords && Date.now() < deadline) {
     const remainingWait = Math.max(1, deadline - Date.now());
     const page = await runRelayQuery(relay, () => pool.querySync([relay], {
-      authors: [author],
+      authors,
       kinds: [APPLICATION_DATA_KIND],
       limit: GARAGE_SYNC_LIMITS.queryPageRecords,
       ...(since === undefined ? {} : { since }),
@@ -570,11 +603,21 @@ function mergeObservedRecords(records: ObservedGarageSyncRecord[]): ObservedGara
 
 export async function recoverGarageSnapshot(
   secret: Uint8Array,
-  coordinators: CoordinatorSummary[]
+  coordinators: CoordinatorSummary[],
+  onFirstSnapshot?: (snapshot: GarageRecoverySnapshot) => void | Promise<void>
 ): Promise<GarageRecoverySnapshot> {
   const relays = garageRelayUrls(coordinators);
   if (relays.length === 0) throw new Error("No coordinator is available. Check your connection and try again.");
-  const records = await queryGarageRecords(getSharedRelayPool(), secret, relays, BOOTSTRAP_TIMEOUT_MS);
+  const records = await withRelayQueryPool((pool) =>
+    queryGarageRecords(
+      pool,
+      secret,
+      relays,
+      BOOTSTRAP_TIMEOUT_MS,
+      onFirstSnapshot
+        ? (firstRecords) => onFirstSnapshot(recoverySnapshotFromRecords(secret, firstRecords))
+        : undefined
+    ));
   if (records.length === 0) {
     throw new Error("No Fleet was found for this key. Check the key and connection, then try again.");
   }
@@ -615,15 +658,6 @@ function isForeground(): boolean {
 
 function syncIdentity(secret: Uint8Array | undefined): string {
   return secret ? syncAuthors(secret).join(":") : "";
-}
-
-function compareRelayHealth(left: RelayHealth | undefined, right: RelayHealth | undefined): number {
-  if (!left && !right) return 0;
-  if (!left) return 1;
-  if (!right) return -1;
-  return left.failures - right.failures
-    || left.latencyMs - right.latencyMs
-    || right.lastSuccessAt - left.lastSuccessAt;
 }
 
 function recordPriority(record: GarageSyncRecord): number {

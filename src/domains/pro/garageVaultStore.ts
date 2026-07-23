@@ -1,5 +1,8 @@
 import { create } from "zustand";
-import type { RobotSlot } from "@/domains/garage/garageStore";
+import { useGarageStore, type RobotSlot } from "@/domains/garage/garageStore";
+import { deriveRobotIdentity } from "@/domains/identity/robotIdentity";
+import { deriveProRobotLifecycle } from "@/domains/pro/proRobotLifecycle";
+import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
 import { readUiPreferences } from "@/domains/settings/uiPreferences";
 import { systemClient } from "@/domains/transport/systemClient";
 import { decryptGaragePayload, encryptGaragePayload } from "@/domains/pro/garageCrypto";
@@ -209,13 +212,32 @@ export const useGarageVaultStore = create<GarageVaultState>((set, get) => ({
     if (!hasGarageRobotCapacity(get().envelope!.garage)) throw new Error(FLEET_ROBOT_LIMIT_MESSAGE);
     const id = createGarageEntryId();
     const token = deriveGarageRobotToken(garageSecret, id);
+    const slotId = deriveRobotIdentity(token).tokenSHA256;
     const garage = upsertGarageEntry(get().envelope!.garage, { id, tokenId: garageTokenId(token), nickname });
     const entry = garage.entries.find((candidate) => candidate.id === id)!;
-    commitEnvelope(queueRecord(updateEnvelope(get().envelope!, { garage }), robotEntryToSyncRecord(entry)), set);
+    useProTradeIndexStore.getState().markSlotLocallyReady(slotId);
+    try {
+      commitEnvelope(queueRecord(updateEnvelope(get().envelope!, { garage }), robotEntryToSyncRecord(entry)), set);
+    } catch (error) {
+      useProTradeIndexStore.getState().removeSlotSnapshots(slotId);
+      throw error;
+    }
     return { ...entry, token };
   },
   removeRobot: async (token) => {
     if (!garageSecret || get().status !== "ready" || !get().envelope) return;
+    const slot = useGarageStore.getState().slots.find((item) => item.token === token);
+    if (slot) {
+      const tradeIndex = useProTradeIndexStore.getState();
+      const lifecycle = deriveProRobotLifecycle(
+        slot,
+        tradeIndex.snapshots,
+        tradeIndex.syncBySlot[slot.tokenSHA256]
+      );
+      if (!lifecycle.canRemove) {
+        throw new Error(lifecycle.availability.message ?? "Finish this robot's order before removing it.");
+      }
+    }
     const entry = get().envelope!.garage.entries.find((candidate) => candidate.tokenId === garageTokenId(token));
     if (!entry || entry.deleted) return;
     const garage = removeGarageEntry(get().envelope!.garage, entry.id);

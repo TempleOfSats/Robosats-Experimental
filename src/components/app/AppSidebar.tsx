@@ -4,8 +4,7 @@ import { NavLink } from "react-router-dom";
 import type { RoboSatsPlatform } from "@/app/platform";
 import { RoboSatsLogo } from "@/components/app/RoboSatsLogo";
 import { RobotIcon } from "@/components/ui/robotIcon";
-import type { RobotSlot } from "@/domains/garage/garageStore";
-import { useGarageStore } from "@/domains/garage/garageStore";
+import { selectFleetManagedSlots, selectStandardGarageSlots, type RobotSlot, useGarageStore } from "@/domains/garage/garageStore";
 import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
 import { classifyProTrade } from "@/domains/pro/proSelectors";
 import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
@@ -20,9 +19,10 @@ export function AppSidebar({ platform: _platform }: { platform: RoboSatsPlatform
   const hydrate = useGarageStore((state) => state.hydrate);
   const slots = useGarageStore((state) => state.slots);
   const currentToken = useGarageStore((state) => state.currentToken);
-  const activeSlot = slots.find((s) => s.token === currentToken) ?? slots[0];
-  const activeTradePath = getActiveTradePath(activeSlot);
   const proEnabled = useProPreferencesStore((state) => state.enabled);
+  const visibleSlots = proEnabled ? selectFleetManagedSlots(slots) : selectStandardGarageSlots(slots);
+  const activeSlot = visibleSlots.find((s) => s.token === currentToken) ?? visibleSlots[0];
+  const activeTradePath = getActiveTradePath(activeSlot);
   const snapshots = useProTradeIndexStore((state) => state.snapshots);
   const attentionCount = useMemo(
     () => Object.values(snapshots).filter((snapshot) => classifyProTrade(snapshot) === "needs-action").length,

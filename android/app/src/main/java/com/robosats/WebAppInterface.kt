@@ -110,6 +110,11 @@ class WebAppInterface(
     }
 
     @JavascriptInterface
+    fun recoverTorTransport() {
+        context.recoverTransportAfterFailure(forceRebuild = true)
+    }
+
+    @JavascriptInterface
     fun httpRequest(
         requestId: String,
         method: String,
@@ -169,7 +174,6 @@ class WebAppInterface(
                             override fun onFailure(call: Call, e: IOException) {
                                 if (!httpCalls.remove(requestId, call)) return
                                 reject(requestId, e.message ?: "Tor request failed")
-                                context.recoverTransportAfterFailure()
                             }
 
                             override fun onResponse(call: Call, response: Response) {
@@ -192,7 +196,6 @@ class WebAppInterface(
                                 } catch (error: Throwable) {
                                     if (!httpCalls.remove(requestId, call)) return
                                     reject(requestId, error.message ?: "Tor response failed")
-                                    context.recoverTransportAfterFailure()
                                 }
                             }
                         })
@@ -200,7 +203,6 @@ class WebAppInterface(
                     .onFailure { error ->
                         Log.e(TAG, "Native HTTP request could not acquire Tor client", error)
                         reject(requestId, error.message ?: "Tor request failed")
-                        context.recoverTransportAfterFailure()
                     }
             }
         } catch (error: Throwable) {
@@ -272,7 +274,6 @@ class WebAppInterface(
                         webSockets.remove(socketId)
                         Log.w(TAG, "Native Tor WebSocket failed: ${t.message}")
                         webSocketError(socketId, t.message ?: "WebSocket failed")
-                        context.recoverTransportAfterFailure()
                     }
                         }
                     )
@@ -284,7 +285,6 @@ class WebAppInterface(
                 }.onFailure { error ->
                     Log.w(TAG, "Native Tor WebSocket could not acquire Tor client", error)
                     webSocketError(socketId, error.message ?: "WebSocket failed")
-                    context.recoverTransportAfterFailure()
                 }
             }
         } catch (error: Throwable) {

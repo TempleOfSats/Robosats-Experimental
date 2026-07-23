@@ -9,6 +9,19 @@ export function RobotGlyph({ size = 18 }: { size?: number }) {
   );
 }
 
+export function AddRobotGlyph({ size = 18 }: { size?: number }) {
+  return (
+    <svg aria-hidden="true" fill="none" height={size} stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width={size} xmlns="http://www.w3.org/2000/svg">
+      <path d="M19 7V6a2 2 0 0 0-2-2h-2a3 3 0 0 0-6 0H7a2 2 0 0 0-2 2v1a3 3 0 0 0 0 6v1a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-1a3 3 0 0 0 0-6Z" />
+      <circle cx="9" cy="9.5" r="1" />
+      <circle cx="15" cy="9.5" r="1" />
+      <path d="M9 13h6" />
+      <path d="M18.5 19v4" />
+      <path d="M16.5 21h4" />
+    </svg>
+  );
+}
+
 export function FleetGlyph({ size = 18 }: { size?: number }) {
   return (
     <svg aria-hidden="true" fill="none" height={size} stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.7" viewBox="0 0 24 24" width={size} xmlns="http://www.w3.org/2000/svg">

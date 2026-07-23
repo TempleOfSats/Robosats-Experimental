@@ -6,7 +6,7 @@ import { decrypt, encrypt, getConversationKey } from "nostr-tools/nip44";
 const encoder = new TextEncoder();
 const salt = encoder.encode("robosats-exp:garage-keys:v2");
 
-export type GarageKeyDomain = "local" | "garage-sync" | "settings-sync";
+export type GarageKeyDomain = "local" | "garage-sync" | "settings-sync" | "trade-cache";
 
 export function deriveGarageDomainKey(secret: Uint8Array, domain: GarageKeyDomain): Uint8Array {
   for (let counter = 0; counter < 256; counter += 1) {

@@ -55,7 +55,7 @@ describe("GarageReconciler", () => {
     expect(useGarageStore.getState().currentToken).toBe("alpha");
   });
 
-  it("discovers enabled coordinators on startup for a restored robot with no coordinator record", async () => {
+  it("discovers enabled coordinators whenever a restored Fleet becomes ready", async () => {
     const restored = {
       ...beta,
       robots: {
@@ -74,8 +74,73 @@ describe("GarageReconciler", () => {
     });
 
     await reconciler.reconcileSlot(restored.tokenSHA256, "startup");
+    await reconciler.reconcileSlot(restored.tokenSHA256, "fleet-ready");
 
-    expect(refreshRobotSlot).toHaveBeenCalledWith(restored.token, [coordinator]);
+    expect(refreshRobotSlot).toHaveBeenCalledTimes(2);
+    expect(refreshRobotSlot).toHaveBeenLastCalledWith(restored.token, [coordinator], {
+      preferredAliases: [],
+      priority: "background",
+      source: "fleet-reconcile"
+    });
+  });
+
+  it("keeps a newly generated empty robot locally ready until its idle check is due", async () => {
+    const refreshRobotSlot = vi.fn(async () => ({
+      slotId: "slot-beta",
+      coordinators: [{ shortAlias: "lake", found: false }]
+    }));
+    const reconciler = makeReconciler({
+      refreshRobotSlot,
+      fetchOrder: vi.fn()
+    });
+    useProTradeIndexStore.getState().setSlotSync({
+      slotId: "slot-beta",
+      epoch: 0,
+      inFlight: false,
+      locallyReadyAt: 1_000,
+      nextEligibleAt: 100_000
+    });
+
+    await reconciler.reconcileSlot("slot-beta", "fleet-ready");
+    expect(refreshRobotSlot).not.toHaveBeenCalled();
+
+    await reconciler.reconcileSlot("slot-beta", "manual");
+    expect(refreshRobotSlot).toHaveBeenCalledOnce();
+  });
+
+  it("records that no coordinator was attempted when none are available", async () => {
+    const refreshRobotSlot = vi.fn();
+    const reconciler = makeReconciler({
+      getCoordinators: () => [],
+      refreshRobotSlot,
+      fetchOrder: vi.fn()
+    });
+
+    await reconciler.reconcileSlot("slot-beta", "manual");
+
+    expect(refreshRobotSlot).not.toHaveBeenCalled();
+    expect(useProTradeIndexStore.getState().syncBySlot["slot-beta"]).toMatchObject({
+      attemptedCoordinators: 0,
+      inFlight: false
+    });
+  });
+
+  it("records attempted coordinators when every refresh fails", async () => {
+    const reconciler = makeReconciler({
+      refreshRobotSlot: async () => ({
+        slotId: "slot-beta",
+        coordinators: [{ shortAlias: "lake", error: "offline" }]
+      }),
+      fetchOrder: vi.fn()
+    });
+
+    await reconciler.reconcileSlot("slot-beta", "manual");
+
+    expect(useProTradeIndexStore.getState().syncBySlot["slot-beta"]).toMatchObject({
+      attemptedCoordinators: 1,
+      inFlight: false,
+      error: "refresh-failed"
+    });
   });
 
   it("preserves prior data when a coordinator refresh fails", async () => {
@@ -95,7 +160,7 @@ describe("GarageReconciler", () => {
     expect(fetchOrder).not.toHaveBeenCalled();
     expect(useProTradeIndexStore.getState().snapshots[prior.key]).toMatchObject({
       order: { id: 91234, status: 9 },
-      freshness: "error",
+      freshness: "fresh",
       errorCode: "coordinator-unavailable"
     });
   });
@@ -275,6 +340,7 @@ describe("GarageReconciler", () => {
 });
 
 function makeReconciler(overrides: {
+  getCoordinators?: () => CoordinatorSummary[];
   refreshRobotSlot: (token: string, coordinators: CoordinatorSummary[]) => Promise<RefreshRobotSlotResult>;
   fetchOrder: (coordinator: CoordinatorSummary, orderId: number, slot: RobotSlot) => Promise<OrderDto>;
 }) {

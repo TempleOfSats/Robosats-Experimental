@@ -16,6 +16,7 @@
 }
 
 .pro-create-offer-button,
+.pro-add-robot-button,
 .pro-robot-create-button {
   border-color: var(--secondary);
   color: var(--foreground);
@@ -23,6 +24,8 @@
 
 .pro-create-offer-button:hover,
 .pro-create-offer-button:focus-visible,
+.pro-add-robot-button:hover,
+.pro-add-robot-button:focus-visible,
 .pro-robot-create-button:hover,
 .pro-robot-create-button:focus-visible {
   background: var(--interactive-selected);
@@ -155,5 +158,4 @@
 .pro-fleet-utility-bar {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
-
 

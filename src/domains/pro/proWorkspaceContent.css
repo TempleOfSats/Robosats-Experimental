@@ -233,6 +233,25 @@
   gap: 0.45rem;
 }
 
+.pro-robot-refresh-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.pro-robot-trade-status {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+
+.pro-robot-trade-status:focus-visible {
+  border-radius: 999px;
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
 .pro-robot-avatar-button {
   border: 0;
   border-radius: 999px;
@@ -491,5 +510,3 @@
 .pro-fleet-empty-state .pro-fleet-empty-copy p {
   margin: 0;
 }
-
-

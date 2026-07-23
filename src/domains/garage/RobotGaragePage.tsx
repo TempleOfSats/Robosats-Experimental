@@ -11,7 +11,7 @@ import { CoordinatorDetailDialog } from "@/domains/coordinators/CoordinatorsPage
 import { compareCoordinatorsByEstablished } from "@/domains/coordinators/coordinatorOrder";
 import { fetchCoordinatorRatings, type CoordinatorRating } from "@/domains/coordinators/coordinatorRatings";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
-import { getRobotAuthForCoordinator, selectCurrentSlot, type RobotRecord, type RobotSlot, useGarageStore } from "@/domains/garage/garageStore";
+import { getRobotAuthForCoordinator, selectCurrentSlot, selectStandardGarageSlots, type RobotRecord, type RobotSlot, useGarageStore } from "@/domains/garage/garageStore";
 import { TelegramSetupDialog } from "@/domains/garage/TelegramSetupDialog";
 import { RobotTokenBackupDialog } from "@/domains/garage/RobotTokenBackupDialog";
 import { downloadRobotTokenBackup } from "@/domains/garage/tokenBackup";
@@ -35,7 +35,8 @@ const RobotKeysDialog = lazy(() =>
 
 export function RobotGaragePage() {
   const [searchParams] = useSearchParams();
-  const slots = useGarageStore((state) => state.slots);
+  const allSlots = useGarageStore((state) => state.slots);
+  const slots = selectStandardGarageSlots(allSlots);
   const currentToken = useGarageStore((state) => state.currentToken);
   const hydrated = useGarageStore((state) => state.hydrated);
   const hydrate = useGarageStore((state) => state.hydrate);
@@ -91,12 +92,6 @@ export function RobotGaragePage() {
     setRemovingRobot(true);
     setRemoveError("");
     try {
-      const { selectProGarageSlots, useGarageVaultStore } = await import("@/domains/pro/garageVaultStore");
-      await useGarageVaultStore.getState().initialize();
-      const vault = useGarageVaultStore.getState();
-      if (selectProGarageSlots([slot], vault.manifest).length > 0) {
-        await vault.removeRobot(slot.token);
-      }
       removeSlot(slot.token);
       setShowDeleteConfirmation(false);
     } catch (error) {
@@ -516,7 +511,7 @@ export function RobotSettingsDialog({
             <Download size={18} />
             Token backup
           </Button>
-          <Button className="garage-security-button garage-keys-button" type="button" onClick={toggleKeys}>
+          <Button className="garage-security-button garage-keys-button" type="button" variant="secondary" onClick={toggleKeys}>
             <KeyRound size={18} />
             PGP / NOSTR keys
           </Button>
