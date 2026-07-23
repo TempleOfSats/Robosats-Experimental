@@ -1,8 +1,12 @@
 import { preloadAllAppRoutes, preloadPrimaryTradeRoutes } from "@/app/routes";
+import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
-import { useGarageStore } from "@/domains/garage/garageStore";
+import { selectCurrentSlot, selectStandardGarageSlots, useGarageStore } from "@/domains/garage/garageStore";
+import { startOrderChangeHintRuntime } from "@/domains/nostr/orderChangeHints";
 import { useOrderbookStore } from "@/domains/orderbook/orderbookStore";
+import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
 import { getNativeTorDiagnostics, isNativeApp } from "@/domains/transport/androidBridge";
+import { subscribeRefreshIntents, type RefreshReason } from "@/domains/transport/refreshIntents";
 
 type IdleWindow = {
   requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
@@ -10,8 +14,19 @@ type IdleWindow = {
 };
 
 export function scheduleAppPrewarm(): () => void {
-  const onTorReady = () => prewarmData();
-  window.addEventListener("robosats:tor-reconnected", onTorReady);
+  const stopOrderChangeHints = startOrderChangeHintRuntime();
+  let foregroundRefresh: Promise<void> | undefined;
+  const refreshAfterLifecycle = (reason: RefreshReason) => {
+    if (reason === "tor-ready") {
+      prewarmData();
+      return;
+    }
+    if (foregroundRefresh || visibleTradeRoute()) return;
+    foregroundRefresh = refreshSelectedStandardRobotStatus()
+      .catch(() => undefined)
+      .finally(() => { foregroundRefresh = undefined; });
+  };
+  const stopLifecycle = subscribeRefreshIntents(refreshAfterLifecycle);
 
   const cleanups = [
     scheduleIdle(prewarmData, 500, 3000),
@@ -22,7 +37,8 @@ export function scheduleAppPrewarm(): () => void {
   ];
 
   return () => {
-    window.removeEventListener("robosats:tor-reconnected", onTorReady);
+    stopOrderChangeHints();
+    stopLifecycle();
     cleanups.forEach((cleanup) => cleanup());
   };
 }
@@ -58,9 +74,12 @@ function prewarmData(): void {
 }
 
 async function refreshSecondaryData(): Promise<void> {
-  await useFederationStore.getState().refreshCoordinators();
+  const cachedFederation = useFederationStore.getState();
+  await Promise.all([
+    cachedFederation.refreshCoordinators(),
+    refreshSelectedStandardRobot(cachedFederation.coordinators, "background")
+  ]);
   const refreshedFederation = useFederationStore.getState();
-  const refreshedGarage = useGarageStore.getState();
 
   if (refreshedFederation.connection === "api") {
     await useOrderbookStore.getState().refreshOrderbook(refreshedFederation.coordinators, {
@@ -69,10 +88,38 @@ async function refreshSecondaryData(): Promise<void> {
       origin: refreshedFederation.origin
     });
   }
+}
 
-  if (refreshedGarage.currentSlot()) {
-    await refreshedGarage.refreshRobots(refreshedFederation.coordinators);
+async function refreshSelectedStandardRobotStatus(): Promise<void> {
+  if (useProPreferencesStore.getState().enabled) return;
+  if (isNativeApp() && !getNativeTorDiagnostics()?.connected) return;
+  useGarageStore.getState().hydrate();
+  const federation = useFederationStore.getState();
+  await refreshSelectedStandardRobot(federation.coordinators, "visible");
+  void federation.refreshCoordinators().catch(() => undefined);
+}
+
+async function refreshSelectedStandardRobot(
+  coordinators: CoordinatorSummary[],
+  priority: "background" | "visible"
+): Promise<void> {
+  if (useProPreferencesStore.getState().enabled) return;
+  const garage = useGarageStore.getState();
+  const standardSlot = selectCurrentSlot(selectStandardGarageSlots(garage.slots), garage.currentToken);
+  if (standardSlot) {
+    await garage.refreshRobotSlot(standardSlot.token, coordinators, {
+      preferredAliases: preferredAliases(standardSlot),
+      priority,
+      source: "prewarm"
+    });
   }
+}
+
+function preferredAliases(slot: ReturnType<typeof selectCurrentSlot>): string[] {
+  if (!slot) return [];
+  return Object.entries(slot.robots)
+    .filter(([, robot]) => robot.activeOrderId || robot.renewableOrderId || robot.lastOrderId)
+    .map(([alias]) => alias);
 }
 
 function scheduleIdle(callback: () => void, delayMs: number, timeout: number): () => void {
@@ -101,13 +148,17 @@ function currentHostUrl(): string | undefined {
   return typeof window === "undefined" ? undefined : window.location.host || window.location.hostname;
 }
 
+function visibleTradeRoute(): boolean {
+  return typeof window !== "undefined" && /^\/order(?:\/|$)/.test(window.location.pathname);
+}
+
 function swallow(promise: Promise<unknown>): void {
   void promise.catch(() => undefined);
 }
 
 function prewarmVisualAssets(): void {
   const garage = useGarageStore.getState();
-  const activeSlot = garage.currentSlot();
+  const activeSlot = selectCurrentSlot(selectStandardGarageSlots(garage.slots), garage.currentToken);
 
   if (activeSlot?.hashId) {
     swallow(

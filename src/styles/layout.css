@@ -8604,7 +8604,6 @@
 }
 
 .garage-keys-button {
-  min-width: 10.5rem;
   text-transform: none;
 }
 
@@ -8616,6 +8615,8 @@
 }
 
 .garage-settings-security-actions .garage-security-button {
+  min-width: 0;
+  flex: 1 1 0;
   min-height: 2.5rem;
   font-size: var(--type-compact-size);
   font-weight: 600;

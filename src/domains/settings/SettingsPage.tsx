@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { RobotIcon } from "@/components/ui/robotIcon";
 import { Card, CardContent } from "@/components/ui/card";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
-import { selectCurrentSlot, useGarageStore } from "@/domains/garage/garageStore";
+import { selectCurrentSlot, selectStandardGarageSlots, useGarageStore } from "@/domains/garage/garageStore";
 import { readUiPreferences, saveUiPreferences } from "@/domains/settings/uiPreferences";
 import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
 import { syncAllProDataNow } from "@/domains/pro/proRuntime";
@@ -56,7 +56,8 @@ export function SettingsPage() {
     setConnection,
     setNetwork
   } = useFederationStore();
-  const slots = useGarageStore((state) => state.slots);
+  const allSlots = useGarageStore((state) => state.slots);
+  const slots = selectStandardGarageSlots(allSlots);
   const currentToken = useGarageStore((state) => state.currentToken);
   const hydrateGarage = useGarageStore((state) => state.hydrate);
   const setCurrentToken = useGarageStore((state) => state.setCurrentToken);

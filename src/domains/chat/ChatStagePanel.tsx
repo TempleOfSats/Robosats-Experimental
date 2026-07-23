@@ -11,9 +11,10 @@ import { Button } from "@/components/ui/button";
 import { toUserMessage } from "@/lib/userError";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { RobotAvatar } from "@/domains/identity/RobotAvatar";
-import { createWebSocket } from "@/domains/transport/androidBridge";
+import { createWebSocket, isNativeApp } from "@/domains/transport/androidBridge";
 import { playTradeAudio } from "@/domains/audio/audioController";
 import { chatPollDelayMs, chatReconnectDelayMs } from "@/domains/chat/chatRefresh";
+import { runRefreshIntent, subscribeRefreshIntents } from "@/domains/transport/refreshIntents";
 
 export function ChatStagePanel({
   auth,
@@ -62,21 +63,11 @@ export function ChatStagePanel({
 
   useEffect(() => {
     if (previewMode) return;
-    const reconnect = () => setConnectionEpoch((value) => value + 1);
-    const reconnectWhenVisible = () => {
-      if (document.visibilityState === "visible") reconnect();
+    const reconnect = () => {
+      void runRefreshIntent(`chat:${orderId}`, () => setConnectionEpoch((value) => value + 1));
     };
-    window.addEventListener("robosats:tor-reconnected", reconnect);
-    window.addEventListener("robosats:native-resume", reconnect);
-    window.addEventListener("online", reconnect);
-    document.addEventListener("visibilitychange", reconnectWhenVisible);
-    return () => {
-      window.removeEventListener("robosats:tor-reconnected", reconnect);
-      window.removeEventListener("robosats:native-resume", reconnect);
-      window.removeEventListener("online", reconnect);
-      document.removeEventListener("visibilitychange", reconnectWhenVisible);
-    };
-  }, [previewMode]);
+    return subscribeRefreshIntents(reconnect);
+  }, [orderId, previewMode]);
 
   useEffect(() => {
     const element = messagesRef.current;
@@ -188,11 +179,21 @@ export function ChatStagePanel({
 
   useEffect(() => {
     if (!canLoad || previewMode) return;
-    const interval = window.setInterval(
-      () => void loadMessages(lastIndex, false),
-      chatPollDelayMs(socketConnected)
-    );
-    return () => window.clearInterval(interval);
+    let disposed = false;
+    let timer: number | undefined;
+    const schedule = () => {
+      if (disposed) return;
+      if (document.hidden && isNativeApp()) return;
+      timer = window.setTimeout(async () => {
+        await loadMessages(lastIndex, false);
+        schedule();
+      }, chatPollDelayMs(socketConnected, document.hidden));
+    };
+    schedule();
+    return () => {
+      disposed = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
   }, [canLoad, lastIndex, orderId, previewMode, socketConnected]);
 
   useEffect(() => {
@@ -211,8 +212,10 @@ export function ChatStagePanel({
         attempts = 0;
         setSocketConnected(true);
         socket.send(JSON.stringify({ type: "message", message: robot.pubKey, nick: myNick }));
+        void loadMessages(lastIndex, false);
       };
       socket.onmessage = (event) => {
+        attempts = 0;
         void applySocketMessage(String(event.data));
       };
       socket.onerror = () => socket.close();
