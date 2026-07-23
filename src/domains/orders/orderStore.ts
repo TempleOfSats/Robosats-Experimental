@@ -3,8 +3,9 @@ import { toUserMessage } from "@/lib/userError";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import { getRobotAuthForCoordinator, type RobotSlot, useGarageStore } from "@/domains/garage/garageStore";
 import { ingestCoordinatorOrder } from "@/domains/orders/orderActivity";
-import { fetchOrder, submitOrderAction } from "@/domains/orders/orderApi";
+import { fetchOrder, isCompleteOrderActionResponse, submitOrderAction } from "@/domains/orders/orderApi";
 import type { OrderDto, SubmitOrderActionPayload } from "@/domains/orders/order.types";
+import type { ApiRequestOptions } from "@/domains/transport/apiClient";
 
 let requestSequence = 0;
 
@@ -22,6 +23,7 @@ type OrderState = {
 type LoadOrderParams = {
   coordinator: CoordinatorSummary;
   orderId: number;
+  reason?: OrderLoadReason;
   slot?: RobotSlot;
 };
 
@@ -29,12 +31,20 @@ type SubmitActionParams = LoadOrderParams & {
   payload: SubmitOrderActionPayload;
 };
 
+export type OrderLoadReason =
+  | "initial"
+  | "lifecycle"
+  | "maintenance"
+  | "manual"
+  | "poll"
+  | "post-action";
+
 export const useOrderStore = create<OrderState>((set, get) => ({
   order: undefined,
   loading: false,
   refreshing: false,
   submitting: false,
-  loadOrder: async ({ coordinator, orderId, slot }) => {
+  loadOrder: async ({ coordinator, orderId, reason = "initial", slot }) => {
     if (get().submitting) return;
     const auth = getRobotAuthForCoordinator(slot, coordinator.shortAlias);
     if (!auth) {
@@ -46,7 +56,7 @@ export const useOrderStore = create<OrderState>((set, get) => ({
     set((state) => ({ loading: !state.order, refreshing: Boolean(state.order), error: undefined }));
     try {
       const order = {
-        ...(await fetchOrder(coordinator.url, orderId, auth, { timeoutProfile: "background" })),
+        ...(await fetchOrder(coordinator.url, orderId, auth, orderLoadRequestOptions(reason))),
         shortAlias: coordinator.shortAlias
       };
       if (requestId !== requestSequence) return;
@@ -85,12 +95,19 @@ export const useOrderStore = create<OrderState>((set, get) => ({
     set({ submitting: true, refreshing: false, error: undefined });
     dispatchOrderActionEvent("robosats:order-action-start", slot, coordinator.shortAlias, orderId);
     try {
+      const responseOrder = await submitOrderAction(coordinator.url, orderId, payload, auth);
       const order = {
-        ...(await submitOrderAction(coordinator.url, orderId, payload, auth)),
+        ...responseOrder,
         id: orderId,
         shortAlias: coordinator.shortAlias
       };
       if (requestId !== requestSequence) return;
+      if (!isCompleteOrderActionResponse(responseOrder)) {
+        set({ submitting: false });
+        await get().loadOrder({ coordinator, orderId, reason: "post-action", slot });
+        snapshotApplied = Boolean(get().order);
+        return;
+      }
       syncGarageOrder(slot, coordinator.shortAlias, order);
       snapshotApplied = true;
       if (isReleasedEarlyTake(previousOrder, order, payload) && slot) {
@@ -132,6 +149,16 @@ export const useOrderStore = create<OrderState>((set, get) => ({
     set({ order: undefined, error: undefined, loading: false, refreshing: false, submitting: false });
   }
 }));
+
+export function orderLoadRequestOptions(reason: OrderLoadReason): ApiRequestOptions {
+  if (reason === "poll") {
+    return { timeoutProfile: "background", priority: "background", source: "order-refresh" };
+  }
+  if (reason === "maintenance") {
+    return { timeoutProfile: "background", priority: "maintenance", source: "order-refresh" };
+  }
+  return { timeoutProfile: "interactive", priority: "foreground", source: "order-refresh" };
+}
 
 export function isAlreadyCancelledError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;

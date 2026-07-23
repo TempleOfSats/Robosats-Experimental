@@ -22,10 +22,13 @@ import { useFederationStore } from "@/domains/coordinators/federationStore";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import { useOrderbookStore } from "@/domains/orderbook/orderbookStore";
 import { resetNostrOrderbookSession, subscribeNostrOrderbook } from "@/domains/orderbook/nostrOrderbook";
+import { subscribeRefreshIntents, type RefreshReason } from "@/domains/transport/refreshIntents";
 import type { PublicOrder } from "@/domains/orderbook/orderbook.types";
 import { filterPublicOrders } from "@/domains/orderbook/orderbookFilters";
 import { buildTakeOfferPayload, defaultTakeAmount, validateTakeOffer } from "@/domains/orderbook/takeOffer";
-import { getRobotAuthForCoordinator, useGarageStore } from "@/domains/garage/garageStore";
+import { getRobotAuthForCoordinator, selectCurrentSlot, selectStandardGarageSlots, useGarageStore } from "@/domains/garage/garageStore";
+import { getRobotOrderAvailability } from "@/domains/garage/robotAvailability";
+import { reserveRobotOrderAction, revalidateRobotForNewOrder } from "@/domains/orders/robotOrderGuard";
 import { downloadRobotTokenBackup } from "@/domains/garage/tokenBackup";
 import { ingestCoordinatorOrder } from "@/domains/orders/orderActivity";
 import { fetchOrder, submitOrderAction } from "@/domains/orders/orderApi";
@@ -37,6 +40,12 @@ import { InfoHint } from "@/components/ui/infoHint";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CurrencyFlag, CurrencyPicker, IntentPicker, PaymentMethodIcons, PaymentMethodPicker, type IntentPickerOption } from "@/domains/orderbook/OfferMeta";
 import { isSwapPaymentMethod, matchedPaymentMethods, paymentIconSrc, paymentMethodOptions } from "@/domains/orderbook/paymentMethods";
+import { CreateOfferRobotPicker } from "@/domains/pro/ProWorkspaceDialogs";
+import { selectOfferReadyRobots } from "@/domains/pro/proRobotLifecycle";
+import { summarizeProRobots } from "@/domains/pro/proSelectors";
+import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
+import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
+import { selectProGarageSlots, useGarageVaultStore } from "@/domains/pro/garageVaultStore";
 import { bondDisplayValue, expiryRingValue, formatExpiryTitle, knownSatsValue, orderSatsPreview } from "@/domains/orderbook/offerDisplay";
 import { formatFiat, formatSats } from "@/lib/format";
 import { toUserMessage } from "@/lib/userError";
@@ -60,7 +69,12 @@ export function OffersPage() {
   const { connection, coordinators, origin, refreshCoordinators } = useFederationStore();
   const { orders, loading, refreshing, error, lastUpdated, refreshOrderbook, applyLiveOrders } = useOrderbookStore();
   const hydrateGarage = useGarageStore((state) => state.hydrate);
-  const activeSlot = useGarageStore((state) => state.currentSlot());
+  const garageSlots = useGarageStore((state) => state.slots);
+  const currentToken = useGarageStore((state) => state.currentToken);
+  const setCurrentToken = useGarageStore((state) => state.setCurrentToken);
+  const proEnabled = useProPreferencesStore((state) => state.enabled);
+  const fleetManifest = useGarageVaultStore((state) => state.manifest);
+  const tradeSnapshots = useProTradeIndexStore((state) => state.snapshots);
   const [intentFilter, setIntentFilter] = useState<IntentFilter>("any");
   const [currencyFilter, setCurrencyFilter] = useState("all");
   const [methodFilter, setMethodFilter] = useState("all");
@@ -76,11 +90,38 @@ export function OffersPage() {
   const [confirmTakeOpen, setConfirmTakeOpen] = useState(false);
   const [descriptionConfirmOpen, setDescriptionConfirmOpen] = useState(false);
   const [takeIntentPending, setTakeIntentPending] = useState(false);
+  const [takeRobotPickerOpen, setTakeRobotPickerOpen] = useState(false);
+  const [takeSlotId, setTakeSlotId] = useState<string>();
   const [privateOrder, setPrivateOrder] = useState<OrderDto | undefined>();
   const [privateOrderLoading, setPrivateOrderLoading] = useState(false);
   const [orderDetailsResolved, setOrderDetailsResolved] = useState(true);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [nostrSessionEpoch, setNostrSessionEpoch] = useState(0);
+  const fleetSlots = useMemo(
+    () => selectProGarageSlots(garageSlots, fleetManifest),
+    [fleetManifest, garageSlots]
+  );
+  const standardSlots = useMemo(() => selectStandardGarageSlots(garageSlots), [garageSlots]);
+  const activeSlot = selectCurrentSlot(standardSlots, currentToken);
+  const readyFleetRobots = useMemo(
+    () => selectOfferReadyRobots(
+      fleetSlots,
+      summarizeProRobots(fleetSlots, tradeSnapshots),
+      tradeSnapshots
+    ),
+    [fleetSlots, tradeSnapshots]
+  );
+  const standardTakeAvailability = getRobotOrderAvailability(activeSlot, tradeSnapshots);
+  const takeRobotUnavailableMessage = proEnabled
+    ? readyFleetRobots.length > 0
+      ? undefined
+      : "No Fleet robot is available. Finish an existing order or refresh the Pro Desk first."
+    : standardTakeAvailability.available
+      ? undefined
+      : standardTakeAvailability.message ?? "Create or recover a robot in Garage first.";
+  const takeSlot = proEnabled
+    ? fleetSlots.find((slot) => slot.tokenSHA256 === takeSlotId)
+    : activeSlot;
 
   async function refresh(force = false) {
     const currentState = useFederationStore.getState();
@@ -142,43 +183,20 @@ export function OffersPage() {
   useEffect(() => {
     let refreshTimer: number | undefined;
 
-    const recoverOrderbook = () => {
-      if (connection === "nostr") {
+    const refreshAfterLifecycle = (reason: RefreshReason) => {
+      if (connection === "nostr" && (reason === "online" || reason === "tor-reconnected" || error)) {
         resetNostrOrderbookSession();
         setNostrSessionEpoch((value) => value + 1);
       }
       if (refreshTimer) window.clearTimeout(refreshTimer);
-      refreshTimer = window.setTimeout(() => void refresh(true), 150);
+      refreshTimer = window.setTimeout(() => void refresh(Boolean(error)), 150);
     };
 
-    const onVisibilityChange = () => {
-      if (document.visibilityState !== "visible") return;
-      if (error) {
-        recoverOrderbook();
-        return;
-      }
-      void refresh();
-    };
-
-    const refreshAfterResume = () => {
-      if (error) {
-        recoverOrderbook();
-        return;
-      }
-      void refresh();
-    };
-
-    window.addEventListener("online", recoverOrderbook);
-    window.addEventListener("robosats:tor-reconnected", recoverOrderbook);
-    window.addEventListener("robosats:native-resume", refreshAfterResume);
-    document.addEventListener("visibilitychange", onVisibilityChange);
+    const stopLifecycle = subscribeRefreshIntents(refreshAfterLifecycle);
 
     return () => {
       if (refreshTimer) window.clearTimeout(refreshTimer);
-      window.removeEventListener("online", recoverOrderbook);
-      window.removeEventListener("robosats:tor-reconnected", recoverOrderbook);
-      window.removeEventListener("robosats:native-resume", refreshAfterResume);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
+      stopLifecycle();
     };
   }, [connection, error]);
 
@@ -284,8 +302,8 @@ export function OffersPage() {
     setPrivateOrder(undefined);
     setPrivateOrderLoading(false);
     setOrderDetailsResolved(true);
-    if (!takeModalOpen || !selectedOrder || !selectedCoordinator || !activeSlot) return;
-    const auth = getRobotAuthForCoordinator(activeSlot, selectedCoordinator.shortAlias);
+    if (!takeModalOpen || !selectedOrder || !selectedCoordinator || !takeSlot) return;
+    const auth = getRobotAuthForCoordinator(takeSlot, selectedCoordinator.shortAlias);
     if (!auth) return;
 
     let disposed = false;
@@ -305,7 +323,7 @@ export function OffersPage() {
     return () => {
       disposed = true;
     };
-  }, [activeSlot?.token, selectedCoordinator?.shortAlias, selectedCoordinator?.url, selectedOrder?.id, takeModalOpen]);
+  }, [selectedCoordinator?.shortAlias, selectedCoordinator?.url, selectedOrder?.id, takeModalOpen, takeSlot?.token]);
 
   useEffect(() => {
     if (!takeIntentPending || !orderDetailsResolved || privateOrderLoading) return;
@@ -321,8 +339,11 @@ export function OffersPage() {
     setTakeError(undefined);
     setDescriptionConfirmOpen(false);
     setTakeIntentPending(false);
+    setTakeRobotPickerOpen(false);
+    setTakeSlotId(undefined);
     const coordinator = coordinators.find((item) => item.shortAlias === order.coordinatorShortAlias);
-    const canFetchDetails = Boolean(activeSlot && coordinator && getRobotAuthForCoordinator(activeSlot, coordinator.shortAlias));
+    const initialSlot = proEnabled ? undefined : activeSlot;
+    const canFetchDetails = Boolean(initialSlot && coordinator && getRobotAuthForCoordinator(initialSlot, coordinator.shortAlias));
     setOrderDetailsResolved(!canFetchDetails);
     setTakeModalOpen(true);
   }
@@ -332,11 +353,37 @@ export function OffersPage() {
     setConfirmTakeOpen(false);
     setDescriptionConfirmOpen(false);
     setTakeIntentPending(false);
+    setTakeRobotPickerOpen(false);
+    setTakeSlotId(undefined);
     setTakeModalOpen(false);
     setTakeError(undefined);
   }
 
   function beginTakeConfirmation() {
+    if (proEnabled && !takeSlot) {
+      if (readyFleetRobots.length === 0) {
+        setTakeError("No Fleet robot is available. Finish an existing order or refresh the Pro Desk first.");
+        return;
+      }
+      if (readyFleetRobots.length === 1) {
+        selectTakeRobot(readyFleetRobots[0].slotId);
+      } else {
+        setTakeRobotPickerOpen(true);
+      }
+      return;
+    }
+    continueTakeConfirmation();
+  }
+
+  function selectTakeRobot(slotId: string) {
+    setTakeSlotId(slotId);
+    setTakeRobotPickerOpen(false);
+    setOrderDetailsResolved(false);
+    setTakeIntentPending(true);
+    setTakeError(undefined);
+  }
+
+  function continueTakeConfirmation() {
     if (selectedDescription) {
       setDescriptionConfirmOpen(true);
       return;
@@ -364,12 +411,12 @@ export function OffersPage() {
       setTakeError("Coordinator is not available right now.");
       return;
     }
-    if (!activeSlot) {
+    if (!takeSlot) {
       setTakeError("Create or recover a robot before taking an offer.");
       return;
     }
 
-    const auth = getRobotAuthForCoordinator(activeSlot, selectedCoordinator.shortAlias);
+    const auth = getRobotAuthForCoordinator(takeSlot, selectedCoordinator.shortAlias);
     if (!auth) {
       setTakeError("This robot is missing coordinator credentials. Recover it from Garage first.");
       return;
@@ -381,11 +428,24 @@ export function OffersPage() {
       return;
     }
 
+    const releaseReservation = reserveRobotOrderAction(takeSlot.tokenSHA256);
+    if (!releaseReservation) {
+      setTakeError(`${takeSlot.nickname} is already starting another order.`);
+      return;
+    }
+
     setTaking(true);
     setTakeError(undefined);
     try {
+      const actionSlot = await revalidateRobotForNewOrder({
+        coordinator: selectedCoordinator,
+        proEnabled,
+        slotId: takeSlot.tokenSHA256
+      });
+      const actionAuth = getRobotAuthForCoordinator(actionSlot, selectedCoordinator.shortAlias);
+      if (!actionAuth) throw new Error("This robot is missing coordinator credentials.");
       const payload = buildTakeOfferPayload(selectedOrder, takeAmount, offerPassword);
-      const order = await submitOrderAction(selectedCoordinator.url, selectedOrder.id, payload, auth);
+      const order = await submitOrderAction(selectedCoordinator.url, selectedOrder.id, payload, actionAuth);
       if (order.bad_request) {
         setPrivateOrder(order);
         setTakeError(toUserMessage(order.bad_request, "The coordinator could not take this offer."));
@@ -396,12 +456,15 @@ export function OffersPage() {
         order,
         orderId,
         shortAlias: selectedCoordinator.shortAlias,
-        slot: activeSlot
+        slot: actionSlot
       });
+      setCurrentToken(actionSlot.token);
       navigate(`/order/${selectedCoordinator.shortAlias}/${orderId}`);
     } catch (error) {
       setTakeError(toUserMessage(error, "Could not take this offer."));
+      if (proEnabled) setTakeSlotId(undefined);
     } finally {
+      releaseReservation();
       setTaking(false);
     }
   }
@@ -564,7 +627,7 @@ export function OffersPage() {
         <TakeOfferModal
           coordinator={selectedCoordinator}
           error={takeError}
-          hasActiveRobot={Boolean(activeSlot)}
+          robotUnavailableMessage={takeRobotUnavailableMessage}
           hasPassword={Boolean(selectedOrder.has_password || privateOrder?.has_password)}
           loadingDetails={privateOrderLoading}
           penalty={privateOrder?.penalty}
@@ -581,6 +644,18 @@ export function OffersPage() {
         />
       ) : null}
 
+      {takeRobotPickerOpen ? (
+        <CreateOfferRobotPicker
+          emptyMessage="Every Fleet robot already has an order or still needs to be refreshed."
+          onClose={() => setTakeRobotPickerOpen(false)}
+          onSelect={selectTakeRobot}
+          optionStatus="Ready to take this offer"
+          robots={readyFleetRobots}
+          subtitle="Available Fleet robots without another order"
+          title="Take with which robot?"
+        />
+      ) : null}
+
       {descriptionConfirmOpen && selectedDescription ? (
         <OrderDescriptionDialog
           description={selectedDescription}
@@ -592,10 +667,10 @@ export function OffersPage() {
         />
       ) : null}
 
-      {confirmTakeOpen && activeSlot ? (
+      {confirmTakeOpen && takeSlot ? (
         <TokenBackupDialog
-          robotName={activeSlot.nickname}
-          token={activeSlot.token}
+          robotName={takeSlot.nickname}
+          token={takeSlot.token}
           taking={taking}
           onBack={() => setConfirmTakeOpen(false)}
           onDone={() => {
@@ -676,7 +751,7 @@ function MobileSortButton({
 function TakeOfferModal({
   coordinator,
   error,
-  hasActiveRobot,
+  robotUnavailableMessage,
   hasPassword,
   loadingDetails,
   penalty,
@@ -693,7 +768,7 @@ function TakeOfferModal({
 }: {
   coordinator?: CoordinatorSummary;
   error?: string;
-  hasActiveRobot: boolean;
+  robotUnavailableMessage?: string;
   hasPassword: boolean;
   loadingDetails: boolean;
   penalty?: string;
@@ -713,8 +788,8 @@ function TakeOfferModal({
   const penaltyDeadline = penalty ? new Date(penalty).getTime() : 0;
   const penaltyActive = Number.isFinite(penaltyDeadline) && penaltyDeadline > Date.now();
   const amountOverride = selectedTakeAmount(order, takeAmount);
-  const blockedReason = !hasActiveRobot
-    ? "Create or recover a robot in Garage first."
+  const blockedReason = robotUnavailableMessage
+    ? robotUnavailableMessage
     : !coordinator
       ? "Coordinator is not available right now."
       : penaltyActive

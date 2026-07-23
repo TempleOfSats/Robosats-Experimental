@@ -6,6 +6,7 @@ import {
 import { isTerminalForProDesk } from "@/domains/pro/proOrderActivity";
 import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
 import type { OrderHint, ProTradeLocator, ReconcileReason } from "@/domains/pro/pro.types";
+import { subscribeRefreshIntents, type RefreshReason } from "@/domains/transport/refreshIntents";
 
 type ReconcileTriggerOptions = {
   controller: GarageReconcileController;
@@ -17,8 +18,6 @@ type ReconcileTriggerOptions = {
 
 export function registerReconcileTriggers(options: ReconcileTriggerOptions): () => void {
   const intervalMs = options.intervalMs ?? 60_000;
-  const debounceMs = options.debounceMs ?? 750;
-  let debounceTimer: number | undefined;
   let intervalTimer: number | undefined;
   let stopped = false;
 
@@ -30,22 +29,10 @@ export function registerReconcileTriggers(options: ReconcileTriggerOptions): () 
     void operation.catch(() => undefined);
   };
 
-  const debounce = (reason: ReconcileReason) => {
-    if (debounceTimer !== undefined) window.clearTimeout(debounceTimer);
-    debounceTimer = window.setTimeout(() => run(reason), debounceMs);
+  const onLifecycle = (reason: RefreshReason) => {
+    if (reason === "tor-reconnected") options.controller.invalidateEpoch();
+    run(reconcileReason(reason));
   };
-
-  const onTorReady = () => run("tor-ready");
-  const onTorReconnected = () => {
-    options.controller.invalidateEpoch();
-    run("tor-reconnected");
-  };
-  const onFocus = () => debounce("window-focus");
-  const onVisibility = () => {
-    if (document.visibilityState === "visible") debounce("visibility-resume");
-  };
-  const onNativeResume = () => debounce("native-resume");
-  const onOnline = () => debounce("online");
   const onOrderHint = (event: Event) => {
     const hint = validOrderHint((event as CustomEvent<unknown>).detail);
     if (hint) void options.controller.handleOrderHint(hint).catch(() => undefined);
@@ -67,15 +54,10 @@ export function registerReconcileTriggers(options: ReconcileTriggerOptions): () 
     void options.controller.reconcileOrder(result, "order-action").catch(() => undefined);
   };
 
-  window.addEventListener("robosats:tor-ready", onTorReady);
-  window.addEventListener("robosats:tor-reconnected", onTorReconnected);
-  window.addEventListener("focus", onFocus);
-  window.addEventListener("online", onOnline);
-  window.addEventListener("robosats:native-resume", onNativeResume);
+  const stopLifecycle = subscribeRefreshIntents(onLifecycle);
   window.addEventListener("robosats:order-hint", onOrderHint);
   window.addEventListener("robosats:order-action-start", onOrderActionStart);
   window.addEventListener("robosats:order-action-complete", onOrderActionComplete);
-  document.addEventListener("visibilitychange", onVisibility);
 
   intervalTimer = window.setInterval(() => {
     if (options.proEnabled() && document.visibilityState === "visible") run("interval");
@@ -83,18 +65,19 @@ export function registerReconcileTriggers(options: ReconcileTriggerOptions): () 
 
   return () => {
     stopped = true;
-    if (debounceTimer !== undefined) window.clearTimeout(debounceTimer);
     if (intervalTimer !== undefined) window.clearInterval(intervalTimer);
-    window.removeEventListener("robosats:tor-ready", onTorReady);
-    window.removeEventListener("robosats:tor-reconnected", onTorReconnected);
-    window.removeEventListener("focus", onFocus);
-    window.removeEventListener("online", onOnline);
-    window.removeEventListener("robosats:native-resume", onNativeResume);
+    stopLifecycle();
     window.removeEventListener("robosats:order-hint", onOrderHint);
     window.removeEventListener("robosats:order-action-start", onOrderActionStart);
     window.removeEventListener("robosats:order-action-complete", onOrderActionComplete);
-    document.removeEventListener("visibilitychange", onVisibility);
   };
+}
+
+function reconcileReason(reason: RefreshReason): ReconcileReason {
+  if (reason === "focus") return "window-focus";
+  if (reason === "resume") return "visibility-resume";
+  if (reason === "notification") return "nostr-hint";
+  return reason;
 }
 
 export function registerExpiryReconcileTrigger(

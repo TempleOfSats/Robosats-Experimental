@@ -59,7 +59,11 @@ describe("robotApi", () => {
       nickname: "Robot",
       earnedRewards: 0
     });
-    expect(client.get).toHaveBeenCalledWith("https://coordinator", "/api/robot/", auth);
+    expect(client.get).toHaveBeenCalledWith("https://coordinator", "/api/robot/", auth, {
+      timeoutProfile: "interactive",
+      priority: "visible",
+      source: "robot-refresh"
+    });
   });
 
   it("updates webhook settings through the current robot endpoint", async () => {
@@ -92,7 +96,8 @@ describe("robotApi", () => {
       "https://coordinator",
       "/api/robot/",
       { webhook_url: "http://hook.onion/callback", webhook_enabled: true, webhook_api_key: "secret" },
-      auth
+      auth,
+      { timeoutProfile: "action", priority: "action", source: "order-action" }
     );
   });
 
@@ -107,7 +112,9 @@ describe("robotApi", () => {
 
     await expect(updateStealthInvoices("https://coordinator", false, auth, client)).resolves.toBe(false);
     expect(client.post).toHaveBeenCalledWith("https://coordinator", "/api/stealth/", { wantsStealth: false }, auth, {
-      timeoutProfile: "action"
+      timeoutProfile: "action",
+      priority: "action",
+      source: "order-action"
     });
   });
 });

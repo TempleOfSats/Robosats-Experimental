@@ -5,23 +5,31 @@ import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.type
 import { useGarageStore, type RobotSlot } from "@/domains/garage/garageStore";
 import { RobotAvatar } from "@/domains/identity/RobotAvatar";
 import { RobotGlyph } from "@/domains/pro/ProWorkspaceIcons";
-import type { OfferReadyRobots } from "@/domains/pro/ProWorkspaceLists";
+import type { OfferReadyRobots } from "@/domains/pro/proRobotLifecycle";
 import { GARAGE_LIMITS } from "@/domains/pro/garageVault";
 
 export function CreateOfferRobotPicker({
-  addingRobot,
-  fleetFull,
+  addingRobot = false,
+  emptyMessage,
+  fleetFull = false,
   onAddRobot,
   onClose,
   onSelect,
-  robots
+  optionStatus = "Ready to create an offer",
+  robots,
+  subtitle = "Ready robots without an active trade",
+  title = "With which robot?"
 }: {
-  addingRobot: boolean;
-  fleetFull: boolean;
-  onAddRobot: () => void;
+  addingRobot?: boolean;
+  emptyMessage?: string;
+  fleetFull?: boolean;
+  onAddRobot?: () => void;
   onClose: () => void;
   onSelect: (slotId: string) => void;
+  optionStatus?: string;
   robots: OfferReadyRobots;
+  subtitle?: string;
+  title?: string;
 }) {
   return (
     <div className="confirm-overlay" onClick={onClose}>
@@ -34,8 +42,8 @@ export function CreateOfferRobotPicker({
       >
         <header className="garage-switcher-header">
           <span>
-            <h3 id="pro-create-robot-title">With which robot?</h3>
-            <small>Ready robots without an active trade</small>
+            <h3 id="pro-create-robot-title">{title}</h3>
+            <small>{subtitle}</small>
           </span>
           <button className="icon-button" onClick={onClose} type="button" aria-label="Close robot selector">
             <X size={18} />
@@ -53,7 +61,7 @@ export function CreateOfferRobotPicker({
                 <RobotAvatar hashId={robot.hashId} label={robot.nickname} size="md" />
                 <span className="garage-switcher-item-info">
                   <strong className="garage-switcher-item-name">{robot.nickname}</strong>
-                  <small className="garage-switcher-item-status">Ready to create an offer</small>
+                  <small className="garage-switcher-item-status">{optionStatus}</small>
                 </span>
                 <ChevronRight size={18} aria-hidden="true" />
               </button>
@@ -63,10 +71,10 @@ export function CreateOfferRobotPicker({
           <div className="pro-create-robot-empty">
             <RobotGlyph size={24} />
             <strong>No robot is available</strong>
-            <p>{fleetFull
+            <p>{emptyMessage ?? (fleetFull
               ? `All ${GARAGE_LIMITS.activeRobots} Fleet robots are currently unavailable. Finish an order or remove an idle robot before adding another.`
-              : "Create a robot here, then use it to publish an offer."}</p>
-            {!fleetFull ? (
+              : "Create a robot here, then use it to publish an offer.")}</p>
+            {!fleetFull && onAddRobot ? (
               <Button loading={addingRobot} onClick={onAddRobot} size="sm">
                 <RobotGlyph size={16} /> Create robot
               </Button>
