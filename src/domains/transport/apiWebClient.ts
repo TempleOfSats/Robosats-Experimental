@@ -1,22 +1,20 @@
-import type { ApiClient, ApiRequestOptions, Auth, TimeoutProfile } from "@/domains/transport/apiClient";
+import type { ApiClient, ApiRequestOptions, Auth, RequestPriority, TimeoutProfile } from "@/domains/transport/apiClient";
 import { buildAuthHeaders } from "@/domains/transport/apiClient";
+import { recordNetworkPerformance, type NetworkOutcome } from "@/domains/diagnostics/networkPerformance";
 import { transportRequest } from "@/domains/transport/androidBridge";
+import { coordinatorRequestScheduler } from "@/domains/transport/requestScheduler";
+import {
+  noteTransportFailure,
+  noteTransportReachable,
+  type TransportFailureCategory
+} from "@/domains/transport/transportHealth";
 import { toUserMessage } from "@/lib/userError";
-
-const inFlightGets = new Map<string, Promise<unknown>>();
 
 class ApiWebClient implements ApiClient {
   async get<T>(baseUrl: string, path: string, auth?: Auth, options?: ApiRequestOptions): Promise<T> {
     const headers = buildAuthHeaders(auth);
     const requestKey = getRequestKey(baseUrl, path, headers, options);
-    const inFlight = inFlightGets.get(requestKey);
-    if (inFlight) return inFlight as Promise<T>;
-
-    const promise = request<T>(baseUrl, path, { method: "GET", headers }, options).finally(() => {
-      inFlightGets.delete(requestKey);
-    });
-    inFlightGets.set(requestKey, promise);
-    return promise;
+    return request<T>(baseUrl, path, { method: "GET", headers }, options, requestKey);
   }
 
   async post<T>(baseUrl: string, path: string, body: object, auth?: Auth, options?: ApiRequestOptions): Promise<T> {
@@ -40,22 +38,61 @@ class ApiWebClient implements ApiClient {
   }
 }
 
-async function request<T>(baseUrl: string, path: string, init: RequestInit, options: ApiRequestOptions = {}): Promise<T> {
+async function request<T>(
+  baseUrl: string,
+  path: string,
+  init: RequestInit,
+  options: ApiRequestOptions = {},
+  requestKey?: string
+): Promise<T> {
   const timeoutMs = options.timeoutMs ?? timeoutForProfile(options.timeoutProfile ?? "interactive");
-  try {
-    const response = await transportRequest(baseUrl + path, init, timeoutMs);
-    const contentType = response.headers["content-type"] ?? "";
-    const data = contentType.includes("application/json") ? JSON.parse(response.body || "null") : response.body;
-    if (response.status < 200 || response.status >= 300) {
-      throw new RoboSatsApiError(response.status, data);
+  const method = init.method ?? "GET";
+  const priority = options.priority ?? defaultPriority(method, options.timeoutProfile);
+  const source = options.source ?? defaultSource(method);
+  const queuedAt = now();
+  const scheduled = coordinatorRequestScheduler.schedule<T>({
+    key: requestKey,
+    origin: requestOrigin(baseUrl),
+    method,
+    priority,
+    source,
+    signal: options.signal
+  }, async (signal) => {
+    const transportStartedAt = now();
+    let outcome: NetworkOutcome = "success";
+    try {
+      const response = await transportRequest(baseUrl + path, init, timeoutMs, signal);
+      noteTransportReachable(baseUrl);
+      const contentType = response.headers["content-type"] ?? "";
+      const data = contentType.includes("application/json") ? JSON.parse(response.body || "null") : response.body;
+      if (response.status < 200 || response.status >= 300) {
+        outcome = "http-error";
+        throw new RoboSatsApiError(response.status, data);
+      }
+      return data as T;
+    } catch (error) {
+      outcome = classifyOutcome(error);
+      if (!(error instanceof RoboSatsApiError) && outcome !== "cancelled") {
+        noteTransportFailure(baseUrl, failureCategory(error));
+      }
+      if (error instanceof Error && error.message.includes("timeout after")) {
+        throw new Error("The request took too long. Please try again.");
+      }
+      throw error;
+    } finally {
+      const completedAt = now();
+      recordNetworkPerformance({
+        origin: requestOrigin(baseUrl),
+        source,
+        priority,
+        queuedMs: Math.max(0, transportStartedAt - queuedAt),
+        transportMs: Math.max(0, completedAt - transportStartedAt),
+        totalMs: Math.max(0, completedAt - queuedAt),
+        outcome
+      });
     }
-    return data as T;
-  } catch (error) {
-    if (error instanceof Error && error.message.includes("timeout after")) {
-      throw new Error("The request took too long. Please try again.");
-    }
-    throw error;
-  }
+  });
+  return scheduled.promise;
 }
 
 class RoboSatsApiError extends Error {
@@ -76,6 +113,42 @@ function timeoutForProfile(profile: TimeoutProfile): number {
   if (profile === "background") return 20_000;
   if (profile === "action") return 90_000;
   return 45_000;
+}
+
+function defaultPriority(method: string, profile: TimeoutProfile = "interactive"): RequestPriority {
+  if (method.toUpperCase() !== "GET") return "action";
+  if (profile === "action") return "foreground";
+  if (profile === "background") return "background";
+  return "visible";
+}
+
+function defaultSource(method: string): NonNullable<ApiRequestOptions["source"]> {
+  return method.toUpperCase() === "GET" ? "manual" : "order-action";
+}
+
+function requestOrigin(baseUrl: string): string {
+  try {
+    return new URL(baseUrl).origin;
+  } catch {
+    return baseUrl;
+  }
+}
+
+function classifyOutcome(error: unknown): NetworkOutcome {
+  if (error instanceof RoboSatsApiError) return "http-error";
+  if (error instanceof DOMException && error.name === "AbortError") return "cancelled";
+  if (error instanceof Error && /timeout/i.test(error.message)) return "timeout";
+  return "network-error";
+}
+
+function failureCategory(error: unknown): TransportFailureCategory {
+  if (error instanceof Error && /timeout/i.test(error.message)) return "timeout";
+  if (error instanceof Error && /socket|websocket/i.test(error.message)) return "socket";
+  return "connect";
+}
+
+function now(): number {
+  return typeof performance === "undefined" ? Date.now() : performance.now();
 }
 
 function getRequestKey(baseUrl: string, path: string, headers: HeadersInit, options: ApiRequestOptions = {}): string {

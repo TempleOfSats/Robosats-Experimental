@@ -17,6 +17,7 @@ import {
   useGarageVaultStore,
   type GarageRecoverySnapshot
 } from "@/domains/pro/garageVaultStore";
+import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
 
 const ENVELOPE_KEY = "robosats_exp_garage_envelope_v3";
 const BACKUP_CONFIRMED_KEY = "robosats_exp_garage_backup_confirmed_v3";
@@ -41,6 +42,7 @@ describe("Garage vault persistence", () => {
     });
     await garageSecretStore.remove();
     resetGarageVaultRuntimeForTests();
+    useProTradeIndexStore.getState().resetRuntimeCache();
   });
 
   afterEach(() => vi.unstubAllGlobals());
@@ -98,6 +100,24 @@ describe("Garage vault persistence", () => {
 
     expect(useGarageVaultStore.getState().pendingOutbox())
       .toEqual(expect.arrayContaining([expect.objectContaining({ record: expect.objectContaining({ id: robot.id }) })]));
+  });
+
+  it("marks a newly derived robot ready without a coordinator request", async () => {
+    await useGarageVaultStore.getState().setup();
+    useGarageVaultStore.getState().markBackedUp();
+    const createdAfter = Date.now();
+
+    const robot = await useGarageVaultStore.getState().createDerivedRobot("Fresh robot");
+    const slotId = deriveRobotIdentity(robot.token).tokenSHA256;
+    const sync = useProTradeIndexStore.getState().syncBySlot[slotId];
+
+    expect(sync).toMatchObject({
+      slotId,
+      inFlight: false
+    });
+    expect(sync.locallyReadyAt).toBeGreaterThanOrEqual(createdAfter);
+    expect(sync.nextEligibleAt).toBeGreaterThan(sync.locallyReadyAt!);
+    expect(sync.lastSuccessAt).toBeUndefined();
   });
 
   it("persists relay acknowledgements until replication reaches quorum", async () => {

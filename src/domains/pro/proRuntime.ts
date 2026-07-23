@@ -1,17 +1,30 @@
 import { useFederationStore } from "@/domains/coordinators/federationStore";
-import { useGarageStore } from "@/domains/garage/garageStore";
+import { selectCurrentSlot, selectStandardGarageSlots, useGarageStore } from "@/domains/garage/garageStore";
 import { deriveRobotIdentity } from "@/domains/identity/robotIdentity";
 import { garageReconciler } from "@/domains/pro/garageReconciler";
 import {
   garageSyncEngine
 } from "@/domains/pro/garageSync";
-import { garageSlotsFromManifest, useGarageVaultStore } from "@/domains/pro/garageVaultStore";
+import {
+  garageSlotsFromManifest,
+  getGarageSecret,
+  selectProGarageSlots,
+  useGarageVaultStore
+} from "@/domains/pro/garageVaultStore";
 import { garageTokenId } from "@/domains/pro/garageVault";
 import { usePortableSettingsStore } from "@/domains/pro/portableSettingsStore";
 import { startProOrderActivityBridge } from "@/domains/pro/proOrderActivity";
 import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
 import { registerExpiryReconcileTrigger, registerReconcileTriggers } from "@/domains/pro/reconcileTriggers";
+import {
+  clearProTradeRuntimeCache,
+  loadProTradeRuntimeCache,
+  persistProTradeRuntimeCache,
+  proTradeCacheOwner
+} from "@/domains/pro/proTradeCache";
+import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
 import type { ReconcileReason } from "@/domains/pro/pro.types";
+import { subscribeRefreshIntents } from "@/domains/transport/refreshIntents";
 
 let stopRuntime: (() => void) | undefined;
 
@@ -27,10 +40,6 @@ export function startProRuntime(): () => void {
     reconcileCurrent
   });
   const stopExpiryTrigger = registerExpiryReconcileTrigger(garageReconciler);
-  const startupRefresh = useProPreferencesStore.getState().enabled
-    ? garageReconciler.reconcileAll("startup")
-    : reconcileCurrent("startup");
-  void startupRefresh.catch(() => undefined);
 
   stopRuntime = () => {
     stopTriggers();
@@ -44,9 +53,68 @@ export function startProRuntime(): () => void {
 
 function startGarageVaultRuntime(): () => void {
   let stopped = false;
+  let activeManifest: ReturnType<typeof useGarageVaultStore.getState>["manifest"];
+  let portableSettingsInitialized = false;
+  let coordinatorFingerprint = enabledCoordinatorFingerprint();
+  let activeTradeCacheOwner: string | undefined;
+  let activeTradeCacheSecret: Uint8Array | undefined;
+  let stopTradeCachePersistence: (() => void) | undefined;
+  let tradeCacheTimer: number | undefined;
 
-  const applyCurrentManifest = () => {
-    applyVaultManifestToGarage();
+  const activeFleetSlotIds = () => new Set(
+    selectProGarageSlots(
+      useGarageStore.getState().slots,
+      useGarageVaultStore.getState().manifest
+    ).map((slot) => slot.tokenSHA256)
+  );
+
+  const flushTradeCache = () => {
+    if (tradeCacheTimer !== undefined) {
+      window.clearTimeout(tradeCacheTimer);
+      tradeCacheTimer = undefined;
+    }
+    if (!activeTradeCacheSecret) return;
+    const state = useProTradeIndexStore.getState();
+    persistProTradeRuntimeCache(
+      activeTradeCacheSecret,
+      { snapshots: state.snapshots, syncBySlot: state.syncBySlot },
+      activeFleetSlotIds()
+    );
+  };
+
+  const stopTradeCache = (clear = false) => {
+    flushTradeCache();
+    stopTradeCachePersistence?.();
+    stopTradeCachePersistence = undefined;
+    activeTradeCacheOwner = undefined;
+    activeTradeCacheSecret = undefined;
+    if (clear) {
+      clearProTradeRuntimeCache();
+      useProTradeIndexStore.getState().resetRuntimeCache();
+    }
+  };
+
+  const configureTradeCache = () => {
+    const secret = getGarageSecret();
+    if (!secret) return;
+    const owner = proTradeCacheOwner(secret);
+    const slotIds = activeFleetSlotIds();
+    if (owner === activeTradeCacheOwner) {
+      useProTradeIndexStore.getState().retainSlots(slotIds);
+      return;
+    }
+
+    stopTradeCache();
+    activeTradeCacheOwner = owner;
+    activeTradeCacheSecret = secret;
+    useProTradeIndexStore.getState().resetRuntimeCache();
+    const cached = loadProTradeRuntimeCache(secret, slotIds);
+    useProTradeIndexStore.getState().hydrateRuntimeCache(cached.snapshots, cached.syncBySlot);
+    stopTradeCachePersistence = useProTradeIndexStore.subscribe((state, previous) => {
+      if (state.snapshots === previous.snapshots && state.syncBySlot === previous.syncBySlot) return;
+      if (tradeCacheTimer !== undefined) window.clearTimeout(tradeCacheTimer);
+      tradeCacheTimer = window.setTimeout(flushTradeCache, 500);
+    });
   };
 
   const startSyncEngine = () => {
@@ -54,23 +122,40 @@ function startGarageVaultRuntime(): () => void {
     garageSyncEngine.start(() => useFederationStore.getState().coordinators);
   };
 
+  const activateFleet = (forceReconcile = false) => {
+    const state = useGarageVaultStore.getState();
+    if (stopped || state.status !== "ready") return;
+    const manifestChanged = state.manifest !== activeManifest;
+    if (manifestChanged) {
+      activeManifest = state.manifest;
+      applyVaultManifestToGarage();
+      configureTradeCache();
+    }
+    if (!portableSettingsInitialized) {
+      portableSettingsInitialized = true;
+      usePortableSettingsStore.getState().initialize();
+    }
+    startSyncEngine();
+    if (useProPreferencesStore.getState().enabled && (manifestChanged || forceReconcile)) {
+      void garageReconciler.reconcileAll("fleet-ready").catch(() => undefined);
+    }
+  };
+
   const vault = useGarageVaultStore.getState();
   void vault.initialize().then(() => {
-    if (stopped || useGarageVaultStore.getState().status !== "ready") return;
-    applyCurrentManifest();
-    usePortableSettingsStore.getState().initialize();
-    startSyncEngine();
+    activateFleet();
   });
 
   const unsubscribeVault = useGarageVaultStore.subscribe((state, previous) => {
+    if (state.status !== "ready" && previous.status === "ready") {
+      stopTradeCache(state.status === "unconfigured");
+    }
     if (state.status === "ready" && previous.status !== "ready") {
-      applyCurrentManifest();
-      usePortableSettingsStore.getState().initialize();
-      startSyncEngine();
+      activateFleet();
       return;
     }
-    if (state.envelope?.revision === previous.envelope?.revision || state.status !== "ready") return;
-    if (state.manifest?.revision !== previous.manifest?.revision) applyCurrentManifest();
+    if (state.status !== "ready" || state.envelope === previous.envelope) return;
+    if (state.manifest !== previous.manifest) activateFleet();
     usePortableSettingsStore.getState().hydrateFromVault();
     if (state.envelope?.outbox.length !== previous.envelope?.outbox.length
       || state.envelope?.outbox.some((item, index) => item.revision !== previous.envelope?.outbox[index]?.revision)) {
@@ -79,23 +164,28 @@ function startGarageVaultRuntime(): () => void {
   });
   const unsubscribeProPreferences = useProPreferencesStore.subscribe((state, previous) => {
     if (state.enabled === previous.enabled) return;
-    if (state.enabled) startSyncEngine();
+    if (state.enabled) activateFleet(true);
     else garageSyncEngine.stop();
   });
   const unsubscribeFederation = useFederationStore.subscribe((state, previous) => {
     if (state.coordinators === previous.coordinators) return;
     garageSyncEngine.reconfigure();
+    const nextFingerprint = enabledCoordinatorFingerprint();
+    if (nextFingerprint !== coordinatorFingerprint) {
+      coordinatorFingerprint = nextFingerprint;
+      if (nextFingerprint) activateFleet(true);
+    }
   });
   const onVisibilityChange = () => {
     if (document.visibilityState === "visible") garageSyncEngine.resume();
     else garageSyncEngine.pause();
   };
-  const onResume = () => garageSyncEngine.resume();
-  const onOnline = () => garageSyncEngine.resume();
   document.addEventListener("visibilitychange", onVisibilityChange);
-  window.addEventListener("focus", onResume);
-  window.addEventListener("online", onOnline);
-  window.addEventListener("robosats:native-resume", onResume);
+  const stopLifecycle = subscribeRefreshIntents((reason) => {
+    if (reason === "resume" || reason === "online" || reason === "tor-ready" || reason === "tor-reconnected") {
+      garageSyncEngine.resume();
+    }
+  });
   const onUiPreferences = () => {
     usePortableSettingsStore.getState().captureUiPreferences();
   };
@@ -103,13 +193,12 @@ function startGarageVaultRuntime(): () => void {
 
   return () => {
     stopped = true;
+    stopTradeCache();
     unsubscribeVault();
     unsubscribeProPreferences();
     unsubscribeFederation();
     document.removeEventListener("visibilitychange", onVisibilityChange);
-    window.removeEventListener("focus", onResume);
-    window.removeEventListener("online", onOnline);
-    window.removeEventListener("robosats:native-resume", onResume);
+    stopLifecycle();
     window.removeEventListener("robosats-ui-preferences", onUiPreferences);
     garageSyncEngine.stop();
   };
@@ -123,13 +212,16 @@ function applyVaultManifestToGarage(): void {
   for (const entry of garageSlotsFromManifest(manifest)) {
     const existing = useGarageStore.getState().slots.find((slot) => slot.token === entry.token);
     if (existing) {
-      if (existing.nickname !== entry.nickname) garage.updateSlotIdentityDetails(entry.token, { nickname: entry.nickname });
+      if (existing.nickname !== entry.nickname || existing.managedBy !== "fleet") {
+        garage.addSlot({ ...existing, nickname: entry.nickname, managedBy: "fleet" });
+      }
       continue;
     }
     const identity = deriveRobotIdentity(entry.token);
     garage.addSlot({
       ...identity,
       nickname: entry.nickname,
+      managedBy: "fleet",
       earnedRewards: 0,
       robots: {
         local: {
@@ -166,7 +258,15 @@ export async function syncAllProDataNow(
 
 async function reconcileCurrent(_reason: ReconcileReason): Promise<void> {
   const garage = useGarageStore.getState();
-  const slot = garage.currentSlot();
+  const slot = selectCurrentSlot(selectStandardGarageSlots(garage.slots), garage.currentToken);
   if (!slot) return;
   await garage.refreshRobotSlot(slot.token, useFederationStore.getState().coordinators);
+}
+
+function enabledCoordinatorFingerprint(): string {
+  return useFederationStore.getState().coordinators
+    .filter((coordinator) => coordinator.enabled && coordinator.url && coordinator.shortAlias !== "local")
+    .map((coordinator) => `${coordinator.shortAlias}:${coordinator.url}`)
+    .sort()
+    .join("|");
 }

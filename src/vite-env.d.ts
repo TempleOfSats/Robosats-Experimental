@@ -15,6 +15,7 @@ interface RoboSatsNativeBridge {
     setNotificationsEnabled(enabled: boolean): void;
     httpRequest(requestId: string, method: string, url: string, headersJson: string, body: string): void;
     cancelHttpRequest?(requestId: string): void;
+    recoverTorTransport?(): void;
     openWebSocket(socketId: string, url: string, protocolsJson: string): void;
     sendWebSocket(socketId: string, message: string): boolean;
     closeWebSocket(socketId: string, code: number, reason: string): void;

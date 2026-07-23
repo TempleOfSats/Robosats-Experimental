@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   orderRefreshDelayMs,
+  jitterDelay,
   shouldLeaveTradeAfterAction,
   shouldOpenOrderDetailsByDefault,
   shouldReturnExpiredTakeToOffers
@@ -17,6 +18,12 @@ describe("orderRefreshDelayMs", () => {
   it("backs off after terminal and dispute states", () => {
     expect(orderRefreshDelayMs(14)).toBe(60_000);
     expect(orderRefreshDelayMs(16)).toBe(300_000);
+  });
+
+  it("keeps polling jitter within the configured range", () => {
+    expect(jitterDelay(10_000, 0.1, () => 0)).toBe(9_000);
+    expect(jitterDelay(10_000, 0.1, () => 0.5)).toBe(10_000);
+    expect(jitterDelay(10_000, 0.1, () => 1)).toBe(11_000);
   });
 });
 
@@ -45,12 +52,14 @@ describe("shouldLeaveTradeAfterAction", () => {
 });
 
 describe("shouldOpenOrderDetailsByDefault", () => {
-  it("opens details for a maker waiting on a public order", () => {
+  it("opens details for a maker with a public or paused order", () => {
     expect(shouldOpenOrderDetailsByDefault({ status: 1, is_maker: true })).toBe(true);
+    expect(shouldOpenOrderDetailsByDefault({ status: 2, is_maker: true })).toBe(true);
   });
 
   it("keeps details collapsed for takers and other trade stages", () => {
     expect(shouldOpenOrderDetailsByDefault({ status: 1, is_maker: false })).toBe(false);
+    expect(shouldOpenOrderDetailsByDefault({ status: 2, is_maker: false })).toBe(false);
     expect(shouldOpenOrderDetailsByDefault({ status: 3, is_maker: true })).toBe(false);
   });
 });

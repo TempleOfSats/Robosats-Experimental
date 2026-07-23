@@ -1,33 +1,28 @@
-import { classifyProTrade } from "@/domains/pro/proSelectors";
+import { classifyProTrade, isResumableOrRenewableOffer } from "@/domains/pro/proSelectors";
 import type { ProFilter } from "@/domains/pro/proPreferencesStore";
 import type { ProTradeSnapshot } from "@/domains/pro/pro.types";
 import type { OfferPreset } from "@/domains/pro/portableSettings";
+import { isRobotStatusStale } from "@/domains/pro/reconcilePolicy";
 
 export function summaryCounts(trades: ProTradeSnapshot[]): Record<Exclude<ProFilter, "all">, number> {
-  return {
-    "needs-action": trades.filter((trade) => classifyProTrade(trade) === "needs-action").length,
-    active: trades.filter((trade) => isActiveTrade(trade)).length,
-    public: trades.filter((trade) => trade.order?.status === 1 && trade.order.is_maker).length,
-    renewable: trades.filter((trade) => trade.renewable).length
-  };
+  const counts = { "needs-action": 0, active: 0, public: 0, renewable: 0 };
+  for (const trade of trades) {
+    const category = summaryCategory(trade);
+    if (category) counts[category] += 1;
+  }
+  return counts;
 }
 
 export function summaryHasStale(trades: ProTradeSnapshot[], filter: Exclude<ProFilter, "all">): boolean {
-  return trades.some((trade) => {
-    if (trade.freshness !== "error" && trade.freshness !== "stale") return false;
-    if (filter === "needs-action") return classifyProTrade({ ...trade, freshness: "fresh" }) === "needs-action";
-    if (filter === "active") return isActiveTrade(trade);
-    if (filter === "public") return trade.order?.status === 1 && trade.order.is_maker;
-    return trade.renewable;
-  });
+  return trades.some((trade) =>
+    (trade.freshness === "error" || trade.freshness === "stale")
+    && summaryCategory(trade) === filter
+  );
 }
 
 export function matchesFilter(snapshot: ProTradeSnapshot, filter: ProFilter): boolean {
   if (filter === "all") return true;
-  if (filter === "needs-action") return classifyProTrade(snapshot) === "needs-action";
-  if (filter === "active") return isActiveTrade(snapshot);
-  if (filter === "public") return snapshot.order?.status === 1 && snapshot.order.is_maker;
-  return snapshot.renewable;
+  return summaryCategory(snapshot) === filter;
 }
 
 export function groupLabel(group: ReturnType<typeof classifyProTrade>): string {
@@ -42,8 +37,9 @@ export function formatLastRefresh(value?: number): string {
   if (!value) return "Not refreshed";
   const elapsedMinutes = Math.max(0, Math.floor((Date.now() - value) / 60_000));
   if (elapsedMinutes < 1) return "Updated now";
-  if (elapsedMinutes < 60) return `Updated ${elapsedMinutes}m ago`;
-  return `Updated ${Math.floor(elapsedMinutes / 60)}h ago`;
+  const prefix = isRobotStatusStale(value) ? "Last checked" : "Updated";
+  if (elapsedMinutes < 60) return `${prefix} ${elapsedMinutes}m ago`;
+  return `${prefix} ${Math.floor(elapsedMinutes / 60)}h ago`;
 }
 
 export function uniquePresetName(candidate: string, presets: OfferPreset[]): string {
@@ -57,4 +53,12 @@ export function uniquePresetName(candidate: string, presets: OfferPreset[]): str
 function isActiveTrade(snapshot: ProTradeSnapshot): boolean {
   const status = snapshot.order?.status;
   return status != null && status >= 3 && ![4, 5, 12, 14, 17, 18].includes(status);
+}
+
+function summaryCategory(snapshot: ProTradeSnapshot): Exclude<ProFilter, "all"> | undefined {
+  if (isResumableOrRenewableOffer(snapshot)) return "renewable";
+  if (snapshot.order?.status === 1 && snapshot.order.is_maker) return "public";
+  if (classifyProTrade(snapshot) === "needs-action") return "needs-action";
+  if (isActiveTrade(snapshot)) return "active";
+  return undefined;
 }

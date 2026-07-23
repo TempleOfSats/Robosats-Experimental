@@ -5,10 +5,15 @@ import type { OrderDto } from "@/domains/orders/order.types";
 import {
   classifyProTrade,
   compareProTrades,
-  selectOfferReadyRobots,
+  isResumableOrRenewableOffer,
   summarizeProRobots
 } from "@/domains/pro/proSelectors";
+import {
+  hasProRobotStatusBaseline,
+  selectOfferReadyRobots
+} from "@/domains/pro/proRobotLifecycle";
 import type { ProTradeSnapshot } from "@/domains/pro/pro.types";
+import { matchesFilter, summaryCounts } from "@/domains/pro/proWorkspacePresentation";
 
 describe("PRO trade selectors", () => {
   it("puts actionable work before waiting and stale trades", () => {
@@ -24,6 +29,35 @@ describe("PRO trade selectors", () => {
 
   it("classifies renewable maker offers independently", () => {
     expect(classifyProTrade({ ...snapshot({ status: 5, is_maker: true }), renewable: true })).toBe("renewable");
+  });
+
+  it("treats paused maker offers as resumable but not paused taker orders", () => {
+    const pausedMaker = snapshot({ status: 2, is_maker: true });
+    const pausedTaker = snapshot({ status: 2, is_maker: false });
+
+    expect(isResumableOrRenewableOffer(pausedMaker)).toBe(true);
+    expect(classifyProTrade(pausedMaker)).toBe("renewable");
+    expect(matchesFilter(pausedMaker, "renewable")).toBe(true);
+    expect(summaryCounts([pausedMaker]).renewable).toBe(1);
+    expect(isResumableOrRenewableOffer(pausedTaker)).toBe(false);
+    expect(classifyProTrade(pausedTaker)).toBe("waiting");
+  });
+
+  it("assigns each trade to only one summary category", () => {
+    const actionableActive = snapshot({ status: 6, is_buyer: true, is_seller: false });
+    const waitingActive = snapshot({ status: 7, is_buyer: true, is_seller: false });
+    const publicOffer = snapshot({ status: 1, is_maker: true });
+    const resumableOffer = snapshot({ status: 2, is_maker: true });
+    const counts = summaryCounts([actionableActive, waitingActive, publicOffer, resumableOffer]);
+
+    expect(counts).toEqual({
+      "needs-action": 1,
+      active: 1,
+      public: 1,
+      renewable: 1
+    });
+    expect(matchesFilter(actionableActive, "needs-action")).toBe(true);
+    expect(matchesFilter(actionableActive, "active")).toBe(false);
   });
 
   it("maps every coordinator order status to a stable desk group", () => {
@@ -51,8 +85,30 @@ describe("PRO trade selectors", () => {
     };
     const slots = [ready, reserved, stale, active];
 
-    expect(selectOfferReadyRobots(slots, summarizeProRobots(slots, snapshots)).map((robot) => robot.nickname))
+    expect(selectOfferReadyRobots(
+      slots,
+      summarizeProRobots(slots, snapshots),
+      snapshots
+    ).map((robot) => robot.nickname))
       .toEqual(["Ready Robot"]);
+  });
+
+  it("keeps a successful status baseline visible during routine refreshes", () => {
+    expect(hasProRobotStatusBaseline()).toBe(false);
+    const refreshing = {
+      slotId: "slot",
+      epoch: 0,
+      inFlight: true,
+      lastAttemptAt: 2,
+      lastSuccessAt: 1
+    };
+    expect(hasProRobotStatusBaseline(refreshing)).toBe(true);
+    expect(hasProRobotStatusBaseline({
+      slotId: "new-slot",
+      epoch: 0,
+      inFlight: false,
+      locallyReadyAt: 3
+    })).toBe(true);
   });
 });
 

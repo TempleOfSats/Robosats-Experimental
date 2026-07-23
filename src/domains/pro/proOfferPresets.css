@@ -1,6 +1,8 @@
 .pro-presets-sheet {
+  box-sizing: border-box;
   width: min(calc(100vw - 2rem), 48rem);
   max-height: min(46rem, calc(100dvh - 2rem));
+  margin-inline: auto;
   overflow: hidden;
 }
 
@@ -106,7 +108,7 @@
 }
 
 .pro-presets-empty {
-  min-height: 14rem;
+  min-height: 11rem;
   display: grid;
   place-items: center;
   align-content: center;
@@ -123,5 +125,3 @@
   max-width: 34ch;
   margin: 0;
 }
-
-

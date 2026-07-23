@@ -27,12 +27,16 @@ const actionable = new Set([
 
 export function classifyProTrade(snapshot: ProTradeSnapshot): ProTradeGroup {
   if (snapshot.freshness === "error" || snapshot.freshness === "stale") return "stale";
-  if (snapshot.renewable) return "renewable";
+  if (isResumableOrRenewableOffer(snapshot)) return "renewable";
   if (!snapshot.order) return "stale";
   const view = getTradeViewState(snapshot.order);
   if (actionable.has(view.requiredAction)) return "needs-action";
   if (snapshot.order.status === 1 || snapshot.order.status === 2 || snapshot.order.status === 3) return "waiting";
   return "in-progress";
+}
+
+export function isResumableOrRenewableOffer(snapshot: ProTradeSnapshot): boolean {
+  return snapshot.renewable || Boolean(snapshot.order?.status === 2 && snapshot.order.is_maker);
 }
 
 export function compareProTrades(left: ProTradeSnapshot, right: ProTradeSnapshot): number {
@@ -86,21 +90,6 @@ export function summarizeProRobots(
       relevantOrderCount: trades.filter((trade) => !trade.released).length,
       stale: trades.some((trade) => trade.freshness === "error" || trade.freshness === "stale")
     };
-  });
-}
-
-export function selectOfferReadyRobots(
-  slots: RobotSlot[],
-  summaries: ProRobotSummary[]
-): ProRobotSummary[] {
-  const slotsById = new Map(slots.map((slot) => [slot.tokenSHA256, slot]));
-  return summaries.filter((summary) => {
-    const slot = slotsById.get(summary.slotId);
-    return Boolean(slot)
-      && !slot?.activeOrderId
-      && !summary.stale
-      && summary.relevantOrderCount === 0
-      && summary.needsAttentionCount === 0;
   });
 }
 

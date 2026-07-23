@@ -187,7 +187,7 @@ describe("nostr orderbook", () => {
     expect(selectNostrRelays(coordinators)[0]).not.toBe(failedRelay);
   });
 
-  it("finishes the initial fetch when the host relay completes both EOSE streams", async () => {
+  it("sequences the host snapshot and live streams before finishing the initial fetch", async () => {
     poolState.subscriptions.length = 0;
     const updates: Array<{ partial: boolean }> = [];
     const promise = fetchNostrOrderbook([coordinator], "mainnet", {
@@ -196,10 +196,12 @@ describe("nostr orderbook", () => {
       onOrders: (_orders, meta) => updates.push(meta)
     });
 
+    expect(poolState.subscriptions).toHaveLength(1);
+    poolState.subscriptions[0].params.oneose?.();
+    await Promise.resolve();
     expect(poolState.subscriptions).toHaveLength(2);
     expect(poolState.subscriptions.every((subscription) => subscription.relays[0] === "wss://unsafe.thebiglake.org/relay/")).toBe(true);
-
-    poolState.subscriptions.forEach((subscription) => subscription.params.oneose?.());
+    poolState.subscriptions[1].params.oneose?.();
 
     await expect(promise).resolves.toEqual([]);
     expect(updates.at(-1)).toEqual({ partial: false, authoritative: true });
@@ -219,16 +221,21 @@ describe("nostr orderbook", () => {
       maxWaitMs: 20_000
     });
 
-    expect(poolState.subscriptions).toHaveLength(2);
-    poolState.subscriptions.slice(0, 2).forEach((subscription) => subscription.params.oneose?.());
-    expect(poolState.subscriptions).toHaveLength(4);
+    expect(poolState.subscriptions).toHaveLength(1);
+    poolState.subscriptions[0].params.oneose?.();
+    await Promise.resolve();
+    poolState.subscriptions[1].params.oneose?.();
+    await Promise.resolve();
+    expect(poolState.subscriptions).toHaveLength(3);
 
     let settled = false;
     void promise.then(() => { settled = true; });
     await Promise.resolve();
     expect(settled).toBe(false);
 
-    poolState.subscriptions.slice(2, 4).forEach((subscription) => subscription.params.oneose?.());
+    poolState.subscriptions[2].params.oneose?.();
+    await Promise.resolve();
+    poolState.subscriptions[3].params.oneose?.();
     await expect(promise).resolves.toEqual([]);
   });
 
@@ -272,17 +279,19 @@ describe("nostr orderbook", () => {
         hostUrl: "standalone-client.example",
         maxWaitMs: 20_000
       });
-      expect(poolState.subscriptions).toHaveLength(2);
+      expect(poolState.subscriptions).toHaveLength(1);
 
       poolState.subscriptions[0].params.onevent?.(event({ tags: baseTags({ status: "pending" }) }));
       await vi.advanceTimersByTimeAsync(350);
-      poolState.subscriptions.slice(0, 2).forEach((subscription) => subscription.params.oneose?.());
+      poolState.subscriptions[0].params.oneose?.();
+      await Promise.resolve();
+      poolState.subscriptions[1].params.oneose?.();
       await expect(promise).resolves.toHaveLength(1);
 
       await vi.advanceTimersByTimeAsync(1_799);
       expect(poolState.subscriptions).toHaveLength(2);
       await vi.advanceTimersByTimeAsync(1);
-      expect(poolState.subscriptions).toHaveLength(4);
+      expect(poolState.subscriptions).toHaveLength(3);
     } finally {
       vi.useRealTimers();
     }

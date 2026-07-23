@@ -9,6 +9,7 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.Network
+import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -45,6 +46,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
+import java.lang.ref.WeakReference
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -88,10 +90,15 @@ class MainActivity : AppCompatActivity() {
 
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
+            if (observedNetwork == null) observedNetwork = network
+        }
+
+        override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+            if (!capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) return
+            Connectivity.updateNetworkCapabilities(capabilities)
             val previous = observedNetwork
             observedNetwork = network
             if (previous == null || previous == network) return
-
             lifecycleScope.launch {
                 updateStatusAnimated(getString(R.string.reconnecting_tor))
                 if (ArtiTorManager.resetAfterNetworkChange(applicationContext) is TorStatus.Active) {
@@ -147,6 +154,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStart() {
         super.onStart()
+        activeActivity = WeakReference(this)
         val pausedAt = backgroundedAt
         if (pausedAt == 0L) return
         backgroundedAt = 0L
@@ -154,6 +162,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onStop() {
+        if (activeActivity?.get() === this) activeActivity = null
         if (!isChangingConfigurations) backgroundedAt = SystemClock.elapsedRealtime()
         super.onStop()
     }
@@ -393,12 +402,26 @@ class MainActivity : AppCompatActivity() {
         runTransportHealthCheck(backgroundDurationMs)
     }
 
-    fun recoverTransportAfterFailure() {
+    fun recoverTransportAfterFailure(forceRebuild: Boolean = false) {
         lifecycleScope.launch {
             val now = SystemClock.elapsedRealtime()
             if (now - lastFailureHealthCheckAt < FAILURE_HEALTH_CHECK_COOLDOWN_MS) return@launch
             lastFailureHealthCheckAt = now
-            runTransportHealthCheck(backgroundDurationMs = 0L)
+            if (forceRebuild) {
+                if (resumeRecoveryRunning) return@launch
+                resumeRecoveryRunning = true
+                try {
+                    val status = ArtiTorManager.recoverAfterEndToEndFailure(applicationContext)
+                    torReady = status is TorStatus.Active
+                    bridge?.closeAll()
+                    dispatchNativeResume(0L, transportRefreshed = true)
+                    if (torReady) dispatchTorReady()
+                } finally {
+                    resumeRecoveryRunning = false
+                }
+            } else {
+                runTransportHealthCheck(backgroundDurationMs = 0L)
+            }
         }
     }
 
@@ -430,6 +453,17 @@ class MainActivity : AppCompatActivity() {
         webView.post {
             webView.evaluateJavascript(
                 "window.dispatchEvent(new CustomEvent('robosats:native-resume', {detail: $detail}))",
+                null
+            )
+        }
+    }
+
+    private fun dispatchNativeOrderHint(orderId: String?) {
+        if (!webAppReady) return
+        val detail = JSONObject().put("orderId", orderId)
+        webView.post {
+            webView.evaluateJavascript(
+                "window.dispatchEvent(new CustomEvent('robosats:native-order-hint', {detail: $detail}))",
                 null
             )
         }
@@ -544,6 +578,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     companion object {
+        @Volatile
+        private var activeActivity: WeakReference<MainActivity>? = null
+
+        fun dispatchOrderHint(orderId: String?) {
+            activeActivity?.get()?.dispatchNativeOrderHint(orderId)
+        }
+
         private const val APP_ASSET_HOST = "appassets.androidplatform.net"
         private const val APP_URL = "https://$APP_ASSET_HOST/index.html"
         private const val NOTIFICATIONS_KEY = "settings_notifications"
