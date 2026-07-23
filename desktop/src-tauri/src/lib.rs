@@ -117,6 +117,11 @@ fn desktop_retry(app: AppHandle, runtime: State<'_, DesktopRuntime>) {
 }
 
 #[tauri::command]
+fn desktop_recover_transport(app: AppHandle, runtime: State<'_, DesktopRuntime>) {
+    runtime.recover_transport(app);
+}
+
+#[tauri::command]
 fn desktop_boot_stage(app: AppHandle, progress: u8, message: String) {
     let status = serde_json::json!({
         "state": "loading",
@@ -214,6 +219,7 @@ pub fn run() {
             desktop_set_notifications_enabled,
             desktop_show_notification,
             desktop_retry,
+            desktop_recover_transport,
             desktop_boot_stage,
             desktop_app_ready,
             desktop_network_changed,

@@ -85,7 +85,8 @@ describe("Garage NIP-78 records", () => {
     const records = await queryGarageRecords({ querySync } as unknown as SimplePool, secret, ["wss://relay.example"]);
 
     expect(records).toHaveLength(1);
-    expect(querySync).toHaveBeenCalledTimes(3);
+    expect(querySync).toHaveBeenCalledTimes(2);
+    expect(querySync.mock.calls[0]?.[1].authors).toHaveLength(2);
     expect(querySync.mock.calls.map((call) => call[1])).toContainEqual(expect.objectContaining({ until: 9 }));
   });
 

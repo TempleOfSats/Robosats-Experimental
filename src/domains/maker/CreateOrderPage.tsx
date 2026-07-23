@@ -28,7 +28,8 @@ import { fetchCoordinatorRatings, type CoordinatorRating } from "@/domains/coord
 import { federationLottery } from "@/domains/coordinators/federationLottery";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
 import { toUserMessage } from "@/lib/userError";
-import { getRobotAuthForCoordinator, selectCurrentSlot, useGarageStore } from "@/domains/garage/garageStore";
+import { getRobotAuthForCoordinator, selectCurrentSlot, selectStandardGarageSlots, useGarageStore } from "@/domains/garage/garageStore";
+import { getRobotOrderAvailability } from "@/domains/garage/robotAvailability";
 import { RobotAvatar } from "@/domains/identity/RobotAvatar";
 import {
   buildCreateOrderPayload,
@@ -47,10 +48,13 @@ import { currencyIdFromCode, currencyOptions } from "@/domains/orderbook/currenc
 import { CurrencyFlag, CurrencyPicker, PaymentMethodIcons, PaymentMethodPicker } from "@/domains/orderbook/OfferMeta";
 import { normalPaymentMethodOptions, swapPaymentMethodOptions } from "@/domains/orderbook/paymentMethods";
 import { ingestCoordinatorOrder } from "@/domains/orders/orderActivity";
+import { reserveRobotOrderAction, revalidateRobotForNewOrder } from "@/domains/orders/robotOrderGuard";
 import { roleBuysBitcoin, roleIntentLabel } from "@/domains/orders/orderRole";
 import { activeOfferPresets, type OfferPreset } from "@/domains/pro/portableSettings";
 import { usePortableSettingsStore } from "@/domains/pro/portableSettingsStore";
 import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
+import { deriveProRobotLifecycle } from "@/domains/pro/proRobotLifecycle";
+import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
 import { formatFiat } from "@/lib/format";
 
 const NORMAL_PAYMENT_METHODS = normalPaymentMethodOptions();
@@ -71,6 +75,7 @@ type CreateOrderRouteState = {
   creatingOfferAs?: { hashId: string; nickname: string };
   presetId?: string;
   presetEditor?: { id?: string };
+  robotSlotId?: string;
 };
 
 const initialDraft: CreateOrderDraft = {
@@ -102,8 +107,15 @@ export function CreateOrderPage() {
   const slots = useGarageStore((state) => state.slots);
   const currentToken = useGarageStore((state) => state.currentToken);
   const hydrateGarage = useGarageStore((state) => state.hydrate);
-  const activeSlot = selectCurrentSlot(slots, currentToken);
   const proEnabled = useProPreferencesStore((state) => state.enabled);
+  const tradeSnapshots = useProTradeIndexStore((state) => state.snapshots);
+  const tradeSyncBySlot = useProTradeIndexStore((state) => state.syncBySlot);
+  const standardSlots = useMemo(() => selectStandardGarageSlots(slots), [slots]);
+  const activeSlot = proEnabled && !renewal?.presetEditor
+    ? renewal?.robotSlotId
+      ? slots.find((slot) => slot.tokenSHA256 === renewal.robotSlotId)
+      : undefined
+    : selectCurrentSlot(standardSlots, currentToken);
   const setProLastView = useProPreferencesStore((state) => state.setLastView);
   const portableManifest = usePortableSettingsStore((state) => state.manifest);
   const savePreset = usePortableSettingsStore((state) => state.savePreset);
@@ -128,6 +140,11 @@ export function CreateOrderPage() {
   }, [hydrateGarage, refreshCoordinators]);
 
   useEffect(() => {
+    if (!proEnabled || renewal?.presetEditor || renewal?.robotSlotId) return;
+    navigate("/pro", { replace: true, state: { openCreate: true } });
+  }, [navigate, proEnabled, renewal?.presetEditor, renewal?.robotSlotId]);
+
+  useEffect(() => {
     if (!creatingOfferNotice) return;
     const timeout = window.setTimeout(() => setCreatingOfferNotice(undefined), 2600);
     return () => window.clearTimeout(timeout);
@@ -143,11 +160,18 @@ export function CreateOrderPage() {
   const selectedAlias = selectedCoordinator?.shortAlias ?? "";
   const selectedCurrency = currencyLabel(draft.currency);
   const auth = getRobotAuthForCoordinator(activeSlot, selectedAlias);
+  const robotAvailability = proEnabled && activeSlot
+    ? deriveProRobotLifecycle(
+        activeSlot,
+        tradeSnapshots,
+        tradeSyncBySlot[activeSlot.tokenSHA256]
+      ).availability
+    : getRobotOrderAvailability(activeSlot, tradeSnapshots);
   const payload = useMemo(() => buildCreateOrderPayload(draft), [draft]);
   const validationErrors = useMemo(() => validateCreateOrderPayload(payload), [payload]);
   const canSubmit = presetEditor
     ? Boolean(presetName.trim() && validationErrors.length === 0)
-    : Boolean(activeSlot && auth && selectedCoordinator?.url && validationErrors.length === 0);
+    : Boolean(activeSlot && robotAvailability.available && auth && selectedCoordinator?.url && validationErrors.length === 0);
 
   useEffect(() => {
     if (presetEditor || selectedShortAlias || selectableCoordinators.length === 0) return;
@@ -256,7 +280,10 @@ export function CreateOrderPage() {
     if (step === 0) {
       if (presetEditor) return presetName.trim() ? [] : ["Give this preset a name before continuing."];
       const errors: string[] = [];
-      if (!activeSlot) errors.push("Create or recover a robot before publishing an offer.");
+      if (!activeSlot) errors.push(proEnabled
+        ? "Choose an available Fleet robot from the Pro Desk."
+        : "Create or recover a robot before publishing an offer.");
+      else if (!robotAvailability.available) errors.push(robotAvailability.message ?? "This robot is not available for another order.");
       if (!selectedCoordinator?.url) errors.push("Choose an available coordinator.");
       if (activeSlot && selectedCoordinator && !auth) errors.push("This robot has no credentials for the selected coordinator.");
       return errors;
@@ -315,11 +342,24 @@ export function CreateOrderPage() {
       return;
     }
 
+    const releaseReservation = reserveRobotOrderAction(activeSlot.tokenSHA256);
+    if (!releaseReservation) {
+      setSubmitError(`${activeSlot.nickname} is already starting another order.`);
+      return;
+    }
+
     setSubmitting(true);
     setSubmitError("");
 
     try {
-      const response = await createOrder(selectedCoordinator.url, payload, auth);
+      const actionSlot = await revalidateRobotForNewOrder({
+        coordinator: selectedCoordinator,
+        proEnabled,
+        slotId: activeSlot.tokenSHA256
+      });
+      const actionAuth = getRobotAuthForCoordinator(actionSlot, selectedAlias);
+      if (!actionAuth) throw new Error("This robot has no credentials for the selected coordinator.");
+      const response = await createOrder(selectedCoordinator.url, payload, actionAuth);
       const backendError = response.bad_request ?? response.bad_amount ?? response.bad_payment_method ?? response.bad_password;
       if (backendError) {
         setSubmitError(backendError);
@@ -331,14 +371,15 @@ export function CreateOrderPage() {
       }
       ingestCoordinatorOrder({
         authoritative: false,
-        order: buildProvisionalMakerOrder(response.id, selectedAlias, payload, activeSlot),
+        order: buildProvisionalMakerOrder(response.id, selectedAlias, payload, actionSlot),
         shortAlias: selectedAlias,
-        slot: activeSlot
+        slot: actionSlot
       });
       navigate(`/order/${selectedAlias}/${response.id}`);
     } catch (error) {
       setSubmitError(toUserMessage(error, "Could not create order."));
     } finally {
+      releaseReservation();
       setSubmitting(false);
     }
   }
@@ -398,9 +439,9 @@ export function CreateOrderPage() {
               {!presetEditor && !activeSlot ? (
                 <div className="status-panel status-panel-warning maker-inline-warning">
                   <AlertCircle size={18} />
-                  <span>Create or recover a robot before publishing an offer.</span>
-                  <Link className="text-command" to="/garage">
-                    Garage
+                  <span>{proEnabled ? "Choose an available Fleet robot before publishing an offer." : "Create or recover a robot before publishing an offer."}</span>
+                  <Link className="text-command" to={proEnabled ? "/pro" : "/garage"}>
+                    {proEnabled ? "Pro Desk" : "Garage"}
                   </Link>
                 </div>
               ) : null}

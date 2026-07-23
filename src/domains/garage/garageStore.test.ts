@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
-import { getRobotAuthForCoordinator, selectCurrentSlot, type RobotSlot, useGarageStore } from "@/domains/garage/garageStore";
+import { getRobotAuthForCoordinator, selectCurrentSlot, selectFleetManagedSlots, selectStandardGarageSlots, type RobotSlot, useGarageStore } from "@/domains/garage/garageStore";
 
 let storage: Map<string, string>;
 
@@ -64,6 +64,12 @@ describe("garage selectors", () => {
     expect(selectCurrentSlot([slot], "missing")).toBe(slot);
   });
 
+  it("keeps Fleet-managed identities out of the standard Garage projection", () => {
+    const fleetSlot = { ...makeSlot("fleet"), managedBy: "fleet" as const };
+    expect(selectStandardGarageSlots([fleetSlot, slot])).toEqual([slot]);
+    expect(selectFleetManagedSlots([fleetSlot, slot])).toEqual([fleetSlot]);
+  });
+
   it("builds auth for the requested coordinator robot", () => {
     expect(getRobotAuthForCoordinator(slot, "lake")).toEqual({
       tokenSHA256: "lake-token",
@@ -119,6 +125,40 @@ describe("garage order sync", () => {
     useGarageStore.getState().hydrate();
 
     expect(useGarageStore.getState().slots.map((item) => item.token)).toEqual(["current"]);
+  });
+
+  it("persists Fleet ownership with a materialized robot", () => {
+    useGarageStore.setState({ slots: [], currentToken: undefined, hydrated: true });
+    useGarageStore.getState().addSlot({ ...makeSlot("fleet"), managedBy: "fleet" });
+
+    useGarageStore.setState({ slots: [], currentToken: undefined, hydrated: false });
+    useGarageStore.getState().hydrate();
+
+    expect(useGarageStore.getState().slots[0]).toMatchObject({ token: "fleet", managedBy: "fleet" });
+  });
+
+  it("does not persist transient robot refresh flags", () => {
+    const loadingSlot = {
+      ...makeSlot("loading"),
+      loading: true,
+      robots: {
+        local: {
+          ...makeSlot("loading").robots.local,
+          loading: true
+        }
+      }
+    };
+    useGarageStore.setState({ slots: [], currentToken: undefined, hydrated: true });
+    useGarageStore.getState().addSlot(loadingSlot);
+
+    const stored = JSON.parse(storage.get("robosats_exp_garage_slots_v1") ?? "{}");
+    expect(stored.slots[0]).not.toHaveProperty("loading");
+    expect(stored.slots[0].robots.local).not.toHaveProperty("loading");
+
+    useGarageStore.setState({ slots: [], currentToken: undefined, hydrated: false });
+    useGarageStore.getState().hydrate();
+    expect(useGarageStore.getState().slots[0].loading).toBeUndefined();
+    expect(useGarageStore.getState().slots[0].robots.local.loading).toBeUndefined();
   });
 
   it("replaces an existing slot with a newly added local robot for the same token", () => {
@@ -366,6 +406,34 @@ describe("garage order sync", () => {
     });
   }, 30000);
 
+  it("applies a preferred coordinator before slower refreshes settle", async () => {
+    const temple = {
+      ...coordinator,
+      shortAlias: "temple",
+      longAlias: "Temple",
+      url: "https://temple.example"
+    };
+    useGarageStore.setState({ slots: [slotWithCoordinatorKeys()], currentToken: "token", hydrated: true });
+    let resolveLake: ((value: ReturnType<typeof robotSnapshot>) => void) | undefined;
+    let resolveTemple: ((value: ReturnType<typeof robotSnapshot>) => void) | undefined;
+    fetchRobotMock.mockImplementation((url: string) => new Promise((resolve) => {
+      if (url.includes("temple")) resolveTemple = resolve;
+      else resolveLake = resolve;
+    }));
+
+    const refresh = useGarageStore.getState().refreshRobotSlot("token", [temple, coordinator], {
+      preferredAliases: ["lake"]
+    });
+    await vi.waitFor(() => expect(fetchRobotMock).toHaveBeenCalledTimes(2));
+    resolveLake?.(robotSnapshot({ activeOrderId: 91234, lastOrderId: 91234 }));
+    await vi.waitFor(() => expect(useGarageStore.getState().slots[0].robots.lake.activeOrderId).toBe(91234));
+    expect(useGarageStore.getState().slots[0].loading).toBe(true);
+
+    resolveTemple?.(robotSnapshot());
+    await refresh;
+    expect(useGarageStore.getState().slots[0].loading).toBe(false);
+  }, 30000);
+
   it("does not resurrect a released reservation from a stale robot snapshot", async () => {
     const activeSlot = slotWithCoordinatorKeys({ activeOrderId: 89895, lastOrderId: 89895 });
     useGarageStore.setState({ slots: [activeSlot], currentToken: "token", hydrated: true });
@@ -398,6 +466,25 @@ describe("garage order sync", () => {
     expect(refreshed.activeOrderId).toBeUndefined();
     expect(refreshed.lastOrderId).toBeUndefined();
     expect(refreshed.robots.lake.releasedOrderId).toBe(89895);
+  }, 30000);
+
+  it("does not clear a new reservation created while its robot refresh is in flight", async () => {
+    useGarageStore.setState({ slots: [slotWithCoordinatorKeys()], currentToken: "token", hydrated: true });
+    let resolveRobot: ((snapshot: ReturnType<typeof robotSnapshot>) => void) | undefined;
+    fetchRobotMock.mockReturnValue(new Promise((resolve) => {
+      resolveRobot = resolve;
+    }));
+
+    const refresh = useGarageStore.getState().refreshRobots([coordinator]);
+    await vi.waitFor(() => expect(fetchRobotMock).toHaveBeenCalledOnce());
+    useGarageStore.getState().setActiveOrder("token", "lake", 91234);
+    resolveRobot?.(robotSnapshot());
+    await refresh;
+
+    const refreshed = useGarageStore.getState().slots[0];
+    expect(refreshed.activeOrderId).toBe(91234);
+    expect(refreshed.lastOrderId).toBe(91234);
+    expect(refreshed.robots.lake.activeOrderId).toBe(91234);
   }, 30000);
 
   it("replaces incompatible keys with a coordinator-compatible pair", async () => {

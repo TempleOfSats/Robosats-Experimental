@@ -20,9 +20,11 @@ object NostrClient {
     private const val legacyGarageKey = "garage_slots"
     private const val subscriptionId = "robosatsNotificationId"
     private const val maxNotificationRelays = 3
+    private const val relayOrderKey = "robosats_notification_relay_order_v1"
     private var authors = emptyList<String>()
     private var initialized = false
     private var configuredRelayUrls = emptySet<String>()
+    private val relayFailures = mutableMapOf<String, Int>()
 
     fun init() {
         if (initialized) return
@@ -35,6 +37,7 @@ object NostrClient {
     fun stop() {
         RelayPool.unloadRelays()
         configuredRelayUrls = emptySet()
+        relayFailures.clear()
     }
 
     fun start() {
@@ -56,7 +59,26 @@ object NostrClient {
 
     fun checkRelaysHealth() {
         if (RelayPool.getAll().isEmpty()) start()
-        RelayPool.getAll().filterNot { it.isConnected() }.forEach { it.connectAndSendFiltersIfDisconnected() }
+        val relays = RelayPool.getAll()
+        relays.forEach { relay ->
+            relayFailures[relay.url] = if (relay.isConnected()) 0 else (relayFailures[relay.url] ?: 0) + 1
+        }
+        val previousOrder = storedRelayOrder()
+        val connected = relays.filter { it.isConnected() }.map { it.url }
+        val nextOrder = (connected
+            + previousOrder.filter { relayFailures.getOrDefault(it, 0) < 3 }
+            + configuredRelayUrls.sorted())
+            .distinct()
+            .take(maxNotificationRelays)
+        if (nextOrder != previousOrder.take(maxNotificationRelays)) {
+            persistRelayOrder(nextOrder)
+            RelayPool.unloadRelays()
+            configuredRelayUrls = emptySet()
+            connectRelays()
+            subscribeToInbox()
+            return
+        }
+        relays.filterNot { it.isConnected() }.forEach { it.connectAndSendFiltersIfDisconnected() }
     }
 
     fun garagePubKeys(): List<String> = storedIdentities().map { it.publicKey }.distinct()
@@ -73,7 +95,12 @@ object NostrClient {
     private fun connectRelays(relayUrls: Set<String> = relayUrls()) {
         if (relayUrls.isEmpty()) return
 
-        val selectedRelays = relayUrls.shuffled().take(maxNotificationRelays).toSet()
+        val previousOrder = storedRelayOrder()
+        val selectedRelays = (previousOrder.filter(relayUrls::contains) + relayUrls.sorted())
+            .distinct()
+            .take(maxNotificationRelays)
+            .toSet()
+        persistRelayOrder(selectedRelays.toList())
         Client.sendFilterOnlyIfDisconnected()
         selectedRelays.forEach { relayUrl ->
             if (RelayPool.getRelays(relayUrl).isEmpty()) {
@@ -89,6 +116,15 @@ object NostrClient {
             }
         }
         configuredRelayUrls = relayUrls
+    }
+
+    private fun storedRelayOrder(): List<String> = runCatching {
+        val values = JSONArray(EncryptedStorage.getEncryptedStorage(relayOrderKey))
+        (0 until values.length()).map { values.optString(it) }
+    }.getOrDefault(emptyList())
+
+    private fun persistRelayOrder(relays: List<String>) {
+        EncryptedStorage.setEncryptedStorage(relayOrderKey, JSONArray(relays).toString())
     }
 
     private fun relayUrls(): Set<String> {

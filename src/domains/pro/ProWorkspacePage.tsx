@@ -39,10 +39,14 @@ import {
 } from "@/domains/pro/garageReconciler";
 import { useProPreferencesStore, type ProFilter, type ProView } from "@/domains/pro/proPreferencesStore";
 import {
-  selectOfferReadyRobots,
   selectRelevantTrades,
   summarizeProRobots
 } from "@/domains/pro/proSelectors";
+import {
+  deriveProRobotLifecycle,
+  proRobotStatusTimestamp,
+  selectOfferReadyRobots
+} from "@/domains/pro/proRobotLifecycle";
 import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
 import type { ProTradeLocator, ProTradeSnapshot } from "@/domains/pro/pro.types";
 import { GarageSetupDialog } from "@/domains/pro/GarageSetupDialog";
@@ -65,7 +69,7 @@ import {
   RobotAddedNotice,
   TelegramCoordinatorPicker
 } from "@/domains/pro/ProWorkspaceDialogs";
-import { FleetGlyph, RobotGlyph } from "@/domains/pro/ProWorkspaceIcons";
+import { AddRobotGlyph, FleetGlyph } from "@/domains/pro/ProWorkspaceIcons";
 import { RobotList, TradeList } from "@/domains/pro/ProWorkspaceLists";
 import {
   matchesFilter,
@@ -73,6 +77,7 @@ import {
   summaryHasStale,
   uniquePresetName
 } from "@/domains/pro/proWorkspacePresentation";
+import { shouldRefreshRobotStatus } from "@/domains/pro/reconcilePolicy";
 import "@/domains/pro/proWorkspace.css";
 
 const summaryItems: Array<{
@@ -116,16 +121,17 @@ export function ProWorkspacePage() {
   const removeTrade = useProTradeIndexStore((state) => state.removeTrade);
   const location = useLocation();
   const navigate = useNavigate();
+  const routeState = location.state as { openCreate?: boolean; openPresets?: boolean } | null;
   const [announcement, setAnnouncement] = useState("");
   const [addingRobot, setAddingRobot] = useState(false);
   const [garageSetupOpen, setGarageSetupOpen] = useState(false);
   const [garageRecoveryOpen, setGarageRecoveryOpen] = useState(false);
   const [fleetKeyOpen, setFleetKeyOpen] = useState(false);
-  const [presetsOpen, setPresetsOpen] = useState(() => Boolean((location.state as { openPresets?: boolean } | null)?.openPresets));
+  const [presetsOpen, setPresetsOpen] = useState(() => Boolean(routeState?.openPresets));
   const [abandonFleetOpen, setAbandonFleetOpen] = useState(false);
   const [abandoningFleet, setAbandoningFleet] = useState(false);
   const [addedRobot, setAddedRobot] = useState<{ slotId: string; hashId: string; nickname: string }>();
-  const [createPickerOpen, setCreatePickerOpen] = useState(false);
+  const [createPickerOpen, setCreatePickerOpen] = useState(() => Boolean(routeState?.openCreate));
   const [pendingPresetId, setPendingPresetId] = useState<string>();
   const [settingsSlotId, setSettingsSlotId] = useState<string>();
   const [settingsAlias, setSettingsAlias] = useState<string>();
@@ -137,6 +143,7 @@ export function ProWorkspacePage() {
   const [selectedTrade, setSelectedTrade] = useState<ProTradeLocator>();
   const [quickActionKey, setQuickActionKey] = useState("");
   const [cancelTrade, setCancelTrade] = useState<ProTradeSnapshot>();
+  const [manualRefreshing, setManualRefreshing] = useState(false);
   const tradesTab = useRef<HTMLButtonElement>(null);
   const robotsTab = useRef<HTMLButtonElement>(null);
 
@@ -150,8 +157,12 @@ export function ProWorkspacePage() {
   const trades = useMemo(() => selectRelevantTrades(snapshots), [snapshots]);
   const robotSummaries = useMemo(() => summarizeProRobots(slots, snapshots), [slots, snapshots]);
   const offerReadyRobots = useMemo(
-    () => selectOfferReadyRobots(slots, robotSummaries),
-    [robotSummaries, slots]
+    () => selectOfferReadyRobots(slots, robotSummaries, snapshots),
+    [robotSummaries, slots, snapshots]
+  );
+  const offerReadySlotIds = useMemo(
+    () => new Set(offerReadyRobots.map((robot) => robot.slotId)),
+    [offerReadyRobots]
   );
   const offerPresets = useMemo(() => activeOfferPresets(portableManifest), [portableManifest]);
   const fleetFull = Boolean(manifest && !hasGarageRobotCapacity(manifest));
@@ -160,7 +171,6 @@ export function ProWorkspacePage() {
     [filter, trades]
   );
   const counts = useMemo(() => summaryCounts(trades), [trades]);
-  const refreshing = Object.values(syncBySlot).some((sync) => sync.inFlight);
   const displayCoordinators = useMemo(() => coordinators
     .filter((coordinator) => coordinator.shortAlias !== "local")
     .sort(compareCoordinatorsByEstablished), [coordinators]);
@@ -191,10 +201,18 @@ export function ProWorkspacePage() {
   function startCreateOffer(slotId: string, presetId?: string) {
     const slot = slots.find((item) => item.tokenSHA256 === slotId);
     if (!slot) return;
+    if (!offerReadySlotIds.has(slotId)) {
+      setAnnouncement(`${slot.nickname} is not available for another order.`);
+      return;
+    }
+    if (shouldRefreshRobotStatus(proRobotStatusTimestamp(syncBySlot[slotId]))) {
+      void garageReconciler.reconcileSlot(slotId, "order-action");
+    }
     setCurrentToken(slot.token);
     navigate("/create", {
       state: {
         creatingOfferAs: { hashId: slot.hashId, nickname: slot.nickname },
+        robotSlotId: slot.tokenSHA256,
         presetId
       }
     });
@@ -228,6 +246,31 @@ export function ProWorkspacePage() {
     setSelectedTrade(locator);
   }
 
+  function openRobotTrade(slotId: string) {
+    const snapshot = trades.find((trade) => trade.locator.slotId === slotId);
+    if (snapshot) {
+      openTrade(snapshot.locator);
+      return;
+    }
+
+    const slot = slots.find((item) => item.tokenSHA256 === slotId);
+    const coordinatorOrder = slot
+      ? Object.entries(slot.robots).find(([alias, robot]) =>
+        alias !== "local" && Boolean(robot.activeOrderId || robot.renewableOrderId)
+      )
+      : undefined;
+    const orderId = coordinatorOrder?.[1].activeOrderId
+      ?? coordinatorOrder?.[1].renewableOrderId
+      ?? slot?.activeOrderId;
+    if (slot && coordinatorOrder && orderId) {
+      openTrade({ slotId, shortAlias: coordinatorOrder[0], orderId });
+      return;
+    }
+
+    setAnnouncement(`${slot?.nickname ?? "This robot"}'s trade is still being loaded.`);
+    void garageReconciler.reconcileSlot(slotId, "order-action");
+  }
+
   const closeTrade = useCallback(() => {
     setSelectedTrade(undefined);
     void garageReconciler.reconcileAll("order-action");
@@ -258,6 +301,7 @@ export function ProWorkspacePage() {
       addSlot({
         ...identity,
         nickname: fallbackName,
+        managedBy: "fleet",
         earnedRewards: 0,
         robots: {
           local: {
@@ -405,10 +449,15 @@ export function ProWorkspacePage() {
   async function deleteRobotNow(slotId: string) {
     const slot = slots.find((item) => item.tokenSHA256 === slotId);
     if (!slot) return;
-    const summary = robotSummaries.find((item) => item.slotId === slotId);
-    if (summary?.relevantOrderCount) {
+    const tradeIndex = useProTradeIndexStore.getState();
+    const lifecycle = deriveProRobotLifecycle(
+      slot,
+      tradeIndex.snapshots,
+      tradeIndex.syncBySlot[slotId]
+    );
+    if (!lifecycle.canRemove) {
       setDeleteSlotId(undefined);
-      setAnnouncement(`${slot.nickname} cannot be removed while it has an order.`);
+      setAnnouncement(lifecycle.availability.message ?? `${slot.nickname} cannot be removed while it has an order.`);
       return;
     }
     try {
@@ -438,9 +487,15 @@ export function ProWorkspacePage() {
   }
 
   async function refresh() {
+    if (manualRefreshing) return;
+    setManualRefreshing(true);
     setAnnouncement("Refreshing trade desk");
-    await garageReconciler.reconcileAll("manual");
-    setAnnouncement("Trade Desk refreshed");
+    try {
+      await garageReconciler.reconcileAll("manual");
+      setAnnouncement("Trade Desk refreshed");
+    } finally {
+      setManualRefreshing(false);
+    }
   }
 
   return (
@@ -452,14 +507,14 @@ export function ProWorkspacePage() {
         <div className="pro-workspace-commands">
           <Button
             aria-label="Refresh trade desk"
-            disabled={refreshing || !hydrated}
+            disabled={manualRefreshing || !hydrated}
             className="pro-refresh-button"
             onClick={() => void refresh()}
             size="icon"
             title="Refresh"
             variant="outline"
           >
-            <RefreshCw className={refreshing ? "pro-refresh-icon pro-refresh-icon-active" : "pro-refresh-icon"} size={17} />
+            <RefreshCw className={manualRefreshing ? "pro-refresh-icon pro-refresh-icon-active" : "pro-refresh-icon"} size={17} />
           </Button>
           {lastView === "trades" ? (
             <Button
@@ -472,14 +527,15 @@ export function ProWorkspacePage() {
             </Button>
           ) : (
             <Button
-              aria-label={fleetFull ? `Fleet is full at ${GARAGE_LIMITS.activeRobots} robots` : "Add robot"}
+              aria-label={fleetFull ? `Fleet is full at ${GARAGE_LIMITS.activeRobots} robots` : "Add robots"}
               className="pro-add-robot-button"
               disabled={fleetFull}
               loading={addingRobot}
               onClick={() => void requestRobotCreation()}
-              title={fleetFull ? FLEET_ROBOT_LIMIT_MESSAGE : "Add robot"}
+              title={fleetFull ? FLEET_ROBOT_LIMIT_MESSAGE : "Add robots"}
+              variant="outline"
             >
-              <RobotGlyph size={18} /> <span>{fleetFull ? "Fleet full" : "Add robot"}</span>
+              <AddRobotGlyph size={18} /> <span>{fleetFull ? "Fleet full" : "Add Robots"}</span>
             </Button>
           )}
         </div>
@@ -558,7 +614,7 @@ export function ProWorkspacePage() {
           className="pro-workspace-content"
           role="tabpanel"
           aria-labelledby={lastView === "trades" ? "pro-trades-tab" : "pro-robots-tab"}
-          aria-busy={refreshing}
+          aria-busy={manualRefreshing}
         >
           {lastView === "trades" ? (
             <TradeList
@@ -579,9 +635,11 @@ export function ProWorkspacePage() {
                 const slot = slots.find((item) => item.tokenSHA256 === slotId);
                 if (slot) downloadRobotTokenBackup(slot.token, slot.nickname);
               }}
+              onOpenTrade={openRobotTrade}
               onSettings={openRobotSettings}
               onTelegram={setTelegramSlotId}
               slots={slots}
+              snapshots={snapshots}
               summaries={robotSummaries}
               syncBySlot={syncBySlot}
             />
@@ -614,7 +672,7 @@ export function ProWorkspacePage() {
         </div>
       ) : null}
 
-      {createPickerOpen ? (
+      {createPickerOpen && vaultStatus === "ready" ? (
         <CreateOfferRobotPicker
           onAddRobot={() => void requestRobotCreation()}
           addingRobot={addingRobot}
@@ -727,7 +785,7 @@ export function ProWorkspacePage() {
             </div>
             <p>
               This removes the Fleet key and every associated robot from this device. It does not cancel coordinator orders.
-              Without a Fleet key backup, these robot identities cannot be restored.
+              Robot identities can also be restored individually with their own tokens.
             </p>
             <div className="pro-abandon-fleet-actions">
               <Button variant="outline" onClick={() => { setAbandonFleetOpen(false); setFleetKeyOpen(true); }}><KeyRound size={17} /> Back up Fleet</Button>

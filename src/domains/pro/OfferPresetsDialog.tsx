@@ -28,7 +28,7 @@ export function OfferPresetsDialog({
         <header className="garage-switcher-header">
           <div className="pro-presets-title">
             <span aria-hidden="true"><BookmarkCheck size={20} /></span>
-            <div><h3 id="offer-presets-title">Offer presets</h3><p>Reusable offer details for every robot in your Fleet.</p></div>
+            <div><h3 id="offer-presets-title">Offer presets</h3><p>Reusable offer presets</p></div>
           </div>
           <button className="icon-button" onClick={onClose} type="button" aria-label="Close offer presets"><X size={18} /></button>
         </header>

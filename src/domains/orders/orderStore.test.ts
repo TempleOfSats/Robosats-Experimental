@@ -9,14 +9,16 @@ import type { OrderDto } from "@/domains/orders/order.types";
 
 const submitOrderActionMock = vi.hoisted(() => vi.fn());
 const fetchOrderMock = vi.hoisted(() => vi.fn());
+const isCompleteOrderActionResponseMock = vi.hoisted(() => vi.fn(() => true));
 
 vi.mock("@/domains/orders/orderApi", () => ({
   fetchOrder: fetchOrderMock,
+  isCompleteOrderActionResponse: isCompleteOrderActionResponseMock,
   submitOrderAction: submitOrderActionMock
 }));
 
 import { useGarageStore } from "@/domains/garage/garageStore";
-import { useOrderStore } from "@/domains/orders/orderStore";
+import { orderLoadRequestOptions, useOrderStore } from "@/domains/orders/orderStore";
 
 beforeEach(() => {
   const storage = new Map<string, string>();
@@ -27,6 +29,8 @@ beforeEach(() => {
   });
   submitOrderActionMock.mockReset();
   fetchOrderMock.mockReset();
+  isCompleteOrderActionResponseMock.mockReset();
+  isCompleteOrderActionResponseMock.mockReturnValue(true);
   resetCoordinatorOrderActivityForTests();
   useGarageStore.setState({ slots: [slot], currentToken: slot.token, hydrated: true });
   useOrderStore.getState().clearOrder();
@@ -40,6 +44,12 @@ describe("order API propagation", () => {
 
     await useOrderStore.getState().loadOrder({ coordinator, orderId: 123, slot });
 
+    expect(fetchOrderMock).toHaveBeenCalledWith(
+      coordinator.url,
+      123,
+      expect.any(Object),
+      { timeoutProfile: "interactive", priority: "foreground", source: "order-refresh" }
+    );
     expect(listener).toHaveBeenCalledOnce();
     expect(listener).toHaveBeenCalledWith(expect.objectContaining({
       slotId: slot.tokenSHA256,
@@ -47,6 +57,54 @@ describe("order API propagation", () => {
       authoritative: true,
       order: expect.objectContaining({ id: 123, status: 0, shortAlias: coordinator.shortAlias })
     }));
+  });
+
+  it("verifies an incomplete action acknowledgement with one GET", async () => {
+    useOrderStore.setState({ order: { id: 123, status: 1, is_maker: true } as OrderDto });
+    submitOrderActionMock.mockResolvedValue({ id: 123 });
+    isCompleteOrderActionResponseMock.mockReturnValue(false);
+    fetchOrderMock.mockResolvedValue({ id: 123, status: 2, is_maker: true, is_taker: false });
+
+    await useOrderStore.getState().submitAction({
+      coordinator,
+      orderId: 123,
+      slot,
+      payload: { action: "pause" }
+    });
+
+    expect(fetchOrderMock).toHaveBeenCalledOnce();
+    expect(fetchOrderMock).toHaveBeenCalledWith(
+      coordinator.url,
+      123,
+      expect.any(Object),
+      { timeoutProfile: "interactive", priority: "foreground", source: "order-refresh" }
+    );
+    expect(useOrderStore.getState().order?.status).toBe(2);
+  });
+});
+
+describe("order load request profiles", () => {
+  it("keeps user-facing refreshes in the foreground", () => {
+    for (const reason of ["initial", "lifecycle", "manual", "post-action"] as const) {
+      expect(orderLoadRequestOptions(reason)).toEqual({
+        timeoutProfile: "interactive",
+        priority: "foreground",
+        source: "order-refresh"
+      });
+    }
+  });
+
+  it("bounds routine and hidden polling as background work", () => {
+    expect(orderLoadRequestOptions("poll")).toEqual({
+      timeoutProfile: "background",
+      priority: "background",
+      source: "order-refresh"
+    });
+    expect(orderLoadRequestOptions("maintenance")).toEqual({
+      timeoutProfile: "background",
+      priority: "maintenance",
+      source: "order-refresh"
+    });
   });
 });
 

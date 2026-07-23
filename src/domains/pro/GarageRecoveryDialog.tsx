@@ -5,6 +5,7 @@ import { useFederationStore } from "@/domains/coordinators/federationStore";
 import { activeGarageEntries, decodeGarageToken } from "@/domains/pro/garageVault";
 import { useGarageVaultStore } from "@/domains/pro/garageVaultStore";
 import { recoverGarageSnapshot } from "@/domains/pro/garageSync";
+import { activeOfferPresets } from "@/domains/pro/portableSettings";
 
 type RecoveryStage = "idle" | "searching" | "saving" | "complete";
 
@@ -15,6 +16,7 @@ export function GarageRecoveryDialog({ onClose, onRestored }: { onClose: () => v
   const [working, setWorking] = useState(false);
   const [stage, setStage] = useState<RecoveryStage>("idle");
   const [robotCount, setRobotCount] = useState(0);
+  const [presetCount, setPresetCount] = useState(0);
   const [error, setError] = useState("");
 
   async function confirmRestore() {
@@ -23,10 +25,19 @@ export function GarageRecoveryDialog({ onClose, onRestored }: { onClose: () => v
     setError("");
     try {
       const normalized = fleetKey.trim();
-      const snapshot = await recoverGarageSnapshot(decodeGarageToken(normalized), coordinators);
+      let materializedSnapshot = "";
+      const applySnapshot = async (snapshot: Awaited<ReturnType<typeof recoverGarageSnapshot>>) => {
+        setRobotCount(activeGarageEntries(snapshot.garage).length);
+        setPresetCount(activeOfferPresets(snapshot.settings).length);
+        setStage("saving");
+        await restore(normalized, snapshot);
+        materializedSnapshot = JSON.stringify(snapshot);
+      };
+      const snapshot = await recoverGarageSnapshot(decodeGarageToken(normalized), coordinators, applySnapshot);
       setRobotCount(activeGarageEntries(snapshot.garage).length);
+      setPresetCount(activeOfferPresets(snapshot.settings).length);
       setStage("saving");
-      await restore(normalized, snapshot);
+      if (materializedSnapshot !== JSON.stringify(snapshot)) await restore(normalized, snapshot);
       setStage("complete");
     } catch (restoreError) {
       setStage("idle");
@@ -55,14 +66,18 @@ export function GarageRecoveryDialog({ onClose, onRestored }: { onClose: () => v
         {working ? (
           <div className="pro-garage-recovery-progress" aria-live="polite">
             <span className="ui-spinner" aria-hidden="true" />
-            <h4>Recovering your robots</h4>
-            <p>{stage === "searching" ? "Finding your Fleet. Hang tight." : `Restoring ${robotCount} ${robotCount === 1 ? "robot" : "robots"}.`}</p>
+            <h4>Recovering your robots and presets</h4>
+            <p>This could take 1 or 2 minutes.</p>
           </div>
         ) : stage === "complete" ? (
           <div className="pro-garage-recovery-progress" aria-live="polite">
             <span className="pro-garage-recovery-complete" aria-hidden="true"><Check size={22} /></span>
             <h4>Fleet restored</h4>
-            <p>{robotCount === 0 ? "Your Fleet is ready." : `${robotCount} ${robotCount === 1 ? "robot is" : "robots are"} ready in the Trade Desk.`}</p>
+            <p>
+              {robotCount} {robotCount === 1 ? "robot" : "robots"} and {presetCount} {presetCount === 1 ? "preset" : "presets"} are ready in the Trade Desk.
+              {robotCount > 1 ? " There is strength in numbers!" : ""}
+              {robotCount > 0 ? " Checking coordinator status now." : ""}
+            </p>
             <Button onClick={finishRecovery}>Open Trade Desk</Button>
           </div>
         ) : (

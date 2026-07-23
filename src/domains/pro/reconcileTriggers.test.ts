@@ -41,7 +41,7 @@ describe("reconciliation triggers", () => {
     expect(controller.reconcileAll).not.toHaveBeenCalled();
     expect(reconcileCurrent).not.toHaveBeenCalled();
 
-    windowTarget.dispatchEvent(new Event("focus"));
+    dispatchLifecycle("focus");
     await vi.advanceTimersByTimeAsync(10);
     expect(reconcileCurrent).toHaveBeenCalledWith("window-focus");
     cleanup();
@@ -73,7 +73,7 @@ describe("reconciliation triggers", () => {
       reconcileCurrent: vi.fn(async () => undefined)
     });
 
-    windowTarget.dispatchEvent(new Event("robosats:tor-reconnected"));
+    dispatchLifecycle("tor-reconnected");
     expect(controller.invalidateEpoch).toHaveBeenCalledOnce();
     expect(controller.reconcileAll).toHaveBeenCalledWith("tor-reconnected");
     cleanup();
@@ -88,10 +88,10 @@ describe("reconciliation triggers", () => {
       debounceMs: 10
     });
 
-    windowTarget.dispatchEvent(new Event("robosats:native-resume"));
+    dispatchLifecycle("resume");
     await vi.advanceTimersByTimeAsync(10);
 
-    expect(controller.reconcileAll).toHaveBeenCalledWith("native-resume");
+    expect(controller.reconcileAll).toHaveBeenCalledWith("visibility-resume");
     cleanup();
   });
 
@@ -172,6 +172,12 @@ describe("reconciliation triggers", () => {
     cleanup();
   });
 });
+
+function dispatchLifecycle(reason: string): void {
+  const event = new Event("robosats:refresh-intent");
+  Object.defineProperty(event, "detail", { value: { reason } });
+  windowTarget.dispatchEvent(event);
+}
 
 function fakeController(): GarageReconcileController {
   return {
