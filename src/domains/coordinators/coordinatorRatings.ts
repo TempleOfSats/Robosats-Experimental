@@ -1,6 +1,6 @@
 import { finalizeEvent, verifyEvent, type Event } from "nostr-tools";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
-import { getSharedRelayPool, runRelayQuery } from "@/domains/nostr/sharedRelayPool";
+import { getSharedRelayPool, runRelayQuery, withRelayQueryPool } from "@/domains/nostr/sharedRelayPool";
 import { buildNostrRelayUrl, selectNostrRelays } from "@/domains/orderbook/nostrOrderbook";
 
 const RATING_KIND = 31986;
@@ -12,12 +12,12 @@ export async function fetchCoordinatorRatings(coordinators: CoordinatorSummary[]
   const relays = selectNostrRelays(targets, window.location.origin, 1);
   const pubkeys = targets.flatMap((item) => item.nostrHexPubkey ? [item.nostrHexPubkey] : []);
   if (!relays.length || !pubkeys.length) return {};
-  const pool = getSharedRelayPool();
-  const events = await runRelayQuery(relays[0], () => pool.querySync(
-    relays,
-    { kinds: [RATING_KIND], "#p": pubkeys, since: RATINGS_SINCE },
-    { maxWait: 10_000 }
-  ));
+  const events = await withRelayQueryPool((pool) =>
+    runRelayQuery(relays[0], () => pool.querySync(
+      relays,
+      { kinds: [RATING_KIND], "#p": pubkeys, since: RATINGS_SINCE },
+      { maxWait: 10_000 }
+    )));
   return ratingsFromEvents(events, targets);
 }
 

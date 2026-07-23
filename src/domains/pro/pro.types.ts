@@ -29,6 +29,7 @@ export type ProTradeSnapshot = {
 
 export type ReconcileReason =
   | "startup"
+  | "fleet-ready"
   | "tor-ready"
   | "tor-reconnected"
   | "window-focus"
@@ -45,6 +46,8 @@ export type SlotSyncState = {
   slotId: ProSlotId;
   epoch: number;
   inFlight: boolean;
+  attemptedCoordinators?: number;
+  locallyReadyAt?: number;
   lastAttemptAt?: number;
   lastSuccessAt?: number;
   nextEligibleAt?: number;

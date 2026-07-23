@@ -12,6 +12,7 @@ import { currencyCodeFromId } from "@/domains/orderbook/currencies";
 import {
   getRobotAuthForCoordinator,
   selectCurrentSlot,
+  selectStandardGarageSlots,
   type RobotRecord,
   type RobotSlot,
   useGarageStore
@@ -44,6 +45,9 @@ import { fetchChatMessages } from "@/domains/chat/chatApi";
 import { decryptChatMessage } from "@/domains/chat/chatCrypto";
 import { toUserMessage } from "@/lib/userError";
 import { showDesktopOrderNotification } from "@/domains/notifications/desktopNotifications";
+import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
+import { isNativeApp } from "@/domains/transport/androidBridge";
+import { runRefreshIntent, subscribeRefreshIntents } from "@/domains/transport/refreshIntents";
 
 export function OrderPage({
   embeddedLocator,
@@ -60,10 +64,12 @@ export function OrderPage({
   const coordinators = useFederationStore((state) => state.coordinators);
   const slots = useGarageStore((state) => state.slots);
   const currentToken = useGarageStore((state) => state.currentToken);
+  const proEnabled = useProPreferencesStore((state) => state.enabled);
   const hydrateGarage = useGarageStore((state) => state.hydrate);
   const releaseOrderReservation = useGarageStore((state) => state.releaseOrderReservation);
   const { order: loadedOrder, submitting, error, loadOrder, submitAction, clearOrder } = useOrderStore();
-  const currentSlot = selectCurrentSlot(slots, currentToken);
+  const eligibleSlots = proEnabled || embeddedLocator ? slots : selectStandardGarageSlots(slots);
+  const currentSlot = selectCurrentSlot(eligibleSlots, currentToken);
   const coordinator = coordinators.find((item) => item.shortAlias === shortAlias) ?? coordinators.find((item) => item.shortAlias === "local");
   const coordinatorAuth = coordinator ? getRobotAuthForCoordinator(currentSlot, coordinator.shortAlias) : undefined;
   const signingRobot = getSigningRobot(currentSlot, shortAlias);
@@ -88,7 +94,7 @@ export function OrderPage({
   useEffect(() => {
     if (previewOrder) return;
     if (!coordinator || !orderId) return;
-    void loadOrder({ coordinator, orderId, slot: currentSlot });
+    void loadOrder({ coordinator, orderId, reason: "initial", slot: currentSlot });
   }, [coordinator, currentSlot?.token, loadOrder, orderId, previewOrder]);
 
   useEffect(() => {
@@ -99,40 +105,43 @@ export function OrderPage({
     let disposed = false;
     const schedule = () => {
       if (disposed) return;
-      const multiplier = document.hidden ? 5 : 1;
+      if (document.hidden && isNativeApp()) return;
+      const delay = document.hidden
+        ? 5 * 60_000
+        : jitterDelay(orderRefreshDelayMs(loadedOrder.status, loadedOrder.tx_queued), 0.1);
       timer = window.setTimeout(async () => {
-        await loadOrder({ coordinator, orderId, slot: currentSlot });
+        await loadOrder({
+          coordinator,
+          orderId,
+          reason: document.hidden ? "maintenance" : "poll",
+          slot: currentSlot
+        });
         if (disposed) return;
         schedule();
-      }, orderRefreshDelayMs(loadedOrder.status, loadedOrder.tx_queued) * multiplier);
+      }, delay);
     };
     const onVisibilityChange = () => {
       if (document.visibilityState !== "visible") {
         if (timer !== undefined) window.clearTimeout(timer);
         schedule();
-        return;
       }
-      refreshNow();
     };
     const refreshNow = () => {
       if (timer !== undefined) window.clearTimeout(timer);
-      void loadOrder({ coordinator, orderId, slot: currentSlot }).finally(() => {
+      void runRefreshIntent(`order:${coordinator.shortAlias}:${orderId}`, () =>
+        loadOrder({ coordinator, orderId, reason: "lifecycle", slot: currentSlot })).finally(() => {
         if (!disposed) schedule();
       });
     };
 
     schedule();
     document.addEventListener("visibilitychange", onVisibilityChange);
-    window.addEventListener("robosats:native-resume", refreshNow);
-    window.addEventListener("robosats:tor-reconnected", refreshNow);
-    window.addEventListener("online", refreshNow);
+    const stopLifecycle = subscribeRefreshIntents(refreshNow);
     return () => {
       disposed = true;
       if (timer !== undefined) window.clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVisibilityChange);
-      window.removeEventListener("robosats:native-resume", refreshNow);
-      window.removeEventListener("robosats:tor-reconnected", refreshNow);
-      window.removeEventListener("online", refreshNow);
+      stopLifecycle();
     };
   }, [coordinator, currentSlot?.token, loadedOrder?.status, loadOrder, orderId, previewOrder]);
 
@@ -428,6 +437,10 @@ export function orderRefreshDelayMs(status: number, txQueued = false): number {
     18: 300_000
   };
   return delays[status] ?? 5_000;
+}
+
+export function jitterDelay(baseMs: number, ratio: number, random = Math.random): number {
+  return Math.round(baseMs * (1 - ratio + random() * ratio * 2));
 }
 
 export function shouldReturnExpiredTakeToOffers(
@@ -752,7 +765,7 @@ function OrderDetailsPanel({
 }
 
 export function shouldOpenOrderDetailsByDefault(order: Pick<OrderDto, "status" | "is_maker">): boolean {
-  return order.status === 1 && order.is_maker;
+  return (order.status === 1 || order.status === 2) && order.is_maker;
 }
 
 function readOrderDetailsPreference(key: string, fallback: boolean): boolean {

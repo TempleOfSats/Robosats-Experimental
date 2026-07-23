@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::{
     webview::PageLoadEvent, AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder,
 };
@@ -36,6 +36,7 @@ struct RuntimeInner {
     child: Option<CommandChild>,
     generation: u64,
     app_ready: bool,
+    last_controlled_recovery_at: Option<Instant>,
 }
 
 #[derive(Clone)]
@@ -60,6 +61,7 @@ impl DesktopRuntime {
                 child: None,
                 generation: 0,
                 app_ready: false,
+                last_controlled_recovery_at: None,
             })),
         }
     }
@@ -84,6 +86,25 @@ impl DesktopRuntime {
     }
 
     pub fn start(&self, app: AppHandle, force: bool) {
+        self.start_with_feedback(app, force, true);
+    }
+
+    pub fn recover_transport(&self, app: AppHandle) {
+        {
+            let mut inner = self.inner.lock().expect("runtime mutex poisoned");
+            let now = Instant::now();
+            if inner
+                .last_controlled_recovery_at
+                .is_some_and(|previous| now.duration_since(previous) < Duration::from_secs(120))
+            {
+                return;
+            }
+            inner.last_controlled_recovery_at = Some(now);
+        }
+        self.start_with_feedback(app, true, false);
+    }
+
+    fn start_with_feedback(&self, app: AppHandle, force: bool, show_splash: bool) {
         let (generation, port, old_child) = {
             let mut inner = self.inner.lock().expect("runtime mutex poisoned");
             if !force && matches!(inner.status.state.as_str(), "connecting" | "ready") {
@@ -104,7 +125,9 @@ impl DesktopRuntime {
         if let Some(child) = old_child {
             let _ = child.kill();
         }
-        show_splash_window(&app);
+        if show_splash {
+            show_splash_window(&app);
+        }
         self.emit_status(&app);
 
         let runtime = self.clone();

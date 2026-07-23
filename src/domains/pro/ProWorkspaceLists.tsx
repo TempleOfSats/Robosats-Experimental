@@ -19,8 +19,9 @@ import type { RobotSlot } from "@/domains/garage/garageStore";
 import { RobotAvatar } from "@/domains/identity/RobotAvatar";
 import { formatExpiryCountdown, formatExpiryTitle } from "@/domains/orderbook/offerDisplay";
 import { toProTradePresentation } from "@/domains/pro/proPresentation";
+import { deriveProRobotLifecycle } from "@/domains/pro/proRobotLifecycle";
+import { summarizeProRobots } from "@/domains/pro/proSelectors";
 import { FleetGlyph } from "@/domains/pro/ProWorkspaceIcons";
-import { selectOfferReadyRobots, summarizeProRobots } from "@/domains/pro/proSelectors";
 import type { ProTradeLocator, ProTradeSnapshot, SlotSyncState } from "@/domains/pro/pro.types";
 import { formatLastRefresh, groupLabel } from "@/domains/pro/proWorkspacePresentation";
 
@@ -61,10 +62,13 @@ export function TradeList({
         const coordinator = coordinators.find((item) => item.shortAlias === snapshot.locator.shortAlias);
         const previous = snapshots[index - 1];
         const showGroup = !previous || toProTradePresentation(previous).group !== presentation.group;
+        const hasQuickActions = Boolean(
+          snapshot.order?.is_maker && (snapshot.order.status === 1 || snapshot.order.status === 2)
+        );
         return (
           <Fragment key={snapshot.key}>
             {showGroup ? <div className="pro-trade-group">{groupLabel(presentation.group)}</div> : null}
-            <div className="pro-trade-row">
+            <div className={hasQuickActions ? "pro-trade-row pro-trade-row-quick-actions" : "pro-trade-row"}>
               <button
                 className="pro-trade-row-open"
                 type="button"
@@ -75,7 +79,7 @@ export function TradeList({
                   <RobotAvatar hashId={snapshot.hashId} label={snapshot.nickname} size="sm" />
                   <span><strong>{snapshot.nickname}</strong><small>{presentation.directionLabel}</small></span>
                 </span>
-                <span className="pro-trade-order">
+                <span className="pro-trade-order" data-direction={presentation.directionLabel}>
                   <strong>{presentation.amountLabel}</strong>
                   <small>{presentation.methodLabel} · #{snapshot.locator.orderId}</small>
                 </span>
@@ -108,7 +112,7 @@ export function TradeList({
                     </Button>
                     <Button
                       aria-label={`Cancel order ${snapshot.locator.orderId}`}
-                      className="pro-trade-action-button"
+                      className="pro-trade-action-button pro-trade-cancel-button"
                       disabled={Boolean(quickActionKey)}
                       onClick={() => onCancel(snapshot)}
                       size="sm"
@@ -150,18 +154,22 @@ export function RobotList({
   onCreate,
   onDelete,
   onDownload,
+  onOpenTrade,
   onSettings,
   onTelegram,
   slots,
+  snapshots,
   summaries,
   syncBySlot
 }: {
   onCreate: (slotId: string) => void;
   onDelete: (slotId: string) => void;
   onDownload: (slotId: string) => void;
+  onOpenTrade: (slotId: string) => void;
   onSettings: (slotId: string) => void;
   onTelegram: (slotId: string) => void;
   slots: RobotSlot[];
+  snapshots: Record<string, ProTradeSnapshot>;
   summaries: ReturnType<typeof summarizeProRobots>;
   syncBySlot: Record<string, SlotSyncState>;
 }) {
@@ -170,9 +178,9 @@ export function RobotList({
       <div className="pro-empty-state pro-fleet-empty-state">
         <span className="pro-fleet-empty-mark" aria-hidden="true"><FleetGlyph size={28} /></span>
         <div className="pro-fleet-empty-copy">
-          <strong>Your Fleet is ready</strong>
-          <p>Add robots to manage their offers and active trades together from the Pro Desk. Each robot has its own portable RoboSats token and remains compatible with other RoboSats frontends.</p>
-          <p>Your Fleet key restores the complete Fleet on another device and keeps its robots synchronized.</p>
+          <strong>Your Robot Fleet is ready</strong>
+          <p>Create multiple robots here to manage their offers and active trades in one place. Each has a portable token that works in any RoboSats frontend.</p>
+          <p>Your Fleet key restores and synchronizes the same robots and offer presets across your devices.</p>
         </div>
       </div>
     );
@@ -184,6 +192,8 @@ export function RobotList({
         const slot = slots.find((item) => item.tokenSHA256 === summary.slotId);
         const sync = syncBySlot[summary.slotId];
         if (!slot) return null;
+        const lifecycle = deriveProRobotLifecycle(slot, snapshots, sync);
+        const checkingStatus = lifecycle.status === "checking";
         return (
           <article className="pro-robot-row" key={summary.slotId}>
             <div className="pro-robot-identity">
@@ -193,10 +203,21 @@ export function RobotList({
               <span>
                 <strong>{summary.nickname}</strong>
                 <span className="pro-robot-state">
-                  <Badge tone={summary.stale ? "muted" : summary.needsAttentionCount ? "warning" : "success"}>
-                    {summary.stale ? "Stale" : summary.needsAttentionCount ? "Needs attention" : "Ready"}
-                  </Badge>
-                  <small>{formatLastRefresh(sync?.lastSuccessAt)}</small>
+                  {lifecycle.canOpenTrade ? (
+                    <button
+                      className="pro-robot-trade-status"
+                      type="button"
+                      onClick={() => onOpenTrade(summary.slotId)}
+                      aria-label={`Open ${summary.nickname}'s ongoing trade`}
+                    >
+                      <Badge tone={lifecycle.statusTone}>{lifecycle.statusLabel}</Badge>
+                    </button>
+                  ) : (
+                    <Badge tone={lifecycle.statusTone}>{lifecycle.statusLabel}</Badge>
+                  )}
+                  <small className="pro-robot-refresh-meta">
+                    <span>{checkingStatus ? "Checking coordinators" : formatLastRefresh(lifecycle.statusTimestamp)}</span>
+                  </small>
                 </span>
               </span>
             </div>
@@ -208,10 +229,14 @@ export function RobotList({
                 <Send size={16} />
               </Button>
               <Button
-                aria-label="Create an offer with an available robot"
+                aria-label={lifecycle.canStartOrder ? `Create an offer with ${summary.nickname}` : `${summary.nickname} is unavailable`}
                 className="pro-robot-create-button"
+                disabled={!lifecycle.canStartOrder}
                 size="sm"
                 onClick={() => onCreate(summary.slotId)}
+                title={lifecycle.canStartOrder
+                  ? `Create an offer with ${summary.nickname}`
+                  : lifecycle.availability.message ?? "Finish this robot's current order before creating another offer"}
                 variant="outline"
               >
                 <CirclePlus size={16} /> <span className="pro-robot-action-label">Create offer</span>
@@ -219,10 +244,12 @@ export function RobotList({
               <Button
                 size="icon"
                 variant="ghost"
-                disabled={summary.relevantOrderCount > 0}
+                disabled={!lifecycle.canRemove}
                 onClick={() => onDelete(summary.slotId)}
                 aria-label={`Remove ${summary.nickname} from Fleet`}
-                title={summary.relevantOrderCount > 0 ? "Finish the current order before removing this robot" : "Remove from Fleet"}
+                title={!lifecycle.canRemove
+                  ? lifecycle.availability.message ?? "Finish the current order before removing this robot"
+                  : "Remove from Fleet"}
               >
                 <Trash2 size={16} />
               </Button>
@@ -255,5 +282,3 @@ function OpenTradeButton({ onClick, orderId }: { onClick: () => void; orderId: n
     </button>
   );
 }
-
-export type OfferReadyRobots = ReturnType<typeof selectOfferReadyRobots>;

@@ -11,6 +11,18 @@ export function getSharedRelayPool(): SimplePool {
   return sharedRelayPool;
 }
 
+export async function withRelayQueryPool<T>(query: (pool: SimplePool) => Promise<T>): Promise<T> {
+  const pool = new SimplePool({
+    enablePing: false,
+    enableReconnect: false
+  });
+  try {
+    return await query(pool);
+  } finally {
+    pool.destroy();
+  }
+}
+
 export function runRelayQuery<T>(relay: string, query: () => Promise<T>): Promise<T> {
   const previous = relayQueries.get(relay) ?? Promise.resolve();
   const result = previous.catch(() => undefined).then(query);
