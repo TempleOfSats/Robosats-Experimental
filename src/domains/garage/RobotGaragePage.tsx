@@ -2,7 +2,7 @@ import { AlertTriangle, Copy, Download, Eye, EyeOff, Hash, Home, KeyRound, Plus,
 import { lazy, Suspense, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { AppLoadingSkeleton } from "@/components/app/AppLoadingWheel";
+import { AppTransitionFeedback } from "@/components/app/AppTransitionFeedback";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { VisualSelect } from "@/components/ui/visualSelect";
@@ -15,6 +15,7 @@ import { getRobotAuthForCoordinator, selectCurrentSlot, selectStandardGarageSlot
 import { TelegramSetupDialog } from "@/domains/garage/TelegramSetupDialog";
 import { RobotTokenBackupDialog } from "@/domains/garage/RobotTokenBackupDialog";
 import { downloadRobotTokenBackup } from "@/domains/garage/tokenBackup";
+import { CreateRobotPanel } from "@/domains/garage/CreateRobotPanel";
 import { RobotAvatar } from "@/domains/identity/RobotAvatar";
 import { deriveRobotIdentity } from "@/domains/identity/robotIdentity";
 import { ingestCoordinatorOrder } from "@/domains/orders/orderActivity";
@@ -26,9 +27,6 @@ import { RewardWithdrawalPanel } from "@/domains/rewards/RewardWithdrawalPanel";
 import { formatFiat, formatSats } from "@/lib/format";
 import { toUserMessage } from "@/lib/userError";
 
-const CreateRobotPanel = lazy(() =>
-  import("@/domains/garage/CreateRobotPanel").then((module) => ({ default: module.CreateRobotPanel }))
-);
 const RobotKeysDialog = lazy(() =>
   import("@/domains/garage/RobotKeysDialog").then((module) => ({ default: module.RobotKeysDialog }))
 );
@@ -101,6 +99,17 @@ export function RobotGaragePage() {
     }
   };
 
+  if (!hydrated) {
+    return (
+      <main className="page page-narrow garage-page">
+        <AppTransitionFeedback
+          title="Preparing your robot"
+          message="Restoring its private identity..."
+        />
+      </main>
+    );
+  }
+
   if (slots.length === 0 || showFirstRunWizard) {
     return (
       <main className="page page-narrow garage-page">
@@ -113,16 +122,23 @@ export function RobotGaragePage() {
         </div>
         <Card className="import-card start-card">
           <CardContent>
-            <Suspense fallback={<AppLoadingSkeleton label="Preparing robot" variant="robot" />}>
-              <CreateRobotPanel onProfile={() => setShowFirstRunWizard(false)} />
-            </Suspense>
+            <CreateRobotPanel onProfile={() => setShowFirstRunWizard(false)} />
           </CardContent>
         </Card>
       </main>
     );
   }
 
-  if (!activeSlot) return null;
+  if (!activeSlot) {
+    return (
+      <main className="page page-narrow garage-page">
+        <AppTransitionFeedback
+          title="Preparing your robot"
+          message="Restoring its private identity..."
+        />
+      </main>
+    );
+  }
 
   return (
     <main className="page page-narrow garage-page">

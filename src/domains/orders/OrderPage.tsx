@@ -2,8 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Banknote, Check, ChevronDown, Clock, Copy, Download, ExternalLink, FileText, Link2, Paperclip, RefreshCw, Rocket, ShieldAlert, Star, Tag, WifiOff, AlertTriangle, XCircle, Zap } from "lucide-react";
-import { playTradeAudio } from "@/domains/audio/audioController";
-import { tradeAudioEventForOrderTransition } from "@/domains/audio/audioAssets";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
 import type { CoordinatorContact, CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import { getCoordinatorAvatarUrl } from "@/domains/coordinators/coordinatorAssets";
@@ -17,7 +15,8 @@ import {
   type RobotSlot,
   useGarageStore
 } from "@/domains/garage/garageStore";
-import { ChatStagePanel } from "@/domains/chat/ChatStagePanel";
+import { ChatStagePanel, PreChatDisclosure } from "@/domains/chat/ChatStagePanel";
+import { shouldOfferPreChat } from "@/domains/chat/preChat";
 import { signCleartextMessage } from "@/domains/crypto/pgp";
 import { getTradeActionCommands, type TradeActionCommand } from "@/domains/orders/orderActions";
 import { getTradeViewState } from "@/domains/orders/orderStateMachine";
@@ -27,6 +26,7 @@ import { isOrderReferenceSatsApproximate, orderReferenceSats, orderReferenceSats
 import type { OrderDto, SubmitOrderActionPayload } from "@/domains/orders/order.types";
 import { buildProvisionalMakerOrder, buildRenewOrderPayload, createOrder } from "@/domains/maker/makerApi";
 import { ingestCoordinatorOrder } from "@/domains/orders/orderActivity";
+import { tradeStatusLabel } from "@/domains/orders/orderStatus";
 import type { Auth } from "@/domains/transport/apiClient";
 import { tradeMotionClass } from "@/domains/motion/tradeMotion";
 import { PaymentQrCard } from "@/domains/payments/PaymentQrCard";
@@ -44,17 +44,18 @@ import { publishCoordinatorRating } from "@/domains/coordinators/coordinatorRati
 import { fetchChatMessages } from "@/domains/chat/chatApi";
 import { decryptChatMessage } from "@/domains/chat/chatCrypto";
 import { toUserMessage } from "@/lib/userError";
-import { showDesktopOrderNotification } from "@/domains/notifications/desktopNotifications";
 import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
 import { isNativeApp } from "@/domains/transport/androidBridge";
 import { runRefreshIntent, subscribeRefreshIntents } from "@/domains/transport/refreshIntents";
 
 export function OrderPage({
   embeddedLocator,
-  onEmbeddedClose
+  onEmbeddedClose,
+  onEmbeddedOrderChange
 }: {
   embeddedLocator?: { shortAlias: string; orderId: number };
   onEmbeddedClose?: () => void;
+  onEmbeddedOrderChange?: (locator: { shortAlias: string; orderId: number }) => void;
 } = {}) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -151,20 +152,8 @@ export function OrderPage({
     const wasTaker = previousWasTaker.current;
     previousStatus.current = loadedOrder.status;
     previousWasTaker.current = loadedOrder.is_taker;
-    if (!previewOrder) {
-      const audioEvent = tradeAudioEventForOrderTransition(lastStatus, loadedOrder.status);
-      if (audioEvent) {
-        void playTradeAudio(audioEvent).catch(() => undefined);
-        void showDesktopOrderNotification(
-          orderId,
-          shortAlias,
-          tradeStatusLabel(loadedOrder)
-        );
-      }
-    }
     if (!previewOrder && lastStatus !== undefined && ![4, 12].includes(lastStatus) && [4, 12].includes(loadedOrder.status)) {
-      if (onEmbeddedClose) onEmbeddedClose();
-      else navigate("/offers", { replace: true });
+      if (!embeddedLocator) navigate("/offers", { replace: true });
       return;
     }
     if (!previewOrder && shouldReturnExpiredTakeToOffers(lastStatus, wasTaker, loadedOrder)) {
@@ -175,7 +164,20 @@ export function OrderPage({
       else navigate("/offers", { replace: true });
       return;
     }
-  }, [currentSlot, loadedOrder, navigate, onEmbeddedClose, orderId, previewOrder, releaseOrderReservation, shortAlias]);
+  }, [currentSlot, embeddedLocator, loadedOrder, navigate, onEmbeddedClose, orderId, previewOrder, releaseOrderReservation, shortAlias]);
+
+  useEffect(() => {
+    if (
+      previewOrder
+      || !embeddedLocator
+      || !onEmbeddedClose
+      || !loadedOrder
+      || loadedOrder.status !== 1
+      || loadedOrder.is_maker
+      || loadedOrder.is_taker
+    ) return;
+    onEmbeddedClose();
+  }, [embeddedLocator, loadedOrder, onEmbeddedClose, previewOrder]);
 
   const visibleOrder = previewOrder ?? loadedOrder;
 
@@ -224,7 +226,7 @@ export function OrderPage({
 
   const order = visibleOrder;
   if (!previewOrder && order.status === 1 && !order.is_maker && !order.is_taker) {
-    return <Navigate replace to="/offers" />;
+    return embeddedLocator ? null : <Navigate replace to="/offers" />;
   }
   const view = getTradeViewState(order);
   const motionClass = tradeMotionClass(view);
@@ -277,10 +279,12 @@ export function OrderPage({
             chatAuth={previewOrder ? undefined : coordinatorAuth}
             coordinatorUrl={previewOrder ? undefined : coordinator?.url}
             coordinatorContact={previewOrder ? { email: "fixture", telegram: "fixture", simplex: "fixture", nostr: "fixture" } : coordinator?.contact}
+            coordinatorName={coordinator?.longAlias || coordinator?.shortAlias || order.shortAlias || "Coordinator"}
             loading={submitting}
             myNick={getCurrentRobotNick(order)}
             order={order}
             previewMode={Boolean(previewOrder)}
+            preChatEnabled={shouldOfferPreChat(order.status, coordinator?.info)}
             previewTrustPrompt={previewScenario === "trust-coordinator"}
             signingRobot={previewOrder ? undefined : signingRobot}
             slotToken={previewOrder ? undefined : currentSlot?.token}
@@ -309,8 +313,11 @@ export function OrderPage({
                 shortAlias,
                 slot: currentSlot
               });
-              if (onEmbeddedClose) onEmbeddedClose();
-              else navigate(`/order/${shortAlias}/${response.id}`, { replace: true });
+              if (onEmbeddedOrderChange) {
+                onEmbeddedOrderChange({ shortAlias, orderId: response.id });
+              } else {
+                navigate(`/order/${shortAlias}/${response.id}`, { replace: true });
+              }
             }}
             onStartAgain={() => {
               if (previewOrder) {
@@ -324,7 +331,6 @@ export function OrderPage({
               const identity = deriveRobotIdentity(currentSlot.token);
               const review = await requestReviewToken(coordinator.url, identity.nostrPubKey, coordinatorAuth);
               if (!review.token) throw new Error("Coordinator did not issue a review token.");
-              await submitAction({ coordinator, orderId: order.id, slot: currentSlot, payload: { action: "rate_platform", rating } });
               await publishCoordinatorRating({ coordinator, orderId: order.id, rating, reviewToken: review.token, secretKey: identity.nostrSecKey });
             }}
             onSubmitAction={async (payload) => {
@@ -335,19 +341,21 @@ export function OrderPage({
               if (!coordinator || !currentSlot) return;
               await submitAction({ coordinator, orderId: order.id, slot: currentSlot, payload });
             }}
-            onSubmitCommand={(action) => {
+            onSubmitCommand={async (action) => {
               if (previewOrder) {
                 setPreviewNotice(`${action.label} simulated locally. No request was sent.`);
                 return;
               }
               if (!coordinator || !currentSlot || !action.payload) return;
-              void submitAction({ coordinator, orderId: order.id, slot: currentSlot, payload: action.payload }).then(() => {
-                const updated = useOrderStore.getState();
-                if (!updated.error && shouldLeaveTradeAfterAction(action.key, updated.order)) {
-                  if (onEmbeddedClose) onEmbeddedClose();
-                  else navigate("/offers", { replace: true });
+              await submitAction({ coordinator, orderId: order.id, slot: currentSlot, payload: action.payload });
+              const updated = useOrderStore.getState();
+              if (!updated.error && shouldLeaveTradeAfterAction(action.key, updated.order)) {
+                if (onEmbeddedClose) {
+                  if (shouldDismissEmbeddedTrade(updated.order)) onEmbeddedClose();
+                } else {
+                  navigate("/offers", { replace: true });
                 }
-              });
+              }
             }}
             onSubmitPayout={async (payload) => {
               if (previewOrder) {
@@ -386,31 +394,6 @@ function OrderEyebrow({ order }: { order: OrderDto }) {
       </small>
     </p>
   );
-}
-
-function tradeStatusLabel(order: OrderDto): string {
-  const labels: Record<number, string> = {
-    0: "Publishing",
-    1: "Waiting for taker",
-    2: "Taker found",
-    3: "Awaiting bond",
-    4: "Cancelled",
-    5: "Expired",
-    6: "Setup in progress",
-    7: "Setup in progress",
-    8: "Setup in progress",
-    9: "Sending fiat",
-    10: "Fiat sent",
-    11: "In dispute",
-    12: "Collaboratively cancelled",
-    13: "Sending payout",
-    14: "Trade complete",
-    15: "Payout retry",
-    16: "Under review",
-    17: "Dispute resolved",
-    18: "Dispute resolved"
-  };
-  return labels[order.status] ?? order.status_message ?? "Trade active";
 }
 
 export function orderRefreshDelayMs(status: number, txQueued = false): number {
@@ -460,6 +443,12 @@ export function shouldLeaveTradeAfterAction(
     || (order.status === 1 && !order.is_maker && !order.is_taker);
 }
 
+export function shouldDismissEmbeddedTrade(
+  order?: Pick<OrderDto, "status" | "is_maker" | "is_taker">
+): boolean {
+  return Boolean(order?.status === 1 && !order.is_maker && !order.is_taker);
+}
+
 function previewActionLabel(action?: string): string {
   if (!action) return "Action";
   return action
@@ -473,9 +462,11 @@ function ContractPanel({
   chatAuth,
   coordinatorUrl,
   coordinatorContact,
+  coordinatorName,
   loading,
   myNick,
   order,
+  preChatEnabled,
   previewMode,
   previewTrustPrompt,
   signingRobot,
@@ -493,16 +484,18 @@ function ContractPanel({
   chatAuth?: Auth;
   coordinatorUrl?: string;
   coordinatorContact?: CoordinatorContact;
+  coordinatorName: string;
   loading: boolean;
   myNick: string;
   order: OrderDto;
+  preChatEnabled: boolean;
   previewMode: boolean;
   previewTrustPrompt: boolean;
   signingRobot?: RobotRecord;
   slotToken?: string;
   view: ReturnType<typeof getTradeViewState>;
   onSubmitAction: (payload: SubmitOrderActionPayload) => Promise<void>;
-  onSubmitCommand: (action: TradeActionCommand) => void;
+  onSubmitCommand: (action: TradeActionCommand) => Promise<void>;
   onSubmitPayout: (payload: SubmitOrderActionPayload) => Promise<void>;
   onRenew: (password?: string) => Promise<void>;
   onStartAgain: () => void;
@@ -539,7 +532,7 @@ function ContractPanel({
             {order.pending_cancel ? (
               <div className="status-panel status-panel-warning trade-cancel-notice">
                 <AlertTriangle size={18} />
-                <span>Your peer requested collaborative cancellation. Accept only if both of you agreed in chat.</span>
+                <span>Your peer requested collaborative cancellation. To accept, open Trade options and press Accept cancellation.</span>
               </div>
             ) : order.asked_for_cancel ? (
               <div className="status-panel trade-cancel-notice">
@@ -561,6 +554,7 @@ function ContractPanel({
         chatAuth={chatAuth}
         coordinatorUrl={coordinatorUrl}
         coordinatorContact={coordinatorContact}
+        coordinatorName={coordinatorName}
         loading={loading}
         myNick={myNick}
         order={order}
@@ -577,6 +571,22 @@ function ContractPanel({
         onSubmitAction={onSubmitAction}
         onSubmitPayout={onSubmitPayout}
       />
+      {preChatEnabled ? (
+        <PreChatDisclosure
+          auth={chatAuth}
+          baseUrl={coordinatorUrl}
+          canSend={canSubmit}
+          myNick={myNick}
+          myHashId={order.is_maker ? order.maker_hash_id : order.taker_hash_id}
+          orderId={order.id}
+          peerNick={order.is_maker ? order.taker_nick : order.maker_nick}
+          peerHashId={order.is_maker ? order.taker_hash_id : order.maker_hash_id}
+          previewMode={previewMode}
+          robot={signingRobot}
+          shortAlias={order.shortAlias}
+          slotToken={slotToken}
+        />
+      ) : null}
       {isChatStep ? (
         <ChatTradeActions
           actions={actions}
@@ -601,7 +611,7 @@ function ChatTradeActions({
   canSubmit: boolean;
   loading: boolean;
   order: OrderDto;
-  onSubmit: (action: TradeActionCommand) => void;
+  onSubmit: (action: TradeActionCommand) => Promise<void>;
 }) {
   const primaryActions = actions.filter((action) => ["confirm-fiat-sent", "confirm-fiat-received", "undo-confirm"].includes(action.key));
   const optionActions = actions.filter((action) => !primaryActions.includes(action));
@@ -611,7 +621,7 @@ function ChatTradeActions({
       {order.pending_cancel ? (
         <div className="status-panel status-panel-warning trade-cancel-notice">
           <AlertTriangle size={18} />
-          <span>Your peer requested collaborative cancellation.</span>
+          <span>Your peer requested collaborative cancellation. To accept, open Trade options and press Accept cancellation.</span>
         </div>
       ) : order.asked_for_cancel ? (
         <div className="status-panel trade-cancel-notice">
@@ -765,7 +775,7 @@ function OrderDetailsPanel({
 }
 
 export function shouldOpenOrderDetailsByDefault(order: Pick<OrderDto, "status" | "is_maker">): boolean {
-  return (order.status === 1 || order.status === 2) && order.is_maker;
+  return [7, 8].includes(order.status) || ([1, 2].includes(order.status) && order.is_maker);
 }
 
 function readOrderDetailsPreference(key: string, fallback: boolean): boolean {
@@ -836,9 +846,10 @@ function TradeActionSurface({
   actions: TradeActionCommand[];
   canSubmit: boolean;
   loading: boolean;
-  onSubmit: (action: TradeActionCommand) => void;
+  onSubmit: (action: TradeActionCommand) => Promise<void>;
 }) {
   const [pendingAction, setPendingAction] = useState<TradeActionCommand | null>(null);
+  const [activeActionKey, setActiveActionKey] = useState<string | null>(null);
   const orderedActions = [...actions].sort((left, right) => actionPriority(left.key) - actionPriority(right.key));
 
   if (actions.length === 0) {
@@ -854,17 +865,26 @@ function TradeActionSurface({
     "open-dispute"
   ];
 
+  const submitCommand = async (action: TradeActionCommand) => {
+    setActiveActionKey(action.key);
+    try {
+      await onSubmit(action);
+    } finally {
+      setActiveActionKey(null);
+    }
+  };
+
   const handleActionClick = (action: TradeActionCommand) => {
     if (criticalActions.includes(action.key) && action.payload) {
       setPendingAction(action);
     } else {
-      onSubmit(action);
+      void submitCommand(action);
     }
   };
 
   const handleConfirm = () => {
     if (pendingAction) {
-      onSubmit(pendingAction);
+      void submitCommand(pendingAction);
       setPendingAction(null);
     }
   };
@@ -879,13 +899,14 @@ function TradeActionSurface({
         {orderedActions.map((action) => {
           const disabledReason = action.disabledReason ?? (!canSubmit ? "Load a live order with an active robot first" : undefined);
           const isCritical = criticalActions.includes(action.key);
+          const isActive = activeActionKey === action.key;
           return (
             <div className={`trade-action-command trade-action-command-${action.key}`} key={action.key}>
               <Button
                 className="full-width"
                 variant={action.variant}
-                loading={loading && Boolean(action.payload)}
-                disabled={Boolean(disabledReason) || !action.payload}
+                loading={isActive}
+                disabled={Boolean(disabledReason) || !action.payload || (loading && !isActive)}
                 title={disabledReason ?? action.description}
                 onClick={() => handleActionClick(action)}
               >
@@ -941,6 +962,7 @@ function TradePaymentPanel({
   chatAuth,
   coordinatorUrl,
   coordinatorContact,
+  coordinatorName,
   loading,
   myNick,
   order,
@@ -959,6 +981,7 @@ function TradePaymentPanel({
   chatAuth?: Auth;
   coordinatorUrl?: string;
   coordinatorContact?: CoordinatorContact;
+  coordinatorName: string;
   loading: boolean;
   myNick: string;
   order: OrderDto;
@@ -1011,6 +1034,7 @@ function TradePaymentPanel({
         peerNick={order.is_maker ? order.taker_nick : order.maker_nick}
         peerHashId={order.is_maker ? order.taker_hash_id : order.maker_hash_id}
         robot={signingRobot}
+        shortAlias={order.shortAlias}
         slotToken={slotToken}
         previewMode={previewMode}
       />
@@ -1019,9 +1043,18 @@ function TradePaymentPanel({
 
   if (view.panel === "success") {
     const queued = Boolean(order.tx_queued && !order.txid);
-    const receipt = {
-      order: order.id,
+    const tradeOverview = {
+      format: "robosats-trade-overview",
+      version: 1,
+      order_id: order.id,
+      status: order.status,
       coordinator: order.shortAlias,
+      role: order.is_maker ? "maker" : "taker",
+      side: order.is_buyer ? "buy" : "sell",
+      amount: order.amount,
+      currency: currencyCodeFromId(order.currency) ?? order.currency,
+      payment_method: order.payment_method,
+      premium_percent: order.premium,
       amount_sats: order.sent_satoshis || order.num_satoshis || order.trade_satoshis || order.invoice_amount,
       txid: order.txid,
       address: order.address,
@@ -1038,24 +1071,31 @@ function TradePaymentPanel({
           </div>
 
           {queued ? <p className="trade-completion-note">This page will keep checking until the transaction is broadcast.</p> : null}
-          {order.txid ? (
-            <Button className="trade-completion-transaction" variant="secondary" onClick={() => window.open(blockExplorerUrl(order.txid!, order.network), "_blank", "noopener,noreferrer")}>
-              <ExternalLink size={15} /> View transaction
+          <div className="trade-completion-actions">
+            {order.txid ? (
+              <Button variant="secondary" onClick={() => window.open(blockExplorerUrl(order.txid!, order.network), "_blank", "noopener,noreferrer")}>
+                <ExternalLink size={15} /> View transaction
+              </Button>
+            ) : null}
+            <Button variant="outline" onClick={() => downloadJson(`robosats-trade-${order.id}-overview.json`, tradeOverview)}>
+              <Download size={15} /> Download trade overview
             </Button>
-          ) : null}
+          </div>
           {order.maker_summary || order.taker_summary || order.platform_summary ? (
             <details className="trade-completion-details">
               <summary>Receipt details</summary>
-              <pre className="receipt-json">{JSON.stringify(receipt, null, 2)}</pre>
-              <Button size="sm" variant="secondary" onClick={() => downloadJson(`robosats-order-${order.id}.json`, receipt)}>
-                <Download size={14} /> Export receipt
-              </Button>
+              <pre className="receipt-json">{JSON.stringify(tradeOverview, null, 2)}</pre>
             </details>
           ) : null}
 
           {!queued ? (
             <>
-              <RatingSubmissionCard canSubmit={canSubmit} loading={loading} onSubmit={onSubmitAction} onPublishRating={onPublishRating} />
+              <RatingSubmissionCard
+                canSubmit={canSubmit}
+                coordinatorName={coordinatorName}
+                loading={loading}
+                onPublishRating={onPublishRating}
+              />
               <div className="trade-completion-restart">
                 <p>RoboSats gets better with more liquidity. Tell a bitcoiner friend about it.</p>
                 <Button variant="secondary" onClick={onStartAgain}><Rocket size={16} /> Start again</Button>
@@ -1071,8 +1111,8 @@ function TradePaymentPanel({
   if (view.panel === "sending_sats") {
     return (
       <PayoutRoutingCard
-        title="Attempting Lightning payment"
-        body="RoboSats is paying your invoice. Keep the receiving wallet online."
+        title="Sending your payout"
+        body="Keep your receiving wallet online."
         status={order.retries ? `Payment attempt ${Math.min(3, order.retries + 1)} of 3` : "Routing your payout"}
       />
     );
@@ -1082,7 +1122,8 @@ function TradePaymentPanel({
     const retryAt = order.next_retry_time ? new Date(order.next_retry_time) : undefined;
     return (
       <PayoutRoutingCard
-        title="Retrying Lightning payment"
+        retrying
+        title="Retrying your payout"
         body="The previous route was unavailable. Keep the receiving wallet online."
         status={`Attempt ${Math.min(3, Math.max(1, order.retries || 1))} of 3 · ${retryAt && !Number.isNaN(retryAt.getTime()) ? `next try ${retryAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "retrying shortly"}`}
       />
@@ -1803,7 +1844,7 @@ function DisputeStatementCard({
             <span><strong>Attach chat logs</strong><small>This helps the dispute solver, but may reveal private trade details.</small></span>
           </label>
           {error ? <p className="field-error">{error}</p> : null}
-          <Button className="full-width" loading={loading || preparingLogs} type="submit">
+          <Button className="full-width dispute-submit-button" loading={loading || preparingLogs} type="submit" variant="outline">
             <FileText size={16} />
             Submit statement
           </Button>
@@ -1829,89 +1870,167 @@ function contactPlaceholder(method: string): string {
 
 function RatingSubmissionCard({
   canSubmit,
+  coordinatorName,
   loading,
-  onSubmit,
   onPublishRating
 }: {
   canSubmit: boolean;
+  coordinatorName: string;
   loading: boolean;
-  onSubmit: (payload: SubmitOrderActionPayload) => Promise<void>;
   onPublishRating?: (rating: number) => Promise<void>;
 }) {
-  const [rating, setRating] = useState(0);
+  const [peerRating, setPeerRating] = useState(0);
+  const [coordinatorRating, setCoordinatorRating] = useState(0);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
   const [localError, setLocalError] = useState("");
 
-  async function submitRating() {
+  async function selectCoordinatorRating(rating: number) {
+    setCoordinatorRating(rating);
+    setSubmitted(false);
     setLocalError("");
     if (!canSubmit) {
       setLocalError("Load this live order with your robot before rating the trade.");
       return;
     }
+    if (!onPublishRating) {
+      setLocalError("Coordinator rating is unavailable.");
+      return;
+    }
+    setSubmitting(true);
     try {
-      if (onPublishRating) await onPublishRating(rating);
-      else await onSubmit({ action: "rate_platform", rating });
+      await onPublishRating(rating);
+      setSubmitted(true);
     } catch (error) {
       setLocalError(toUserMessage(error, "Could not publish the rating."));
+    } finally {
+      setSubmitting(false);
     }
   }
 
   const ratingLabels = ["Poor", "Fair", "Good", "Very good", "Excellent"];
+  const ratingSending = loading || submitting;
 
   return (
     <section className="trade-completion-rating">
       <div className="trade-completion-rating-heading">
-        <h3>What do you think of RoboSats?</h3>
+        <h3>Rate your trade</h3>
       </div>
-      <form
-        className="trade-completion-rating-form"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void submitRating();
-        }}
-      >
-        <div className="rating-options" role="radiogroup" aria-label="Trade rating">
-          {[1, 2, 3, 4, 5].map((value) => (
-            <button
-              aria-checked={rating === value}
-              aria-label={`${value} stars, ${ratingLabels[value - 1]}`}
-              className={`rating-star-button ${rating >= value ? "rating-star-button-active" : ""}`}
-              key={value}
-              onClick={() => setRating(value)}
-              role="radio"
-              type="button"
-            >
-              <Star size={30} />
-            </button>
-          ))}
-        </div>
-        {rating ? <p className="trade-completion-rating-label">{ratingLabels[rating - 1]}</p> : null}
-        {localError ? <p className="field-error">{localError}</p> : null}
-        <Button className="full-width" disabled={!rating} loading={loading} type="submit">
-          <Star size={16} />
-          Submit rating
-        </Button>
-      </form>
+      <div className="trade-completion-rating-grid">
+        <RatingField
+          label="Your peer"
+          rating={peerRating}
+          ratingLabels={ratingLabels}
+          onChange={setPeerRating}
+        />
+        <RatingField
+          disabled={ratingSending}
+          label={`Your host ${coordinatorName || "coordinator"}`}
+          rating={coordinatorRating}
+          ratingLabels={ratingLabels}
+          onChange={(value) => void selectCoordinatorRating(value)}
+        />
+      </div>
+      {ratingSending ? (
+        <p className="trade-rating-sending" role="status">
+          <span className="ui-spinner" aria-hidden="true" />
+          Sending coordinator rating
+        </p>
+      ) : submitted ? (
+        <p className="trade-rating-thanks" role="status">
+          Also {coordinatorName || "your coordinator"} loves you <span aria-hidden="true">❤️</span>
+        </p>
+      ) : localError ? <p className="field-error">{localError}</p> : null}
     </section>
   );
 }
 
+function RatingField({
+  disabled = false,
+  label,
+  onChange,
+  rating,
+  ratingLabels
+}: {
+  disabled?: boolean;
+  label: string;
+  onChange: (value: number) => void;
+  rating: number;
+  ratingLabels: string[];
+}) {
+  return (
+    <div className="trade-rating-field">
+      <strong>{label}</strong>
+      <div className="rating-options" role="radiogroup" aria-label={`${label} rating`}>
+        {[1, 2, 3, 4, 5].map((value) => (
+          <button
+            aria-checked={rating === value}
+            aria-label={`${value} stars, ${ratingLabels[value - 1]}`}
+            className={`rating-star-button ${rating >= value ? "rating-star-button-active" : ""}`}
+            disabled={disabled}
+            key={value}
+            onClick={() => onChange(value)}
+            role="radio"
+            type="button"
+          >
+            <Star size={26} />
+          </button>
+        ))}
+      </div>
+      {rating ? <small>{ratingLabels[rating - 1]}</small> : <small>Not rated</small>}
+    </div>
+  );
+}
+
+const payoutBoltLanes = [
+  { delay: "t1", lane: "lane-1" },
+  { delay: "t2", lane: "lane-2" },
+  { delay: "t3", lane: "lane-3" },
+  { delay: "t4", lane: "lane-4" },
+  { delay: "t5", lane: "lane-5" }
+];
+
 function PayoutRoutingCard({
   body,
+  retrying = false,
   status,
   title
 }: {
   body: string;
+  retrying?: boolean;
   status: string;
   title: string;
 }) {
+  const boltPath = "M80 52h8l-3.4 6.6h6.2l-9.1 13 3.1-8h-6.5Z";
   return (
-    <Card className="payout-routing-card">
+    <Card className={`payout-routing-card ${retrying ? "payout-routing-card-retry" : ""}`}>
       <CardContent aria-live="polite">
+        <div className="payout-route-scene" aria-label={status} role="status">
+          <div className="payout-bolt-stage" aria-hidden="true">
+            <svg viewBox="0 0 168 184">
+              {payoutBoltLanes.map(({ delay, lane }) => (
+                <path className={`payout-bolt-glow ${delay} ${lane}`} d={boltPath} key={`glow-${lane}`} />
+              ))}
+              {payoutBoltLanes.map(({ delay, lane }) => (
+                <path className={`payout-bolt ${delay} ${lane}`} d={boltPath} key={lane} />
+              ))}
+            </svg>
+          </div>
+          <div className="payout-route-robot" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <g className="payout-route-robot-lines">
+                <path d="M20 9V7a2 2 0 0 0-2-2h-3a3 3 0 0 0-6 0H6a2 2 0 0 0-2 2v2a3 3 0 0 0-3 3 3 3 0 0 0 3 3v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4a3 3 0 0 0 3-3 3 3 0 0 0-3-3Z" />
+                <circle className="payout-route-eye" cx="9" cy="11.5" r="1" />
+                <circle className="payout-route-eye" cx="15" cy="11.5" r="1" />
+                <path d="M8 17h8" />
+              </g>
+            </svg>
+          </div>
+        </div>
         <h2>{title}</h2>
-        <span className="payout-routing-spinner" aria-label={status} role="status" />
         <div className="payout-routing-copy">
+          <strong>{retrying ? "Looking for a new payment route…" : "Finding a payment route…"}</strong>
           <p>{body}</p>
-          <small>{status}</small>
         </div>
       </CardContent>
     </Card>
@@ -1943,15 +2062,15 @@ function CompletedTradeSummary({ order }: { order: OrderDto }) {
       <h3>Trade summary</h3>
       <div className="completed-summary-tabs" role="tablist" aria-label="Trade summary participant">
         <button className={side === "maker" ? "active" : ""} onClick={() => setSide("maker")} role="tab" type="button">
-          <RobotAvatar hashId={order.maker_hash_id} label={order.maker_nick || "Maker"} size="sm" />
+          <RobotAvatar hashId={order.maker_hash_id || order.maker_nick} label={order.maker_nick || "Maker"} size="sm" />
           <span>Maker</span>
         </button>
         <button className={side === "platform" ? "active" : ""} onClick={() => setSide("platform")} role="tab" type="button" aria-label="RoboSats summary">
-          <img alt="" src="/static/assets/vector/R-notext.svg" />
+          <img className="completed-summary-platform-mark" alt="" src="/static/assets/vector/R-notext.svg" />
         </button>
         <button className={side === "taker" ? "active" : ""} onClick={() => setSide("taker")} role="tab" type="button">
           <span>Taker</span>
-          <RobotAvatar hashId={order.taker_hash_id} label={order.taker_nick || "Taker"} size="sm" />
+          <RobotAvatar hashId={order.taker_hash_id || order.taker_nick} label={order.taker_nick || "Taker"} size="sm" />
         </button>
       </div>
 
