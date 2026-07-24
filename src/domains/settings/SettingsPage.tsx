@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { ALargeSmall, BellRing, BookOpen, ChevronRight, ExternalLink, Info, KeyRound, Link2, Palette, PanelsTopLeft, RadioTower, RefreshCw, Users, WalletCards, X } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
+import { AppTransitionDialog } from "@/components/app/AppTransitionFeedback";
 import { Button } from "@/components/ui/button";
 import { RobotIcon } from "@/components/ui/robotIcon";
 import { Card, CardContent } from "@/components/ui/card";
@@ -200,7 +201,7 @@ export function SettingsPage() {
             <PanelsTopLeft className="settings-control-icon" size={20} aria-hidden="true" />
             <div className="settings-control-body settings-toggle-control">
               <span>
-                <span className="settings-control-label">PRO workspace</span>
+                <span className="settings-control-label">Pro Mode</span>
                 <small>Manage several robots and active trades from one view.</small>
               </span>
               <button
@@ -208,12 +209,16 @@ export function SettingsPage() {
                 type="button"
                 role="switch"
                 aria-checked={proEnabled}
-                aria-label="PRO workspace"
+                aria-label="Pro Mode"
                 onClick={() => {
                   if (proEnabled) {
+                    setShowFleetRecovery(false);
                     setProEnabled(false);
                     return;
                   }
+                  void import("@/domains/pro/GarageSetupDialog").catch(() => undefined);
+                  void import("@/domains/pro/GarageRecoveryDialog").catch(() => undefined);
+                  void import("@/domains/pro/ProWorkspacePage").catch(() => undefined);
                   setProEnabled(true);
                   if (!proSetupSeen) markProSetupSeen();
                 }}
@@ -225,8 +230,15 @@ export function SettingsPage() {
 
           <div className="settings-control-divider" />
 
-          {proEnabled && (garageVaultStatus === "unconfigured" || garageVaultStatus === "needs-backup") ? (
-            <Suspense fallback={null}>
+          {proEnabled && !showFleetRecovery && (garageVaultStatus === "unconfigured" || garageVaultStatus === "needs-backup") ? (
+            <Suspense
+              fallback={
+                <AppTransitionDialog
+                  title="Preparing Pro Fleet"
+                  message="Opening Fleet setup..."
+                />
+              }
+            >
               <GarageSetupDialog
                 onComplete={() => {
                   setProLastView("robots");
@@ -403,8 +415,21 @@ export function SettingsPage() {
           </CardContent>
         </Card>
       </div>
+      {proEnabled && (garageVaultStatus === "idle" || garageVaultStatus === "loading") ? (
+        <AppTransitionDialog
+          title="Preparing Pro Fleet"
+          message="Restoring your private Fleet settings..."
+        />
+      ) : null}
       {showFleetRecovery ? (
-        <Suspense fallback={null}>
+        <Suspense
+          fallback={
+            <AppTransitionDialog
+              title="Preparing Fleet restore"
+              message="Opening the private recovery tool..."
+            />
+          }
+        >
           <GarageRecoveryDialog
             onClose={() => setShowFleetRecovery(false)}
             onRestored={() => {

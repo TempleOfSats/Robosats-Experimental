@@ -1,10 +1,5 @@
 /// <reference types="vite/client" />
 
-declare module "robo-identities-wasm/robo_identities_wasm.js" {
-  export function generate_roboname(initialString: string): string;
-  export function async_generate_robohash(initialString: string, size: number): Promise<string>;
-}
-
 interface RoboSatsNativeBridge {
     getStorage(key: string): string | null;
     setStorage(key: string, value: string): void;
