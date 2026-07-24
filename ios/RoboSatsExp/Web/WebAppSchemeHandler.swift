@@ -8,7 +8,7 @@ final class WebAppSchemeHandler: NSObject, WKURLSchemeHandler {
         "img-src 'self' data: blob:",
         "media-src 'self' data: blob:",
         "font-src 'self' data:",
-        "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'",
+        "script-src 'self' 'unsafe-inline'",
         "style-src 'self' 'unsafe-inline'",
         "object-src 'none'",
         "base-uri 'none'",

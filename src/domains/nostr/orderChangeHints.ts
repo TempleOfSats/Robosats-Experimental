@@ -1,0 +1,314 @@
+import { type Event, type Filter, verifyEvent } from "nostr-tools";
+import { decrypt, getConversationKey } from "nostr-tools/nip44";
+import type { SimplePool } from "nostr-tools/pool";
+import { useFederationStore } from "@/domains/coordinators/federationStore";
+import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
+import {
+  selectCurrentSlot,
+  selectFleetManagedSlots,
+  selectStandardGarageSlots,
+  type RobotSlot,
+  useGarageStore
+} from "@/domains/garage/garageStore";
+import { getSharedRelayPool } from "@/domains/nostr/sharedRelayPool";
+import { buildNostrRelayUrl } from "@/domains/orderbook/nostrOrderbook";
+import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
+import type { OrderHint } from "@/domains/pro/pro.types";
+import { getNativeTorDiagnostics, isNativeApp } from "@/domains/transport/androidBridge";
+import { ORDER_CHANGE_HINT_REFRESH_EVENT } from "@/domains/transport/refreshIntents";
+
+export const ORDER_CHANGE_HINT_KIND = 28383;
+
+const MAX_EVENT_AGE_SECONDS = 10 * 60;
+const MAX_FUTURE_SKEW_SECONDS = 10 * 60;
+const MAX_CONTENT_LENGTH = 4096;
+const RECONFIGURE_DELAY_MS = 100;
+const RECONNECT_DELAY_MS = 2000;
+const COALESCE_WINDOW_MS = 750;
+const MAX_REMEMBERED_EVENTS = 2048;
+const ORDER_HINT_EVENT = "robosats:order-hint";
+
+type Subscription = ReturnType<SimplePool["subscribeMany"]>;
+
+type HintTarget = {
+  relay: string;
+  coordinatorPubkey: string;
+  shortAlias: string;
+  recipients: Map<string, Uint8Array>;
+};
+
+type RuntimeDependencies = {
+  pool: Pick<SimplePool, "subscribeMany">;
+  now: () => number;
+  canConnect: () => boolean;
+  garageState: () => Pick<ReturnType<typeof useGarageStore.getState>, "slots" | "currentToken">;
+  federationState: () => Pick<ReturnType<typeof useFederationStore.getState>, "coordinators">;
+  proEnabled: () => boolean;
+  subscribeGarage: (listener: () => void) => () => void;
+  subscribeFederation: (listener: () => void) => () => void;
+  subscribeProPreferences: (listener: () => void) => () => void;
+  eventTarget: Pick<Window, "addEventListener" | "removeEventListener" | "dispatchEvent" | "setTimeout" | "clearTimeout">;
+};
+
+let stopRuntime: (() => void) | undefined;
+
+export function startOrderChangeHintRuntime(): () => void {
+  if (stopRuntime) return stopRuntime;
+  useGarageStore.getState().hydrate();
+  const runtime = new OrderChangeHintRuntime(defaultDependencies());
+  runtime.start();
+  stopRuntime = () => {
+    runtime.stop();
+    stopRuntime = undefined;
+  };
+  return stopRuntime;
+}
+
+export class OrderChangeHintRuntime {
+  private subscriptions = new Map<string, Subscription>();
+  private unsubscribeStores: Array<() => void> = [];
+  private rememberedEventIds = new Set<string>();
+  private lastDispatchByOrder = new Map<string, number>();
+  private configurationKey = "";
+  private generation = 0;
+  private reconfigureTimer: number | undefined;
+  private stopped = true;
+
+  constructor(private readonly dependencies: RuntimeDependencies) {}
+
+  start(): void {
+    if (!this.stopped) return;
+    this.stopped = false;
+    this.unsubscribeStores = [
+      this.dependencies.subscribeGarage(() => this.scheduleConfigure()),
+      this.dependencies.subscribeFederation(() => this.scheduleConfigure()),
+      this.dependencies.subscribeProPreferences(() => this.scheduleConfigure())
+    ];
+    this.dependencies.eventTarget.addEventListener("online", this.onConnectivity);
+    this.dependencies.eventTarget.addEventListener("robosats:tor-ready", this.onConnectivity);
+    this.dependencies.eventTarget.addEventListener("robosats:tor-reconnected", this.onConnectivity);
+    this.configure();
+  }
+
+  stop(): void {
+    if (this.stopped) return;
+    this.stopped = true;
+    this.unsubscribeStores.forEach((unsubscribe) => unsubscribe());
+    this.unsubscribeStores = [];
+    this.dependencies.eventTarget.removeEventListener("online", this.onConnectivity);
+    this.dependencies.eventTarget.removeEventListener("robosats:tor-ready", this.onConnectivity);
+    this.dependencies.eventTarget.removeEventListener("robosats:tor-reconnected", this.onConnectivity);
+    if (this.reconfigureTimer !== undefined) {
+      this.dependencies.eventTarget.clearTimeout(this.reconfigureTimer);
+      this.reconfigureTimer = undefined;
+    }
+    this.closeSubscriptions("stopped");
+  }
+
+  private readonly onConnectivity = () => {
+    this.configurationKey = "";
+    this.scheduleConfigure(0);
+  };
+
+  private scheduleConfigure(delay = RECONFIGURE_DELAY_MS): void {
+    if (this.stopped) return;
+    if (this.reconfigureTimer !== undefined) {
+      this.dependencies.eventTarget.clearTimeout(this.reconfigureTimer);
+    }
+    this.reconfigureTimer = this.dependencies.eventTarget.setTimeout(() => {
+      this.reconfigureTimer = undefined;
+      this.configure();
+    }, delay);
+  }
+
+  private configure(): void {
+    if (this.stopped) return;
+    const targets = this.dependencies.canConnect() ? this.targets() : [];
+    const nextKey = targetFingerprint(targets);
+    if (nextKey === this.configurationKey && this.subscriptions.size === targets.length) return;
+
+    this.closeSubscriptions("reconfigured");
+    this.configurationKey = nextKey;
+    if (targets.length === 0) return;
+
+    const generation = this.generation;
+    targets.forEach((target) => {
+      const key = targetKey(target);
+      const filter: Filter = {
+        kinds: [ORDER_CHANGE_HINT_KIND],
+        authors: [target.coordinatorPubkey],
+        "#p": [...target.recipients.keys()],
+        since: Math.floor(this.dependencies.now() / 1000) - MAX_EVENT_AGE_SECONDS
+      };
+      const subscription = this.dependencies.pool.subscribeMany([target.relay], filter, {
+        onevent: (event) => this.handleEvent(event, target),
+        onclose: () => {
+          if (this.stopped || generation !== this.generation) return;
+          this.subscriptions.delete(key);
+          this.configurationKey = "";
+          this.scheduleConfigure(RECONNECT_DELAY_MS);
+        }
+      });
+      this.subscriptions.set(key, subscription);
+    });
+  }
+
+  private targets(): HintTarget[] {
+    const garage = this.dependencies.garageState();
+    const coordinators = this.dependencies.federationState().coordinators;
+    const slots = selectedSlots(garage.slots, garage.currentToken, this.dependencies.proEnabled());
+    return buildHintTargets(slots, coordinators);
+  }
+
+  private handleEvent(event: Event, target: HintTarget): void {
+    if (!validEnvelope(event, target, this.dependencies.now())) return;
+    if (this.rememberedEventIds.has(event.id)) return;
+
+    const recipientPubkey = event.tags.find((tag) => tag[0] === "p")?.[1]?.toLowerCase();
+    if (!recipientPubkey) return;
+    const secretKey = target.recipients.get(recipientPubkey);
+    if (!secretKey) return;
+
+    const payload = decryptPayload(event.content, secretKey, target.coordinatorPubkey);
+    if (!payload) return;
+
+    this.rememberEvent(event.id);
+    const dispatchKey = `${target.coordinatorPubkey}:${recipientPubkey}:${payload.order_id}`;
+    const now = this.dependencies.now();
+    const previousDispatch = this.lastDispatchByOrder.get(dispatchKey);
+    if (previousDispatch !== undefined && now - previousDispatch < COALESCE_WINDOW_MS) return;
+    this.lastDispatchByOrder.set(dispatchKey, now);
+    if (this.lastDispatchByOrder.size > MAX_REMEMBERED_EVENTS) {
+      const oldest = this.lastDispatchByOrder.keys().next().value;
+      if (oldest) this.lastDispatchByOrder.delete(oldest);
+    }
+
+    const hint: OrderHint = {
+      recipientPubkey,
+      coordinatorPubkey: target.coordinatorPubkey,
+      shortAlias: target.shortAlias,
+      orderId: payload.order_id,
+      eventId: event.id,
+      createdAt: event.created_at * 1000
+    };
+    this.dependencies.eventTarget.dispatchEvent(new CustomEvent(ORDER_HINT_EVENT, { detail: hint }));
+    if (!this.dependencies.proEnabled()) {
+      this.dependencies.eventTarget.dispatchEvent(new Event(ORDER_CHANGE_HINT_REFRESH_EVENT));
+    }
+  }
+
+  private rememberEvent(eventId: string): void {
+    this.rememberedEventIds.add(eventId);
+    if (this.rememberedEventIds.size <= MAX_REMEMBERED_EVENTS) return;
+    const oldest = this.rememberedEventIds.values().next().value;
+    if (oldest) this.rememberedEventIds.delete(oldest);
+  }
+
+  private closeSubscriptions(reason: string): void {
+    this.generation += 1;
+    const subscriptions = [...this.subscriptions.values()];
+    this.subscriptions.clear();
+    subscriptions.forEach((subscription) => void subscription.close(reason));
+  }
+}
+
+function defaultDependencies(): RuntimeDependencies {
+  return {
+    pool: getSharedRelayPool(),
+    now: Date.now,
+    canConnect: () => !isNativeApp() || Boolean(getNativeTorDiagnostics()?.connected),
+    garageState: () => useGarageStore.getState(),
+    federationState: () => useFederationStore.getState(),
+    proEnabled: () => useProPreferencesStore.getState().enabled,
+    subscribeGarage: (listener) => useGarageStore.subscribe(listener),
+    subscribeFederation: (listener) => useFederationStore.subscribe(listener),
+    subscribeProPreferences: (listener) => useProPreferencesStore.subscribe(listener),
+    eventTarget: window
+  };
+}
+
+function selectedSlots(slots: RobotSlot[], currentToken: string | undefined, proEnabled: boolean): RobotSlot[] {
+  if (proEnabled) return selectFleetManagedSlots(slots);
+  const current = selectCurrentSlot(selectStandardGarageSlots(slots), currentToken);
+  return current ? [current] : [];
+}
+
+export function buildHintTargets(slots: RobotSlot[], coordinators: CoordinatorSummary[]): HintTarget[] {
+  const coordinatorsByAlias = new Map(
+    coordinators
+      .filter((coordinator) =>
+        coordinator.enabled
+        && validPubkey(coordinator.nostrHexPubkey)
+        && Boolean(buildNostrRelayUrl(coordinator))
+      )
+      .map((coordinator) => [coordinator.shortAlias, coordinator] as const)
+  );
+  const targets = new Map<string, HintTarget>();
+
+  slots.forEach((slot) => {
+    if (!validPubkey(slot.nostrPubKey)) return;
+    Object.entries(slot.robots).forEach(([shortAlias, robot]) => {
+      if (!robot.activeOrderId && !robot.lastOrderId && !robot.renewableOrderId) return;
+      const coordinator = coordinatorsByAlias.get(shortAlias);
+      if (!coordinator?.nostrHexPubkey) return;
+      const relay = buildNostrRelayUrl(coordinator);
+      const coordinatorPubkey = coordinator.nostrHexPubkey.toLowerCase();
+      const key = `${relay}|${coordinatorPubkey}`;
+      const target = targets.get(key) ?? {
+        relay,
+        coordinatorPubkey,
+        shortAlias,
+        recipients: new Map<string, Uint8Array>()
+      };
+      target.recipients.set(slot.nostrPubKey.toLowerCase(), slot.nostrSecKey);
+      targets.set(key, target);
+    });
+  });
+
+  return [...targets.values()].sort((left, right) => targetKey(left).localeCompare(targetKey(right)));
+}
+
+function validEnvelope(event: Event, target: HintTarget, nowMs: number): boolean {
+  if (event.kind !== ORDER_CHANGE_HINT_KIND || !verifyEvent(event)) return false;
+  if (event.pubkey.toLowerCase() !== target.coordinatorPubkey) return false;
+  if (event.content.length === 0 || event.content.length > MAX_CONTENT_LENGTH) return false;
+  const nowSeconds = Math.floor(nowMs / 1000);
+  if (event.created_at < nowSeconds - MAX_EVENT_AGE_SECONDS) return false;
+  if (event.created_at > nowSeconds + MAX_FUTURE_SKEW_SECONDS) return false;
+  const recipientTags = event.tags.filter((tag) => tag[0] === "p" && validPubkey(tag[1]));
+  return recipientTags.length === 1 && target.recipients.has(recipientTags[0][1].toLowerCase());
+}
+
+function decryptPayload(
+  content: string,
+  recipientSecretKey: Uint8Array,
+  coordinatorPubkey: string
+): { type: "order_changed"; version: 1; order_id: number } | undefined {
+  try {
+    const plaintext = decrypt(content, getConversationKey(recipientSecretKey, coordinatorPubkey));
+    const value = JSON.parse(plaintext) as Record<string, unknown>;
+    if (value.type !== "order_changed" || value.version !== 1) return undefined;
+    if (!Number.isSafeInteger(value.order_id) || Number(value.order_id) <= 0) return undefined;
+    return {
+      type: "order_changed",
+      version: 1,
+      order_id: Number(value.order_id)
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function validPubkey(value: unknown): value is string {
+  return typeof value === "string" && /^[0-9a-f]{64}$/i.test(value);
+}
+
+function targetKey(target: HintTarget): string {
+  return `${target.relay}|${target.coordinatorPubkey}`;
+}
+
+function targetFingerprint(targets: HintTarget[]): string {
+  return targets
+    .map((target) => `${targetKey(target)}|${[...target.recipients.keys()].sort().join(",")}`)
+    .join(";");
+}

@@ -234,6 +234,23 @@ export function tradePreviewOrder(value: string | null): OrderDto | undefined {
         escrow_locked: true,
         num_satoshis: 836120,
         sent_satoshis: 836120,
+        maker_summary: {
+          is_buyer: false,
+          received_fiat: 3000,
+          sent_sats: 836120,
+          trade_fee_sats: 1254,
+          trade_fee_percent: 0.15
+        },
+        taker_summary: {
+          is_buyer: true,
+          sent_fiat: 3000,
+          received_sats: 836120,
+          trade_fee_sats: 1254,
+          trade_fee_percent: 0.15
+        },
+        platform_summary: {
+          trade_revenue_sats: 2508
+        },
         status_message: "Successful trade"
       };
     case "routing-auto":

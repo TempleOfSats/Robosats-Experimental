@@ -1,0 +1,409 @@
+@media (max-width: 1400px) {
+  .pro-trade-header {
+    grid-template-columns:
+      minmax(10.5rem, 1.15fr)
+      minmax(13rem, 1.55fr)
+      minmax(9rem, 1fr)
+      minmax(10rem, 1.2fr)
+      minmax(6rem, 0.65fr)
+      minmax(5rem, auto);
+  }
+
+  .pro-trade-actions {
+    min-width: 5rem;
+  }
+
+  .pro-trade-action-button {
+    width: 2.25rem;
+    min-width: 2.25rem;
+    padding-inline: 0;
+  }
+
+  .pro-trade-action-label {
+    display: none;
+  }
+}
+
+@media (max-width: 1180px) {
+  .pro-trade-header {
+    grid-template-columns: minmax(8rem, 1fr) minmax(9rem, 1.2fr) minmax(7rem, 1fr) minmax(5.5rem, 0.7fr) minmax(5rem, auto);
+  }
+
+  .pro-trade-row-open {
+    grid-template-columns: minmax(8rem, 1fr) minmax(9rem, 1.2fr) minmax(7rem, 1fr) minmax(5.5rem, 0.7fr);
+  }
+
+  .pro-trade-header > :nth-child(3),
+  .pro-trade-coordinator {
+    display: none;
+  }
+
+}
+
+@media (max-width: 900px) {
+  .pro-trade-header {
+    display: none;
+  }
+
+  .pro-trade-list {
+    display: grid;
+  }
+
+  .pro-trade-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .pro-trade-row-open {
+    min-height: 7.5rem;
+    grid-template-areas:
+      "robot status"
+      "order order"
+      "coordinator deadline";
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.45rem 0.75rem;
+    padding: 0.8rem 1rem;
+  }
+
+  .pro-trade-robot { grid-area: robot; }
+  .pro-trade-order { grid-area: order; }
+  .pro-trade-coordinator { grid-area: coordinator; display: flex; }
+  .pro-trade-row-open > span:nth-child(4) { grid-area: status; justify-self: end; }
+  .pro-trade-deadline { grid-area: deadline; justify-self: end; }
+
+  .pro-trade-coordinator span {
+    white-space: normal;
+  }
+
+  .pro-robot-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.75rem;
+  }
+
+  .pro-robot-actions {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 600px) {
+  .pro-workspace-header {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .pro-add-robot-button {
+    width: 2.5rem;
+    padding: 0;
+  }
+
+  .pro-add-robot-button span {
+    display: none;
+  }
+
+  .pro-create-offer-button {
+    width: 2.5rem;
+    padding: 0;
+  }
+
+  .pro-create-offer-button span {
+    display: none;
+  }
+
+  .pro-abandon-fleet-actions {
+    display: grid;
+  }
+
+  .pro-fleet-utility-bar {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .pro-fleet-utility-bar .garage-utility-btn {
+    flex-direction: column;
+    gap: 0.2rem;
+    font-size: var(--type-caption-size);
+  }
+
+  .pro-presets-sheet {
+    width: min(calc(100vw - 2rem), 48rem);
+    max-height: calc(100dvh - 2rem);
+    padding: 1rem;
+  }
+
+  .pro-presets-sheet > .garage-switcher-header {
+    align-items: flex-start;
+  }
+
+  .pro-presets-title {
+    align-items: flex-start;
+    gap: 0.55rem;
+  }
+
+  .pro-presets-title > span {
+    width: 2.15rem;
+    height: 2.15rem;
+  }
+
+  .pro-preset-card {
+    grid-template-columns: 1fr;
+    gap: 0.65rem;
+  }
+
+  .pro-preset-card-actions,
+  .pro-preset-remove-confirm {
+    justify-content: flex-end;
+  }
+
+  .pro-summary-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pro-summary-item {
+    border-bottom: 1px solid var(--border);
+  }
+
+  .pro-summary-item:last-child {
+    border-bottom: 0;
+  }
+
+  .pro-summary-item {
+    min-height: 3.65rem;
+    grid-template-columns: 1.25rem minmax(0, 1fr);
+    gap: 0.15rem 0.5rem;
+    padding: 0.55rem 0.7rem;
+  }
+
+  .pro-summary-item > svg {
+    justify-self: center;
+  }
+
+  .pro-summary-item strong {
+    justify-self: start;
+    line-height: 1;
+  }
+
+  .pro-summary-item span {
+    grid-column: 1 / -1;
+  }
+
+  .pro-trade-row {
+    position: relative;
+    display: block;
+  }
+
+  .pro-trade-row-open {
+    min-height: 5rem;
+    grid-template-areas:
+      "robot status status"
+      "order coordinator deadline";
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 0.35rem 0.5rem;
+    padding: 0.65rem 0.5rem 0.65rem 0.75rem;
+  }
+
+  .pro-trade-robot > span,
+  .pro-trade-order {
+    display: flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    overflow: hidden;
+  }
+
+  .pro-trade-robot > span > strong,
+  .pro-trade-order > small {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .pro-trade-robot > span > strong {
+    flex: 0 1 auto;
+  }
+
+  .pro-trade-order > strong {
+    flex: 0 0 auto;
+  }
+
+  .pro-trade-robot > span > small,
+  .pro-trade-order > small {
+    flex: 1 1 auto;
+  }
+
+  .pro-trade-robot > span > small {
+    white-space: nowrap;
+  }
+
+  .pro-trade-row .ui-badge {
+    max-width: 9.5rem;
+  }
+
+  .pro-trade-coordinator {
+    gap: 0;
+  }
+
+  .pro-trade-coordinator span {
+    display: none;
+  }
+
+  .pro-robot-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.45rem;
+    padding-inline: 0.65rem;
+  }
+
+  .pro-robot-actions {
+    grid-column: auto;
+    flex-wrap: nowrap;
+    justify-content: flex-end;
+    gap: 0.15rem;
+  }
+
+  .pro-robot-actions .ui-button {
+    width: 2.5rem;
+    min-width: 2.5rem;
+    height: 2.5rem;
+    padding: 0;
+  }
+
+  .pro-robot-action-label {
+    display: none;
+  }
+
+  .pro-robot-identity {
+    gap: 0.45rem;
+  }
+
+  .pro-robot-identity strong {
+    font-size: var(--type-compact-size);
+  }
+
+  .pro-robot-state {
+    gap: 0.25rem;
+  }
+
+  .pro-robot-state .ui-badge,
+  .pro-robot-state small {
+    font-size: var(--type-caption-size);
+  }
+
+  .pro-robot-state small {
+    display: none;
+  }
+
+  .pro-robot-added-notice {
+    right: 0.75rem;
+    bottom: 0.75rem;
+    width: calc(100vw - 1.5rem);
+  }
+
+  .pro-trade-actions {
+    position: absolute;
+    right: 0.45rem;
+    bottom: 0.45rem;
+    z-index: 2;
+    min-width: 0;
+    flex-direction: row;
+    justify-content: center;
+    gap: 0.25rem;
+    padding: 0;
+  }
+
+  .pro-trade-action-button,
+  .pro-trade-open-icon {
+    width: 2.5rem;
+    height: 2.5rem;
+    min-width: 2.5rem;
+    padding: 0;
+  }
+
+  .pro-trade-deadline {
+    margin-right: 2.75rem;
+  }
+
+  .pro-trade-row-quick-actions .pro-trade-deadline {
+    margin-right: 5.5rem;
+  }
+
+  .pro-trade-cancel-button {
+    border: 1px solid var(--danger-border);
+    background: var(--danger-surface);
+    color: var(--danger-foreground);
+  }
+
+  .pro-empty-state {
+    grid-template-columns: auto minmax(0, 1fr);
+    padding: 1.25rem;
+  }
+
+  .pro-empty-state > div:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .pro-fleet-empty-state {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    text-align: center;
+  }
+
+  .pro-fleet-empty-state > .pro-fleet-empty-copy:last-child {
+    grid-column: 1;
+  }
+
+  .pro-refresh-warning {
+    align-items: start;
+  }
+}
+
+@media (max-width: 380px) {
+  .sidebar-nav-pro .nav-item {
+    min-width: 0;
+    padding-inline: 0.35rem;
+  }
+
+  .pro-trade-row .ui-badge {
+    max-width: 8.25rem;
+  }
+
+  .pro-trade-robot > span > small {
+    display: none;
+  }
+
+  .pro-trade-order::before {
+    content: attr(data-direction);
+    order: 2;
+    flex: 0 0 auto;
+    color: var(--text-supporting);
+    font-size: var(--type-caption-size);
+    line-height: var(--type-caption-line);
+    white-space: nowrap;
+  }
+
+  .pro-trade-order > strong {
+    order: 1;
+  }
+
+  .pro-trade-order > small {
+    order: 3;
+  }
+
+  .pro-trade-row-quick-actions .pro-trade-row-open {
+    min-height: 6.75rem;
+    grid-template-areas:
+      "robot status status"
+      "order order order"
+      "coordinator deadline deadline";
+  }
+
+  .pro-trade-row-quick-actions .pro-trade-order {
+    padding-right: 5.5rem;
+  }
+
+  .pro-robot-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.4rem;
+  }
+
+  .pro-robot-actions {
+    grid-column: 1;
+    justify-content: flex-end;
+  }
+}
