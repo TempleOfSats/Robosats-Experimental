@@ -356,7 +356,7 @@ fn ensure_main_window(app: &AppHandle, port: u16) -> Result<(), String> {
         return Ok(());
     }
     let app_handle = app.clone();
-    WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html#/garage".into()))
+    WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
         .title("RoboSats Exp.")
         .inner_size(1180.0, 780.0)
         .min_inner_size(390.0, 620.0)

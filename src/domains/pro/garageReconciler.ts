@@ -9,6 +9,7 @@ import {
   useGarageStore
 } from "@/domains/garage/garageStore";
 import { fetchOrder } from "@/domains/orders/orderApi";
+import { ingestCoordinatorOrder } from "@/domains/orders/orderActivity";
 import { isAlreadyCancelledError } from "@/domains/orders/orderStore";
 import type { OrderDto } from "@/domains/orders/order.types";
 import { applyProOrderSnapshot } from "@/domains/pro/proOrderActivity";
@@ -277,12 +278,17 @@ export class GarageReconciler implements GarageReconcileController {
       const order = await this.orderLimiter.run(() => this.dependencies.fetchOrder(coordinator, locator.orderId, slot));
       if (epoch !== this.epoch || actionGeneration !== (actionSequences.get(key) ?? 0)) return;
 
+      const observedOrder = ingestCoordinatorOrder({
+        order: { ...order, shortAlias: locator.shortAlias },
+        shortAlias: locator.shortAlias,
+        slot
+      });
       applyProOrderSnapshot({
         activeOrderId: robot?.activeOrderId,
         authoritative: true,
         lastOrderId: robot?.lastOrderId,
         observedAt: this.dependencies.now(),
-        order: { ...order, shortAlias: locator.shortAlias },
+        order: observedOrder,
         releasePublicTake: isReleasedPublicTake(order, robot),
         shortAlias: locator.shortAlias,
         slot
@@ -290,13 +296,26 @@ export class GarageReconciler implements GarageReconcileController {
     } catch (error) {
       if (epoch !== this.epoch || actionGeneration !== (actionSequences.get(key) ?? 0)) return;
       if (isAlreadyCancelledError(error)) {
-        useGarageStore.getState().syncOrderSnapshot({
-          token: slot.token,
-          shortAlias: locator.shortAlias,
-          orderId: locator.orderId,
-          status: 4,
-          isMaker: previous?.order?.is_maker
-        });
+        if (previous?.order) {
+          ingestCoordinatorOrder({
+            order: {
+              ...previous.order,
+              id: locator.orderId,
+              shortAlias: locator.shortAlias,
+              status: 4,
+              status_message: "Order cancelled"
+            },
+            shortAlias: locator.shortAlias,
+            slot
+          });
+        } else {
+          useGarageStore.getState().syncOrderSnapshot({
+            token: slot.token,
+            shortAlias: locator.shortAlias,
+            orderId: locator.orderId,
+            status: 4
+          });
+        }
         useProTradeIndexStore.getState().removeTrade(locator);
         return;
       }

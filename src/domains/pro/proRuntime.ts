@@ -23,6 +23,10 @@ import {
   proTradeCacheOwner
 } from "@/domains/pro/proTradeCache";
 import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
+import {
+  slotsNeedingCoordinatorRetry,
+  startProRobotRefreshBridge
+} from "@/domains/pro/proRobotRefreshBridge";
 import type { ReconcileReason } from "@/domains/pro/pro.types";
 import { subscribeRefreshIntents } from "@/domains/transport/refreshIntents";
 
@@ -34,6 +38,7 @@ export function startProRuntime(): () => void {
   useGarageStore.getState().hydrate();
   const stopVault = startGarageVaultRuntime();
   const stopOrderActivity = startProOrderActivityBridge();
+  const stopRobotRefreshBridge = startProRobotRefreshBridge();
   const stopTriggers = registerReconcileTriggers({
     controller: garageReconciler,
     proEnabled: () => useProPreferencesStore.getState().enabled,
@@ -45,6 +50,7 @@ export function startProRuntime(): () => void {
     stopTriggers();
     stopExpiryTrigger();
     stopOrderActivity();
+    stopRobotRefreshBridge();
     stopVault();
     stopRuntime = undefined;
   };
@@ -173,7 +179,23 @@ function startGarageVaultRuntime(): () => void {
     const nextFingerprint = enabledCoordinatorFingerprint();
     if (nextFingerprint !== coordinatorFingerprint) {
       coordinatorFingerprint = nextFingerprint;
-      if (nextFingerprint) activateFleet(true);
+      if (nextFingerprint) {
+        activateFleet(true);
+        return;
+      }
+    }
+    if (nextFingerprint && useGarageVaultStore.getState().status === "ready") {
+      const slotIds = selectProGarageSlots(
+        useGarageStore.getState().slots,
+        useGarageVaultStore.getState().manifest
+      ).map((slot) => slot.tokenSHA256);
+      const retrySlotIds = slotsNeedingCoordinatorRetry(
+        slotIds,
+        useProTradeIndexStore.getState().syncBySlot
+      );
+      for (const slotId of retrySlotIds) {
+        void garageReconciler.reconcileSlot(slotId, "fleet-ready").catch(() => undefined);
+      }
     }
   });
   const onVisibilityChange = () => {

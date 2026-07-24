@@ -2,9 +2,18 @@ import { create, type StoreApi, type UseBoundStore } from "zustand";
 import { deriveRobotIdentity, type RobotIdentity } from "@/domains/identity/robotIdentity";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import { fetchRobot } from "@/domains/garage/robotApi";
+import {
+  publishRobotRefreshResult,
+  type RefreshRobotSlotResult
+} from "@/domains/garage/robotRefreshEvents";
 import type { Auth, RequestPriority, RequestSource } from "@/domains/transport/apiClient";
 import { systemClient } from "@/domains/transport/systemClient";
 import { toUserMessage } from "@/lib/userError";
+
+export type {
+  RefreshRobotCoordinatorResult,
+  RefreshRobotSlotResult
+} from "@/domains/garage/robotRefreshEvents";
 
 const GARAGE_SLOTS_KEY = "robosats_exp_garage_slots_v1";
 const LEGACY_GARAGE_SLOTS_KEY = "robosats_exp_garage_slots";
@@ -49,21 +58,6 @@ export type GarageState = {
     options?: RefreshRobotSlotOptions
   ) => Promise<RefreshRobotSlotResult>;
   refreshRobots: (coordinators: CoordinatorSummary[]) => Promise<void>;
-};
-
-export type RefreshRobotCoordinatorResult = {
-  shortAlias: string;
-  found?: boolean;
-  activeOrderId?: number;
-  lastOrderId?: number;
-  renewableOrderId?: number;
-  releasedOrderId?: number;
-  error?: string;
-};
-
-export type RefreshRobotSlotResult = {
-  slotId: string;
-  coordinators: RefreshRobotCoordinatorResult[];
 };
 
 export type RefreshRobotSlotOptions = {
@@ -285,7 +279,9 @@ export const useGarageStore: UseBoundStore<StoreApi<GarageState>> = create<Garag
       coordinators.filter((coordinator) => coordinator.enabled && coordinator.url),
       options.preferredAliases
     );
-    if (targets.length === 0) return { slotId: slot.tokenSHA256, coordinators: [] };
+    if (targets.length === 0) {
+      return publishRobotRefreshResult({ slotId: slot.tokenSHA256, coordinators: [] });
+    }
 
     const refreshKey = robotRefreshKey(slot, targets, options.priority);
     const existingRefresh = robotRefreshes.get(refreshKey);
@@ -381,7 +377,7 @@ export const useGarageStore: UseBoundStore<StoreApi<GarageState>> = create<Garag
       );
 
       const refreshedSlot = get().slots.find((item) => item.token === slot.token);
-      return {
+      return publishRobotRefreshResult({
         slotId: slot.tokenSHA256,
         coordinators: aliases.map((shortAlias) => {
           const robot = refreshedSlot?.robots[shortAlias];
@@ -395,7 +391,7 @@ export const useGarageStore: UseBoundStore<StoreApi<GarageState>> = create<Garag
             error: robot?.error
           };
         })
-      } satisfies RefreshRobotSlotResult;
+      } satisfies RefreshRobotSlotResult);
     })().finally(() => robotRefreshes.delete(refreshKey));
 
     robotRefreshes.set(refreshKey, refresh);

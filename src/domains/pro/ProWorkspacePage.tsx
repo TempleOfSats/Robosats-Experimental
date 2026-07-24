@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
+import { AppTransitionFeedback } from "@/components/app/AppTransitionFeedback";
 import { Button } from "@/components/ui/button";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
 import { compareCoordinatorsByEstablished } from "@/domains/coordinators/coordinatorOrder";
@@ -187,7 +188,22 @@ export function ProWorkspacePage() {
     return () => window.clearTimeout(timeout);
   }, [addedRobot]);
 
+  const closeTrade = useCallback(() => {
+    setSelectedTrade(undefined);
+    void garageReconciler.reconcileAll("order-action");
+  }, []);
+
   if (!enabled) return <Navigate to="/garage" replace />;
+  if (vaultStatus === "idle" || vaultStatus === "loading" || !hydrated) {
+    return (
+      <main className="page page-narrow pro-workspace-page">
+        <AppTransitionFeedback
+          title="Opening Pro Desk"
+          message="Loading your Fleet and trade overview..."
+        />
+      </main>
+    );
+  }
 
   function selectView(view: ProView) {
     setLastView(view);
@@ -271,10 +287,17 @@ export function ProWorkspacePage() {
     void garageReconciler.reconcileSlot(slotId, "order-action");
   }
 
-  const closeTrade = useCallback(() => {
-    setSelectedTrade(undefined);
-    void garageReconciler.reconcileAll("order-action");
-  }, []);
+  function replaceSelectedTrade(locator: { shortAlias: string; orderId: number }) {
+    if (!selectedTrade) return;
+    const nextLocator = { ...selectedTrade, ...locator };
+    if (
+      selectedTrade.shortAlias !== nextLocator.shortAlias
+      || selectedTrade.orderId !== nextLocator.orderId
+    ) {
+      removeTrade(selectedTrade);
+    }
+    setSelectedTrade(nextLocator);
+  }
 
   function openRobotSettings(slotId: string) {
     const slot = slots.find((item) => item.tokenSHA256 === slotId);
@@ -667,7 +690,11 @@ export function ProWorkspacePage() {
             <button className="take-modal-close" onClick={closeTrade} type="button" aria-label="Close trade">
               <X size={20} />
             </button>
-            <OrderPage embeddedLocator={selectedTrade} onEmbeddedClose={closeTrade} />
+            <OrderPage
+              embeddedLocator={selectedTrade}
+              onEmbeddedClose={closeTrade}
+              onEmbeddedOrderChange={replaceSelectedTrade}
+            />
           </section>
         </div>
       ) : null}
