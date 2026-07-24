@@ -18,7 +18,7 @@ const inlineScriptHashes = [...indexHtml.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?
   .map((script) => `'sha256-${createHash("sha256").update(script).digest("base64")}'`);
 const contentSecurityPolicy = [
   "default-src 'self'",
-  `script-src 'self' 'wasm-unsafe-eval' ${inlineScriptHashes.join(" ")}`.trim(),
+  `script-src 'self' ${inlineScriptHashes.join(" ")}`.trim(),
   "style-src 'self' 'unsafe-inline'",
   "connect-src 'self'",
   "img-src 'self' data: blob:",

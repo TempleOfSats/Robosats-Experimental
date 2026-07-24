@@ -20,6 +20,11 @@ type DesktopNotificationState = {
   permission: string;
 };
 
+export const DESKTOP_NOTIFICATION_OPEN_EVENT = "robosats:desktop-notification-open";
+
+let pendingDesktopNotificationRoute: string | undefined;
+let desktopNotificationsEnabled = false;
+
 export function isTauriDesktop(): boolean {
   return typeof window !== "undefined" && window.RobosatsSettings?.startsWith("desktop-") === true;
 }
@@ -50,16 +55,18 @@ export async function getDesktopTorDiagnostics(): Promise<AndroidTorDiagnostics 
 export async function getDesktopNotificationState(): Promise<AndroidNotificationState | null> {
   if (!isTauriDesktop()) return null;
   const state = await invoke<DesktopNotificationState>("desktop_notification_state");
+  desktopNotificationsEnabled = state.enabled && state.permission === "granted";
   return {
     enabled: state.enabled,
-    permissionGranted: state.supported,
+    permissionGranted: state.supported && state.permission === "granted",
     permissionRequired: false
   };
 }
 
 export async function setDesktopNotificationsEnabled(enabled: boolean): Promise<void> {
   if (!isTauriDesktop()) return;
-  await invoke("desktop_set_notifications_enabled", { enabled });
+  const state = await invoke<DesktopNotificationState>("desktop_set_notifications_enabled", { enabled });
+  desktopNotificationsEnabled = state.enabled && state.permission === "granted";
 }
 
 export async function showDesktopNotification(request: {
@@ -104,8 +111,16 @@ export function initializeDesktopRuntimeBridge(): void {
   };
   void listen("desktop-runtime-status", forwardStatus);
   void listen("desktop-notification-state", (payload) => {
+    if (isDesktopNotificationState(payload)) {
+      desktopNotificationsEnabled = payload.enabled && payload.permission === "granted";
+    }
     window.dispatchEvent(new CustomEvent("robosats:native-notification-state", { detail: payload }));
   });
+  void listen("desktop-notification-open", publishDesktopNotificationRoute).then(async () => {
+    const route = await invoke<string | null>("desktop_take_notification_route");
+    if (route) publishDesktopNotificationRoute(route);
+  });
+  void getDesktopNotificationState().catch(() => null);
   void listen("robosats:tor-reconnected", (payload) => {
     window.dispatchEvent(new CustomEvent("robosats:tor-reconnected", { detail: payload }));
   });
@@ -135,6 +150,32 @@ export function initializeDesktopRuntimeBridge(): void {
     event.preventDefault();
     void invoke("desktop_open_external", { url: anchor.href });
   });
+}
+
+export function takePendingDesktopNotificationRoute(): string | undefined {
+  const route = pendingDesktopNotificationRoute;
+  pendingDesktopNotificationRoute = undefined;
+  return route;
+}
+
+export function desktopBackgroundNotificationsEnabled(): boolean {
+  return isTauriDesktop() && desktopNotificationsEnabled;
+}
+
+function publishDesktopNotificationRoute(payload: unknown): void {
+  if (typeof payload !== "string" || !validOrderRoute(payload)) return;
+  pendingDesktopNotificationRoute = payload;
+  window.dispatchEvent(new CustomEvent(DESKTOP_NOTIFICATION_OPEN_EVENT, { detail: payload }));
+}
+
+function validOrderRoute(route: string): boolean {
+  return /^\/order\/[a-z0-9-]+\/[1-9]\d*$/i.test(route);
+}
+
+function isDesktopNotificationState(value: unknown): value is DesktopNotificationState {
+  if (!value || typeof value !== "object") return false;
+  const state = value as Partial<DesktopNotificationState>;
+  return typeof state.enabled === "boolean" && typeof state.permission === "string";
 }
 
 async function invoke<T = void>(command: string, args?: Record<string, unknown>): Promise<T> {
