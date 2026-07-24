@@ -2,8 +2,10 @@ import { create } from "zustand";
 import { toUserMessage } from "@/lib/userError";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import { getRobotAuthForCoordinator, type RobotSlot, useGarageStore } from "@/domains/garage/garageStore";
-import { fetchOrder, submitOrderAction } from "@/domains/orders/orderApi";
+import { ingestCoordinatorOrder } from "@/domains/orders/orderActivity";
+import { fetchOrder, isCompleteOrderActionResponse, submitOrderAction } from "@/domains/orders/orderApi";
 import type { OrderDto, SubmitOrderActionPayload } from "@/domains/orders/order.types";
+import type { ApiRequestOptions } from "@/domains/transport/apiClient";
 
 let requestSequence = 0;
 
@@ -21,6 +23,7 @@ type OrderState = {
 type LoadOrderParams = {
   coordinator: CoordinatorSummary;
   orderId: number;
+  reason?: OrderLoadReason;
   slot?: RobotSlot;
 };
 
@@ -28,12 +31,20 @@ type SubmitActionParams = LoadOrderParams & {
   payload: SubmitOrderActionPayload;
 };
 
+export type OrderLoadReason =
+  | "initial"
+  | "lifecycle"
+  | "maintenance"
+  | "manual"
+  | "poll"
+  | "post-action";
+
 export const useOrderStore = create<OrderState>((set, get) => ({
   order: undefined,
   loading: false,
   refreshing: false,
   submitting: false,
-  loadOrder: async ({ coordinator, orderId, slot }) => {
+  loadOrder: async ({ coordinator, orderId, reason = "initial", slot }) => {
     if (get().submitting) return;
     const auth = getRobotAuthForCoordinator(slot, coordinator.shortAlias);
     if (!auth) {
@@ -45,7 +56,7 @@ export const useOrderStore = create<OrderState>((set, get) => ({
     set((state) => ({ loading: !state.order, refreshing: Boolean(state.order), error: undefined }));
     try {
       const order = {
-        ...(await fetchOrder(coordinator.url, orderId, auth, { timeoutProfile: "background" })),
+        ...(await fetchOrder(coordinator.url, orderId, auth, orderLoadRequestOptions(reason))),
         shortAlias: coordinator.shortAlias
       };
       if (requestId !== requestSequence) return;
@@ -80,15 +91,25 @@ export const useOrderStore = create<OrderState>((set, get) => ({
 
     const requestId = ++requestSequence;
     const previousOrder = get().order;
+    let snapshotApplied = false;
     set({ submitting: true, refreshing: false, error: undefined });
+    dispatchOrderActionEvent("robosats:order-action-start", slot, coordinator.shortAlias, orderId);
     try {
+      const responseOrder = await submitOrderAction(coordinator.url, orderId, payload, auth);
       const order = {
-        ...(await submitOrderAction(coordinator.url, orderId, payload, auth)),
+        ...responseOrder,
         id: orderId,
         shortAlias: coordinator.shortAlias
       };
       if (requestId !== requestSequence) return;
+      if (!isCompleteOrderActionResponse(responseOrder)) {
+        set({ submitting: false });
+        await get().loadOrder({ coordinator, orderId, reason: "post-action", slot });
+        snapshotApplied = Boolean(get().order);
+        return;
+      }
       syncGarageOrder(slot, coordinator.shortAlias, order);
+      snapshotApplied = true;
       if (isReleasedEarlyTake(previousOrder, order, payload) && slot) {
         useGarageStore.getState().releaseOrderReservation(slot.token, coordinator.shortAlias, orderId);
       }
@@ -99,7 +120,10 @@ export const useOrderStore = create<OrderState>((set, get) => ({
       if (isAlreadyCancelledError(error)) {
         const current = get().order;
         const order = current ? { ...current, status: 4, status_message: "Order cancelled" } : current;
-        if (order) syncGarageOrder(slot, coordinator.shortAlias, order);
+        if (order) {
+          syncGarageOrder(slot, coordinator.shortAlias, order);
+          snapshotApplied = true;
+        }
         set({ order, submitting: false, error: undefined });
         return;
       }
@@ -107,6 +131,17 @@ export const useOrderStore = create<OrderState>((set, get) => ({
         submitting: false,
         error: toUserMessage(error, "Could not update the order.")
       });
+    } finally {
+      const completedOrder = snapshotApplied ? get().order : undefined;
+      dispatchOrderActionEvent(
+        "robosats:order-action-complete",
+        slot,
+        coordinator.shortAlias,
+        orderId,
+        completedOrder
+          ? { status: completedOrder.status, isMaker: completedOrder.is_maker, snapshotApplied: true }
+          : undefined
+      );
     }
   },
   clearOrder: () => {
@@ -114,6 +149,16 @@ export const useOrderStore = create<OrderState>((set, get) => ({
     set({ order: undefined, error: undefined, loading: false, refreshing: false, submitting: false });
   }
 }));
+
+export function orderLoadRequestOptions(reason: OrderLoadReason): ApiRequestOptions {
+  if (reason === "poll") {
+    return { timeoutProfile: "background", priority: "background", source: "order-refresh" };
+  }
+  if (reason === "maintenance") {
+    return { timeoutProfile: "background", priority: "maintenance", source: "order-refresh" };
+  }
+  return { timeoutProfile: "interactive", priority: "foreground", source: "order-refresh" };
+}
 
 export function isAlreadyCancelledError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
@@ -128,13 +173,10 @@ export function isTransientOrderLoadError(error: unknown): boolean {
 }
 
 function syncGarageOrder(slot: RobotSlot | undefined, shortAlias: string, order: OrderDto): void {
-  if (!slot || !order.id) return;
-  useGarageStore.getState().syncOrderSnapshot({
-    token: slot.token,
+  ingestCoordinatorOrder({
+    order,
     shortAlias,
-    orderId: order.id,
-    status: order.status,
-    isMaker: order.is_maker
+    slot
   });
 }
 
@@ -148,4 +190,17 @@ function isReleasedEarlyTake(
     && !previousOrder.is_maker
     && order.status === 1
     && !order.is_maker;
+}
+
+function dispatchOrderActionEvent(
+  name: "robosats:order-action-start" | "robosats:order-action-complete",
+  slot: RobotSlot | undefined,
+  shortAlias: string,
+  orderId: number,
+  result?: { status: number; isMaker: boolean; snapshotApplied: boolean }
+): void {
+  if (!slot || typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(name, {
+    detail: { slotId: slot.tokenSHA256, shortAlias, orderId, ...result }
+  }));
 }

@@ -1,6 +1,5 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import wasm from "vite-plugin-wasm";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath, URL } from "node:url";
 
@@ -23,7 +22,7 @@ export default defineConfig(({ command }) => {
     server: {
       allowedHosts: true
     },
-    plugins: [wasm(), react()],
+    plugins: [react()],
     resolve: {
       alias: [
         {
@@ -52,7 +51,6 @@ export default defineConfig(({ command }) => {
             if (normalizedId.includes("openpgp")) return "openpgp";
             if (normalizedId.includes("nostr-tools") || normalizedId.includes("@noble") || normalizedId.includes("@scure")) return "nostr";
             if (normalizedId.includes("qrcode.react")) return "qrcode";
-            if (normalizedId.includes("robo-identities-wasm")) return "robot-identity";
             // Avoid a dependency waterfall on Tor-served HTTP/1.1 pages.
             return undefined;
           }

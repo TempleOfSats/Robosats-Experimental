@@ -11,9 +11,25 @@ export interface Auth {
 
 export type TimeoutProfile = "interactive" | "background" | "action";
 
+export type RequestPriority = "action" | "foreground" | "visible" | "background" | "maintenance";
+
+export type RequestSource =
+  | "order-action"
+  | "order-refresh"
+  | "chat"
+  | "robot-refresh"
+  | "federation"
+  | "orderbook-fallback"
+  | "fleet-reconcile"
+  | "prewarm"
+  | "manual";
+
 export interface ApiRequestOptions {
   timeoutProfile?: TimeoutProfile;
   timeoutMs?: number;
+  priority?: RequestPriority;
+  source?: RequestSource;
+  signal?: AbortSignal;
 }
 
 export interface ApiClient {

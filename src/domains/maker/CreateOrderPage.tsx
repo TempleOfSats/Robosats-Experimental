@@ -2,6 +2,7 @@ import {
   AlertCircle,
   ArrowLeft,
   ArrowRight,
+  Bookmark,
   Check,
   CheckCircle2,
   Clock,
@@ -12,6 +13,7 @@ import {
   PlusCircle,
   ReceiptText,
   Repeat2,
+  Save,
   ShieldCheck
 } from "lucide-react";
 import { type CSSProperties, type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
@@ -26,9 +28,15 @@ import { fetchCoordinatorRatings, type CoordinatorRating } from "@/domains/coord
 import { federationLottery } from "@/domains/coordinators/federationLottery";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
 import { toUserMessage } from "@/lib/userError";
-import { getRobotAuthForCoordinator, selectCurrentSlot, useGarageStore } from "@/domains/garage/garageStore";
+import { getRobotAuthForCoordinator, selectCurrentSlot, selectStandardGarageSlots, useGarageStore } from "@/domains/garage/garageStore";
+import { getRobotOrderAvailability } from "@/domains/garage/robotAvailability";
 import { RobotAvatar } from "@/domains/identity/RobotAvatar";
-import { buildCreateOrderPayload, createOrder, validateCreateOrderPayload } from "@/domains/maker/makerApi";
+import {
+  buildCreateOrderPayload,
+  buildProvisionalMakerOrder,
+  createOrder,
+  validateCreateOrderPayload
+} from "@/domains/maker/makerApi";
 import {
   ESCROW_DURATION_MAX_SECONDS,
   ESCROW_DURATION_MIN_SECONDS,
@@ -36,10 +44,17 @@ import {
   PUBLIC_DURATION_MIN_SECONDS
 } from "@/domains/maker/makerDurations";
 import type { CreateOrderDraft } from "@/domains/maker/maker.types";
-import { currencyOptions } from "@/domains/orderbook/currencies";
+import { currencyIdFromCode, currencyOptions } from "@/domains/orderbook/currencies";
 import { CurrencyFlag, CurrencyPicker, PaymentMethodIcons, PaymentMethodPicker } from "@/domains/orderbook/OfferMeta";
 import { normalPaymentMethodOptions, swapPaymentMethodOptions } from "@/domains/orderbook/paymentMethods";
+import { ingestCoordinatorOrder } from "@/domains/orders/orderActivity";
+import { reserveRobotOrderAction, revalidateRobotForNewOrder } from "@/domains/orders/robotOrderGuard";
 import { roleBuysBitcoin, roleIntentLabel } from "@/domains/orders/orderRole";
+import { activeOfferPresets, type OfferPreset } from "@/domains/pro/portableSettings";
+import { usePortableSettingsStore } from "@/domains/pro/portableSettingsStore";
+import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
+import { deriveProRobotLifecycle } from "@/domains/pro/proRobotLifecycle";
+import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
 import { formatFiat } from "@/lib/format";
 
 const NORMAL_PAYMENT_METHODS = normalPaymentMethodOptions();
@@ -53,6 +68,15 @@ const wizardSteps = [
   { title: "Amount", icon: Landmark },
   { title: "Review", icon: ShieldCheck }
 ];
+
+type CreateOrderRouteState = {
+  renewDraft?: CreateOrderDraft;
+  shortAlias?: string;
+  creatingOfferAs?: { hashId: string; nickname: string };
+  presetId?: string;
+  presetEditor?: { id?: string };
+  robotSlotId?: string;
+};
 
 const initialDraft: CreateOrderDraft = {
   type: 0,
@@ -78,40 +102,79 @@ const initialDraft: CreateOrderDraft = {
 export function CreateOrderPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const renewal = location.state as { renewDraft?: CreateOrderDraft; shortAlias?: string } | null;
+  const renewal = location.state as CreateOrderRouteState | null;
   const { coordinators, refreshCoordinators } = useFederationStore();
   const slots = useGarageStore((state) => state.slots);
   const currentToken = useGarageStore((state) => state.currentToken);
   const hydrateGarage = useGarageStore((state) => state.hydrate);
-  const setActiveOrder = useGarageStore((state) => state.setActiveOrder);
-  const activeSlot = selectCurrentSlot(slots, currentToken);
+  const proEnabled = useProPreferencesStore((state) => state.enabled);
+  const tradeSnapshots = useProTradeIndexStore((state) => state.snapshots);
+  const tradeSyncBySlot = useProTradeIndexStore((state) => state.syncBySlot);
+  const standardSlots = useMemo(() => selectStandardGarageSlots(slots), [slots]);
+  const activeSlot = proEnabled && !renewal?.presetEditor
+    ? renewal?.robotSlotId
+      ? slots.find((slot) => slot.tokenSHA256 === renewal.robotSlotId)
+      : undefined
+    : selectCurrentSlot(standardSlots, currentToken);
+  const setProLastView = useProPreferencesStore((state) => state.setLastView);
+  const portableManifest = usePortableSettingsStore((state) => state.manifest);
+  const savePreset = usePortableSettingsStore((state) => state.savePreset);
   const [draft, setDraft] = useState<CreateOrderDraft>(() => renewal?.renewDraft ?? initialDraft);
   const [selectedShortAlias, setSelectedShortAlias] = useState(() => renewal?.shortAlias ?? "");
   const [currentStep, setCurrentStep] = useState(0);
   const [reviewReady, setReviewReady] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
+  const [creatingOfferNotice, setCreatingOfferNotice] = useState(() => renewal?.creatingOfferAs);
+  const [presetName, setPresetName] = useState("");
+  const presetNameInput = useRef<HTMLInputElement>(null);
+  const loadedPresetId = useRef("");
   const selectableCoordinators = useMemo(() => coordinators.filter((coordinator) => coordinator.shortAlias !== "local"), [coordinators]);
+  const offerPresets = useMemo(() => activeOfferPresets(portableManifest), [portableManifest]);
+  const presetEditor = proEnabled && Boolean(renewal?.presetEditor);
+  const requestedPresetId = renewal?.presetEditor?.id ?? renewal?.presetId;
 
   useEffect(() => {
     hydrateGarage();
     void refreshCoordinators();
   }, [hydrateGarage, refreshCoordinators]);
 
-  const selectedCoordinator =
-    selectableCoordinators.find((coordinator) => coordinator.shortAlias === selectedShortAlias) ??
-    selectableCoordinators.find((coordinator) => coordinator.enabled && coordinator.url && coordinator.online) ??
-    selectableCoordinators.find((coordinator) => coordinator.enabled && coordinator.url) ??
-    selectableCoordinators[0];
-  const selectedAlias = selectedCoordinator?.shortAlias ?? selectedShortAlias;
-  const selectedCurrency = currencyLabel(draft.currency);
-  const auth = getRobotAuthForCoordinator(activeSlot, selectedAlias);
-  const payload = useMemo(() => buildCreateOrderPayload(draft), [draft]);
-  const validationErrors = useMemo(() => validateCreateOrderPayload(payload), [payload]);
-  const canSubmit = Boolean(activeSlot && auth && selectedCoordinator?.url && validationErrors.length === 0);
+  useEffect(() => {
+    if (!proEnabled || renewal?.presetEditor || renewal?.robotSlotId) return;
+    navigate("/pro", { replace: true, state: { openCreate: true } });
+  }, [navigate, proEnabled, renewal?.presetEditor, renewal?.robotSlotId]);
 
   useEffect(() => {
-    if (selectedShortAlias || selectableCoordinators.length === 0) return;
+    if (!creatingOfferNotice) return;
+    const timeout = window.setTimeout(() => setCreatingOfferNotice(undefined), 2600);
+    return () => window.clearTimeout(timeout);
+  }, [creatingOfferNotice]);
+
+  const selectedCoordinator = selectedShortAlias
+    ? selectableCoordinators.find((coordinator) => coordinator.shortAlias === selectedShortAlias)
+    : presetEditor
+      ? undefined
+      : selectableCoordinators.find((coordinator) => coordinator.enabled && coordinator.url && coordinator.online) ??
+        selectableCoordinators.find((coordinator) => coordinator.enabled && coordinator.url) ??
+        selectableCoordinators[0];
+  const selectedAlias = selectedCoordinator?.shortAlias ?? "";
+  const selectedCurrency = currencyLabel(draft.currency);
+  const auth = getRobotAuthForCoordinator(activeSlot, selectedAlias);
+  const robotAvailability = proEnabled && activeSlot
+    ? deriveProRobotLifecycle(
+        activeSlot,
+        tradeSnapshots,
+        tradeSyncBySlot[activeSlot.tokenSHA256]
+      ).availability
+    : getRobotOrderAvailability(activeSlot, tradeSnapshots);
+  const payload = useMemo(() => buildCreateOrderPayload(draft), [draft]);
+  const validationErrors = useMemo(() => validateCreateOrderPayload(payload), [payload]);
+  const canSubmit = presetEditor
+    ? Boolean(presetName.trim() && validationErrors.length === 0)
+    : Boolean(activeSlot && robotAvailability.available && auth && selectedCoordinator?.url && validationErrors.length === 0);
+
+  useEffect(() => {
+    if (presetEditor || selectedShortAlias || selectableCoordinators.length === 0) return;
     const selectableAliases = new Set(selectableCoordinators.map((coordinator) => coordinator.shortAlias));
     const lotteryAlias = federationLottery(selectableCoordinators).find((shortAlias) => selectableAliases.has(shortAlias));
     const fallbackAlias =
@@ -121,7 +184,16 @@ export function CreateOrderPage() {
     if (lotteryAlias ?? fallbackAlias) {
       setSelectedShortAlias(lotteryAlias ?? fallbackAlias ?? "");
     }
-  }, [selectableCoordinators, selectedShortAlias]);
+  }, [presetEditor, selectableCoordinators, selectedShortAlias]);
+
+  useEffect(() => {
+    if (!requestedPresetId || loadedPresetId.current === requestedPresetId) return;
+    const preset = offerPresets.find((candidate) => candidate.id === requestedPresetId);
+    if (!preset) return;
+    loadedPresetId.current = requestedPresetId;
+    setPresetName(preset.name);
+    applyOfferPreset(preset);
+  }, [offerPresets, requestedPresetId]);
 
   useEffect(() => {
     if (draft.isSwap && draft.currency !== BTC_CURRENCY_ID) {
@@ -146,10 +218,72 @@ export function CreateOrderPage() {
     setSubmitError("");
   }
 
+  function applyOfferPreset(preset: OfferPreset) {
+    const currency = currencyIdFromCode(preset.currency);
+    if (!currency) {
+      setSubmitError("This preset uses a currency that is no longer available.");
+      return;
+    }
+    const limitError = offerPresetLimitError(preset, currency, selectedCoordinator);
+    if (limitError) {
+      setSubmitError(limitError);
+      return;
+    }
+    const hasRange = Boolean(preset.minAmount && preset.maxAmount);
+    setDraft((current) => ({
+      ...current,
+      type: preset.direction,
+      currency,
+      amount: preset.amount ?? "",
+      hasRange,
+      minAmount: preset.minAmount ?? "",
+      maxAmount: preset.maxAmount ?? "",
+      paymentMethod: paymentMethodText(preset.paymentMethods),
+      isSwap: preset.isSwap,
+      isExplicit: false,
+      premium: String(preset.premium),
+      publicDuration: String(preset.publicDuration),
+      escrowDuration: String(preset.escrowDuration),
+      bondSize: String(preset.bond),
+      description: preset.description,
+      password: preset.password
+    }));
+    setSubmitError("");
+  }
+
+  function saveCurrentPreset(name: string, id?: string) {
+    if (validationErrors.length > 0) {
+      setSubmitError(validationErrors[0]);
+      return false;
+    }
+    savePreset({
+      id,
+      name,
+      direction: draft.type,
+      isSwap: draft.isSwap,
+      currency: selectedCurrency,
+      amount: draft.hasRange ? undefined : draft.amount,
+      minAmount: draft.hasRange ? draft.minAmount : undefined,
+      maxAmount: draft.hasRange ? draft.maxAmount : undefined,
+      paymentMethods: paymentMethodList(draft.paymentMethod),
+      premium: Number(draft.premium),
+      bond: Number(draft.bondSize),
+      publicDuration: Number(draft.publicDuration),
+      escrowDuration: Number(draft.escrowDuration),
+      description: draft.description,
+      password: draft.password
+    });
+    return true;
+  }
+
   function stepErrors(step: number): string[] {
     if (step === 0) {
+      if (presetEditor) return presetName.trim() ? [] : ["Give this preset a name before continuing."];
       const errors: string[] = [];
-      if (!activeSlot) errors.push("Create or recover a robot before publishing an offer.");
+      if (!activeSlot) errors.push(proEnabled
+        ? "Choose an available Fleet robot from the Pro Desk."
+        : "Create or recover a robot before publishing an offer.");
+      else if (!robotAvailability.available) errors.push(robotAvailability.message ?? "This robot is not available for another order.");
       if (!selectedCoordinator?.url) errors.push("Choose an available coordinator.");
       if (activeSlot && selectedCoordinator && !auth) errors.push("This robot has no credentials for the selected coordinator.");
       return errors;
@@ -159,6 +293,8 @@ export function CreateOrderPage() {
       if (draft.hasRange && (!draft.minAmount.trim() || !draft.maxAmount.trim())) {
         return ["Enter both a minimum and maximum amount."];
       }
+      const limitError = draftCoordinatorLimitError(draft, selectedCoordinator);
+      if (limitError) return [limitError];
       return validationErrors.map((error) =>
         draft.isSwap && error === "Add a payment method." ? "Add a swap destination." : error
       );
@@ -171,6 +307,7 @@ export function CreateOrderPage() {
     const errors = stepErrors(currentStep);
     if (errors.length > 0) {
       setSubmitError(errors[0]);
+      if (currentStep === 0 && presetEditor) presetNameInput.current?.focus();
       return;
     }
 
@@ -190,6 +327,12 @@ export function CreateOrderPage() {
       return;
     }
     if (!reviewReady) return;
+    if (presetEditor) {
+      if (!saveCurrentPreset(presetName.trim(), renewal?.presetEditor?.id)) return;
+      setProLastView("robots");
+      navigate("/pro", { state: { openPresets: true } });
+      return;
+    }
     if (!activeSlot || !auth || !selectedCoordinator?.url) {
       setSubmitError("Create or recover a robot before publishing an offer.");
       return;
@@ -199,11 +342,24 @@ export function CreateOrderPage() {
       return;
     }
 
+    const releaseReservation = reserveRobotOrderAction(activeSlot.tokenSHA256);
+    if (!releaseReservation) {
+      setSubmitError(`${activeSlot.nickname} is already starting another order.`);
+      return;
+    }
+
     setSubmitting(true);
     setSubmitError("");
 
     try {
-      const response = await createOrder(selectedCoordinator.url, payload, auth);
+      const actionSlot = await revalidateRobotForNewOrder({
+        coordinator: selectedCoordinator,
+        proEnabled,
+        slotId: activeSlot.tokenSHA256
+      });
+      const actionAuth = getRobotAuthForCoordinator(actionSlot, selectedAlias);
+      if (!actionAuth) throw new Error("This robot has no credentials for the selected coordinator.");
+      const response = await createOrder(selectedCoordinator.url, payload, actionAuth);
       const backendError = response.bad_request ?? response.bad_amount ?? response.bad_payment_method ?? response.bad_password;
       if (backendError) {
         setSubmitError(backendError);
@@ -213,21 +369,33 @@ export function CreateOrderPage() {
         setSubmitError("Coordinator did not return an order id.");
         return;
       }
-      setActiveOrder(activeSlot.token, selectedAlias, response.id);
+      ingestCoordinatorOrder({
+        authoritative: false,
+        order: buildProvisionalMakerOrder(response.id, selectedAlias, payload, actionSlot),
+        shortAlias: selectedAlias,
+        slot: actionSlot
+      });
       navigate(`/order/${selectedAlias}/${response.id}`);
     } catch (error) {
       setSubmitError(toUserMessage(error, "Could not create order."));
     } finally {
+      releaseReservation();
       setSubmitting(false);
     }
   }
 
   return (
     <main className="page page-narrow maker-page">
+      {creatingOfferNotice ? (
+        <aside className="maker-create-identity-notice" role="status" aria-live="polite">
+          <RobotAvatar hashId={creatingOfferNotice.hashId} label={creatingOfferNotice.nickname} size="sm" />
+          <span>Creating offer as <strong>{creatingOfferNotice.nickname}</strong></span>
+        </aside>
+      ) : null}
       <div className="page-heading">
         <div>
-          <p className="app-eyebrow">Create</p>
-          <h2>Publish a new offer</h2>
+          <p className="app-eyebrow">{presetEditor ? "Offer Preset" : "Create"}</p>
+          <h2>{presetEditor ? (renewal?.presetEditor?.id ? "Edit offer preset" : "Create offer preset") : "Publish a new offer"}</h2>
         </div>
       </div>
 
@@ -259,24 +427,53 @@ export function CreateOrderPage() {
             </CardHeader>
 
             <CardContent>
-              {!activeSlot ? (
+              {proEnabled && portableManifest && !presetEditor ? (
+                <OfferPresetPanel
+                  appliedPresetId={renewal?.presetId}
+                  onApply={applyOfferPreset}
+                  onManage={() => navigate("/pro", { state: { openPresets: true } })}
+                  onSave={saveCurrentPreset}
+                  presets={offerPresets}
+                />
+              ) : null}
+              {!presetEditor && !activeSlot ? (
                 <div className="status-panel status-panel-warning maker-inline-warning">
                   <AlertCircle size={18} />
-                  <span>Create or recover a robot before publishing an offer.</span>
-                  <Link className="text-command" to="/garage">
-                    Garage
+                  <span>{proEnabled ? "Choose an available Fleet robot before publishing an offer." : "Create or recover a robot before publishing an offer."}</span>
+                  <Link className="text-command" to={proEnabled ? "/pro" : "/garage"}>
+                    {proEnabled ? "Pro Desk" : "Garage"}
                   </Link>
                 </div>
               ) : null}
 
               {currentStep === 0 ? (
-                <SideStep
-                  coordinators={selectableCoordinators}
-                  draft={draft}
-                  selectedShortAlias={selectedAlias}
-                  updateDraft={updateDraft}
-                  onCoordinatorChange={setSelectedShortAlias}
-                />
+                <>
+                  {presetEditor ? (
+                    <label className="maker-preset-name-field maker-preset-name-field-step">
+                      <span>Preset name</span>
+                      <input
+                        ref={presetNameInput}
+                        aria-invalid={submitError === "Give this preset a name before continuing."}
+                        autoFocus
+                        maxLength={64}
+                        placeholder="e.g. Weekly EUR buy"
+                        value={presetName}
+                        onChange={(event) => {
+                          setPresetName(event.target.value);
+                          setSubmitError("");
+                        }}
+                      />
+                    </label>
+                  ) : null}
+                  <SideStep
+                    coordinators={selectableCoordinators}
+                    draft={draft}
+                    selectedShortAlias={selectedAlias}
+                    showCoordinator={!presetEditor}
+                    updateDraft={updateDraft}
+                    onCoordinatorChange={setSelectedShortAlias}
+                  />
+                </>
               ) : null}
 
               {currentStep === 1 ? (
@@ -290,6 +487,7 @@ export function CreateOrderPage() {
                   draft={draft}
                   robotHashId={activeSlot?.hashId}
                   robotName={activeSlot?.nickname}
+                  presetMode={presetEditor}
                   validationErrors={validationErrors}
                 />
               ) : null}
@@ -302,9 +500,14 @@ export function CreateOrderPage() {
               ) : null}
 
               <div className="maker-wizard-footer">
-                <Button type="button" variant="secondary" onClick={previousStep} disabled={currentStep === 0 || submitting}>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={currentStep === 0 && presetEditor ? () => navigate("/pro", { state: { openPresets: true } }) : previousStep}
+                  disabled={currentStep === 0 && !presetEditor || submitting}
+                >
                   <ArrowLeft size={16} />
-                  Back
+                  {currentStep === 0 && presetEditor ? "Cancel" : "Back"}
                 </Button>
 
                 {currentStep < wizardSteps.length - 1 ? (
@@ -314,8 +517,8 @@ export function CreateOrderPage() {
                   </Button>
                 ) : (
                   <Button type="submit" size="lg" loading={submitting} disabled={!canSubmit || !reviewReady}>
-                    <PlusCircle size={18} />
-                    Create offer
+                    {presetEditor ? <Save size={18} /> : <PlusCircle size={18} />}
+                    {presetEditor ? "Save preset" : "Create offer"}
                   </Button>
                 )}
               </div>
@@ -327,16 +530,76 @@ export function CreateOrderPage() {
   );
 }
 
+function OfferPresetPanel({
+  appliedPresetId,
+  onApply,
+  onManage,
+  onSave,
+  presets
+}: {
+  appliedPresetId?: string;
+  onApply: (preset: OfferPreset) => void;
+  onManage: () => void;
+  onSave: (name: string) => boolean;
+  presets: OfferPreset[];
+}) {
+  const [selectedId, setSelectedId] = useState(appliedPresetId ?? "");
+  const [saving, setSaving] = useState(false);
+  const [name, setName] = useState("");
+
+  useEffect(() => {
+    setSelectedId(appliedPresetId ?? "");
+  }, [appliedPresetId]);
+
+  function save() {
+    if (!name.trim() || !onSave(name.trim())) return;
+    setName("");
+    setSaving(false);
+  }
+
+  return (
+    <section className="maker-preset-panel" aria-label="Offer presets">
+      <div className="maker-preset-main">
+        <Bookmark size={17} aria-hidden="true" />
+        <select
+          aria-label="Offer preset"
+          value={selectedId}
+          onChange={(event) => {
+            const next = presets.find((preset) => preset.id === event.target.value);
+            setSelectedId(event.target.value);
+            if (next) onApply(next);
+          }}
+        >
+          <option value="">{presets.length ? "Choose preset" : "No saved presets"}</option>
+          {presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
+        </select>
+        <div className="maker-preset-actions">
+          <Button type="button" size="sm" variant="outline" onClick={() => setSaving((current) => !current)}><Save size={16} /> Save preset</Button>
+          <Button type="button" size="sm" variant="ghost" onClick={onManage}>Manage</Button>
+        </div>
+      </div>
+      {saving ? (
+        <div className="maker-preset-save">
+          <label><span>Preset name</span><input maxLength={64} value={name} onChange={(event) => setName(event.target.value)} /></label>
+          <Button type="button" size="sm" disabled={!name.trim()} onClick={save}>Save</Button>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 function SideStep({
   coordinators,
   draft,
   selectedShortAlias,
+  showCoordinator,
   updateDraft,
   onCoordinatorChange
 }: {
   coordinators: ReturnType<typeof useFederationStore.getState>["coordinators"];
   draft: CreateOrderDraft;
   selectedShortAlias: string;
+  showCoordinator: boolean;
   updateDraft: (patch: Partial<CreateOrderDraft>) => void;
   onCoordinatorChange: (shortAlias: string) => void;
 }) {
@@ -382,11 +645,13 @@ function SideStep({
         </div>
       </details>
 
-      <CoordinatorPicker
-        coordinators={coordinators}
-        selectedShortAlias={selectedShortAlias}
-        onChange={onCoordinatorChange}
-      />
+      {showCoordinator ? (
+        <CoordinatorPicker
+          coordinators={coordinators}
+          selectedShortAlias={selectedShortAlias}
+          onChange={onCoordinatorChange}
+        />
+      ) : null}
     </div>
   );
 }
@@ -590,6 +855,7 @@ function ReviewStep({
   draft,
   robotHashId,
   robotName,
+  presetMode,
   validationErrors
 }: {
   coordinator?: ReturnType<typeof useFederationStore.getState>["coordinators"][number];
@@ -597,11 +863,12 @@ function ReviewStep({
   draft: CreateOrderDraft;
   robotHashId?: string | null;
   robotName?: string;
+  presetMode?: boolean;
   validationErrors: string[];
 }) {
   return (
     <div className="maker-step-panel">
-      <div className="maker-review-identity">
+      {!presetMode ? <div className="maker-review-identity">
         <div>
           <RobotAvatar hashId={robotHashId} label={robotName} size="md" />
           <span>
@@ -618,7 +885,7 @@ function ReviewStep({
             </span>
           </div>
         ) : null}
-      </div>
+      </div> : null}
       <div className="maker-review-hero">
         <Badge tone={roleBuysBitcoin(draft.type, "maker") ? "buy" : "sell"}>
           {roleIntentLabel(draft.type, draft.isSwap, "maker")}
@@ -662,7 +929,7 @@ function CoordinatorPicker({
   const [localRetryAlias, setLocalRetryAlias] = useState("");
   const [showDetails, setShowDetails] = useState(false);
   const [rating, setRating] = useState<CoordinatorRating>({ score: 0, count: 0 });
-  const selected = coordinators.find((coordinator) => coordinator.shortAlias === selectedShortAlias) ?? coordinators[0];
+  const selected = coordinators.find((coordinator) => coordinator.shortAlias === selectedShortAlias);
   const lastRefreshed = useFederationStore((state) => state.lastRefreshed);
   const network = useFederationStore((state) => state.network);
   const shouldAutoRetry = Boolean(selected && !selected.online && !selected.loading && !attempted.current.has(selected.shortAlias));
@@ -734,21 +1001,24 @@ function CoordinatorPicker({
           iconActionLabel={selected ? `View ${selected.longAlias} details` : "View coordinator details"}
           onChange={onChange}
           onIconClick={selected ? openCoordinatorDetails : undefined}
-          options={coordinators.map((coordinator) => ({
-            value: coordinator.shortAlias,
-            label: coordinator.longAlias,
-            description: coordinator.loading ? "Connecting" : coordinator.online ? "Connected" : "Unavailable",
-            icon: <img className="coordinator-avatar coordinator-avatar-lg" src={coordinator.smallAvatarUrl} alt="" />
-          }))}
+          options={[
+            ...(!selectedShortAlias ? [{ value: "", label: "Choose coordinator", description: "Required for every offer" }] : []),
+            ...coordinators.map((coordinator) => ({
+              value: coordinator.shortAlias,
+              label: coordinator.longAlias,
+              description: coordinator.loading ? "Connecting" : coordinator.online ? "Connected" : "Unavailable",
+              icon: <img className="coordinator-avatar coordinator-avatar-lg" src={coordinator.smallAvatarUrl} alt="" />
+            }))
+          ]}
           triggerCaption="Order host"
           value={selectedShortAlias}
         />
       </div>
-      <div className={statusClassName} aria-live="polite">
+      {selected ? <div className={statusClassName} aria-live="polite">
         {connecting ? <LoaderCircle className="maker-coordinator-spinner" size={17} /> : connected ? <CheckCircle2 size={17} /> : <AlertCircle size={17} />}
         <span>{statusCopy}</span>
         {!connecting && !connected ? <button type="button" onClick={() => void retrySelectedCoordinator()}>Retry</button> : null}
-      </div>
+      </div> : <div className="maker-coordinator-status maker-coordinator-status-warning"><Info size={17} /><span>Choose the coordinator that will host this offer.</span></div>}
       {selected ? (
         <div className="maker-coordinator-fees" aria-label="Coordinator fees">
           <span title="Fee paid when your offer is taken"><small>Maker fee</small><strong>{formatCoordinatorFee(selected.info?.maker_fee)}</strong></span>
@@ -994,6 +1264,38 @@ function paymentMethodList(text: string): string[] {
 
 function paymentMethodText(methods: string[]): string {
   return methods.join(METHOD_SEPARATOR);
+}
+
+function offerPresetLimitError(
+  preset: OfferPreset,
+  currency: number,
+  coordinator: ReturnType<typeof useFederationStore.getState>["coordinators"][number] | undefined
+): string | undefined {
+  if (!coordinator?.limits) return;
+  const limit = coordinator.limits[String(currency)]
+    ?? Object.values(coordinator.limits).find((candidate) => candidate.code.toUpperCase() === preset.currency);
+  if (!limit) return;
+  const amounts = preset.minAmount && preset.maxAmount
+    ? [Number(preset.minAmount), Number(preset.maxAmount)]
+    : [Number(preset.amount)];
+  if (amounts.some((amount) => !Number.isFinite(amount) || amount < limit.min_amount || amount > limit.max_amount)) {
+    return `This preset is outside ${coordinator.longAlias}'s current amount limits.`;
+  }
+}
+
+function draftCoordinatorLimitError(
+  draft: CreateOrderDraft,
+  coordinator: ReturnType<typeof useFederationStore.getState>["coordinators"][number] | undefined
+): string | undefined {
+  if (!coordinator?.limits) return;
+  const currency = currencyLabel(draft.currency);
+  const limit = coordinator.limits[String(draft.currency)]
+    ?? Object.values(coordinator.limits).find((candidate) => candidate.code.toUpperCase() === currency);
+  if (!limit) return;
+  const amounts = draft.hasRange ? [Number(draft.minAmount), Number(draft.maxAmount)] : [Number(draft.amount)];
+  if (amounts.some((amount) => !Number.isFinite(amount) || amount < limit.min_amount || amount > limit.max_amount)) {
+    return `This amount is outside ${coordinator.longAlias}'s current limits.`;
+  }
 }
 
 function formatDuration(seconds: number): string {

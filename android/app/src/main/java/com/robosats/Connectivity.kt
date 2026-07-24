@@ -7,10 +7,14 @@ class Connectivity {
     companion object {
         var isOnMobileData: Boolean = false
         var isOnWifiData: Boolean = false
+        var isValidated: Boolean = false
 
         fun updateNetworkCapabilities(networkCapabilities: NetworkCapabilities): Boolean {
             val isOnMobileDataNet = networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
             val isOnWifiNet = networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+            val isValidatedNet = networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            isValidated = isValidatedNet
+            if (!isValidatedNet) return false
 
             var changedNetwork = false
 

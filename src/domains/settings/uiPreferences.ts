@@ -1,16 +1,24 @@
 const KEY = "robosats_exp_ui_preferences";
 type UiTheme = "dark" | "light";
 type QrTheme = "paper" | "screen";
-export interface UiPreferences { theme: UiTheme; fontScale: number; qrTheme: QrTheme; language: string }
+export interface UiPreferences {
+  theme: UiTheme;
+  fontScale: number;
+  qrTheme: QrTheme;
+  language: string;
+}
 
 export function readUiPreferences(): UiPreferences {
   const defaults: UiPreferences = { theme: "dark", fontScale: 1, qrTheme: "paper", language: "en" };
   try {
     const parsed = JSON.parse(localStorage.getItem(KEY) ?? "{}") as Partial<UiPreferences>;
     return {
-      ...defaults,
-      ...parsed,
-      theme: parsed.theme === "light" ? "light" : "dark"
+      theme: parsed.theme === "light" ? "light" : "dark",
+      fontScale: typeof parsed.fontScale === "number" && Number.isFinite(parsed.fontScale) ? parsed.fontScale : defaults.fontScale,
+      qrTheme: parsed.qrTheme === "screen" ? "screen" : "paper",
+      language: typeof parsed.language === "string" && /^[A-Za-z0-9-]{2,16}$/.test(parsed.language)
+        ? parsed.language
+        : defaults.language
     };
   } catch { return defaults; }
 }
