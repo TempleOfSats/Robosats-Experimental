@@ -1,5 +1,4 @@
-import { isNativeApp } from "@/domains/transport/androidBridge";
-import { systemClient } from "@/domains/transport/systemClient";
+import { isNativeApp, nativeAppBridge } from "@/domains/transport/androidBridge";
 import { isTauriDesktop, loadDesktopSecret, removeDesktopSecret, saveDesktopSecret } from "@/domains/transport/tauriBridge";
 
 const GARAGE_SECRET_KEY = "robosats_exp_garage_secret_v3";
@@ -21,7 +20,7 @@ let memorySecret: string | null = null;
 export const garageSecretStore = {
   async load(): Promise<string | null> {
     if (isTauriDesktop()) return loadDesktopSecret(GARAGE_SECRET_KEY);
-    if (isNativeApp()) return systemClient.getItem(GARAGE_SECRET_KEY);
+    if (isNativeApp()) return requireNativeSecretBridge().getStorage(GARAGE_SECRET_KEY);
     if (!globalThis.indexedDB || !globalThis.crypto?.subtle) return memorySecret;
     try {
       const database = await openDatabase();
@@ -48,7 +47,7 @@ export const garageSecretStore = {
       return;
     }
     if (isNativeApp()) {
-      systemClient.setItem(GARAGE_SECRET_KEY, value);
+      requireNativeSecretBridge().setStorage(GARAGE_SECRET_KEY, value);
       return;
     }
     if (!globalThis.indexedDB || !globalThis.crypto?.subtle) {
@@ -86,7 +85,7 @@ export const garageSecretStore = {
       return;
     }
     if (isNativeApp()) {
-      systemClient.deleteItem(GARAGE_SECRET_KEY);
+      requireNativeSecretBridge().deleteStorage(GARAGE_SECRET_KEY);
       return;
     }
     memorySecret = null;
@@ -100,6 +99,12 @@ export const garageSecretStore = {
     }
   }
 };
+
+function requireNativeSecretBridge(): RoboSatsNativeBridge {
+  const bridge = nativeAppBridge();
+  if (!bridge) throw new Error("Native secure storage is unavailable");
+  return bridge;
+}
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
