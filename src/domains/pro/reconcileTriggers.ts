@@ -7,6 +7,7 @@ import { isTerminalForProDesk } from "@/domains/pro/proOrderActivity";
 import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
 import type { OrderHint, ProTradeLocator, ReconcileReason } from "@/domains/pro/pro.types";
 import { subscribeRefreshIntents, type RefreshReason } from "@/domains/transport/refreshIntents";
+import { desktopBackgroundNotificationsEnabled } from "@/domains/transport/tauriBridge";
 
 type ReconcileTriggerOptions = {
   controller: GarageReconcileController;
@@ -60,7 +61,10 @@ export function registerReconcileTriggers(options: ReconcileTriggerOptions): () 
   window.addEventListener("robosats:order-action-complete", onOrderActionComplete);
 
   intervalTimer = window.setInterval(() => {
-    if (options.proEnabled() && document.visibilityState === "visible") run("interval");
+    if (
+      options.proEnabled()
+      && (document.visibilityState === "visible" || desktopBackgroundNotificationsEnabled())
+    ) run("interval");
   }, intervalMs);
 
   return () => {

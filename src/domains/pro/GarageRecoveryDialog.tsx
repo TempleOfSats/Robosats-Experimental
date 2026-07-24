@@ -1,5 +1,6 @@
 import { Check, X } from "lucide-react";
 import { useState } from "react";
+import { AppTransitionFeedback } from "@/components/app/AppTransitionFeedback";
 import { Button } from "@/components/ui/button";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
 import { activeGarageEntries, decodeGarageToken } from "@/domains/pro/garageVault";
@@ -14,6 +15,7 @@ export function GarageRecoveryDialog({ onClose, onRestored }: { onClose: () => v
   const restore = useGarageVaultStore((state) => state.restore);
   const [fleetKey, setFleetKey] = useState("");
   const [working, setWorking] = useState(false);
+  const [finishing, setFinishing] = useState(false);
   const [stage, setStage] = useState<RecoveryStage>("idle");
   const [robotCount, setRobotCount] = useState(0);
   const [presetCount, setPresetCount] = useState(0);
@@ -24,6 +26,7 @@ export function GarageRecoveryDialog({ onClose, onRestored }: { onClose: () => v
     setStage("searching");
     setError("");
     try {
+      await waitForFeedbackPaint();
       const normalized = fleetKey.trim();
       let materializedSnapshot = "";
       const applySnapshot = async (snapshot: Awaited<ReturnType<typeof recoverGarageSnapshot>>) => {
@@ -48,12 +51,14 @@ export function GarageRecoveryDialog({ onClose, onRestored }: { onClose: () => v
   }
 
   function closeDialog() {
-    if (!working) onClose();
+    if (!working && !finishing) onClose();
   }
 
-  function finishRecovery() {
-    onRestored?.();
-    onClose();
+  async function finishRecovery() {
+    setFinishing(true);
+    await waitForFeedbackPaint();
+    if (onRestored) onRestored();
+    else onClose();
   }
 
   return (
@@ -61,9 +66,15 @@ export function GarageRecoveryDialog({ onClose, onRestored }: { onClose: () => v
       <section className="confirm-sheet pro-garage-recovery-sheet" onClick={(event) => event.stopPropagation()}>
         <header className="garage-switcher-header">
           <div><p className="app-eyebrow">Pro Fleet</p><h3 id="fleet-recovery-title">Restore Fleet</h3></div>
-          <button className="icon-button" disabled={working} onClick={closeDialog} type="button" aria-label="Close Fleet restore"><X size={18} /></button>
+          <button className="icon-button" disabled={working || finishing} onClick={closeDialog} type="button" aria-label="Close Fleet restore"><X size={18} /></button>
         </header>
-        {working ? (
+        {finishing ? (
+          <AppTransitionFeedback
+            compact
+            title="Opening Pro Desk"
+            message="Loading your restored Fleet and trade overview..."
+          />
+        ) : working ? (
           <div className="pro-garage-recovery-progress" aria-live="polite">
             <span className="ui-spinner" aria-hidden="true" />
             <h4>Recovering your robots and presets</h4>
@@ -78,7 +89,7 @@ export function GarageRecoveryDialog({ onClose, onRestored }: { onClose: () => v
               {robotCount > 1 ? " There is strength in numbers!" : ""}
               {robotCount > 0 ? " Checking coordinator status now." : ""}
             </p>
-            <Button onClick={finishRecovery}>Open Trade Desk</Button>
+            <Button onClick={() => void finishRecovery()}>Open Trade Desk</Button>
           </div>
         ) : (
           <>
@@ -94,4 +105,10 @@ export function GarageRecoveryDialog({ onClose, onRestored }: { onClose: () => v
       </section>
     </div>
   );
+}
+
+function waitForFeedbackPaint(): Promise<void> {
+  return new Promise((resolve) => {
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()));
+  });
 }
