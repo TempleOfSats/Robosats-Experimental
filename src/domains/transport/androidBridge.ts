@@ -8,6 +8,7 @@ type PendingRequest = {
   resolve: (value: NativeHttpResult) => void;
   reject: (error: Error) => void;
   timeout: ReturnType<typeof setTimeout>;
+  detachAbort?: () => void;
 };
 
 const pendingRequests = new Map<string, PendingRequest>();
@@ -74,7 +75,8 @@ export function getNativeTorDiagnostics(): AndroidTorDiagnostics | null {
 export function nativeHttpRequest(
   url: string,
   init: RequestInit = {},
-  timeoutMs = 90_000
+  timeoutMs = 90_000,
+  signal?: AbortSignal
 ): Promise<NativeHttpResult> {
   const bridge = nativeAppBridge();
   if (!bridge) return Promise.reject(new Error("Native transport is unavailable"));
@@ -83,18 +85,48 @@ export function nativeHttpRequest(
   const headers = headersToRecord(init.headers);
   const body = typeof init.body === "string" ? init.body : "";
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const finishReject = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      const pending = pendingRequests.get(requestId);
+      if (pending) {
+        globalThis.clearTimeout(pending.timeout);
+        pending.detachAbort?.();
+        pendingRequests.delete(requestId);
+      }
+      reject(error);
+    };
     const timeout = globalThis.setTimeout(() => {
-      pendingRequests.delete(requestId);
       bridge.cancelHttpRequest?.(requestId);
-      reject(new Error(`Tor request timeout after ${timeoutMs}ms`));
+      finishReject(new Error(`Tor request timeout after ${timeoutMs}ms`));
     }, timeoutMs);
-    pendingRequests.set(requestId, { resolve, reject, timeout });
+    const abort = () => {
+      bridge.cancelHttpRequest?.(requestId);
+      finishReject(new DOMException("Request cancelled", "AbortError"));
+    };
+    const detachAbort = signal
+      ? () => signal.removeEventListener("abort", abort)
+      : undefined;
+    pendingRequests.set(requestId, {
+      resolve: (value) => {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+      },
+      reject: finishReject,
+      timeout,
+      detachAbort
+    });
+    if (signal?.aborted) {
+      abort();
+      return;
+    }
+    signal?.addEventListener("abort", abort, { once: true });
     try {
       bridge.httpRequest(requestId, init.method ?? "GET", url, JSON.stringify(headers), body);
     } catch (error) {
-      globalThis.clearTimeout(timeout);
-      pendingRequests.delete(requestId);
-      reject(error instanceof Error ? error : new Error("Could not start Tor request"));
+      finishReject(error instanceof Error ? error : new Error("Could not start Tor request"));
     }
   });
 }
@@ -102,11 +134,15 @@ export function nativeHttpRequest(
 export async function transportRequest(
   url: string,
   init: RequestInit = {},
-  timeoutMs = 90_000
+  timeoutMs = 90_000,
+  signal?: AbortSignal
 ): Promise<NativeHttpResult> {
-  if (isNativeApp()) return nativeHttpRequest(url, init, timeoutMs);
+  if (isNativeApp()) return nativeHttpRequest(url, init, timeoutMs, signal);
 
   const controller = new AbortController();
+  const abort = () => controller.abort(signal?.reason);
+  if (signal?.aborted) abort();
+  else signal?.addEventListener("abort", abort, { once: true });
   const timeout = globalThis.setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(url, { ...init, signal: controller.signal });
@@ -122,6 +158,7 @@ export async function transportRequest(
     throw error;
   } finally {
     globalThis.clearTimeout(timeout);
+    signal?.removeEventListener("abort", abort);
   }
 }
 
@@ -242,6 +279,7 @@ if (typeof window !== "undefined") {
       const pending = pendingRequests.get(requestId);
       if (!pending) return;
       globalThis.clearTimeout(pending.timeout);
+      pending.detachAbort?.();
       pendingRequests.delete(requestId);
       pending.resolve(result);
     },
@@ -249,6 +287,7 @@ if (typeof window !== "undefined") {
       const pending = pendingRequests.get(requestId);
       if (!pending) return;
       globalThis.clearTimeout(pending.timeout);
+      pending.detachAbort?.();
       pendingRequests.delete(requestId);
       pending.reject(new Error(message));
     },

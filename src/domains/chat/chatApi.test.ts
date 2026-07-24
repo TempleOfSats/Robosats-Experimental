@@ -43,7 +43,7 @@ describe("chatApi", () => {
       "https://coordinator",
       "/api/chat/?order_id=123&offset=4",
       auth,
-      { timeoutProfile: "background" }
+      { timeoutProfile: "background", priority: "background", source: "chat" }
     );
   });
 
@@ -66,7 +66,7 @@ describe("chatApi", () => {
         offset: 4
       },
       auth,
-      { timeoutProfile: "action" }
+      { timeoutProfile: "action", priority: "action", source: "chat" }
     );
   });
 
@@ -93,7 +93,7 @@ describe("chatApi", () => {
         offset: 4
       },
       auth,
-      { timeoutProfile: "action" }
+      { timeoutProfile: "action", priority: "action", source: "chat" }
     );
   });
 });

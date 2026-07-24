@@ -1,4 +1,4 @@
-import { apiRoutes, type ApiClient, type Auth } from "@/domains/transport/apiClient";
+import { apiRoutes, type ApiClient, type ApiRequestOptions, type Auth } from "@/domains/transport/apiClient";
 import { apiClient } from "@/domains/transport/apiWebClient";
 
 export interface RobotApiResponse {
@@ -46,9 +46,15 @@ export interface RobotSnapshot {
 export async function fetchRobot(
   baseUrl: string,
   auth: Auth,
-  client: ApiClient = apiClient
+  client: ApiClient = apiClient,
+  options: ApiRequestOptions = {}
 ): Promise<RobotSnapshot> {
-  const data = await client.get<RobotApiResponse>(baseUrl, apiRoutes.robot, auth);
+  const data = await client.get<RobotApiResponse>(baseUrl, apiRoutes.robot, auth, {
+    timeoutProfile: "interactive",
+    priority: "visible",
+    source: "robot-refresh",
+    ...options
+  });
   return normalizeRobotResponse(data);
 }
 
@@ -81,7 +87,13 @@ export async function updateRobotWebhook(
   auth: Auth,
   client: ApiClient = apiClient
 ): Promise<UpdateRobotWebhookResult> {
-  const data = await client.put<UpdateRobotWebhookApiResponse>(baseUrl, apiRoutes.robot, compactWebhookPayload(payload), auth);
+  const data = await client.put<UpdateRobotWebhookApiResponse>(
+    baseUrl,
+    apiRoutes.robot,
+    compactWebhookPayload(payload),
+    auth,
+    { timeoutProfile: "action", priority: "action", source: "order-action" }
+  );
   return {
     webhookUrl: toOptionalString(data.webhook_url),
     webhookEnabled: toBoolean(data.webhook_enabled),
@@ -100,7 +112,7 @@ export async function updateStealthInvoices(
     apiRoutes.stealth,
     { wantsStealth },
     auth,
-    { timeoutProfile: "action" }
+    { timeoutProfile: "action", priority: "action", source: "order-action" }
   );
   return toBoolean(data.wantsStealth);
 }

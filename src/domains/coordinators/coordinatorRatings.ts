@@ -1,6 +1,6 @@
 import { finalizeEvent, verifyEvent, type Event } from "nostr-tools";
-import { SimplePool } from "nostr-tools/pool";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
+import { getSharedRelayPool, runRelayQuery, withRelayQueryPool } from "@/domains/nostr/sharedRelayPool";
 import { buildNostrRelayUrl, selectNostrRelays } from "@/domains/orderbook/nostrOrderbook";
 
 const RATING_KIND = 31986;
@@ -12,11 +12,13 @@ export async function fetchCoordinatorRatings(coordinators: CoordinatorSummary[]
   const relays = selectNostrRelays(targets, window.location.origin, 1);
   const pubkeys = targets.flatMap((item) => item.nostrHexPubkey ? [item.nostrHexPubkey] : []);
   if (!relays.length || !pubkeys.length) return {};
-  const pool = new SimplePool();
-  try {
-    const events = await pool.querySync(relays, { kinds: [RATING_KIND], "#p": pubkeys, since: RATINGS_SINCE }, { maxWait: 10_000 });
-    return ratingsFromEvents(events, targets);
-  } finally { pool.destroy(); }
+  const events = await withRelayQueryPool((pool) =>
+    runRelayQuery(relays[0], () => pool.querySync(
+      relays,
+      { kinds: [RATING_KIND], "#p": pubkeys, since: RATINGS_SINCE },
+      { maxWait: 10_000 }
+    )));
+  return ratingsFromEvents(events, targets);
 }
 
 function ratingsFromEvents(events: Event[], coordinators: CoordinatorSummary[]): Record<string, CoordinatorRating> {
@@ -44,7 +46,5 @@ export async function publishCoordinatorRating(params: { coordinator: Coordinato
     tags: [["sig", params.reviewToken], ["d", `${params.coordinator.shortAlias}:${params.orderId}`], ["p", params.coordinator.nostrHexPubkey], ["rating", String(Math.min(5, Math.max(1, params.rating)) / 5)]],
     content: ""
   }, params.secretKey);
-  const pool = new SimplePool();
-  try { await Promise.any(pool.publish([relay], event)); }
-  finally { pool.destroy(); }
+  await Promise.any(getSharedRelayPool().publish([relay], event));
 }
