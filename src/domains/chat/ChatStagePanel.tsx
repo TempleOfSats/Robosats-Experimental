@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { sha256 } from "js-sha256";
-import { Download, Send } from "lucide-react";
+import { ChevronDown, Download, MessageSquare, Send } from "lucide-react";
 import { escapeChatPayload, fetchChatMessages, normalizeChatMessage, postChatMessage } from "@/domains/chat/chatApi";
 import { decryptChatMessage, encryptChatMessage } from "@/domains/chat/chatCrypto";
 import { messageContainsRobotToken } from "@/domains/chat/chatSafety";
@@ -11,9 +11,11 @@ import { Button } from "@/components/ui/button";
 import { toUserMessage } from "@/lib/userError";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { RobotAvatar } from "@/domains/identity/RobotAvatar";
-import { createWebSocket } from "@/domains/transport/androidBridge";
-import { playTradeAudio } from "@/domains/audio/audioController";
+import { createWebSocket, isNativeApp } from "@/domains/transport/androidBridge";
+import { deliverChatFeedback } from "@/domains/notifications/tradeFeedback";
 import { chatPollDelayMs, chatReconnectDelayMs } from "@/domains/chat/chatRefresh";
+import { runRefreshIntent, subscribeRefreshIntents } from "@/domains/transport/refreshIntents";
+import { hasSentPreChatMessage, visiblePreChatMessages } from "@/domains/chat/preChat";
 
 export function ChatStagePanel({
   auth,
@@ -26,7 +28,9 @@ export function ChatStagePanel({
   peerHashId,
   previewMode = false,
   robot,
-  slotToken
+  shortAlias,
+  slotToken,
+  variant = "trade"
 }: {
   auth?: Auth;
   baseUrl?: string;
@@ -38,7 +42,9 @@ export function ChatStagePanel({
   peerHashId?: string;
   previewMode?: boolean;
   robot?: RobotRecord;
+  shortAlias?: string;
   slotToken?: string;
+  variant?: "trade" | "pre-chat";
 }) {
   const [draft, setDraft] = useState("");
   const [error, setError] = useState("");
@@ -49,12 +55,15 @@ export function ChatStagePanel({
   const [socketConnected, setSocketConnected] = useState(previewMode);
   const [connectionEpoch, setConnectionEpoch] = useState(0);
   const socketRef = useRef<WebSocket | undefined>(undefined);
-  const audibleMessageCountRef = useRef(messages.length);
+  const knownMessageIndexesRef = useRef(new Set(messages.map((message) => message.index)));
+  const historyReadyRef = useRef(previewMode);
   const peerPubkeyRef = useRef("");
   const messagesRef = useRef<HTMLDivElement | null>(null);
 
+  const isPreChat = variant === "pre-chat";
   const canLoad = previewMode || Boolean(baseUrl && auth && robot?.encPrivKey && robot.pubKey && slotToken && orderId);
   const lastIndex = useMemo(() => messages.reduce((max, message) => Math.max(max, message.index), 0), [messages]);
+  const preChatMessageSent = isPreChat && hasSentPreChatMessage(messages);
 
   useEffect(() => {
     peerPubkeyRef.current = peerPubkey;
@@ -62,40 +71,24 @@ export function ChatStagePanel({
 
   useEffect(() => {
     if (previewMode) return;
-    const reconnect = () => setConnectionEpoch((value) => value + 1);
-    const reconnectWhenVisible = () => {
-      if (document.visibilityState === "visible") reconnect();
+    const reconnect = () => {
+      void runRefreshIntent(`chat:${orderId}`, () => setConnectionEpoch((value) => value + 1));
     };
-    window.addEventListener("robosats:tor-reconnected", reconnect);
-    window.addEventListener("robosats:native-resume", reconnect);
-    window.addEventListener("online", reconnect);
-    document.addEventListener("visibilitychange", reconnectWhenVisible);
-    return () => {
-      window.removeEventListener("robosats:tor-reconnected", reconnect);
-      window.removeEventListener("robosats:native-resume", reconnect);
-      window.removeEventListener("online", reconnect);
-      document.removeEventListener("visibilitychange", reconnectWhenVisible);
-    };
-  }, [previewMode]);
+    return subscribeRefreshIntents(reconnect);
+  }, [orderId, previewMode]);
 
   useEffect(() => {
     const element = messagesRef.current;
     if (element) element.scrollTop = element.scrollHeight;
   }, [messages.length]);
 
-  useEffect(() => {
-    const previousCount = audibleMessageCountRef.current;
-    audibleMessageCountRef.current = messages.length;
-    if (previewMode || messages.length <= previousCount) return;
-    void playTradeAudio("chat-open").catch(() => undefined);
-  }, [messages.length, previewMode]);
-
   async function loadMessages(offset = lastIndex, reportError = true) {
     if (!baseUrl || !auth || !canLoad) return;
     if (reportError) setError("");
     try {
       const response = await fetchChatMessages(baseUrl, orderId, offset, auth);
-      await applyChatResponse(response);
+      await applyChatResponse(response, historyReadyRef.current);
+      historyReadyRef.current = true;
     } catch (loadError) {
       if (reportError) setError(toUserMessage(loadError, "Could not load chat."));
     }
@@ -105,6 +98,10 @@ export function ChatStagePanel({
     setError("");
     const text = draft.trim();
     if (!text) return;
+    if (preChatMessageSent) {
+      setError("This robot has already left its early message for this trade.");
+      return;
+    }
     if (previewMode) {
       setMessages((current) => [...current, {
         index: current.reduce((max, message) => Math.max(max, message.index), 0) + 1,
@@ -126,7 +123,7 @@ export function ChatStagePanel({
       setError("Message blocked: never share your robot token with anyone, including your trade peer.");
       return;
     }
-    const sendsPlaintextCommand = text.startsWith("#");
+    const sendsPlaintextCommand = variant === "trade" && text.startsWith("#");
     if (!sendsPlaintextCommand && !peerPubkey) {
       setError("Peer public key is not available yet. Refresh chat first.");
       return;
@@ -158,7 +155,7 @@ export function ChatStagePanel({
     }
   }
 
-  async function applyChatResponse(response: ChatResponse) {
+  async function applyChatResponse(response: ChatResponse, notifyNewMessages = historyReadyRef.current) {
     setPeerConnected(response.peerConnected);
     if (response.peerPubkey) {
       peerPubkeyRef.current = response.peerPubkey;
@@ -178,25 +175,48 @@ export function ChatStagePanel({
       )
     );
 
-    setMessages((current) => mergeMessages(current, nextMessages));
+    const visibleMessages = isPreChat ? visiblePreChatMessages(nextMessages) : nextMessages;
+    const newPeerMessages = visibleMessages.filter(
+      (message) => !knownMessageIndexesRef.current.has(message.index) && !message.mine
+    );
+    visibleMessages.forEach((message) => knownMessageIndexesRef.current.add(message.index));
+    setMessages((current) => mergeMessages(current, visibleMessages));
+    if (!isPreChat && notifyNewMessages && shortAlias && newPeerMessages.length > 0) {
+      deliverChatFeedback({
+        lastIndex: Math.max(...newPeerMessages.map((message) => message.index)),
+        orderId,
+        peerName: newPeerMessages.at(-1)?.nick || peerNick,
+        shortAlias
+      });
+    }
   }
 
   useEffect(() => {
     if (!canLoad || previewMode) return;
     void loadMessages(0);
-  }, [canLoad, connectionEpoch, orderId, previewMode]);
+  }, [canLoad, connectionEpoch, isPreChat, orderId, previewMode]);
 
   useEffect(() => {
-    if (!canLoad || previewMode) return;
-    const interval = window.setInterval(
-      () => void loadMessages(lastIndex, false),
-      chatPollDelayMs(socketConnected)
-    );
-    return () => window.clearInterval(interval);
-  }, [canLoad, lastIndex, orderId, previewMode, socketConnected]);
+    if (isPreChat || !canLoad || previewMode) return;
+    let disposed = false;
+    let timer: number | undefined;
+    const schedule = () => {
+      if (disposed) return;
+      if (document.hidden && isNativeApp()) return;
+      timer = window.setTimeout(async () => {
+        await loadMessages(lastIndex, false);
+        schedule();
+      }, chatPollDelayMs(socketConnected, document.hidden));
+    };
+    schedule();
+    return () => {
+      disposed = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [canLoad, isPreChat, lastIndex, orderId, previewMode, socketConnected]);
 
   useEffect(() => {
-    if (!canLoad || previewMode || !baseUrl || !robot?.pubKey || !slotToken) return;
+    if (variant === "pre-chat" || !canLoad || previewMode || !baseUrl || !robot?.pubKey || !slotToken) return;
 
     let disposed = false;
     let reconnectTimer: number | undefined;
@@ -211,8 +231,10 @@ export function ChatStagePanel({
         attempts = 0;
         setSocketConnected(true);
         socket.send(JSON.stringify({ type: "message", message: robot.pubKey, nick: myNick }));
+        void loadMessages(lastIndex, false);
       };
       socket.onmessage = (event) => {
+        attempts = 0;
         void applySocketMessage(String(event.data));
       };
       socket.onerror = () => socket.close();
@@ -259,14 +281,14 @@ export function ChatStagePanel({
       socketRef.current?.close();
       socketRef.current = undefined;
     };
-  }, [baseUrl, canLoad, connectionEpoch, myNick, orderId, previewMode, robot?.pubKey, slotToken]);
+  }, [baseUrl, canLoad, connectionEpoch, myNick, orderId, previewMode, robot?.pubKey, slotToken, variant]);
 
   return (
     <Card className="chat-panel">
       <CardHeader className="chat-header">
         <div className="chat-header-row">
-          <CardTitle>Trade chat</CardTitle>
-          {canLoad && messages.length > 0 ? (
+          <CardTitle>{isPreChat ? "Early message" : "Trade chat"}</CardTitle>
+          {!isPreChat && canLoad && messages.length > 0 ? (
             <Button size="sm" variant="ghost" onClick={() => exportChatLogs()} title="Export encrypted chat logs">
               <Download size={15} /> Chat logs
             </Button>
@@ -295,7 +317,11 @@ export function ChatStagePanel({
         ) : (
           <div className="chat-stack">
             <div className="chat-messages" ref={messagesRef} role="log" aria-live="polite">
-              {messages.length === 0 ? <p className="chat-empty">No chat messages yet.</p> : null}
+              {messages.length === 0 ? (
+                <p className="chat-empty">
+                  {isPreChat ? "No early message sent." : "No chat messages yet."}
+                </p>
+              ) : null}
               {messages.map((message) => (
                 <MessageBubble
                   key={message.index}
@@ -316,26 +342,40 @@ export function ChatStagePanel({
               }}
             >
               <textarea
-                disabled={!canSend || sending}
+                disabled={!canSend || sending || preChatMessageSent}
                 onChange={(event) => setDraft(event.target.value)}
-                placeholder={canSend ? "Type a message to your peer..." : "Chat is read-only while the coordinator reviews."}
+                placeholder={
+                  preChatMessageSent
+                    ? "Early message saved"
+                    : canSend
+                      ? isPreChat
+                        ? "Leave one encrypted message for your peer..."
+                      : "Type a message to your peer..."
+                    : "Chat is read-only while the coordinator reviews."
+                }
                 rows={3}
                 value={draft}
               />
               <Button
                 aria-label={sending ? "Sending message" : "Send message"}
                 className="chat-send-button"
-                disabled={!canSend || !draft.trim()}
+                disabled={!canSend || !draft.trim() || preChatMessageSent}
                 loading={sending}
                 size="icon"
                 title={draft.trim() ? "Send message" : "Type a message first"}
                 type="submit"
+                variant="outline"
               >
                 {sending ? null : <Send aria-hidden size={18} />}
                 <span className="sr-only">{sending ? "Sending message" : "Send message"}</span>
               </Button>
             </form>
 
+            {preChatMessageSent ? (
+              <p className="pre-chat-saved" role="status">
+                Message saved. Your peer will see it when trade chat opens.
+              </p>
+            ) : null}
             {error ? <p className="field-error">{error}</p> : null}
           </div>
         )}
@@ -370,6 +410,30 @@ export function ChatStagePanel({
     };
     downloadChatLogs(orderId, chatLogs);
   }
+}
+
+export function PreChatDisclosure(props: Omit<Parameters<typeof ChatStagePanel>[0], "variant">) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <details
+      className="pre-chat-disclosure"
+      open={open}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
+      <summary className="pre-chat-summary">
+        <span className="pre-chat-summary-icon" aria-hidden="true">
+          <MessageSquare size={18} />
+        </span>
+        <span className="pre-chat-summary-copy">
+          <strong>Leave a message for your peer</strong>
+          <small>One optional encrypted message. Your peer sees it when trade chat opens.</small>
+        </span>
+        <ChevronDown className="pre-chat-summary-chevron" size={18} aria-hidden="true" />
+      </summary>
+      {open ? <ChatStagePanel {...props} variant="pre-chat" /> : null}
+    </details>
+  );
 }
 
 function previewChatMessages(myNick: string, peerNick: string): DisplayChatMessage[] {

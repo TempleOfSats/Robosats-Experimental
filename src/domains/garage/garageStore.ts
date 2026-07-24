@@ -1,19 +1,32 @@
-import { create } from "zustand";
+import { create, type StoreApi, type UseBoundStore } from "zustand";
 import { deriveRobotIdentity, type RobotIdentity } from "@/domains/identity/robotIdentity";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import { fetchRobot } from "@/domains/garage/robotApi";
-import type { Auth } from "@/domains/transport/apiClient";
+import {
+  publishRobotRefreshResult,
+  type RefreshRobotSlotResult
+} from "@/domains/garage/robotRefreshEvents";
+import type { Auth, RequestPriority, RequestSource } from "@/domains/transport/apiClient";
 import { systemClient } from "@/domains/transport/systemClient";
 import { toUserMessage } from "@/lib/userError";
 
-const GARAGE_SLOTS_KEY = "robosats_exp_garage_slots";
+export type {
+  RefreshRobotCoordinatorResult,
+  RefreshRobotSlotResult
+} from "@/domains/garage/robotRefreshEvents";
+
+const GARAGE_SLOTS_KEY = "robosats_exp_garage_slots_v1";
+const LEGACY_GARAGE_SLOTS_KEY = "robosats_exp_garage_slots";
 const GARAGE_CURRENT_SLOT_KEY = "robosats_exp_garage_current_slot";
 
-let robotRefreshInFlight: Promise<void> | undefined;
-let robotRefreshInFlightKey = "";
+const robotRefreshes = new Map<string, Promise<RefreshRobotSlotResult>>();
+const activeRobotRefreshSessions = new Map<string, string>();
+const pendingRobotRefreshSessions = new Map<string, Set<string>>();
+let robotRefreshSequence = 0;
 
 export type RobotSlot = RobotIdentity & {
   nickname: string;
+  managedBy?: "fleet";
   activeOrderId?: number;
   lastOrderId?: number;
   earnedRewards: number;
@@ -22,7 +35,7 @@ export type RobotSlot = RobotIdentity & {
   robots: Record<string, RobotRecord>;
 };
 
-type GarageState = {
+export type GarageState = {
   slots: RobotSlot[];
   currentToken?: string;
   hydrated: boolean;
@@ -39,7 +52,19 @@ type GarageState = {
     token: string,
     details: { nickname?: string; keys?: { pubKey: string; encPrivKey: string } }
   ) => void;
+  refreshRobotSlot: (
+    token: string,
+    coordinators: CoordinatorSummary[],
+    options?: RefreshRobotSlotOptions
+  ) => Promise<RefreshRobotSlotResult>;
   refreshRobots: (coordinators: CoordinatorSummary[]) => Promise<void>;
+};
+
+export type RefreshRobotSlotOptions = {
+  priority?: RequestPriority;
+  source?: RequestSource;
+  preferredAliases?: string[];
+  requireCompleteAvailability?: boolean;
 };
 
 export type RobotRecord = {
@@ -70,18 +95,26 @@ export type RobotRecord = {
 type StoredRobotSlot = {
   token: string;
   nickname: string;
+  managedBy?: "fleet";
   robots?: Record<string, RobotRecord>;
   activeOrderId?: number;
   lastOrderId?: number;
 };
 
-export const useGarageStore = create<GarageState>((set, get) => ({
+type StoredGarageV1 = {
+  format: "robosats-exp-garage-slots";
+  version: 1;
+  slots: StoredRobotSlot[];
+};
+
+export const useGarageStore: UseBoundStore<StoreApi<GarageState>> = create<GarageState>((set, get) => ({
   slots: [],
   currentToken: undefined,
   hydrated: false,
   hydrate: () => {
     if (get().hydrated) return;
-    const rawSlots = systemClient.getItem(GARAGE_SLOTS_KEY);
+    const rawSlots = systemClient.getItem(GARAGE_SLOTS_KEY)
+      ?? systemClient.getItem(LEGACY_GARAGE_SLOTS_KEY);
     const currentToken = systemClient.getItem(GARAGE_CURRENT_SLOT_KEY) ?? undefined;
     const slots = parseStoredSlots(rawSlots);
     const nextCurrentToken = currentToken ?? slots[0]?.token;
@@ -233,20 +266,33 @@ export const useGarageStore = create<GarageState>((set, get) => ({
       persistSlots(slots, state.currentToken ?? token);
       return { ...state, slots };
     }),
-  refreshRobots: async (coordinators) => {
-    const slot = get().currentSlot();
-    if (!slot || !slot.hasEnoughEntropy) return;
+  refreshRobotSlot: async (token, coordinators, options = {}) => {
+    const slot = get().slots.find((item) => item.token === token);
+    if (!slot || !slot.hasEnoughEntropy) {
+      return { slotId: slot?.tokenSHA256 ?? "", coordinators: [] };
+    }
 
     // Reachability is a stale hint, not an authorization boundary. A Tor
     // coordinator may recover between federation refresh and robot refresh.
-    const targets = coordinators.filter((coordinator) => coordinator.enabled && coordinator.url);
-    if (targets.length === 0) return;
+    const targets = orderRobotRefreshTargets(
+      slot,
+      coordinators.filter((coordinator) => coordinator.enabled && coordinator.url),
+      options.preferredAliases
+    );
+    if (targets.length === 0) {
+      return publishRobotRefreshResult({ slotId: slot.tokenSHA256, coordinators: [] });
+    }
 
-    const refreshKey = robotRefreshKey(slot, targets);
-    if (robotRefreshInFlight && robotRefreshInFlightKey === refreshKey) return robotRefreshInFlight;
+    const refreshKey = robotRefreshKey(slot, targets, options.priority);
+    const existingRefresh = robotRefreshes.get(refreshKey);
+    if (existingRefresh) return existingRefresh;
 
     const refresh = (async () => {
       const keys = await ensureSlotKeys(slot);
+      const sessions = new Map(targets.map((coordinator) => [
+        coordinator.shortAlias,
+        beginRobotRefreshSession(slot.token, coordinator.shortAlias)
+      ]));
       set((state) => {
         const slots = state.slots.map((item) =>
           item.token === slot.token
@@ -261,20 +307,26 @@ export const useGarageStore = create<GarageState>((set, get) => ({
         return { ...state, slots };
       });
 
-      const results = await Promise.all(
+      const auth: Auth = {
+        tokenSHA256: slot.tokenSHA256,
+        nostrPubkey: slot.nostrPubKey,
+        keys: {
+          pubKey: keys.pubKey,
+          encPrivKey: keys.encPrivKey
+        }
+      };
+      const aliases = await Promise.all(
         targets.map(async (coordinator) => {
-          const auth: Auth = {
-            tokenSHA256: slot.tokenSHA256,
-            nostrPubkey: slot.nostrPubKey,
-            keys: {
-              pubKey: keys.pubKey,
-              encPrivKey: keys.encPrivKey
-            }
-          };
-
+          const sessionId = sessions.get(coordinator.shortAlias)!;
           try {
-            const snapshot = await fetchRobot(coordinator.url, auth);
-            return {
+            const snapshot = await fetchRobot(coordinator.url, auth, undefined, {
+              timeoutProfile: options.priority === "background" || options.priority === "maintenance"
+                ? "background"
+                : "interactive",
+              priority: options.priority ?? "visible",
+              source: options.source ?? "robot-refresh"
+            });
+            applyRobotRefreshResult(set, slot, coordinator.shortAlias, sessionId, {
               shortAlias: coordinator.shortAlias,
               orderSnapshot: {
                 activeOrderId: snapshot.activeOrderId,
@@ -300,11 +352,11 @@ export const useGarageStore = create<GarageState>((set, get) => ({
                 loading: false,
                 error: snapshot.badRequest
               } satisfies RobotRecord
-            };
+            });
           } catch (error) {
             const currentSlot = useGarageStore.getState().slots.find((item) => item.token === slot.token);
             const currentRobot = currentSlot?.robots[coordinator.shortAlias];
-            return {
+            applyRobotRefreshResult(set, slot, coordinator.shortAlias, sessionId, {
               shortAlias: coordinator.shortAlias,
               orderSnapshot: undefined,
               record: {
@@ -318,58 +370,50 @@ export const useGarageStore = create<GarageState>((set, get) => ({
                 loading: false,
                 error: toUserMessage(error, "Could not check this coordinator.")
               } satisfies RobotRecord
-            };
+            });
           }
+          return coordinator.shortAlias;
         })
       );
 
-      set((state) => {
-        const slots = state.slots.map((item) => {
-          if (item.token !== slot.token) return item;
-          const robots = {
-            ...item.robots,
-            ...Object.fromEntries(results.map((result) => {
-              const currentRobot = item.robots[result.shortAlias];
-              const orderState = result.orderSnapshot
-                ? reconcileOrderState(
-                    currentRobot,
-                    result.orderSnapshot.activeOrderId,
-                    result.orderSnapshot.lastOrderId
-                  )
-                : selectRobotOrderState(currentRobot);
-              return [
-                result.shortAlias,
-                {
-                  ...result.record,
-                  ...orderState
-                }
-              ];
-            }))
+      const refreshedSlot = get().slots.find((item) => item.token === slot.token);
+      return publishRobotRefreshResult({
+        slotId: slot.tokenSHA256,
+        coordinators: aliases.map((shortAlias) => {
+          const robot = refreshedSlot?.robots[shortAlias];
+          return {
+            shortAlias,
+            found: robot?.found,
+            activeOrderId: robot?.activeOrderId,
+            lastOrderId: robot?.lastOrderId,
+            renewableOrderId: robot?.renewableOrderId,
+            releasedOrderId: robot?.releasedOrderId,
+            error: robot?.error
           };
-          return summarizeSlot({
-            ...item,
-            loading: false,
-            robots
-          });
-        });
-        persistSlots(slots, state.currentToken ?? slot.token);
-        return { ...state, slots };
-      });
-    })().finally(() => {
-      if (robotRefreshInFlight === refresh) {
-        robotRefreshInFlight = undefined;
-        robotRefreshInFlightKey = "";
-      }
-    });
+        })
+      } satisfies RefreshRobotSlotResult);
+    })().finally(() => robotRefreshes.delete(refreshKey));
 
-    robotRefreshInFlight = refresh;
-    robotRefreshInFlightKey = refreshKey;
+    robotRefreshes.set(refreshKey, refresh);
     return refresh;
+  },
+  refreshRobots: async (coordinators) => {
+    const slot = get().currentSlot();
+    if (!slot) return;
+    await get().refreshRobotSlot(slot.token, coordinators);
   }
 }));
 
 export function selectCurrentSlot(slots: RobotSlot[], currentToken?: string): RobotSlot | undefined {
   return slots.find((slot) => slot.token === currentToken) ?? slots[0];
+}
+
+export function selectStandardGarageSlots(slots: RobotSlot[]): RobotSlot[] {
+  return slots.filter((slot) => slot.managedBy !== "fleet");
+}
+
+export function selectFleetManagedSlots(slots: RobotSlot[]): RobotSlot[] {
+  return slots.filter((slot) => slot.managedBy === "fleet");
 }
 
 export function getRobotAuthForCoordinator(slot: RobotSlot | undefined, shortAlias: string): Auth | undefined {
@@ -392,11 +436,110 @@ export function getRobotAuthForCoordinator(slot: RobotSlot | undefined, shortAli
   return { tokenSHA256 };
 }
 
-function robotRefreshKey(slot: RobotSlot, coordinators: CoordinatorSummary[]): string {
+function robotRefreshKey(
+  slot: RobotSlot,
+  coordinators: CoordinatorSummary[],
+  priority: RequestPriority = "visible"
+): string {
   return [
     slot.tokenSHA256,
-    coordinators.map((coordinator) => `${coordinator.shortAlias}:${coordinator.url}`).join(",")
+    coordinators.map((coordinator) => `${coordinator.shortAlias}:${coordinator.url}`).join(","),
+    priority
   ].join("|");
+}
+
+function orderRobotRefreshTargets(
+  slot: RobotSlot,
+  coordinators: CoordinatorSummary[],
+  preferredAliases: string[] = []
+): CoordinatorSummary[] {
+  const preferred = new Map(preferredAliases.map((alias, index) => [alias, index]));
+  return [...coordinators].sort((left, right) => {
+    const leftRank = robotCoordinatorRank(slot.robots[left.shortAlias], preferred.has(left.shortAlias));
+    const rightRank = robotCoordinatorRank(slot.robots[right.shortAlias], preferred.has(right.shortAlias));
+    return leftRank - rightRank
+      || (preferred.get(left.shortAlias) ?? Number.MAX_SAFE_INTEGER)
+        - (preferred.get(right.shortAlias) ?? Number.MAX_SAFE_INTEGER);
+  });
+}
+
+function robotCoordinatorRank(robot: RobotRecord | undefined, preferred: boolean): number {
+  if (robot?.activeOrderId) return 0;
+  if (robot?.renewableOrderId || robot?.lastOrderId) return 1;
+  if (preferred) return 2;
+  if (robot?.found) return 3;
+  return 4;
+}
+
+type RobotRefreshResult = {
+  shortAlias: string;
+  orderSnapshot?: {
+    activeOrderId?: number;
+    lastOrderId?: number;
+  };
+  record: RobotRecord;
+};
+
+function beginRobotRefreshSession(token: string, shortAlias: string): string {
+  const key = `${token}|${shortAlias}`;
+  const sessionId = `${key}|${++robotRefreshSequence}`;
+  const pending = pendingRobotRefreshSessions.get(token) ?? new Set<string>();
+  const previous = activeRobotRefreshSessions.get(key);
+  if (previous) pending.delete(previous);
+  pending.add(sessionId);
+  pendingRobotRefreshSessions.set(token, pending);
+  activeRobotRefreshSessions.set(key, sessionId);
+  return sessionId;
+}
+
+function applyRobotRefreshResult(
+  set: StoreApi<GarageState>["setState"],
+  slot: RobotSlot,
+  shortAlias: string,
+  sessionId: string,
+  result: RobotRefreshResult
+): void {
+  const key = `${slot.token}|${shortAlias}`;
+  if (activeRobotRefreshSessions.get(key) !== sessionId) return;
+  activeRobotRefreshSessions.delete(key);
+  const pending = pendingRobotRefreshSessions.get(slot.token);
+  pending?.delete(sessionId);
+  if (pending?.size === 0) pendingRobotRefreshSessions.delete(slot.token);
+
+  set((state) => {
+    const slots = state.slots.map((item) => {
+      if (item.token !== slot.token) return item;
+      const currentRobot = item.robots[shortAlias];
+      const startingRobot = slot.robots[shortAlias] ?? Object.values(slot.robots)[0];
+      const orderState = result.orderSnapshot && !orderStateChanged(startingRobot, currentRobot)
+        ? reconcileOrderState(
+            currentRobot,
+            result.orderSnapshot.activeOrderId,
+            result.orderSnapshot.lastOrderId
+          )
+        : selectRobotOrderState(currentRobot);
+      return summarizeSlot({
+        ...item,
+        loading: (pendingRobotRefreshSessions.get(slot.token)?.size ?? 0) > 0,
+        robots: {
+          ...item.robots,
+          [shortAlias]: {
+            ...result.record,
+            ...orderState
+          }
+        }
+      });
+    });
+    persistSlots(slots, state.currentToken ?? slot.token);
+    return { ...state, slots };
+  });
+}
+
+function orderStateChanged(before: RobotRecord | undefined, after: RobotRecord | undefined): boolean {
+  return before?.activeOrderId !== after?.activeOrderId
+    || before?.lastOrderId !== after?.lastOrderId
+    || before?.releasedOrderId !== after?.releasedOrderId
+    || before?.renewableOrderId !== after?.renewableOrderId;
 }
 
 function mergeRobotSlot(existing: RobotSlot, incoming: RobotSlot): RobotSlot {
@@ -419,16 +562,21 @@ function parseStoredSlots(rawSlots: string | null): RobotSlot[] {
   if (!rawSlots) return [];
   try {
     const parsed = JSON.parse(rawSlots) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    const records = parsed.filter(isStoredRobotSlot);
+    const records = storedSlotRecords(parsed).filter(isStoredRobotSlot);
     const byToken = new Map(records.map((slot) => [slot.token, slot]));
     return [...byToken.values()].map((slot) => {
         const identity = deriveRobotIdentity(slot.token);
-        const robots = slot.robots ?? {};
+        const robots = Object.fromEntries(
+          Object.entries(slot.robots ?? {}).map(([alias, robot]) => [
+            alias,
+            { ...robot, loading: undefined }
+          ])
+        );
         return summarizeSlot(
           {
             ...identity,
             nickname: slot.nickname,
+            managedBy: slot.managedBy,
             activeOrderId: slot.activeOrderId,
             lastOrderId: slot.lastOrderId,
             earnedRewards: 0,
@@ -446,18 +594,44 @@ function persistSlots(slots: RobotSlot[], currentToken: string): void {
   const stored: StoredRobotSlot[] = slots.map((slot) => ({
       token: slot.token,
       nickname: slot.nickname,
+      managedBy: slot.managedBy,
       activeOrderId: slot.activeOrderId,
       lastOrderId: slot.lastOrderId,
-      robots: slot.robots
+      robots: Object.fromEntries(
+        Object.entries(slot.robots).map(([alias, robot]) => [
+          alias,
+          { ...robot, loading: undefined }
+        ])
+      )
     }));
-  systemClient.setItem(GARAGE_SLOTS_KEY, JSON.stringify(stored));
+  const versioned: StoredGarageV1 = {
+    format: "robosats-exp-garage-slots",
+    version: 1,
+    slots: stored
+  };
+  systemClient.setItem(GARAGE_SLOTS_KEY, JSON.stringify(versioned));
+  systemClient.setItem(LEGACY_GARAGE_SLOTS_KEY, JSON.stringify(stored));
   systemClient.setItem(GARAGE_CURRENT_SLOT_KEY, currentToken);
+}
+
+function storedSlotRecords(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  if (!value || typeof value !== "object") return [];
+  const stored = value as Partial<StoredGarageV1>;
+  return stored.format === "robosats-exp-garage-slots"
+    && stored.version === 1
+    && Array.isArray(stored.slots)
+    ? stored.slots
+    : [];
 }
 
 function isStoredRobotSlot(value: unknown): value is StoredRobotSlot {
   if (!value || typeof value !== "object") return false;
   const slot = value as Partial<StoredRobotSlot>;
-  return typeof slot.token === "string" && Boolean(slot.token) && typeof slot.nickname === "string";
+  return typeof slot.token === "string"
+    && Boolean(slot.token)
+    && typeof slot.nickname === "string"
+    && (slot.managedBy === undefined || slot.managedBy === "fleet");
 }
 
 async function ensureSlotKeys(slot: RobotSlot): Promise<{ pubKey: string; encPrivKey: string }> {

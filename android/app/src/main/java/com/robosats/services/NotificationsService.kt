@@ -116,12 +116,7 @@ class NotificationsService : Service() {
 
             override fun onAvailable(network: Network) {
                 super.onAvailable(network)
-
-                if (lastNetwork != null && lastNetwork != network) {
-                    restartAfterNetworkChange()
-                }
-
-                lastNetwork = network
+                if (lastNetwork == null) lastNetwork = network
             }
 
             override fun onCapabilitiesChanged(
@@ -131,13 +126,16 @@ class NotificationsService : Service() {
                 super.onCapabilitiesChanged(network, networkCapabilities)
 
                 val changed = Connectivity.updateNetworkCapabilities(networkCapabilities)
+                if (!networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) return
                 val isInitialUpdate = !receivedInitialCapabilities
                 receivedInitialCapabilities = true
+                val networkChanged = lastNetwork != null && lastNetwork != network
+                lastNetwork = network
                 Log.d(
                     "RobosatsNotifications",
                     "onCapabilitiesChanged: ${network.networkHandle} hasMobileData ${Connectivity.isOnMobileData} hasWifi ${Connectivity.isOnWifiData}",
                 )
-                if (changed && !isInitialUpdate) {
+                if ((changed || networkChanged) && !isInitialUpdate) {
                     scope.launch(Dispatchers.IO) {
                         restartAfterNetworkChange()
                     }
@@ -318,6 +316,7 @@ class NotificationsService : Service() {
             getSystemService(NOTIFICATION_SERVICE) as NotificationManager
 
         val orderId = event.firstTag("order_id")
+        MainActivity.dispatchOrderHint(orderId)
 
         val intent = Intent(applicationContext, MainActivity::class.java).apply {
             putExtra("order_id", orderId)

@@ -12,6 +12,7 @@ import type {
   Origin
 } from "@/domains/coordinators/coordinator.types";
 import { systemClient } from "@/domains/transport/systemClient";
+import { setTransportProbeOrigins } from "@/domains/transport/transportHealth";
 
 type FederationState = {
   coordinators: CoordinatorSummary[];
@@ -233,21 +234,25 @@ async function refreshFederation(
     coordinators: state.coordinators.map((coordinator) => ({ ...coordinator, loading: true, error: undefined }))
   }));
 
-  try {
-    const current = get().coordinators;
-    const refreshed = applyCoordinatorPreferences(await Promise.all(
-      current.map((coordinator) => refreshCoordinatorSummary(summaryToDefinition(coordinator), settings, coordinator))
-    ));
-    const savedAt = Date.now();
-    writeFederationCache(settings, refreshed, savedAt);
+  const current = get().coordinators;
+  await Promise.allSettled(current.map(async (coordinator) => {
+    const refreshed = await refreshCoordinatorSummary(summaryToDefinition(coordinator), settings, coordinator);
     if (!sameFederationSettings(currentFederationSettings(get()), settings)) return;
-    set({ coordinators: refreshed, lastRefreshed: savedAt, refreshing: false });
-  } catch {
-    set((state) => ({
-      refreshing: false,
-      coordinators: state.coordinators.map((coordinator) => ({ ...coordinator, loading: false }))
-    }));
-  }
+    set((state) => {
+      const coordinators = applyCoordinatorPreferences(state.coordinators.map((item) =>
+        item.shortAlias === coordinator.shortAlias
+          ? { ...refreshed, enabled: item.enabled }
+          : item
+      ));
+      writeFederationCache(settings, coordinators, state.lastRefreshed ?? Date.now());
+      return { coordinators };
+    });
+  }));
+  if (!sameFederationSettings(currentFederationSettings(get()), settings)) return;
+  const savedAt = Date.now();
+  const coordinators = get().coordinators.map((coordinator) => ({ ...coordinator, loading: false }));
+  writeFederationCache(settings, coordinators, savedAt);
+  set({ coordinators, lastRefreshed: savedAt, refreshing: false });
 }
 
 async function refreshCoordinatorSummary(
@@ -454,10 +459,11 @@ function persistCoordinatorPreferences(coordinators: CoordinatorSummary[]) {
 }
 
 function persistNativeFederation(coordinators: CoordinatorSummary[]): void {
-  if (typeof window === "undefined") return;
   const enabled = coordinators
     .filter((coordinator) => coordinator.enabled)
     .sort((left, right) => Number(right.online) - Number(left.online));
+  setTransportProbeOrigins(enabled.map((coordinator) => coordinator.url));
+  if (typeof window === "undefined") return;
   const relays = enabled.flatMap((coordinator) => {
     const base = coordinator.url.trim().replace(/\/$/, "");
     if (base.startsWith("https://")) return [`${base.replace(/^https:\/\//, "wss://")}/relay/`];

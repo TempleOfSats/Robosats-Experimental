@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { compactPayload, fetchOrder, submitOrderAction } from "@/domains/orders/orderApi";
+import {
+  compactPayload,
+  fetchOrder,
+  isCompleteOrderActionResponse,
+  submitOrderAction
+} from "@/domains/orders/orderApi";
 import type { ApiClient, Auth } from "@/domains/transport/apiClient";
 import type { OrderDto } from "@/domains/orders/order.types";
 
@@ -48,7 +53,7 @@ describe("orderApi", () => {
       "/api/order/?order_id=123",
       { action: "update_invoice", invoice: "signed", routing_budget_ppm: 1000 },
       { tokenSHA256: "robot-token" },
-      { timeoutProfile: "action" }
+      { timeoutProfile: "action", priority: "action", source: "order-action" }
     );
   });
 
@@ -66,6 +71,17 @@ describe("orderApi", () => {
       invoice_amount: 2500,
       satoshis: 0
     });
+  });
+
+  it("identifies action acknowledgements that require an authoritative follow-up GET", async () => {
+    const client = {
+      get: vi.fn(),
+      post: vi.fn().mockResolvedValue({ id: 123 }),
+      put: vi.fn(),
+      delete: vi.fn()
+    } satisfies ApiClient;
+    const response = await submitOrderAction("https://coordinator", 123, { action: "confirm" }, auth, client);
+    expect(isCompleteOrderActionResponse(response)).toBe(false);
   });
 
   it("removes undefined fields but keeps explicit zero values", () => {

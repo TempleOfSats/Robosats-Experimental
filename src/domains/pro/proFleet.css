@@ -1,0 +1,176 @@
+.pro-workspace-page {
+  display: grid;
+  gap: 1rem;
+}
+
+.pro-garage-setup-sheet {
+  width: min(calc(100vw - 2rem), 35rem);
+}
+
+.pro-garage-setup-sheet > header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.pro-garage-setup-sheet h3,
+.pro-garage-setup-sheet p {
+  margin: 0;
+}
+
+.pro-garage-setup-icon {
+  width: 2.75rem;
+  height: 2.75rem;
+  flex: 0 0 2.75rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--secondary) 45%, var(--border));
+  border-radius: 50%;
+  color: var(--secondary);
+  background: color-mix(in srgb, var(--secondary) 12%, transparent);
+}
+
+.pro-garage-setup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.625rem;
+}
+
+.pro-garage-setup-actions > * {
+  flex: 1 1 10rem;
+}
+
+.pro-fleet-setup-copy {
+  display: grid;
+  gap: 0.5rem;
+  color: var(--muted-foreground);
+  line-height: 1.5;
+}
+
+.pro-use-standard-garage {
+  justify-self: start;
+}
+
+.pro-garage-token-value {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--muted);
+  padding: 0.5rem 0.6rem 0.5rem 0.75rem;
+}
+
+.pro-fleet-key-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.pro-garage-token-value code {
+  overflow-wrap: anywhere;
+  font-size: 0.8125rem;
+  line-height: 1.125rem;
+}
+
+.pro-fleet-key-input {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--muted-foreground);
+  font-size: var(--type-compact-size);
+  font-weight: 600;
+}
+
+.pro-fleet-key-input input {
+  min-height: 2.75rem;
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-md);
+  background: var(--input);
+  color: var(--foreground);
+  padding: 0.55rem 0.7rem;
+  font: inherit;
+}
+
+.pro-fleet-key-sheet {
+  width: min(calc(100vw - 2rem), 37rem);
+}
+
+.pro-fleet-key-sheet > p,
+.pro-abandon-fleet-sheet > p {
+  margin: 0;
+  color: var(--muted-foreground);
+  line-height: 1.5;
+}
+
+.pro-fleet-key-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.pro-fleet-key-heading h3 {
+  margin: 0;
+}
+
+.pro-fleet-key-mark {
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--secondary) 45%, var(--border));
+  border-radius: 50%;
+  color: var(--secondary);
+}
+
+.pro-abandon-fleet-sheet h3 {
+  margin: 0;
+}
+
+.pro-abandon-fleet-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.pro-garage-recovery-progress {
+  min-height: 13rem;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 0.75rem;
+  text-align: center;
+}
+
+.pro-garage-recovery-progress .ui-spinner {
+  width: 2rem;
+  height: 2rem;
+}
+
+.pro-garage-recovery-progress h4,
+.pro-garage-recovery-progress p {
+  margin: 0;
+}
+
+.pro-garage-recovery-progress p {
+  color: var(--muted-foreground);
+}
+
+.pro-garage-recovery-progress .ui-button {
+  min-width: 9rem;
+}
+
+.pro-garage-recovery-complete {
+  width: 2.75rem;
+  height: 2.75rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--success-border);
+  border-radius: 50%;
+  background: var(--success-surface);
+  color: var(--success-foreground);
+}
+
+

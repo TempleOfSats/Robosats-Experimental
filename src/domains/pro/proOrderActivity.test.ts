@@ -1,0 +1,190 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { RobotSlot } from "@/domains/garage/garageStore";
+import { useGarageStore } from "@/domains/garage/garageStore";
+import { buildProvisionalMakerOrder } from "@/domains/maker/makerApi";
+import {
+  ingestCoordinatorOrder,
+  resetCoordinatorOrderActivityForTests
+} from "@/domains/orders/orderActivity";
+import type { OrderDto } from "@/domains/orders/order.types";
+import { classifyProTrade } from "@/domains/pro/proSelectors";
+import { startProOrderActivityBridge } from "@/domains/pro/proOrderActivity";
+import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
+import {
+  createGarageManifest,
+  garageTokenId,
+  upsertGarageEntry
+} from "@/domains/pro/garageVault";
+import { resetGarageVaultRuntimeForTests, useGarageVaultStore } from "@/domains/pro/garageVaultStore";
+
+const slot = makeSlot();
+let stopBridge: (() => void) | undefined;
+
+beforeEach(() => {
+  const storage = new Map<string, string>();
+  vi.stubGlobal("localStorage", {
+    getItem: (key: string) => storage.get(key) ?? null,
+    setItem: (key: string, value: string) => storage.set(key, value),
+    removeItem: (key: string) => storage.delete(key)
+  });
+  resetCoordinatorOrderActivityForTests();
+  resetGarageVaultRuntimeForTests();
+  useGarageStore.setState({ slots: [slot], currentToken: slot.token, hydrated: true });
+  useProTradeIndexStore.getState().resetRuntimeCache();
+  useGarageVaultStore.setState({
+    status: "ready",
+    manifest: upsertGarageEntry(createGarageManifest("a".repeat(32), 1), {
+      id: "b".repeat(32),
+      tokenId: garageTokenId(slot.token),
+      nickname: slot.nickname
+    }, 2)
+  });
+  stopBridge = startProOrderActivityBridge();
+});
+
+afterEach(() => {
+  stopBridge?.();
+  stopBridge = undefined;
+  resetCoordinatorOrderActivityForTests();
+  resetGarageVaultRuntimeForTests();
+  vi.unstubAllGlobals();
+});
+
+describe("foreground order activity", () => {
+  it("shows a newly created maker offer as needing action before its first GET completes", () => {
+    const provisional = buildProvisionalMakerOrder(42, "lake", {
+      type: 0,
+      currency: 1,
+      amount: 150,
+      has_range: false,
+      min_amount: null,
+      max_amount: null,
+      payment_method: "Revolut",
+      is_explicit: false,
+      premium: 1,
+      satoshis: null,
+      public_duration: 86_400,
+      escrow_duration: 10_800,
+      bond_size: 3,
+      latitude: 0,
+      longitude: 0,
+      password: null,
+      description: null
+    }, slot);
+
+    ingestCoordinatorOrder({ authoritative: false, order: provisional, shortAlias: "lake", slot });
+
+    const snapshot = useProTradeIndexStore.getState().snapshots["slot-id:lake:42"];
+    expect(snapshot).toMatchObject({ freshness: "refreshing", order: { status: 0, is_maker: true } });
+    expect(classifyProTrade(snapshot)).toBe("needs-action");
+    expect(useGarageStore.getState().slots[0].activeOrderId).toBe(42);
+  });
+
+  it("replaces provisional data from the same coordinator GET without another reconciliation", () => {
+    ingestCoordinatorOrder({
+      authoritative: false,
+      order: order({ id: 42, status: 0, is_maker: true, is_taker: false }),
+      shortAlias: "lake",
+      slot
+    });
+    ingestCoordinatorOrder({
+      order: order({ id: 42, status: 1, is_maker: true, is_taker: false, amount: 250 }),
+      shortAlias: "lake",
+      slot
+    });
+
+    expect(useProTradeIndexStore.getState().snapshots["slot-id:lake:42"]).toMatchObject({
+      freshness: "fresh",
+      order: { status: 1, amount: 250 }
+    });
+  });
+
+  it("removes a terminal order as soon as the coordinator returns it", () => {
+    ingestCoordinatorOrder({
+      order: order({ id: 42, status: 9, is_maker: true, is_taker: false }),
+      shortAlias: "lake",
+      slot
+    });
+    ingestCoordinatorOrder({
+      order: order({ id: 42, status: 4, is_maker: true, is_taker: false }),
+      shortAlias: "lake",
+      slot
+    });
+
+    expect(useProTradeIndexStore.getState().snapshots["slot-id:lake:42"]).toBeUndefined();
+    expect(useGarageStore.getState().slots[0].activeOrderId).toBeUndefined();
+  });
+
+  it("releases an expired taker attempt when the order is public again", () => {
+    ingestCoordinatorOrder({
+      order: order({ id: 42, status: 3, is_maker: false, is_taker: true }),
+      shortAlias: "lake",
+      slot
+    });
+    ingestCoordinatorOrder({
+      order: order({ id: 42, status: 1, is_maker: false, is_taker: false }),
+      shortAlias: "lake",
+      slot
+    });
+
+    const current = useGarageStore.getState().slots[0];
+    expect(useProTradeIndexStore.getState().snapshots["slot-id:lake:42"]).toBeUndefined();
+    expect(current.activeOrderId).toBeUndefined();
+    expect(current.robots.lake.releasedOrderId).toBe(42);
+  });
+});
+
+function makeSlot(): RobotSlot {
+  return {
+    token: "robot-token-with-enough-entropy-123456",
+    hashId: "robot-hash",
+    tokenSHA256: "slot-id",
+    nostrPubKey: "nostr-public",
+    nostrSecKey: new Uint8Array(32),
+    entropyBits: 216,
+    hasEnoughEntropy: true,
+    shannonEntropy: 5,
+    nickname: "Robot",
+    earnedRewards: 0,
+    robots: {
+      lake: {
+        token: "robot-token-with-enough-entropy-123456",
+        tokenSHA256: "slot-id",
+        nostrPubKey: "nostr-public",
+        shortAlias: "lake"
+      }
+    }
+  };
+}
+
+function order(overrides: Partial<OrderDto> = {}): OrderDto {
+  return {
+    id: 42,
+    status: 9,
+    type: 0,
+    amount: 100,
+    currency: 1,
+    payment_method: "SEPA",
+    premium: 0,
+    satoshis: 1000,
+    is_maker: false,
+    is_taker: true,
+    is_buyer: true,
+    is_seller: false,
+    maker_nick: "Maker",
+    maker_hash_id: "maker",
+    taker_nick: "Taker",
+    taker_hash_id: "taker",
+    bond_invoice: "",
+    bond_satoshis: 0,
+    escrow_invoice: "",
+    escrow_satoshis: 0,
+    invoice_amount: 0,
+    swap_allowed: false,
+    suggested_mining_fee_rate: 0,
+    swap_fee_rate: 0,
+    expires_at: "2026-07-23T12:00:00Z",
+    shortAlias: "lake",
+    ...overrides
+  };
+}
