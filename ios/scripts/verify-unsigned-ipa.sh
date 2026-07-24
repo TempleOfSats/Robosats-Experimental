@@ -53,12 +53,21 @@ if [[ -z "$WEB_ROOT" ]]; then
   exit 1
 fi
 
-for extension in js css wasm; do
+for extension in js css; do
   if ! find "$WEB_ROOT" -type f -name "*.$extension" | awk 'NR == 1 { found = 1 } END { exit !found }'; then
     echo "The bundled frontend does not contain a .$extension asset." >&2
     exit 1
   fi
 done
+
+if ! find "$WEB_ROOT" -type f -name '*.rsid' | awk 'NR == 1 { found = 1 } END { exit !found }'; then
+  echo "The bundled frontend does not contain the robot identity asset pack." >&2
+  exit 1
+fi
+if find "$WEB_ROOT" -type f -name '*.wasm' | awk 'NR == 1 { found = 1 } END { exit !found }'; then
+  echo "The bundled frontend unexpectedly contains a WebAssembly asset." >&2
+  exit 1
+fi
 
 WEB_FILE_COUNT="$(find "$WEB_ROOT" -type f | wc -l | tr -d ' ')"
 WEB_SIZE_KB="$(du -sk "$WEB_ROOT" | awk '{ print $1 }')"
