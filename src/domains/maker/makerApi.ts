@@ -9,6 +9,7 @@ import {
   PUBLIC_DURATION_MIN_SECONDS
 } from "@/domains/maker/makerDurations";
 import type { CreateOrderDraft, CreateOrderPayload, CreateOrderResponse } from "@/domains/maker/maker.types";
+import { normalizeOrderDto } from "@/domains/orders/orderModel";
 import type { OrderDto } from "@/domains/orders/order.types";
 
 export async function createOrder(
@@ -18,6 +19,39 @@ export async function createOrder(
   client: ApiClient = apiClient
 ): Promise<CreateOrderResponse> {
   return client.post<CreateOrderResponse>(baseUrl, apiRoutes.make, payload, auth, { timeoutProfile: "action" });
+}
+
+export function buildProvisionalMakerOrder(
+  orderId: number,
+  shortAlias: string,
+  payload: CreateOrderPayload,
+  identity: { nickname: string; hashId: string }
+): OrderDto {
+  const makerBuysBitcoin = payload.type === 0;
+  return normalizeOrderDto({
+    id: orderId,
+    status: 0,
+    type: payload.type,
+    amount: payload.amount,
+    has_range: payload.has_range,
+    min_amount: payload.min_amount,
+    max_amount: payload.max_amount,
+    currency: payload.currency,
+    payment_method: payload.payment_method,
+    premium: payload.premium,
+    satoshis: payload.satoshis,
+    bond_size: payload.bond_size,
+    escrow_duration: payload.escrow_duration,
+    public_duration: payload.public_duration,
+    description: payload.description,
+    is_maker: true,
+    is_taker: false,
+    is_buyer: makerBuysBitcoin,
+    is_seller: !makerBuysBitcoin,
+    maker_nick: identity.nickname,
+    maker_hash_id: identity.hashId,
+    shortAlias
+  });
 }
 
 export function buildCreateOrderPayload(draft: CreateOrderDraft): CreateOrderPayload {

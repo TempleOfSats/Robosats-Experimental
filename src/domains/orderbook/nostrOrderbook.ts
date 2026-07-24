@@ -1,20 +1,24 @@
 import { type Event, type Filter, verifyEvent } from "nostr-tools";
-import { SimplePool } from "nostr-tools/pool";
+import type { SimplePool } from "nostr-tools/pool";
 import type { CoordinatorSummary, Network } from "@/domains/coordinators/coordinator.types";
+import { recordRelayPerformance } from "@/domains/diagnostics/networkPerformance";
+import { getSharedRelayPool } from "@/domains/nostr/sharedRelayPool";
+import {
+  noteRelayEose,
+  noteRelayEvent,
+  noteRelayFailure,
+  orderRelays
+} from "@/domains/nostr/relayHealth";
 import { currencyIdFromCode } from "@/domains/orderbook/currencies";
 import type { PublicOrder } from "@/domains/orderbook/orderbook.types";
-import { isIOSApp } from "@/domains/transport/androidBridge";
 
 const ORDER_KIND = 38383;
 const RELAY_MAX_WAIT_MS = 20000;
 const PROGRESS_EMIT_INTERVAL_MS = 350;
 const DEFAULT_RELAY_COUNT = 3;
-// A healthy onion WebSocket can take several seconds to establish. Avoid
-// fanning out across synchronized coordinator relays before that is useful.
-const PRIMARY_RELAY_GRACE_MS = 4500;
-const FALLBACK_RELAY_GRACE_MS = 8500;
-const IOS_PRIMARY_RELAY_GRACE_MS = 1200;
-const IOS_FALLBACK_RELAY_GRACE_MS = 2800;
+const PRIMARY_SILENCE_MS = 2_000;
+const SECONDARY_SILENCE_MS = 4_500;
+const EVENTUAL_COMPLETENESS_MS = 8_000;
 const RECONCILIATION_RELAY_DELAY_MS = 1800;
 const SESSION_IDLE_TIMEOUT_MS = 120000;
 const RELAY_FAILURE_COOLDOWN_MS = 10 * 60 * 1000;
@@ -118,14 +122,16 @@ function getNostrOrderbookSession(
 
 class NostrOrderbookSession {
   readonly key: string;
-  private readonly pool = new SimplePool({ enableReconnect: true });
+  private readonly pool = getSharedRelayPool();
   private readonly filters: Filter[];
   private readonly listeners = new Set<NostrOrderbookListener>();
   private readonly events = new Map<string, Event>();
   private readonly relayEoses = new Map<number, Set<number>>();
   private readonly closedRelays = new Set<number>();
-  private readonly subscriptions: Array<ReturnType<SimplePool["subscribeMany"]>> = [];
+  private readonly subscriptions = new Map<string, ReturnType<SimplePool["subscribeMany"]>>();
   private readonly fallbackTimers: Array<ReturnType<typeof setTimeout>> = [];
+  private readonly relayStartedAt = new Map<number, number>();
+  private readonly relaysWithEvents = new Set<string>();
   private readonly maxWaitMs: number;
   private readonly coordinators: CoordinatorSummary[];
   private readonly network: Network;
@@ -168,7 +174,7 @@ class NostrOrderbookSession {
     const since = nowSeconds ?? Math.floor(Date.now() / 1000);
     this.filters = [
       { authors, kinds: [ORDER_KIND], "#s": ["pending"] },
-      { authors, kinds: [ORDER_KIND], "#s": ["success", "canceled", "in-progress"], since }
+      { authors, kinds: [ORDER_KIND], "#s": ["pending", "success", "canceled", "in-progress"], since }
     ];
   }
 
@@ -181,8 +187,9 @@ class NostrOrderbookSession {
       this.resolveInitial = resolve;
     });
     this.startRelay(0);
-    this.scheduleFallback(1, isIOSApp() ? IOS_PRIMARY_RELAY_GRACE_MS : PRIMARY_RELAY_GRACE_MS);
-    this.scheduleFallback(2, isIOSApp() ? IOS_FALLBACK_RELAY_GRACE_MS : FALLBACK_RELAY_GRACE_MS);
+    this.scheduleFallback(1, PRIMARY_SILENCE_MS);
+    this.scheduleFallback(2, SECONDARY_SILENCE_MS, true);
+    this.scheduleFallback(2, EVENTUAL_COMPLETENESS_MS);
     this.finalTimer = setTimeout(() => {
       const orders = this.currentOrders();
       const completedRelayCount = this.completedRelayCount();
@@ -213,7 +220,7 @@ class NostrOrderbookSession {
     this.closed = true;
     this.clearTimers();
     this.subscriptions.forEach((subscription) => void subscription.close("complete"));
-    this.pool.destroy();
+    this.subscriptions.clear();
     this.listeners.clear();
     if (sharedSession === this) sharedSession = undefined;
   }
@@ -222,28 +229,44 @@ class NostrOrderbookSession {
     if (this.closed || relayIndex >= this.relays.length || this.relayEoses.has(relayIndex)) return;
     this.relayEoses.set(relayIndex, new Set());
     const relay = this.relays[relayIndex];
-    const subscriptionId = `robosats-orderbook-${Date.now()}-${relayIndex}`;
-
-    this.filters.forEach((filter, filterIndex) => {
-      const subscription = this.pool.subscribeMany([relay], filter, {
-        id: `${subscriptionId}-${filterIndex}`,
-        maxWait: this.maxWaitMs,
-        onevent: (event) => this.handleEvent(event),
-        oneose: () => this.markEose(relayIndex, filterIndex),
-        onclose: () => this.handleRelayClose(relayIndex, relay)
-      });
-      this.subscriptions.push(subscription);
-    });
+    this.relayStartedAt.set(relayIndex, Date.now());
+    recordRelayPerformance(relay, "connect", 0);
+    this.startRelayFilter(relayIndex, 0);
   }
 
-  private scheduleFallback(relayIndex: number, delayMs: number): void {
+  private startRelayFilter(relayIndex: number, filterIndex: number): void {
+    if (this.closed || this.relayEoses.get(relayIndex)?.has(filterIndex)) return;
+    const relay = this.relays[relayIndex];
+    const filter = this.filters[filterIndex];
+    if (!relay || !filter) return;
+    const subscriptionKey = `${relayIndex}:${filterIndex}`;
+    if (this.subscriptions.has(subscriptionKey)) return;
+    const subscription = this.pool.subscribeMany([relay], filter, {
+      id: `robosats-orderbook-${Date.now()}-${relayIndex}-${filterIndex}`,
+      maxWait: this.maxWaitMs,
+      onevent: (event) => this.handleEvent(event, relay),
+      oneose: () => this.markEose(relayIndex, filterIndex, subscriptionKey),
+      onclose: () => this.handleRelayClose(relayIndex, relay, filterIndex)
+    });
+    this.subscriptions.set(subscriptionKey, subscription);
+  }
+
+  private scheduleFallback(relayIndex: number, delayMs: number, onlyWhenEmpty = false): void {
     if (relayIndex >= this.relays.length) return;
-    const timer = setTimeout(() => this.startRelay(relayIndex), delayMs);
+    const timer = setTimeout(() => {
+      if (!onlyWhenEmpty || this.events.size === 0) this.startRelay(relayIndex);
+    }, delayMs);
     this.fallbackTimers.push(timer);
   }
 
-  private handleEvent(event: Event): void {
+  private handleEvent(event: Event, relay: string): void {
     if (this.closed || !verifyEvent(event)) return;
+    noteRelayEvent(relay);
+    if (!this.relaysWithEvents.has(relay)) {
+      this.relaysWithEvents.add(relay);
+      const relayIndex = this.relays.indexOf(relay);
+      recordRelayPerformance(relay, "first-event", Date.now() - (this.relayStartedAt.get(relayIndex) ?? Date.now()));
+    }
     this.events.set(event.id, event);
     if (this.emitTimer) return;
     this.emitTimer = setTimeout(() => {
@@ -253,13 +276,22 @@ class NostrOrderbookSession {
     }, PROGRESS_EMIT_INTERVAL_MS);
   }
 
-  private markEose(relayIndex: number, filterIndex: number): void {
-    if (this.closed || this.initialSettled) return;
+  private markEose(relayIndex: number, filterIndex: number, subscriptionKey: string): void {
+    if (this.closed) return;
     const completedFilters = this.relayEoses.get(relayIndex);
     if (!completedFilters) return;
     completedFilters.add(filterIndex);
+    if (filterIndex === 0) {
+      const closeResult = this.subscriptions.get(subscriptionKey)?.close("snapshot-complete");
+      this.subscriptions.delete(subscriptionKey);
+      void Promise.resolve(closeResult).finally(() => this.startRelayFilter(relayIndex, 1));
+    }
+    if (this.initialSettled) return;
     if (completedFilters.size !== this.filters.length) return;
-    markRelayHealthy(this.relays[relayIndex]);
+    const relay = this.relays[relayIndex];
+    markRelayHealthy(relay);
+    noteRelayEose(relay, Date.now() - (this.relayStartedAt.get(relayIndex) ?? Date.now()));
+    recordRelayPerformance(relay, "eose", Date.now() - (this.relayStartedAt.get(relayIndex) ?? Date.now()));
 
     const orders = this.currentOrders();
     if (orders.length > 0) {
@@ -275,10 +307,18 @@ class NostrOrderbookSession {
     }
   }
 
-  private handleRelayClose(relayIndex: number, relay: string): void {
+  private handleRelayClose(relayIndex: number, relay: string, filterIndex: number): void {
+    if (filterIndex === 0 && this.relayEoses.get(relayIndex)?.has(filterIndex)) return;
     if (this.closed || this.closedRelays.has(relayIndex)) return;
     this.closedRelays.add(relayIndex);
     markRelayUnavailable(relay);
+    noteRelayFailure(relay);
+    recordRelayPerformance(
+      relay,
+      "close",
+      Date.now() - (this.relayStartedAt.get(relayIndex) ?? Date.now()),
+      "network-error"
+    );
 
     // EOSE completes the initial snapshot but the subscription remains the
     // live update channel. Replace it even when the initial fetch has settled.
@@ -292,11 +332,17 @@ class NostrOrderbookSession {
     if (this.finalTimer) clearTimeout(this.finalTimer);
     this.fallbackTimers.forEach((timer) => clearTimeout(timer));
     this.fallbackTimers.length = 0;
-    if (authoritative && orders.length > 0 && this.reconcileAfterInitial) {
-      const reconciliationRelay = this.relays.findIndex((_relay, index) => !this.relayEoses.has(index));
-      if (reconciliationRelay >= 0) {
-        this.scheduleFallback(reconciliationRelay, RECONCILIATION_RELAY_DELAY_MS);
+    if (authoritative && orders.length > 0) {
+      const unopened = this.relays
+        .map((_relay, index) => index)
+        .filter((index) => !this.relayEoses.has(index));
+      if (unopened[0] !== undefined) {
+        this.scheduleFallback(
+          unopened[0],
+          this.reconcileAfterInitial ? RECONCILIATION_RELAY_DELAY_MS : EVENTUAL_COMPLETENESS_MS
+        );
       }
+      if (unopened[1] !== undefined) this.scheduleFallback(unopened[1], EVENTUAL_COMPLETENESS_MS);
     }
     if (this.emitTimer) {
       clearTimeout(this.emitTimer);
@@ -481,9 +527,14 @@ export function selectNostrRelays(
     (relay) => !relayIsCoolingDown(relay) && relayAvailability.get(relay) === false
   );
   const coolingDown = remaining.filter(relayIsCoolingDown);
-  shuffleInPlace(reportedOnline);
-  shuffleInPlace(coolingDown);
-  remaining.splice(0, remaining.length, ...reportedOnline, ...unknown, ...reportedOffline, ...coolingDown);
+  remaining.splice(
+    0,
+    remaining.length,
+    ...orderRelays(reportedOnline),
+    ...orderRelays(unknown),
+    ...orderRelays(reportedOffline),
+    ...orderRelays(coolingDown)
+  );
   while (selected.length < limit && remaining.length > 0) {
     const relay = remaining.shift();
     if (!relay) break;
@@ -502,13 +553,6 @@ function markRelayUnavailable(relay: string): void {
 function markRelayHealthy(relay: string): void {
   if (!relayFailureUntil.delete(relay)) return;
   relaySelectionCache.clear();
-}
-
-function shuffleInPlace<T>(values: T[]): void {
-  for (let index = values.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(Math.random() * (index + 1));
-    [values[index], values[swapIndex]] = [values[swapIndex], values[index]];
-  }
 }
 
 function normalizeHostForRelayMatch(hostUrl: string): string {

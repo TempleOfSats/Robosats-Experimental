@@ -29,6 +29,10 @@ interface CoordinatorVersion {
   patch: number;
 }
 
+export interface CoordinatorFeatures {
+  pre_chat?: boolean;
+}
+
 export interface CoordinatorDefinition {
   shortAlias: string;
   longAlias: string;
@@ -74,6 +78,7 @@ export interface CoordinatorInfo {
   version?: CoordinatorVersion | null;
   network?: Network;
   market_price_apis?: string | null;
+  features?: CoordinatorFeatures;
   notice_severity: "none" | "warning" | "error" | "success" | "info";
   notice_message: string;
 }
