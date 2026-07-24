@@ -1,12 +1,25 @@
 import { preloadAllAppRoutes, preloadPrimaryTradeRoutes } from "@/app/routes";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
-import { selectCurrentSlot, selectStandardGarageSlots, useGarageStore } from "@/domains/garage/garageStore";
+import {
+  getRobotAuthForCoordinator,
+  selectCurrentSlot,
+  selectStandardGarageSlots,
+  type RefreshRobotSlotResult,
+  type RobotSlot,
+  useGarageStore
+} from "@/domains/garage/garageStore";
 import { startOrderChangeHintRuntime } from "@/domains/nostr/orderChangeHints";
+import { ingestCoordinatorOrder } from "@/domains/orders/orderActivity";
+import { fetchOrder } from "@/domains/orders/orderApi";
 import { useOrderbookStore } from "@/domains/orderbook/orderbookStore";
 import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
 import { getNativeTorDiagnostics, isNativeApp } from "@/domains/transport/androidBridge";
 import { subscribeRefreshIntents, type RefreshReason } from "@/domains/transport/refreshIntents";
+import {
+  desktopBackgroundNotificationsEnabled,
+  isTauriDesktop
+} from "@/domains/transport/tauriBridge";
 
 type IdleWindow = {
   requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
@@ -21,7 +34,7 @@ export function scheduleAppPrewarm(): () => void {
       prewarmData();
       return;
     }
-    if (foregroundRefresh || visibleTradeRoute()) return;
+    if (foregroundRefresh || (visibleTradeRoute() && document.visibilityState === "visible")) return;
     foregroundRefresh = refreshSelectedStandardRobotStatus()
       .catch(() => undefined)
       .finally(() => { foregroundRefresh = undefined; });
@@ -33,7 +46,8 @@ export function scheduleAppPrewarm(): () => void {
     scheduleIdle(preloadPrimaryTradeRoutes, 1800, 6000),
     scheduleIdle(preloadAllAppRoutes, 4500, 12000),
     scheduleIdle(prewarmVisualAssets, 7000, 16000),
-    scheduleIdle(prewarmAudioAssets, 45000, 60000)
+    scheduleIdle(prewarmAudioAssets, 45000, 60000),
+    scheduleDesktopNotificationRefresh()
   ];
 
   return () => {
@@ -107,12 +121,56 @@ async function refreshSelectedStandardRobot(
   const garage = useGarageStore.getState();
   const standardSlot = selectCurrentSlot(selectStandardGarageSlots(garage.slots), garage.currentToken);
   if (standardSlot) {
-    await garage.refreshRobotSlot(standardSlot.token, coordinators, {
+    const result = await garage.refreshRobotSlot(standardSlot.token, coordinators, {
       preferredAliases: preferredAliases(standardSlot),
       priority,
       source: "prewarm"
     });
+    const refreshedSlot = useGarageStore.getState().slots.find((slot) => slot.token === standardSlot.token);
+    if (refreshedSlot) await refreshStandardOrders(refreshedSlot, result, coordinators);
   }
+}
+
+async function refreshStandardOrders(
+  slot: RobotSlot,
+  result: RefreshRobotSlotResult,
+  coordinators: CoordinatorSummary[]
+): Promise<void> {
+  const coordinatorsByAlias = new Map(coordinators.map((coordinator) => [coordinator.shortAlias, coordinator]));
+  await Promise.all(result.coordinators.flatMap((robot) => {
+    if (robot.error) return [];
+    const coordinator = coordinatorsByAlias.get(robot.shortAlias);
+    const auth = getRobotAuthForCoordinator(slot, robot.shortAlias);
+    if (!coordinator?.url || !auth) return [];
+    const orderIds = [...new Set([robot.activeOrderId, robot.renewableOrderId])]
+      .filter((orderId): orderId is number => Number.isSafeInteger(orderId) && Number(orderId) > 0);
+    return orderIds.map(async (orderId) => {
+      try {
+        const order = await fetchOrder(coordinator.url, orderId, auth, {
+          timeoutProfile: "background",
+          priority: "background",
+          source: "prewarm"
+        });
+        ingestCoordinatorOrder({ order, shortAlias: robot.shortAlias, slot });
+      } catch {
+        return;
+      }
+    });
+  }));
+}
+
+function scheduleDesktopNotificationRefresh(): () => void {
+  if (!isTauriDesktop()) return () => undefined;
+  const timer = window.setInterval(() => {
+    if (
+      document.visibilityState !== "visible"
+      && desktopBackgroundNotificationsEnabled()
+      && !useProPreferencesStore.getState().enabled
+    ) {
+      void refreshSelectedStandardRobotStatus().catch(() => undefined);
+    }
+  }, 60_000);
+  return () => window.clearInterval(timer);
 }
 
 function preferredAliases(slot: ReturnType<typeof selectCurrentSlot>): string[] {
