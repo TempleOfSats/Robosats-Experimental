@@ -15,6 +15,7 @@ final class TorNetworkClient: @unchecked Sendable {
     nonisolated(unsafe) weak var delegate: TorNetworkClientDelegate?
 
     private let lock = NSLock()
+    private let httpPool = TorHTTPConnectionPool()
     private var socksPort: Int?
     private var sockets: [String: TorWebSocket] = [:]
     private var socketsWithMessages = Set<String>()
@@ -34,6 +35,7 @@ final class TorNetworkClient: @unchecked Sendable {
             return values
         }
         activeSockets.forEach { $0.close(code: 1001, reason: "Tor transport stopped", notify: false) }
+        httpPool.closeAll()
     }
 
     func request(
@@ -55,7 +57,8 @@ final class TorNetworkClient: @unchecked Sendable {
                     rawURL: url,
                     headers: headers,
                     body: Data(body.utf8),
-                    socksPort: port
+                    socksPort: port,
+                    pool: self.httpPool
                 )
                 completion(.success(response))
             } catch {
@@ -141,43 +144,72 @@ final class TorNetworkClient: @unchecked Sendable {
 }
 
 private enum TorHTTP {
+    private static let maximumBodyBytes = 16 * 1_024 * 1_024
+
     static func perform(
         method: String,
         rawURL: String,
         headers: [String: String],
         body: Data,
-        socksPort: Int
+        socksPort: Int,
+        pool: TorHTTPConnectionPool
     ) throws -> [String: Any] {
         let destination = try StreamDestination(rawURL: rawURL, allowedSchemes: ["http", "https"])
-        let connection = try SOCKSStreamConnection(destination: destination, socksPort: socksPort)
-        defer { connection.close() }
-
-        var requestHeaders = sanitized(headers)
-        requestHeaders["Host"] = destination.hostHeader
-        requestHeaders["Connection"] = "close"
-        requestHeaders["Accept-Encoding"] = "identity"
-        if !body.isEmpty { requestHeaders["Content-Length"] = String(body.count) }
-
         let verb = method.uppercased()
         guard verb.range(of: "^[A-Z]{1,16}$", options: .regularExpression) != nil else {
             throw NativeTransportError.invalidRequest
         }
+        var lastError: Error?
+        for attempt in 0..<2 {
+            let lease = try pool.acquire(destination: destination, socksPort: socksPort)
+            var reusable = false
+            var receivedHeaders = false
+            defer { pool.release(lease, reusable: reusable) }
+            do {
+                var requestHeaders = sanitized(headers)
+                requestHeaders["Host"] = destination.hostHeader
+                requestHeaders["Connection"] = "keep-alive"
+                requestHeaders["Accept-Encoding"] = "identity"
+                if !body.isEmpty { requestHeaders["Content-Length"] = String(body.count) }
 
-        var request = Data("\(verb) \(destination.requestTarget) HTTP/1.1\r\n".utf8)
-        for (name, value) in requestHeaders.sorted(by: { $0.key.lowercased() < $1.key.lowercased() }) {
-            request.append(Data("\(name): \(value)\r\n".utf8))
+                var request = Data("\(verb) \(destination.requestTarget) HTTP/1.1\r\n".utf8)
+                for (name, value) in requestHeaders.sorted(by: { $0.key.lowercased() < $1.key.lowercased() }) {
+                    request.append(Data("\(name): \(value)\r\n".utf8))
+                }
+                request.append(Data("\r\n".utf8))
+                request.append(body)
+                try lease.connection.write(request)
+
+                let headerData = try lease.readUntil(Data("\r\n\r\n".utf8), maximumBytes: 64 * 1_024)
+                receivedHeaders = true
+                let head = try HTTPResponse.parseHead(headerData)
+                let connectionCloses = head.headers["connection"]?.lowercased().contains("close") == true
+                let responseBody: Data
+                if head.headers["transfer-encoding"]?.lowercased().contains("chunked") == true {
+                    responseBody = try lease.readChunked(maximumBytes: maximumBodyBytes)
+                    reusable = !connectionCloses
+                } else if let rawLength = head.headers["content-length"], let length = Int(rawLength), length >= 0 {
+                    guard length <= maximumBodyBytes else { throw NativeTransportError.responseTooLarge }
+                    responseBody = try lease.readExactly(length)
+                    reusable = !connectionCloses
+                } else {
+                    responseBody = try lease.readUntilEOF(maximumBytes: maximumBodyBytes)
+                    reusable = false
+                }
+                return [
+                    "status": head.status,
+                    "headers": head.headers,
+                    "body": String(data: responseBody, encoding: .utf8) ?? ""
+                ]
+            } catch {
+                lastError = error
+                reusable = false
+                if verb != "GET" || !lease.reused || receivedHeaders || attempt > 0 {
+                    throw error
+                }
+            }
         }
-        request.append(Data("\r\n".utf8))
-        request.append(body)
-        try connection.write(request)
-
-        let responseData = try connection.readToEnd(maximumBytes: 16 * 1_024 * 1_024)
-        let parsed = try HTTPResponse.parse(responseData)
-        return [
-            "status": parsed.status,
-            "headers": parsed.headers,
-            "body": String(data: parsed.body, encoding: .utf8) ?? ""
-        ]
+        throw lastError ?? NativeTransportError.connectionClosed
     }
 
     private static func sanitized(_ headers: [String: String]) -> [String: String] {
@@ -192,14 +224,191 @@ private enum TorHTTP {
     }
 }
 
+private final class TorHTTPConnectionPool: @unchecked Sendable {
+    private struct Key: Hashable {
+        let host: String
+        let port: Int
+        let tls: Bool
+        let socksPort: Int
+    }
+
+    private let condition = NSCondition()
+    private var idle: [Key: [PooledHTTPConnection]] = [:]
+    private var activeCount: [Key: Int] = [:]
+    private var allConnections: [ObjectIdentifier: PooledHTTPConnection] = [:]
+
+    func acquire(destination: StreamDestination, socksPort: Int) throws -> HTTPConnectionLease {
+        let key = Key(host: destination.host.lowercased(), port: destination.port, tls: destination.usesTLS, socksPort: socksPort)
+        let deadline = Date().addingTimeInterval(30)
+        while true {
+            condition.lock()
+            let now = Date()
+            let candidates = (idle[key] ?? []).filter {
+                now.timeIntervalSince($0.lastUsedAt) <= 30 && now.timeIntervalSince($0.createdAt) <= 120
+            }
+            (idle[key] ?? []).filter { candidate in
+                !candidates.contains(where: { $0 === candidate })
+            }.forEach { connection in
+                allConnections.removeValue(forKey: ObjectIdentifier(connection))
+                connection.connection.close()
+            }
+            idle[key] = candidates
+            if let connection = idle[key]?.popLast() {
+                activeCount[key, default: 0] += 1
+                condition.unlock()
+                return HTTPConnectionLease(record: connection, reused: true)
+            }
+            if activeCount[key, default: 0] < 2 {
+                activeCount[key, default: 0] += 1
+                condition.unlock()
+                do {
+                    let record = PooledHTTPConnection(
+                        connection: try SOCKSStreamConnection(destination: destination, socksPort: socksPort),
+                        destination: destination,
+                        socksPort: socksPort
+                    )
+                    condition.lock()
+                    allConnections[ObjectIdentifier(record)] = record
+                    condition.unlock()
+                    return HTTPConnectionLease(record: record, reused: false)
+                } catch {
+                    condition.lock()
+                    activeCount[key] = max(0, activeCount[key, default: 1] - 1)
+                    condition.broadcast()
+                    condition.unlock()
+                    throw error
+                }
+            }
+            let remaining = deadline.timeIntervalSinceNow
+            if remaining <= 0 {
+                condition.unlock()
+                throw NativeTransportError.timeout
+            }
+            condition.wait(until: deadline)
+            condition.unlock()
+        }
+    }
+
+    func release(_ lease: HTTPConnectionLease, reusable: Bool) {
+        let record = lease.record
+        let key = Key(
+            host: record.destinationHost,
+            port: record.destinationPort,
+            tls: record.usesTLS,
+            socksPort: record.socksPort
+        )
+        condition.lock()
+        activeCount[key] = max(0, activeCount[key, default: 1] - 1)
+        let stillOwned = allConnections[ObjectIdentifier(record)] != nil
+        let withinLifetime = Date().timeIntervalSince(record.createdAt) <= 120
+        if reusable && stillOwned && withinLifetime && (idle[key]?.isEmpty ?? true) {
+            record.lastUsedAt = Date()
+            idle[key, default: []].append(record)
+        } else {
+            allConnections.removeValue(forKey: ObjectIdentifier(record))
+            record.connection.close()
+        }
+        condition.broadcast()
+        condition.unlock()
+    }
+
+    func closeAll() {
+        condition.lock()
+        let connections = Array(allConnections.values)
+        idle.removeAll()
+        activeCount.removeAll()
+        allConnections.removeAll()
+        condition.broadcast()
+        condition.unlock()
+        connections.forEach { $0.connection.close() }
+    }
+}
+
+private final class PooledHTTPConnection {
+    let connection: SOCKSStreamConnection
+    let createdAt = Date()
+    var lastUsedAt = Date()
+    var buffer = Data()
+    var destinationHost = ""
+    var destinationPort = 0
+    var usesTLS = false
+    var socksPort = 0
+
+    init(connection: SOCKSStreamConnection, destination: StreamDestination, socksPort: Int) {
+        self.connection = connection
+        destinationHost = destination.host.lowercased()
+        destinationPort = destination.port
+        usesTLS = destination.usesTLS
+        self.socksPort = socksPort
+    }
+}
+
+private final class HTTPConnectionLease {
+    fileprivate let record: PooledHTTPConnection
+    let reused: Bool
+    var connection: SOCKSStreamConnection { record.connection }
+
+    init(record: PooledHTTPConnection, reused: Bool) {
+        self.record = record
+        self.reused = reused
+    }
+
+    func readUntil(_ delimiter: Data, maximumBytes: Int) throws -> Data {
+        while record.buffer.count <= maximumBytes {
+            if let range = record.buffer.range(of: delimiter) {
+                let value = Data(record.buffer[..<range.lowerBound])
+                record.buffer = Data(record.buffer[range.upperBound...])
+                return value
+            }
+            record.buffer.append(try connection.read(maximumBytes: 4_096))
+        }
+        throw NativeTransportError.responseTooLarge
+    }
+
+    func readExactly(_ count: Int) throws -> Data {
+        while record.buffer.count < count {
+            record.buffer.append(try connection.read(maximumBytes: min(16 * 1_024, count - record.buffer.count)))
+        }
+        let value = Data(record.buffer.prefix(count))
+        record.buffer.removeFirst(count)
+        return value
+    }
+
+    func readChunked(maximumBytes: Int) throws -> Data {
+        var output = Data()
+        while true {
+            let line = try readUntil(Data("\r\n".utf8), maximumBytes: 1_024)
+            guard let text = String(data: line, encoding: .ascii),
+                  let token = text.split(separator: ";", maxSplits: 1).first,
+                  let count = Int(token.trimmingCharacters(in: .whitespaces), radix: 16),
+                  count >= 0 else { throw NativeTransportError.invalidResponse }
+            if count == 0 {
+                while !(try readUntil(Data("\r\n".utf8), maximumBytes: 8 * 1_024)).isEmpty {}
+                return output
+            }
+            guard output.count + count <= maximumBytes else { throw NativeTransportError.responseTooLarge }
+            output.append(try readExactly(count))
+            guard try readExactly(2) == Data("\r\n".utf8) else {
+                throw NativeTransportError.invalidResponse
+            }
+        }
+    }
+
+    func readUntilEOF(maximumBytes: Int) throws -> Data {
+        var value = record.buffer
+        record.buffer.removeAll(keepingCapacity: false)
+        guard value.count <= maximumBytes else { throw NativeTransportError.responseTooLarge }
+        value.append(try connection.readToEnd(maximumBytes: maximumBytes - value.count))
+        return value
+    }
+}
+
 private struct HTTPResponse {
     let status: Int
     let headers: [String: String]
-    let body: Data
 
-    static func parse(_ data: Data) throws -> HTTPResponse {
-        guard let boundary = data.range(of: Data("\r\n\r\n".utf8)),
-              let headerText = String(data: data[..<boundary.lowerBound], encoding: .utf8) else {
+    static func parseHead(_ data: Data) throws -> HTTPResponse {
+        guard let headerText = String(data: data, encoding: .utf8) else {
             throw NativeTransportError.invalidResponse
         }
         let lines = headerText.components(separatedBy: "\r\n")
@@ -220,43 +429,7 @@ private struct HTTPResponse {
             }
         }
 
-        let rawBody = Data(data[boundary.upperBound...])
-        let body: Data
-        if headers["transfer-encoding"]?.lowercased().contains("chunked") == true {
-            body = try decodeChunked(rawBody)
-        } else if let rawLength = headers["content-length"], let length = Int(rawLength), length >= 0 {
-            guard rawBody.count >= length else { throw NativeTransportError.invalidResponse }
-            body = Data(rawBody.prefix(length))
-        } else {
-            body = rawBody
-        }
-        return HTTPResponse(status: status, headers: headers, body: body)
-    }
-
-    private static func decodeChunked(_ data: Data) throws -> Data {
-        var cursor = data.startIndex
-        var output = Data()
-        while true {
-            guard let lineEnd = data[cursor...].range(of: Data("\r\n".utf8)) else {
-                throw NativeTransportError.invalidResponse
-            }
-            let sizeData = data[cursor..<lineEnd.lowerBound]
-            guard let sizeLine = String(data: sizeData, encoding: .ascii),
-                  let sizeToken = sizeLine.split(separator: ";", maxSplits: 1).first,
-                  let size = Int(sizeToken.trimmingCharacters(in: .whitespaces), radix: 16),
-                  size >= 0 else { throw NativeTransportError.invalidResponse }
-            cursor = lineEnd.upperBound
-            if size == 0 { return output }
-            guard data.distance(from: cursor, to: data.endIndex) >= size + 2 else {
-                throw NativeTransportError.invalidResponse
-            }
-            let chunkEnd = data.index(cursor, offsetBy: size)
-            output.append(data[cursor..<chunkEnd])
-            guard data[chunkEnd..<data.index(chunkEnd, offsetBy: 2)] == Data("\r\n".utf8) else {
-                throw NativeTransportError.invalidResponse
-            }
-            cursor = data.index(chunkEnd, offsetBy: 2)
-        }
+        return HTTPResponse(status: status, headers: headers)
     }
 }
 

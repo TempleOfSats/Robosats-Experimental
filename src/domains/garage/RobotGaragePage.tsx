@@ -2,7 +2,7 @@ import { AlertTriangle, Copy, Download, Eye, EyeOff, Hash, Home, KeyRound, Plus,
 import { lazy, Suspense, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { AppLoadingSkeleton } from "@/components/app/AppLoadingWheel";
+import { AppTransitionFeedback } from "@/components/app/AppTransitionFeedback";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { VisualSelect } from "@/components/ui/visualSelect";
@@ -11,11 +11,14 @@ import { CoordinatorDetailDialog } from "@/domains/coordinators/CoordinatorsPage
 import { compareCoordinatorsByEstablished } from "@/domains/coordinators/coordinatorOrder";
 import { fetchCoordinatorRatings, type CoordinatorRating } from "@/domains/coordinators/coordinatorRatings";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
-import { getRobotAuthForCoordinator, selectCurrentSlot, type RobotRecord, useGarageStore } from "@/domains/garage/garageStore";
+import { getRobotAuthForCoordinator, selectCurrentSlot, selectStandardGarageSlots, type RobotRecord, type RobotSlot, useGarageStore } from "@/domains/garage/garageStore";
 import { TelegramSetupDialog } from "@/domains/garage/TelegramSetupDialog";
+import { RobotTokenBackupDialog } from "@/domains/garage/RobotTokenBackupDialog";
 import { downloadRobotTokenBackup } from "@/domains/garage/tokenBackup";
+import { CreateRobotPanel } from "@/domains/garage/CreateRobotPanel";
 import { RobotAvatar } from "@/domains/identity/RobotAvatar";
 import { deriveRobotIdentity } from "@/domains/identity/robotIdentity";
+import { ingestCoordinatorOrder } from "@/domains/orders/orderActivity";
 import { fetchOrder } from "@/domains/orders/orderApi";
 import type { OrderDto } from "@/domains/orders/order.types";
 import { currencyOptions } from "@/domains/orderbook/currencies";
@@ -24,16 +27,14 @@ import { RewardWithdrawalPanel } from "@/domains/rewards/RewardWithdrawalPanel";
 import { formatFiat, formatSats } from "@/lib/format";
 import { toUserMessage } from "@/lib/userError";
 
-const CreateRobotPanel = lazy(() =>
-  import("@/domains/garage/CreateRobotPanel").then((module) => ({ default: module.CreateRobotPanel }))
-);
 const RobotKeysDialog = lazy(() =>
   import("@/domains/garage/RobotKeysDialog").then((module) => ({ default: module.RobotKeysDialog }))
 );
 
 export function RobotGaragePage() {
   const [searchParams] = useSearchParams();
-  const slots = useGarageStore((state) => state.slots);
+  const allSlots = useGarageStore((state) => state.slots);
+  const slots = selectStandardGarageSlots(allSlots);
   const currentToken = useGarageStore((state) => state.currentToken);
   const hydrated = useGarageStore((state) => state.hydrated);
   const hydrate = useGarageStore((state) => state.hydrate);
@@ -52,9 +53,12 @@ export function RobotGaragePage() {
   const [showRobotSettings, setShowRobotSettings] = useState(false);
   const [showToken, setShowToken] = useState(false);
   const [showKeys, setShowKeys] = useState(false);
+  const [showSettingsTokenBackup, setShowSettingsTokenBackup] = useState(false);
   const [showLastOrder, setShowLastOrder] = useState(false);
   const [showRecovery, setShowRecovery] = useState(false);
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
+  const [removeError, setRemoveError] = useState("");
+  const [removingRobot, setRemovingRobot] = useState(false);
   const [selectedAlias, setSelectedAlias] = useState<string | undefined>();
   const selectedCoordinator = displayCoordinators.find((coordinator) => coordinator.shortAlias === selectedAlias);
   const selectedRobot = selectedCoordinator && activeSlot ? activeSlot.robots[selectedCoordinator.shortAlias] : undefined;
@@ -82,6 +86,30 @@ export function RobotGaragePage() {
     window.setTimeout(() => setCopied(false), 1500);
   };
 
+  const removeRobotFromGarage = async (slot: RobotSlot) => {
+    setRemovingRobot(true);
+    setRemoveError("");
+    try {
+      removeSlot(slot.token);
+      setShowDeleteConfirmation(false);
+    } catch (error) {
+      setRemoveError(toUserMessage(error, "Could not remove this robot."));
+    } finally {
+      setRemovingRobot(false);
+    }
+  };
+
+  if (!hydrated) {
+    return (
+      <main className="page page-narrow garage-page">
+        <AppTransitionFeedback
+          title="Preparing your robot"
+          message="Restoring its private identity..."
+        />
+      </main>
+    );
+  }
+
   if (slots.length === 0 || showFirstRunWizard) {
     return (
       <main className="page page-narrow garage-page">
@@ -94,16 +122,23 @@ export function RobotGaragePage() {
         </div>
         <Card className="import-card start-card">
           <CardContent>
-            <Suspense fallback={<AppLoadingSkeleton label="Preparing robot" variant="robot" />}>
-              <CreateRobotPanel onProfile={() => setShowFirstRunWizard(false)} />
-            </Suspense>
+            <CreateRobotPanel onProfile={() => setShowFirstRunWizard(false)} />
           </CardContent>
         </Card>
       </main>
     );
   }
 
-  if (!activeSlot) return null;
+  if (!activeSlot) {
+    return (
+      <main className="page page-narrow garage-page">
+        <AppTransitionFeedback
+          title="Preparing your robot"
+          message="Restoring its private identity..."
+        />
+      </main>
+    );
+  }
 
   return (
     <main className="page page-narrow garage-page">
@@ -214,12 +249,15 @@ export function RobotGaragePage() {
 
           <button
             className="garage-utility-btn"
-            onClick={() => setShowDeleteConfirmation(true)}
+            onClick={() => {
+              setRemoveError("");
+              setShowDeleteConfirmation(true);
+            }}
             type="button"
-            title="Delete this robot"
+            title="Remove this robot"
           >
             <Trash2 size={18} />
-            <span>Delete</span>
+            <span>Remove</span>
           </button>
 
           <button
@@ -279,20 +317,20 @@ export function RobotGaragePage() {
           <section className="confirm-sheet" onClick={(event) => event.stopPropagation()}>
             <div className="confirm-header">
               <span className="confirm-icon-shell" aria-hidden="true"><AlertTriangle size={24} /></span>
-              <h3 id="delete-robot-title">Delete {activeSlot.nickname}?</h3>
+              <h3 id="delete-robot-title">Remove {activeSlot.nickname}?</h3>
             </div>
-            <p className="confirm-body">This removes the robot and its token from this device. This cannot be undone.</p>
+            <p className="confirm-body">This removes the robot from your Garage. This cannot be undone.</p>
+            {removeError ? <p className="field-error" role="alert">{removeError}</p> : null}
             <div className="confirm-actions">
-              <Button variant="secondary" type="button" onClick={() => setShowDeleteConfirmation(false)}>Keep robot</Button>
+              <Button variant="secondary" type="button" disabled={removingRobot} onClick={() => setShowDeleteConfirmation(false)}>Keep robot</Button>
               <Button
                 variant="destructive"
                 type="button"
-                onClick={() => {
-                  setShowDeleteConfirmation(false);
-                  removeSlot(activeSlot.token);
-                }}
+                disabled={removingRobot}
+                onClick={() => void removeRobotFromGarage(activeSlot)}
               >
-                <Trash2 size={16} /> Delete robot
+                {removingRobot ? <span className="ui-spinner" aria-hidden="true" /> : <Trash2 size={16} />}
+                Remove from Garage
               </Button>
             </div>
           </section>
@@ -309,12 +347,21 @@ export function RobotGaragePage() {
             setSelectedAlias(undefined);
           }}
           onCoordinatorSelect={setSelectedAlias}
+          onTokenBackup={() => setShowSettingsTokenBackup(true)}
           onTokenChange={setCurrentToken}
           selectedAlias={selectedAlias}
           showKeys={showKeys}
           slot={activeSlot}
           slots={slots}
           toggleKeys={() => setShowKeys((open) => !open)}
+        />
+      ) : null}
+
+      {showSettingsTokenBackup ? (
+        <RobotTokenBackupDialog
+          onClose={() => setShowSettingsTokenBackup(false)}
+          robotName={activeSlot.nickname}
+          token={activeSlot.token}
         />
       ) : null}
 
@@ -434,6 +481,7 @@ export function RobotSettingsDialog({
   coordinators,
   onClose,
   onCoordinatorSelect,
+  onTokenBackup,
   onTokenChange,
   showKeys,
   slot,
@@ -444,6 +492,7 @@ export function RobotSettingsDialog({
   coordinators: CoordinatorSummary[];
   onClose: () => void;
   onCoordinatorSelect: (shortAlias: string) => void;
+  onTokenBackup: () => void;
   onTokenChange: (token: string) => void;
   selectedAlias?: string;
   showKeys: boolean;
@@ -473,10 +522,16 @@ export function RobotSettingsDialog({
           value={activeToken}
         />
 
-        <Button className="garage-keys-button" type="button" onClick={toggleKeys}>
-          <KeyRound size={18} />
-          Keys
-        </Button>
+        <div className="garage-settings-security-actions">
+          <Button className="garage-security-button" type="button" variant="secondary" onClick={onTokenBackup}>
+            <Download size={18} />
+            Token backup
+          </Button>
+          <Button className="garage-security-button garage-keys-button" type="button" variant="secondary" onClick={toggleKeys}>
+            <KeyRound size={18} />
+            PGP / NOSTR keys
+          </Button>
+        </div>
 
         {showKeys ? (
           <Suspense fallback={null}>
@@ -712,7 +767,15 @@ function LatestOrderDialog({ coordinators, onClose, orderId, slot }: {
     }
     let disposed = false;
     void fetchOrder(coordinator.url, orderId, auth)
-      .then((value) => { if (!disposed) setOrder(value); })
+      .then((value) => {
+        if (disposed) return;
+        setOrder(ingestCoordinatorOrder({
+          order: value,
+          orderId,
+          shortAlias: robot.shortAlias!,
+          slot
+        }));
+      })
       .catch((reason) => { if (!disposed) setError(toUserMessage(reason, "Could not load the order.")); });
     return () => { disposed = true; };
   }, [coordinator, orderId, robot?.shortAlias, slot]);

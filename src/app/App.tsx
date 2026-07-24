@@ -3,15 +3,16 @@ import { BrowserRouter, HashRouter, MemoryRouter } from "react-router-dom";
 import { AppShell } from "@/components/app/AppShell";
 import { parseRoboSatsSettings } from "@/app/platform";
 import { AppRoutes } from "@/app/routes";
+import { DesktopNotificationRouter } from "@/components/app/DesktopNotificationRouter";
+import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
 
 export function App() {
   const platform = parseRoboSatsSettings();
   const Router = platform.router === "hash" ? HashRouter : platform.router === "memory" ? MemoryRouter : BrowserRouter;
   const tradeLabContext = isTradeLabContext();
+  const proEnabled = useProPreferencesStore((state) => state.enabled);
 
   useEffect(() => {
-    window.dispatchEvent(new Event("robosats:app-ready"));
-
     if (tradeLabContext) return;
 
     let cleanup: (() => void) | undefined;
@@ -31,8 +32,22 @@ export function App() {
     };
   }, [tradeLabContext]);
 
+  useEffect(() => {
+    if (tradeLabContext || !proEnabled) return;
+    let stop: (() => void) | undefined;
+    let cancelled = false;
+    void import("@/domains/pro/proRuntime").then(({ startProRuntime }) => {
+      if (!cancelled) stop = startProRuntime();
+    });
+    return () => {
+      cancelled = true;
+      stop?.();
+    };
+  }, [proEnabled, tradeLabContext]);
+
   return (
     <Router>
+      <DesktopNotificationRouter />
       {tradeLabContext && new URLSearchParams(window.location.search).get("tradeLab") === "1" ? (
         <div id="main-content" className="app-content trade-lab-standalone-preview"><AppRoutes /></div>
       ) : (
