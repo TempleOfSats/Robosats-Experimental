@@ -3,6 +3,7 @@ import { BrowserRouter, HashRouter, MemoryRouter } from "react-router-dom";
 import { AppShell } from "@/components/app/AppShell";
 import { parseRoboSatsSettings } from "@/app/platform";
 import { AppRoutes } from "@/app/routes";
+import { DesktopNotificationRouter } from "@/components/app/DesktopNotificationRouter";
 import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
 
 export function App() {
@@ -12,8 +13,6 @@ export function App() {
   const proEnabled = useProPreferencesStore((state) => state.enabled);
 
   useEffect(() => {
-    window.dispatchEvent(new Event("robosats:app-ready"));
-
     if (tradeLabContext) return;
 
     let cleanup: (() => void) | undefined;
@@ -48,6 +47,7 @@ export function App() {
 
   return (
     <Router>
+      <DesktopNotificationRouter />
       {tradeLabContext && new URLSearchParams(window.location.search).get("tradeLab") === "1" ? (
         <div id="main-content" className="app-content trade-lab-standalone-preview"><AppRoutes /></div>
       ) : (

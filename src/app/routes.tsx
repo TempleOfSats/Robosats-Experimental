@@ -1,6 +1,6 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect, type ReactNode } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
-import { AppLoadingSkeleton } from "@/components/app/AppLoadingWheel";
+import { AppTransitionFeedback } from "@/components/app/AppTransitionFeedback";
 import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
 
 const RobotGaragePage = lazy(() => import("@/domains/garage/RobotGaragePage").then((module) => ({ default: module.RobotGaragePage })));
@@ -34,15 +34,15 @@ export function AppRoutes() {
     <Suspense fallback={<RouteFallback />}>
       <Routes>
         <Route path="/" element={<RootRedirect />} />
-        <Route path="/garage/:token?" element={<RobotGaragePage />} />
-        <Route path="/offers" element={<OffersPage />} />
-        <Route path="/create" element={<CreateOrderPage />} />
-        <Route path="/coordinators" element={<CoordinatorsPage />} />
-        <Route path="/order/:shortAlias/:orderId" element={<OrderPage />} />
-        <Route path="/settings" element={<SettingsPage />} />
-        <Route path="/pro" element={<ProWorkspacePage />} />
-        {TradeLabPage ? <Route path="/__dev/trade-lab" element={<TradeLabPage />} /> : null}
-        <Route path="*" element={<Navigate to="/garage" replace />} />
+        <Route path="/garage/:token?" element={<StandardGarageRoute />} />
+        <Route path="/offers" element={<ReadyRoute><OffersPage /></ReadyRoute>} />
+        <Route path="/create" element={<ReadyRoute><CreateOrderPage /></ReadyRoute>} />
+        <Route path="/coordinators" element={<ReadyRoute><CoordinatorsPage /></ReadyRoute>} />
+        <Route path="/order/:shortAlias/:orderId" element={<ReadyRoute><OrderPage /></ReadyRoute>} />
+        <Route path="/settings" element={<ReadyRoute><SettingsPage /></ReadyRoute>} />
+        <Route path="/pro" element={<ReadyRoute><ProWorkspacePage /></ReadyRoute>} />
+        {TradeLabPage ? <Route path="/__dev/trade-lab" element={<ReadyRoute><TradeLabPage /></ReadyRoute>} /> : null}
+        <Route path="*" element={<RootRedirect />} />
       </Routes>
     </Suspense>
   );
@@ -53,14 +53,31 @@ function RootRedirect() {
   return <Navigate to={proEnabled ? "/pro" : "/garage"} replace />;
 }
 
+function StandardGarageRoute() {
+  const proEnabled = useProPreferencesStore((state) => state.enabled);
+  if (proEnabled) return <Navigate to="/pro" replace />;
+  return <ReadyRoute><RobotGaragePage /></ReadyRoute>;
+}
+
 function RouteFallback() {
   return (
     <main className="page page-narrow">
       <div className="route-fallback" aria-label="Loading">
-        <AppLoadingSkeleton />
+        <AppTransitionFeedback
+          title="Preparing RoboSats"
+          message="Loading the private interface..."
+        />
       </div>
     </main>
   );
+}
+
+function ReadyRoute({ children }: { children: ReactNode }) {
+  useEffect(() => {
+    window.dispatchEvent(new Event("robosats:app-ready"));
+  }, []);
+
+  return children;
 }
 
 function preloadGarageRoute() {
