@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   orderRefreshDelayMs,
   jitterDelay,
+  shouldDismissEmbeddedTrade,
   shouldLeaveTradeAfterAction,
   shouldOpenOrderDetailsByDefault,
   shouldReturnExpiredTakeToOffers
@@ -51,10 +52,29 @@ describe("shouldLeaveTradeAfterAction", () => {
   });
 });
 
+describe("shouldDismissEmbeddedTrade", () => {
+  it("keeps terminal results visible in the Pro Desk modal", () => {
+    expect(shouldDismissEmbeddedTrade({ status: 4, is_maker: true, is_taker: false })).toBe(false);
+    expect(shouldDismissEmbeddedTrade({ status: 12, is_maker: false, is_taker: true })).toBe(false);
+  });
+
+  it("dismisses only when an unlocked take returns to the public book", () => {
+    expect(shouldDismissEmbeddedTrade({ status: 1, is_maker: false, is_taker: false })).toBe(true);
+    expect(shouldDismissEmbeddedTrade({ status: 1, is_maker: true, is_taker: false })).toBe(false);
+  });
+});
+
 describe("shouldOpenOrderDetailsByDefault", () => {
   it("opens details for a maker with a public or paused order", () => {
     expect(shouldOpenOrderDetailsByDefault({ status: 1, is_maker: true })).toBe(true);
     expect(shouldOpenOrderDetailsByDefault({ status: 2, is_maker: true })).toBe(true);
+  });
+
+  it("opens details while either peer is waiting for escrow or payout setup", () => {
+    expect(shouldOpenOrderDetailsByDefault({ status: 7, is_maker: true })).toBe(true);
+    expect(shouldOpenOrderDetailsByDefault({ status: 7, is_maker: false })).toBe(true);
+    expect(shouldOpenOrderDetailsByDefault({ status: 8, is_maker: true })).toBe(true);
+    expect(shouldOpenOrderDetailsByDefault({ status: 8, is_maker: false })).toBe(true);
   });
 
   it("keeps details collapsed for takers and other trade stages", () => {
