@@ -3,6 +3,8 @@ import { apiClient } from "@/domains/transport/apiWebClient";
 import { normalizeOrderDto, type OrderApiResponse } from "@/domains/orders/orderModel";
 import type { OrderDto, SubmitOrderActionPayload } from "@/domains/orders/order.types";
 
+const actionResponseCompleteness = new WeakMap<OrderDto, boolean>();
+
 export async function fetchOrder(
   baseUrl: string,
   orderId: number,
@@ -26,13 +28,24 @@ export async function submitOrderAction(
     apiRoutes.order(orderId),
     compactPayload(payload),
     { tokenSHA256: auth.tokenSHA256 },
-    { timeoutProfile: "action" }
+    { timeoutProfile: "action", priority: "action", source: "order-action" }
   );
-  return normalizeOrderDto(data);
+  const order = normalizeOrderDto(data);
+  actionResponseCompleteness.set(order, hasCompleteActionSnapshot(data));
+  return order;
+}
+
+export function isCompleteOrderActionResponse(order: OrderDto): boolean {
+  return actionResponseCompleteness.get(order) ?? true;
 }
 
 export function compactPayload(payload: SubmitOrderActionPayload): SubmitOrderActionPayload {
   return Object.fromEntries(
     Object.entries(payload).filter(([, value]) => value !== undefined)
   ) as SubmitOrderActionPayload;
+}
+
+function hasCompleteActionSnapshot(data: OrderApiResponse): boolean {
+  return data.status !== undefined && data.status !== null
+    && data.is_maker !== undefined && data.is_maker !== null;
 }

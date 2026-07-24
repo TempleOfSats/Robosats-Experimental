@@ -276,9 +276,9 @@
 
         window.setTimeout(() => {
           if (finished) return;
-          setMessage("The interface could not finish loading. Check your connection and try again.");
+          setMessage("Still preparing over Tor. You can keep waiting or try again.");
           retry.hidden = false;
-        }, 15000);
+        }, 45000);
 
         const frame = (now) => {
           if (finished) return;
