@@ -5,16 +5,26 @@ import type { PublicOrder } from "@/domains/orderbook/orderbook.types";
 import { normalizePublicOrder, type PublicOrderApi } from "@/domains/orderbook/orderbookModel";
 
 export async function fetchCoordinatorInfo(baseUrl: string): Promise<CoordinatorInfo> {
-  return apiClient.get<CoordinatorInfo>(baseUrl, apiRoutes.info, undefined, { timeoutProfile: "background" });
+  return apiClient.get<CoordinatorInfo>(baseUrl, apiRoutes.info, undefined, {
+    timeoutProfile: "background",
+    priority: "maintenance",
+    source: "federation"
+  });
 }
 
 export async function fetchCoordinatorLimits(baseUrl: string): Promise<CoordinatorLimitList> {
-  return apiClient.get<CoordinatorLimitList>(baseUrl, apiRoutes.limits, undefined, { timeoutProfile: "background" });
+  return apiClient.get<CoordinatorLimitList>(baseUrl, apiRoutes.limits, undefined, {
+    timeoutProfile: "background",
+    priority: "maintenance",
+    source: "federation"
+  });
 }
 
 export async function fetchCoordinatorBook(baseUrl: string): Promise<PublicOrder[]> {
   const data = await apiClient.get<PublicOrderApi[] | { orders?: PublicOrderApi[] }>(baseUrl, apiRoutes.book, undefined, {
-    timeoutProfile: "interactive"
+    timeoutProfile: "interactive",
+    priority: "visible",
+    source: "orderbook-fallback"
   });
   const orders = Array.isArray(data) ? data : data.orders ?? [];
   return orders.map(normalizePublicOrder);

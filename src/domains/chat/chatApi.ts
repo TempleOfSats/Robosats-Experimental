@@ -1,4 +1,4 @@
-import { apiRoutes, type ApiClient, type Auth } from "@/domains/transport/apiClient";
+import { apiRoutes, type ApiClient, type ApiRequestOptions, type Auth } from "@/domains/transport/apiClient";
 import { apiClient } from "@/domains/transport/apiWebClient";
 import type { ChatApiMessage, ChatApiResponse, ChatMessage, ChatResponse } from "@/domains/chat/chat.types";
 
@@ -7,13 +7,14 @@ export async function fetchChatMessages(
   orderId: number,
   offset: number,
   auth: Auth,
-  client: ApiClient = apiClient
+  client: ApiClient = apiClient,
+  options: ApiRequestOptions = {}
 ): Promise<ChatResponse> {
   const data = await client.get<ChatApiResponse>(
     baseUrl,
     apiRoutes.chat(orderId, offset),
     auth,
-    { timeoutProfile: "background" }
+    { timeoutProfile: "background", priority: "background", source: "chat", ...options }
   );
   return normalizeChatResponse(data);
 }
@@ -35,7 +36,7 @@ export async function postChatMessage(
       offset
     },
     auth,
-    { timeoutProfile: "action" }
+    { timeoutProfile: "action", priority: "action", source: "chat" }
   );
   return normalizeChatResponse(data);
 }

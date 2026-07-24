@@ -30,6 +30,7 @@ object ArtiTorManager {
     private var proxyRunning = false
     private var dataDirectory: File? = null
     private var lastNetworkResetAt = 0L
+    private var lastEndToEndResetAt = 0L
 
     suspend fun start(context: Context): TorStatus = lifecycleMutex.withLock {
         if (proxyRunning && _status.value is TorStatus.Active) return _status.value
@@ -116,6 +117,14 @@ object ArtiTorManager {
         )
     }
 
+    suspend fun recoverAfterEndToEndFailure(context: Context): TorStatus = lifecycleMutex.withLock {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastEndToEndResetAt < endToEndResetCooldownMs) return _status.value
+        lastEndToEndResetAt = now
+        Log.w("RoboSatsArti", "Independent coordinator probes failed; rebuilding Arti")
+        resetUnlocked(context, clearState = false)
+    }
+
     private suspend fun resetUnlocked(context: Context, clearState: Boolean): TorStatus {
         withContext(Dispatchers.IO) {
             if (proxyRunning) ArtiNative.stopSocksProxy()
@@ -198,4 +207,5 @@ object ArtiTorManager {
 
     private const val BOOTSTRAP_PROGRESS_PREFIX = "BOOTSTRAP_PROGRESS|"
     private const val SOCKS_HEALTH_TIMEOUT_MS = 1_500
+    private const val endToEndResetCooldownMs = 2 * 60_000L
 }
