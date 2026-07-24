@@ -10,7 +10,7 @@
     "withGlobalTauri": true,
     "windows": [],
     "security": {
-      "csp": "default-src 'self' customprotocol: asset:; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' asset: data: blob: http: https:; connect-src 'self' ipc: http: https: ws: wss:; media-src 'self' data: blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+      "csp": "default-src 'self' customprotocol: asset:; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' asset: data: blob: http: https:; connect-src 'self' ipc: http: https: ws: wss:; media-src 'self' data: blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
       "capabilities": [
         "main"
       ]
