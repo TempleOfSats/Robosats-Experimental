@@ -33,6 +33,7 @@
     "check:typography": "node scripts/check-typography.mjs",
     "check:release-signing": "bash scripts/sign-release-assets.test.sh",
     "release:metadata": "node scripts/release-metadata.mjs",
+    "audit:dependencies": "node scripts/audit-dependencies.mjs",
     "audit:trade": "node scripts/audit-trade-previews.mjs",
     "preview": "vite preview",
     "serve": "vite preview --host 127.0.0.1 --port 5173 --strictPort",
@@ -56,7 +57,7 @@
     "qrcode.react": "^4.2.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "react-router-dom": "^7.0.0",
+    "react-router-dom": "^7.18.1",
     "zustand": "^5.0.0"
   },
   "devDependencies": {
