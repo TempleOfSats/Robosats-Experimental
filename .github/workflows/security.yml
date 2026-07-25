@@ -80,7 +80,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm audit --audit-level=moderate
+      - run: npm run audit:dependencies -- moderate
       - name: Install Rust audit tooling
         run: cargo install cargo-audit --version 0.22.1 --locked
       - name: Audit Rust lockfiles
