@@ -93,6 +93,20 @@ export function currencyOptions(): Array<{ code: number; label: string }> {
   return Object.entries(currencyById).map(([code, label]) => ({ code: Number(code), label }));
 }
 
+export function orderCurrencyCodes(codes: Iterable<string>): string[] {
+  const canonicalRank = new Map(currencyOptions().map((currency, index) => [currency.label, index]));
+
+  return [...new Set([...codes].map((code) => code.toUpperCase()).filter(Boolean))].sort((left, right) => {
+    const leftRank = canonicalRank.get(left);
+    const rightRank = canonicalRank.get(right);
+
+    if (leftRank !== undefined && rightRank !== undefined) return leftRank - rightRank;
+    if (leftRank !== undefined) return -1;
+    if (rightRank !== undefined) return 1;
+    return left.localeCompare(right);
+  });
+}
+
 export function currencyIdFromCode(code: string): number {
   return currencyIdByCode[code.toUpperCase()] ?? 0;
 }
