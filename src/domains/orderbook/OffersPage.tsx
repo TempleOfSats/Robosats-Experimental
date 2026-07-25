@@ -21,6 +21,7 @@ import { useNavigate } from "react-router-dom";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import { useOrderbookStore } from "@/domains/orderbook/orderbookStore";
+import { orderCurrencyCodes } from "@/domains/orderbook/currencies";
 import { resetNostrOrderbookSession, subscribeNostrOrderbook } from "@/domains/orderbook/nostrOrderbook";
 import { subscribeRefreshIntents, type RefreshReason } from "@/domains/transport/refreshIntents";
 import type { PublicOrder } from "@/domains/orderbook/orderbook.types";
@@ -53,6 +54,7 @@ import { toUserMessage } from "@/lib/userError";
 type SortColumn = "amount" | "premium" | "bond" | "expiry";
 type SortDirection = "asc" | "desc";
 type IntentFilter = "any" | "buy" | "sell" | "swap-in" | "swap-out";
+type OpenFilter = "intent" | "currency" | "method";
 
 const pageSize = 13;
 const intentOptions: IntentPickerOption[] = [
@@ -78,6 +80,7 @@ export function OffersPage() {
   const [intentFilter, setIntentFilter] = useState<IntentFilter>("any");
   const [currencyFilter, setCurrencyFilter] = useState("all");
   const [methodFilter, setMethodFilter] = useState("all");
+  const [openFilter, setOpenFilter] = useState<OpenFilter | null>(null);
   const [sortColumn, setSortColumn] = useState<SortColumn | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   const [page, setPage] = useState(1);
@@ -206,9 +209,7 @@ export function OffersPage() {
   }, []);
 
   const currencyOptions = useMemo(() => {
-    return [...new Set(orders.map((order) => order.currencyCode ?? String(order.currency)).filter(Boolean))].sort((left, right) =>
-      left.localeCompare(right)
-    );
+    return orderCurrencyCodes(orders.map((order) => order.currencyCode ?? String(order.currency)));
   }, [orders]);
   const methodOptions = useMemo(() => {
     const present = new Set<string>();
@@ -499,21 +500,25 @@ export function OffersPage() {
                   <span>I want to</span>
                   <IntentPicker
                     label="Filter public offers by trade direction"
+                    open={openFilter === "intent"}
                     options={intentOptions}
                     value={intentFilter}
                     onChange={(value) => {
                       setIntentFilter(value as IntentFilter);
                       setMethodFilter("all");
                     }}
+                    onOpenChange={(open) => setOpenFilter((current) => open ? "intent" : current === "intent" ? null : current)}
                   />
                 </div>
                 <div className="filter-select-field">
                   <span>Currency</span>
                   <CurrencyPicker
                     label="Filter by currency"
+                    open={openFilter === "currency"}
                     options={[{ label: "ANY", value: "all" }, ...currencyOptions.map((currency) => ({ label: currency, value: currency }))]}
                     value={currencyFilter}
                     onChange={setCurrencyFilter}
+                    onOpenChange={(open) => setOpenFilter((current) => open ? "currency" : current === "currency" ? null : current)}
                   />
                 </div>
                 <div className="filter-select-field filter-select-field-wide">
@@ -521,9 +526,11 @@ export function OffersPage() {
                   <PaymentMethodPicker
                     defaultIcon={<CurrencyFlag code="ANY" size={18} />}
                     label={intentIsSwap(intentFilter) ? "Filter by swap destination" : "Filter by payment method"}
+                    open={openFilter === "method"}
                     options={methodOptions}
                     value={methodFilter}
                     onChange={setMethodFilter}
+                    onOpenChange={(open) => setOpenFilter((current) => open ? "method" : current === "method" ? null : current)}
                   />
                 </div>
               </div>

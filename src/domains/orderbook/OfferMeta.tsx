@@ -171,22 +171,35 @@ export function PaymentMethodIcons({ text, size = 23 }: { text: string; size?: n
 
 export function CurrencyPicker({
   label,
+  open: controlledOpen,
   options,
   value,
-  onChange
+  onChange,
+  onOpenChange
 }: {
   label: string;
+  open?: boolean;
   options: Array<{ label: string; value: number | string }>;
   value: number | string;
   onChange: (value: string) => void;
+  onOpenChange?: (open: boolean) => void;
 }) {
   const detailsRef = useRef<HTMLDetailsElement>(null);
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = onOpenChange ?? setInternalOpen;
   const selected = options.find((option) => String(option.value) === String(value)) ?? options[0];
   const selectedCode = selected?.label === "ANY" ? "ANY" : selected?.label;
 
   return (
-    <details className={open ? "image-select image-select-open" : "image-select"} ref={detailsRef} onToggle={(event) => setOpen(event.currentTarget.open)}>
+    <details
+      className={open ? "image-select image-select-open" : "image-select"}
+      open={open}
+      ref={detailsRef}
+      onToggle={(event) => {
+        if (event.currentTarget.open !== open) setOpen(event.currentTarget.open);
+      }}
+    >
       <summary className="image-select-button" aria-label={label}>
         <span className="image-select-icon">
           <CurrencyFlag code={selectedCode} size={18} />
@@ -201,7 +214,7 @@ export function CurrencyPicker({
             type="button"
             onClick={() => {
               onChange(String(option.value));
-              if (detailsRef.current) detailsRef.current.open = false;
+              setOpen(false);
             }}
           >
             <CurrencyFlag code={option.label === "ANY" ? "ANY" : option.label} size={18} />
@@ -215,21 +228,34 @@ export function CurrencyPicker({
 
 export function IntentPicker({
   label,
+  open: controlledOpen,
   options,
   value,
-  onChange
+  onChange,
+  onOpenChange
 }: {
   label: string;
+  open?: boolean;
   options: IntentPickerOption[];
   value: string;
   onChange: (value: string) => void;
+  onOpenChange?: (open: boolean) => void;
 }) {
   const detailsRef = useRef<HTMLDetailsElement>(null);
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = onOpenChange ?? setInternalOpen;
   const selected = options.find((option) => option.value === value) ?? options[0];
 
   return (
-    <details className={open ? "image-select image-select-open" : "image-select"} ref={detailsRef} onToggle={(event) => setOpen(event.currentTarget.open)}>
+    <details
+      className={open ? "image-select image-select-open" : "image-select"}
+      open={open}
+      ref={detailsRef}
+      onToggle={(event) => {
+        if (event.currentTarget.open !== open) setOpen(event.currentTarget.open);
+      }}
+    >
       <summary className="image-select-button" aria-label={label}>
         <span className="image-select-icon">
           <IntentIcon tone={selected?.tone ?? "any"} size={16} />
@@ -244,7 +270,7 @@ export function IntentPicker({
             type="button"
             onClick={() => {
               onChange(option.value);
-              if (detailsRef.current) detailsRef.current.open = false;
+              setOpen(false);
             }}
           >
             <IntentIcon tone={option.tone} size={16} />
@@ -260,22 +286,28 @@ export function PaymentMethodPicker({
   allowCustom = false,
   defaultIcon,
   label,
+  open: controlledOpen,
   options,
   value,
   onChange,
+  onOpenChange,
   onSelect
 }: {
   allowCustom?: boolean;
   defaultIcon?: ReactNode;
   label: string;
+  open?: boolean;
   options: Array<PaymentMethodOption | { name: string; icon?: string }>;
   value: string;
   onChange: (value: string) => void;
+  onOpenChange?: (open: boolean) => void;
   onSelect?: (value: string) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = onOpenChange ?? setInternalOpen;
   const [query, setQuery] = useState("");
   const selected = options.find((option) => option.name === value);
   const selectedIcon = selected?.icon
@@ -368,7 +400,7 @@ export function PaymentMethodPicker({
           onPointerDown={(event) => event.preventDefault()}
           onClick={() => {
             inputRef.current?.blur();
-            setOpen((current) => !current);
+            setOpen(!open);
           }}
         >
           <ChevronDown size={17} aria-hidden="true" />
