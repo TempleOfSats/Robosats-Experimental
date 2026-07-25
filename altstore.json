@@ -17,6 +17,26 @@
       "versions": [
         {
           "version": "0.1.4",
+          "buildVersion": "1041002",
+          "date": "2026-07-25",
+          "localizedDescription": "RoboSats Exp. 0.1.4-alpha.2\nPrerelease: orderbook filter refinements + CI audit fix.\n* [Android universal APK](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.1.4-alpha.2/robosats-exp-0.1.4-alpha.2-universal.apk)\n* [iOS unsigned IPA](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.1.4-alpha.2/robosats-exp-0.1.4-alpha.2-unsigned.ipa)\n* [Linux AppImage](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.1.4-alpha.2/RoboSats.Exp_0.1.4-alpha.2_amd64.AppImage)\n* [Windows installer](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.1.4-alpha.2/RoboSats.Exp_0.1.4-alpha.2_x64-setup.exe)\n* [macOS DMG](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.1.4-alpha.2/RoboSats.Exp_0.1.4-alpha.2_aarch64.dmg)\nDetached signatures and checksums are available in the release assets.\n<!-- Release notes generated using configuration in .github/release.yml at v0.1.4-alpha.2 -->\n* Refine orderbook filter selectors by @TempleOfSats in https://github.com/TempleOfSats/Robosats-Experimental/pull/30\n**Full Changelog**: https://github.com/TempleOfSats/Robosats-Experimental/compare/v0.1.4-alpha.1...v0.1.4-alpha.2",
+          "size": 12884011,
+          "minOSVersion": "16.0"
+        }
+      ]
+    },
+    {
+      "name": "RoboSats Exp.",
+      "bundleIdentifier": "com.robosats.exp.ios",
+      "developerName": "RoboSats",
+      "subtitle": "Peer-to-peer Bitcoin wallet",
+      "localizedDescription": "RoboSats is a peer-to-peer Bitcoin wallet with built-in Tor routing.\n\nFeatures:\n• Privacy-first P2P trading\n• Built-in Tor (Arti) for coordinator traffic\n• Encrypted trade chat via Nostr\n• Open source (AGPLv3)",
+      "iconURL": "https://raw.githubusercontent.com/TempleOfSats/Robosats-Experimental/main/ios/RoboSatsExp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
+      "tintColor": "FF6600",
+      "minOSVersion": "16.0",
+      "versions": [
+        {
+          "version": "0.1.4",
           "buildVersion": "1041001",
           "date": "2026-07-24",
           "localizedDescription": "RoboSats Exp. 0.1.4-alpha.1\nPrerelease with iOS validator fix (js/css/rsid required, wasm rejected)\n* [Android universal APK](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.1.4-alpha.1/robosats-exp-0.1.4-alpha.1-universal.apk)\n* [iOS unsigned IPA](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.1.4-alpha.1/robosats-exp-0.1.4-alpha.1-unsigned.ipa)\n* [Linux AppImage](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.1.4-alpha.1/RoboSats.Exp_0.1.4-alpha.1_amd64.AppImage)\n* [Windows installer](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.1.4-alpha.1/RoboSats.Exp_0.1.4-alpha.1_x64-setup.exe)\n* [macOS DMG](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.1.4-alpha.1/RoboSats.Exp_0.1.4-alpha.1_aarch64.dmg)\nDetached signatures and checksums are available in the release assets.\n<!-- Release notes generated using configuration in .github/release.yml at v0.1.4-alpha.1 -->\n* Add PRO Fleet workspace and reliability improvements by @TempleOfSats in https://github.com/TempleOfSats/Robosats-Experimental/pull/28\n**Full Changelog**: https://github.com/TempleOfSats/Robosats-Experimental/compare/v0.1.3-alpha.1...v0.1.4-alpha.1",
