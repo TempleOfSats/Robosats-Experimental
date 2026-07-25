@@ -32,6 +32,7 @@
     "check:production-build": "node scripts/check-production-build.mjs",
     "check:typography": "node scripts/check-typography.mjs",
     "check:release-signing": "bash scripts/sign-release-assets.test.sh",
+    "check:windows-signing-readiness": "node scripts/check-windows-signing-readiness.mjs",
     "release:metadata": "node scripts/release-metadata.mjs",
     "audit:dependencies": "node scripts/audit-dependencies.mjs",
     "audit:trade": "node scripts/audit-trade-previews.mjs",

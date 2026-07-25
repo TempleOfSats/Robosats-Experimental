@@ -16,6 +16,14 @@ packages embed Arti and route coordinator traffic through a local SOCKS proxy.
 RoboSats Exp. is alpha software. Review the release notes and verify published
 signatures before installing a binary.
 
+## Code signing policy
+
+See the project [Code signing policy](./CODE_SIGNING_POLICY.md) and
+[privacy notice](./PRIVACY.md).
+
+Windows Authenticode signing is prepared for a future SignPath Foundation
+application. Current Windows releases remain unsigned.
+
 ## Install dependencies
 
 Run commands from the repository root:
@@ -214,7 +222,8 @@ npm run check:desktop
 npm test
 npm run build
 npm run check:production-build
-npm audit --audit-level=high
+npm run audit:dependencies
+npm run check:windows-signing-readiness
 ```
 
 `npm run check:production-build` verifies that development-only modules were
