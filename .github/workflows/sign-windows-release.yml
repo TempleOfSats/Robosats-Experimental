@@ -1,0 +1,158 @@
+name: Build and sign Windows release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Annotated release tag to build and sign
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: sign-windows-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-sign:
+    runs-on: windows-2025
+    timeout-minutes: 120
+    environment: release
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      RUSTUP_TOOLCHAIN: 1.94.1
+      SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+      SIGNPATH_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+      SIGNPATH_SIGNING_POLICY_SLUG: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+      SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ inputs.release_tag }}
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Validate signing configuration and release tag
+        shell: pwsh
+        run: |
+          $required = @(
+            "SIGNPATH_ORGANIZATION_ID",
+            "SIGNPATH_PROJECT_SLUG",
+            "SIGNPATH_SIGNING_POLICY_SLUG",
+            "SIGNPATH_API_TOKEN"
+          )
+          foreach ($name in $required) {
+            if ([string]::IsNullOrWhiteSpace((Get-Item "env:$name").Value)) {
+              throw "Missing required SignPath GitHub secret or variable: $name"
+            }
+          }
+
+          node scripts/check-windows-signing-readiness.mjs --application
+          node scripts/release-metadata.mjs "$env:RELEASE_TAG"
+
+          if ((git cat-file -t "$env:RELEASE_TAG") -ne "tag") {
+            throw "Signing requires an annotated release tag."
+          }
+          git merge-base --is-ancestor HEAD refs/remotes/origin/main
+          if ($LASTEXITCODE -ne 0) {
+            throw "The release tag commit is not contained in main."
+          }
+
+      - name: Install Rust
+        shell: pwsh
+        run: rustup toolchain install 1.94.1 --profile minimal
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build unsigned Windows installer
+        run: npm run build:desktop:windows
+
+      - name: Validate unsigned installer
+        id: installer
+        shell: pwsh
+        run: |
+          $files = @(Get-ChildItem ".\desktop\release" -File -Filter *.exe)
+          if ($files.Count -ne 1) {
+            throw "Expected exactly one Windows installer, found $($files.Count)."
+          }
+
+          $file = $files[0]
+          $info = $file.VersionInfo
+          Write-Host "Installer:       $($file.Name)"
+          Write-Host "Product name:    $($info.ProductName)"
+          Write-Host "Product version: $($info.ProductVersion)"
+          Write-Host "File version:    $($info.FileVersion)"
+          Write-Host "Description:     $($info.FileDescription)"
+          Write-Host "Original name:   $($info.OriginalFilename)"
+
+          if ($info.ProductName -ne "RoboSats.Exp") {
+            throw "Unexpected Windows ProductName: $($info.ProductName)"
+          }
+          if ([string]::IsNullOrWhiteSpace($info.ProductVersion)) {
+            throw "Windows ProductVersion is missing."
+          }
+          if ([string]::IsNullOrWhiteSpace($info.FileDescription)) {
+            throw "Windows FileDescription is missing."
+          }
+
+      - name: Upload unsigned installer for SignPath
+        id: upload-unsigned
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: unsigned-windows-${{ inputs.release_tag }}
+          path: desktop/release/*.exe
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Submit SignPath signing request
+        id: signpath
+        uses: signpath/github-action-submit-signing-request@b9d91eadd323de506c0c81cf0c7fe7438f3360fd # v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: ${{ github.workspace }}\desktop\signed
+
+      - name: Verify Authenticode signatures
+        shell: pwsh
+        run: |
+          $files = @(Get-ChildItem ".\desktop\signed" -Recurse -File -Include *.exe,*.dll,*.msi,*.msix)
+          if ($files.Count -eq 0) {
+            throw "SignPath returned no signable Windows files."
+          }
+
+          foreach ($file in $files) {
+            $signature = Get-AuthenticodeSignature $file.FullName
+            Write-Host "File:   $($file.FullName)"
+            Write-Host "Status: $($signature.Status)"
+            if ($signature.SignerCertificate) {
+              Write-Host "Signer: $($signature.SignerCertificate.Subject)"
+            }
+            if ($signature.Status -ne "Valid") {
+              throw "Authenticode verification failed for $($file.FullName)."
+            }
+          }
+
+      - name: Upload signed Windows release
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: signed-windows-${{ inputs.release_tag }}
+          path: desktop/signed/
+          if-no-files-found: error
+          retention-days: 30
+

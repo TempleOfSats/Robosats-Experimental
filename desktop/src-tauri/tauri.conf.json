@@ -20,6 +20,7 @@
     "active": true,
     "targets": "all",
     "category": "Finance",
+    "copyright": "Copyright (c) RoboSats Experimental contributors",
     "shortDescription": "Private peer-to-peer Bitcoin trading",
     "longDescription": "RoboSats Experimental desktop client with an embedded Arti connection.",
     "externalBin": [

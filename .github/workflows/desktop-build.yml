@@ -89,7 +89,27 @@ jobs:
           cache: npm
       - run: rustup toolchain install 1.94.1 --profile minimal
       - run: npm ci
+      - run: npm run check:windows-signing-readiness
       - run: npm run build:desktop:windows
+      - name: Inspect Windows installer metadata
+        shell: pwsh
+        run: |
+          $files = @(Get-ChildItem ".\desktop\release" -File -Filter *.exe)
+          if ($files.Count -ne 1) {
+            throw "Expected exactly one Windows installer, found $($files.Count)."
+          }
+          $info = $files[0].VersionInfo
+          Write-Host "Installer:       $($files[0].Name)"
+          Write-Host "Product name:    $($info.ProductName)"
+          Write-Host "Product version: $($info.ProductVersion)"
+          Write-Host "File version:    $($info.FileVersion)"
+          Write-Host "Description:     $($info.FileDescription)"
+          Write-Host "Original name:   $($info.OriginalFilename)"
+          if ([string]::IsNullOrWhiteSpace($info.ProductName) -or
+              [string]::IsNullOrWhiteSpace($info.ProductVersion) -or
+              [string]::IsNullOrWhiteSpace($info.FileDescription)) {
+            throw "Required Windows installer metadata is missing."
+          }
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: desktop-windows-${{ needs.metadata.outputs.version }}
