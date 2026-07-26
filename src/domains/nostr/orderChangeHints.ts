@@ -10,6 +10,7 @@ import {
   type RobotSlot,
   useGarageStore
 } from "@/domains/garage/garageStore";
+import { relayRetryDelay } from "@/domains/nostr/relayRetry";
 import { getSharedRelayPool } from "@/domains/nostr/sharedRelayPool";
 import { buildNostrRelayUrl } from "@/domains/orderbook/nostrOrderbook";
 import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
@@ -23,7 +24,6 @@ const MAX_EVENT_AGE_SECONDS = 10 * 60;
 const MAX_FUTURE_SKEW_SECONDS = 10 * 60;
 const MAX_CONTENT_LENGTH = 4096;
 const RECONFIGURE_DELAY_MS = 100;
-const RECONNECT_DELAY_MS = 2000;
 const COALESCE_WINDOW_MS = 750;
 const MAX_REMEMBERED_EVENTS = 2048;
 const ORDER_HINT_EVENT = "robosats:order-hint";
@@ -69,9 +69,10 @@ export class OrderChangeHintRuntime {
   private unsubscribeStores: Array<() => void> = [];
   private rememberedEventIds = new Set<string>();
   private lastDispatchByOrder = new Map<string, number>();
-  private configurationKey = "";
-  private generation = 0;
   private reconfigureTimer: number | undefined;
+  private readonly targetFingerprints = new Map<string, string>();
+  private readonly reconnectTimers = new Map<string, number>();
+  private readonly reconnectAttempts = new Map<string, number>();
   private stopped = true;
 
   constructor(private readonly dependencies: RuntimeDependencies) {}
@@ -102,11 +103,13 @@ export class OrderChangeHintRuntime {
       this.dependencies.eventTarget.clearTimeout(this.reconfigureTimer);
       this.reconfigureTimer = undefined;
     }
+    this.clearReconnectTimers();
     this.closeSubscriptions("stopped");
   }
 
   private readonly onConnectivity = () => {
-    this.configurationKey = "";
+    this.reconnectAttempts.clear();
+    this.clearReconnectTimers();
     this.scheduleConfigure(0);
   };
 
@@ -124,33 +127,61 @@ export class OrderChangeHintRuntime {
   private configure(): void {
     if (this.stopped) return;
     const targets = this.dependencies.canConnect() ? this.targets() : [];
-    const nextKey = targetFingerprint(targets);
-    if (nextKey === this.configurationKey && this.subscriptions.size === targets.length) return;
+    const desired = new Map(targets.map((target) => [targetKey(target), target] as const));
 
-    this.closeSubscriptions("reconfigured");
-    this.configurationKey = nextKey;
-    if (targets.length === 0) return;
-
-    const generation = this.generation;
+    for (const [key, subscription] of this.subscriptions) {
+      const target = desired.get(key);
+      if (target && this.targetFingerprints.get(key) === targetFingerprint(target)) continue;
+      this.subscriptions.delete(key);
+      this.targetFingerprints.delete(key);
+      subscription.close("reconfigured");
+      this.clearReconnect(key);
+    }
+    for (const key of this.reconnectTimers.keys()) {
+      const target = desired.get(key);
+      if (!target || this.targetFingerprints.get(key) !== targetFingerprint(target)) {
+        this.clearReconnect(key);
+      }
+    }
     targets.forEach((target) => {
       const key = targetKey(target);
+      const fingerprint = targetFingerprint(target);
+      if (this.subscriptions.has(key) || this.reconnectTimers.has(key)) return;
+      this.targetFingerprints.set(key, fingerprint);
       const filter: Filter = {
         kinds: [ORDER_CHANGE_HINT_KIND],
         authors: [target.coordinatorPubkey],
         "#p": [...target.recipients.keys()],
         since: Math.floor(this.dependencies.now() / 1000) - MAX_EVENT_AGE_SECONDS
       };
-      const subscription = this.dependencies.pool.subscribeMany([target.relay], filter, {
-        onevent: (event) => this.handleEvent(event, target),
+      let subscription: Subscription;
+      subscription = this.dependencies.pool.subscribeMany([target.relay], filter, {
+        onevent: (event) => {
+          this.reconnectAttempts.delete(key);
+          this.handleEvent(event, target);
+        },
+        oneose: () => {
+          this.reconnectAttempts.delete(key);
+        },
         onclose: () => {
-          if (this.stopped || generation !== this.generation) return;
+          if (this.stopped || this.subscriptions.get(key) !== subscription) return;
           this.subscriptions.delete(key);
-          this.configurationKey = "";
-          this.scheduleConfigure(RECONNECT_DELAY_MS);
+          this.scheduleReconnect(key);
         }
       });
       this.subscriptions.set(key, subscription);
     });
+  }
+
+  private scheduleReconnect(key: string): void {
+    if (this.stopped || this.reconnectTimers.has(key)) return;
+    const attempt = this.reconnectAttempts.get(key) ?? 0;
+    this.reconnectAttempts.set(key, attempt + 1);
+    const timer = this.dependencies.eventTarget.setTimeout(() => {
+      this.reconnectTimers.delete(key);
+      this.configure();
+    }, relayRetryDelay(attempt));
+    this.reconnectTimers.set(key, timer);
   }
 
   private targets(): HintTarget[] {
@@ -205,10 +236,22 @@ export class OrderChangeHintRuntime {
   }
 
   private closeSubscriptions(reason: string): void {
-    this.generation += 1;
     const subscriptions = [...this.subscriptions.values()];
     this.subscriptions.clear();
+    this.targetFingerprints.clear();
     subscriptions.forEach((subscription) => void subscription.close(reason));
+  }
+
+  private clearReconnect(key: string): void {
+    const timer = this.reconnectTimers.get(key);
+    if (timer !== undefined) this.dependencies.eventTarget.clearTimeout(timer);
+    this.reconnectTimers.delete(key);
+    this.reconnectAttempts.delete(key);
+    this.targetFingerprints.delete(key);
+  }
+
+  private clearReconnectTimers(): void {
+    [...this.reconnectTimers.keys()].forEach((key) => this.clearReconnect(key));
   }
 }
 
@@ -307,8 +350,6 @@ function targetKey(target: HintTarget): string {
   return `${target.relay}|${target.coordinatorPubkey}`;
 }
 
-function targetFingerprint(targets: HintTarget[]): string {
-  return targets
-    .map((target) => `${targetKey(target)}|${[...target.recipients.keys()].sort().join(",")}`)
-    .join(";");
+function targetFingerprint(target: HintTarget): string {
+  return `${targetKey(target)}|${[...target.recipients.keys()].sort().join(",")}`;
 }

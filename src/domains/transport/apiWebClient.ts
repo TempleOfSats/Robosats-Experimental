@@ -13,7 +13,7 @@ import { toUserMessage } from "@/lib/userError";
 class ApiWebClient implements ApiClient {
   async get<T>(baseUrl: string, path: string, auth?: Auth, options?: ApiRequestOptions): Promise<T> {
     const headers = buildAuthHeaders(auth);
-    const requestKey = getRequestKey(baseUrl, path, headers, options);
+    const requestKey = getRequestKey(baseUrl, path, headers);
     return request<T>(baseUrl, path, { method: "GET", headers }, options, requestKey);
   }
 
@@ -56,12 +56,15 @@ async function request<T>(
     method,
     priority,
     source,
-    signal: options.signal
+    signal: options.signal,
+    timeoutMs
   }, async (signal) => {
     const transportStartedAt = now();
     let outcome: NetworkOutcome = "success";
     try {
-      const response = await transportRequest(baseUrl + path, init, timeoutMs, signal);
+      // The scheduler owns the adjustable caller timeout. Keep a hard transport
+      // ceiling in case a native bridge fails to honor cancellation.
+      const response = await transportRequest(baseUrl + path, init, 90_000, signal);
       noteTransportReachable(baseUrl);
       const contentType = response.headers["content-type"] ?? "";
       const data = contentType.includes("application/json") ? JSON.parse(response.body || "null") : response.body;
@@ -151,12 +154,10 @@ function now(): number {
   return typeof performance === "undefined" ? Date.now() : performance.now();
 }
 
-function getRequestKey(baseUrl: string, path: string, headers: HeadersInit, options: ApiRequestOptions = {}): string {
+function getRequestKey(baseUrl: string, path: string, headers: HeadersInit): string {
   return JSON.stringify({
     url: baseUrl + path,
-    headers: normalizeHeaders(headers),
-    timeoutMs: options.timeoutMs,
-    timeoutProfile: options.timeoutProfile ?? "interactive"
+    headers: normalizeHeaders(headers)
   });
 }
 

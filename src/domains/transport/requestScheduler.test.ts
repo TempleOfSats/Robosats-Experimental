@@ -95,6 +95,45 @@ describe("CoordinatorRequestScheduler", () => {
     await Promise.all(running.map((task) => task.promise));
   });
 
+  it("extends the timeout when a visible caller joins a background request", async () => {
+    vi.useFakeTimers();
+    const scheduler = new CoordinatorRequestScheduler();
+    const release = deferred<number>();
+    const execute = vi.fn(async () => release.promise);
+    const background = scheduler.schedule(
+      { ...request("shared", "background"), key: "shared", timeoutMs: 20_000 },
+      execute
+    );
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    const visible = scheduler.schedule(
+      { ...request("shared", "visible"), key: "shared", timeoutMs: 45_000 },
+      async () => 0
+    );
+    await vi.advanceTimersByTimeAsync(15_000);
+    release.resolve(42);
+
+    await expect(Promise.all([background.promise, visible.promise])).resolves.toEqual([42, 42]);
+    expect(execute).toHaveBeenCalledOnce();
+    vi.useRealTimers();
+  });
+
+  it("aborts work at the scheduler timeout", async () => {
+    vi.useFakeTimers();
+    const scheduler = new CoordinatorRequestScheduler();
+    const task = scheduler.schedule(
+      { ...request("timeout", "background"), timeoutMs: 20_000 },
+      (signal) => new Promise((_resolve, reject) => {
+        signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+      })
+    );
+
+    const rejection = expect(task.promise).rejects.toThrow("Tor request timeout after 20000ms");
+    await vi.advanceTimersByTimeAsync(20_000);
+    await rejection;
+    vi.useRealTimers();
+  });
+
   it("does not coalesce requests with different keys", async () => {
     const scheduler = new CoordinatorRequestScheduler();
     const execute = vi.fn(async () => "ok");

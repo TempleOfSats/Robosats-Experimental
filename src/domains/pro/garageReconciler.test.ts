@@ -55,6 +55,52 @@ describe("GarageReconciler", () => {
     expect(useGarageStore.getState().currentToken).toBe("alpha");
   });
 
+  it("coalesces concurrent reads of the same Fleet order", async () => {
+    let resolveOrder: ((value: OrderDto) => void) | undefined;
+    const fetchOrder = vi.fn(() => new Promise<OrderDto>((resolve) => {
+      resolveOrder = resolve;
+    }));
+    const reconciler = makeReconciler({
+      refreshRobotSlot: async () => robotResult(91234),
+      fetchOrder
+    });
+    const locator: ProTradeLocator = { slotId: "slot-beta", shortAlias: "lake", orderId: 91234 };
+
+    const first = reconciler.reconcileOrder(locator, "interval");
+    const second = reconciler.reconcileOrder(locator, "order-action");
+    await vi.waitFor(() => expect(fetchOrder).toHaveBeenCalledOnce());
+    resolveOrder?.(order({ id: 91234, status: 9 }));
+    await Promise.all([first, second]);
+
+    expect(fetchOrder).toHaveBeenCalledOnce();
+    expect(useProTradeIndexStore.getState().snapshots["slot-beta:lake:91234"]).toMatchObject({
+      order: { id: 91234, status: 9 }
+    });
+  });
+
+  it("suppresses rapid automatic Fleet waves after a successful attempt", async () => {
+    let now = 1_000;
+    const refreshRobotSlot = vi.fn(async () => ({
+      slotId: "slot-beta",
+      coordinators: [{ shortAlias: "lake", found: false }]
+    }));
+    const reconciler = new GarageReconciler({
+      now: () => now,
+      getSlots: () => useGarageStore.getState().slots,
+      getCoordinators: () => [coordinator],
+      refreshRobotSlot,
+      fetchOrder: vi.fn()
+    });
+
+    await reconciler.reconcileSlot("slot-beta", "fleet-ready");
+    now += 1_000;
+    await reconciler.reconcileSlot("slot-beta", "tor-reconnected");
+    expect(refreshRobotSlot).toHaveBeenCalledOnce();
+
+    await reconciler.reconcileSlot("slot-beta", "manual");
+    expect(refreshRobotSlot).toHaveBeenCalledTimes(2);
+  });
+
   it("discovers enabled coordinators whenever a restored Fleet becomes ready", async () => {
     const restored = {
       ...beta,
@@ -76,7 +122,7 @@ describe("GarageReconciler", () => {
     await reconciler.reconcileSlot(restored.tokenSHA256, "startup");
     await reconciler.reconcileSlot(restored.tokenSHA256, "fleet-ready");
 
-    expect(refreshRobotSlot).toHaveBeenCalledTimes(2);
+    expect(refreshRobotSlot).toHaveBeenCalledOnce();
     expect(refreshRobotSlot).toHaveBeenLastCalledWith(restored.token, [coordinator], {
       preferredAliases: [],
       priority: "background",

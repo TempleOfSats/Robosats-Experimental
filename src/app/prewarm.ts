@@ -43,12 +43,19 @@ export function scheduleAppPrewarm(): () => void {
 
   const cleanups = [
     scheduleIdle(prewarmData, 500, 3000),
-    scheduleIdle(preloadPrimaryTradeRoutes, 1800, 6000),
-    scheduleIdle(preloadAllAppRoutes, 4500, 12000),
     scheduleIdle(prewarmVisualAssets, 7000, 16000),
     scheduleIdle(prewarmAudioAssets, 45000, 60000),
     scheduleDesktopNotificationRefresh()
   ];
+  // Native and desktop packages read chunks locally. Browser builds should
+  // fetch routes only after navigation intent to avoid an HTTP/1.1 Tor
+  // waterfall competing with the first visible page.
+  if (isNativeApp() || isTauriDesktop()) {
+    cleanups.push(
+      scheduleIdle(preloadPrimaryTradeRoutes, 1800, 6000),
+      scheduleIdle(preloadAllAppRoutes, 4500, 12000)
+    );
+  }
 
   return () => {
     stopOrderChangeHints();

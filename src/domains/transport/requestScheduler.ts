@@ -8,6 +8,7 @@ export type ScheduleRequestOptions = {
   priority: RequestPriority;
   source: RequestSource;
   signal?: AbortSignal;
+  timeoutMs?: number;
 };
 
 export type ScheduledRequest<T> = {
@@ -33,7 +34,10 @@ type SchedulerTask = {
   controller: AbortController;
   queuedAt: number;
   started: boolean;
+  startedAt?: number;
   settled: boolean;
+  timeout?: ReturnType<typeof setTimeout>;
+  timeoutMs?: number;
   promise: Promise<unknown>;
   resolve: (value: unknown) => void;
   reject: (reason: unknown) => void;
@@ -67,6 +71,7 @@ export class CoordinatorRequestScheduler {
       const existing = this.keyed.get(options.key);
       if (existing) {
         this.promoteTask(existing, options.priority);
+        this.extendTimeout(existing, options.timeoutMs);
         return this.publicHandle<T>(existing);
       }
     }
@@ -89,6 +94,7 @@ export class CoordinatorRequestScheduler {
       queuedAt: performanceNow(),
       started: false,
       settled: false,
+      timeoutMs: options.timeoutMs,
       promise,
       resolve: resolveTask,
       reject: rejectTask
@@ -148,6 +154,12 @@ export class CoordinatorRequestScheduler {
     task.reject(new DOMException(reason, "AbortError"));
   }
 
+  private extendTimeout(task: SchedulerTask, timeoutMs?: number): void {
+    if (!timeoutMs || timeoutMs <= (task.timeoutMs ?? 0) || task.settled) return;
+    task.timeoutMs = timeoutMs;
+    if (task.started) this.armTimeout(task);
+  }
+
   private drain(): void {
     const capacity = schedulerCapacity();
     while (this.active < capacity.total) {
@@ -180,6 +192,8 @@ export class CoordinatorRequestScheduler {
   private start(task: SchedulerTask, _capacity: SchedulerCapacity): void {
     this.removeQueued(task);
     task.started = true;
+    task.startedAt = performanceNow();
+    this.armTimeout(task);
     this.active += 1;
     if (isBackground(task.priority)) this.activeBackground += 1;
     this.activeByOrigin.set(task.origin, (this.activeByOrigin.get(task.origin) ?? 0) + 1);
@@ -194,6 +208,7 @@ export class CoordinatorRequestScheduler {
       (error) => task.reject(error)
     ).finally(() => {
       task.settled = true;
+      if (task.timeout !== undefined) globalThis.clearTimeout(task.timeout);
       task.detachExternalAbort?.();
       this.removeKey(task);
       this.active -= 1;
@@ -203,6 +218,15 @@ export class CoordinatorRequestScheduler {
       else this.activeByOrigin.set(task.origin, originCount);
       this.drain();
     });
+  }
+
+  private armTimeout(task: SchedulerTask): void {
+    if (task.startedAt === undefined || !task.timeoutMs) return;
+    if (task.timeout !== undefined) globalThis.clearTimeout(task.timeout);
+    const remainingMs = Math.max(0, task.startedAt + task.timeoutMs - performanceNow());
+    task.timeout = globalThis.setTimeout(() => {
+      task.controller.abort(new Error(`Tor request timeout after ${task.timeoutMs}ms`));
+    }, remainingMs);
   }
 
   private removeQueued(task: SchedulerTask): void {

@@ -2,6 +2,7 @@ import { LayoutList, PlusCircle, Settings, Store, Workflow } from "lucide-react"
 import { useEffect, useMemo } from "react";
 import { NavLink } from "react-router-dom";
 import type { RoboSatsPlatform } from "@/app/platform";
+import { preloadAppRoute } from "@/app/routes";
 import { RoboSatsLogo } from "@/components/app/RoboSatsLogo";
 import { RobotIcon } from "@/components/ui/robotIcon";
 import { selectFleetManagedSlots, selectStandardGarageSlots, type RobotSlot, useGarageStore } from "@/domains/garage/garageStore";
@@ -46,13 +47,24 @@ export function AppSidebar({ platform: _platform }: { platform: RoboSatsPlatform
             <span>{item.label}</span>
           </span>
         ) : (
-          <NavLink key={item.to} to={item.to} className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")}>
+          <NavLink
+            key={item.to}
+            to={item.to}
+            className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")}
+            onFocus={() => preloadAppRoute(item.to)}
+            onPointerEnter={() => preloadAppRoute(item.to)}
+          >
             <item.icon size={18} />
             <span>{item.label}</span>
           </NavLink>
         ))}
         {proEnabled ? (
-          <NavLink to="/pro" className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")}>
+          <NavLink
+            to="/pro"
+            className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")}
+            onFocus={() => preloadAppRoute("/pro")}
+            onPointerEnter={() => preloadAppRoute("/pro")}
+          >
             <LayoutList size={18} />
             <span>Pro Desk</span>
             {attentionCount > 0 ? (
@@ -61,7 +73,12 @@ export function AppSidebar({ platform: _platform }: { platform: RoboSatsPlatform
           </NavLink>
         ) : null}
         {activeTradePath ? (
-          <NavLink to={activeTradePath} className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")}>
+          <NavLink
+            to={activeTradePath}
+            className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")}
+            onFocus={() => preloadAppRoute(activeTradePath)}
+            onPointerEnter={() => preloadAppRoute(activeTradePath)}
+          >
             <Workflow size={18} />
             <span>Trade</span>
           </NavLink>
@@ -71,7 +88,12 @@ export function AppSidebar({ platform: _platform }: { platform: RoboSatsPlatform
             <span>Trade</span>
           </span>
         )}
-        <NavLink to="/settings" className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")}>
+        <NavLink
+          to="/settings"
+          className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")}
+          onFocus={() => preloadAppRoute("/settings")}
+          onPointerEnter={() => preloadAppRoute("/settings")}
+        >
           <Settings size={18} />
           <span>Settings</span>
         </NavLink>

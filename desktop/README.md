@@ -39,4 +39,7 @@ npm run build:desktop:macos
 Outputs are copied to `desktop/release/`. GitHub Actions builds each target on
 its native runner. Linux packages use the host Wayland runtime so the webview
 matches the installed graphics stack. The Windows installer includes the
-Evergreen WebView2 offline installer.
+Evergreen WebView2 offline installer. Windows Rust binaries statically link the
+Microsoft C runtime, so a separate Visual C++ Redistributable installation is
+not required. Windows packaging inspects both the Tauri executable and Arti
+sidecar and fails if a dynamic Microsoft C runtime dependency is introduced.

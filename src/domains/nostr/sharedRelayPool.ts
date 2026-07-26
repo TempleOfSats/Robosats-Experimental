@@ -1,9 +1,12 @@
 import { SimplePool } from "nostr-tools/pool";
 
+export const RELAY_CONNECTION_TIMEOUT_MS = 120_000;
+
 const sharedRelayPool = new SimplePool({
   enablePing: true,
-  enableReconnect: true
+  enableReconnect: false
 });
+sharedRelayPool.maxWaitForConnection = RELAY_CONNECTION_TIMEOUT_MS;
 
 const relayQueries = new Map<string, Promise<void>>();
 
@@ -11,16 +14,10 @@ export function getSharedRelayPool(): SimplePool {
   return sharedRelayPool;
 }
 
+// Query callers share the same physical relay connections as live subscriptions.
+// The callback wrapper remains to keep existing call sites and query semantics stable.
 export async function withRelayQueryPool<T>(query: (pool: SimplePool) => Promise<T>): Promise<T> {
-  const pool = new SimplePool({
-    enablePing: false,
-    enableReconnect: false
-  });
-  try {
-    return await query(pool);
-  } finally {
-    pool.destroy();
-  }
+  return query(sharedRelayPool);
 }
 
 export function runRelayQuery<T>(relay: string, query: () => Promise<T>): Promise<T> {

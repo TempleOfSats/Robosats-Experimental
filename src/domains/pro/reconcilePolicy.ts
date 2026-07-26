@@ -10,6 +10,7 @@ export const PRO_RECONCILE_POLICY = {
   idleMinMs: 180_000,
   idleMaxMs: 300_000,
   fullDiscoveryMinMs: 1_800_000,
+  automaticBurstGuardMs: 15_000,
   statusFreshMs: 300_000,
   statusStaleMs: 900_000
 } as const;

@@ -32,8 +32,7 @@ describe("chatCrypto", () => {
         armoredMessage: encrypted,
         ownPrivateKeyArmored: alice.encryptedPrivateKeyArmored,
         ownPublicKeyArmored: alice.publicKeyArmored,
-        passphrase: aliceToken,
-        peerPublicKeyArmored: bob.publicKeyArmored
+        passphrase: aliceToken
       })
     ).resolves.toBe("Fiat sent at 10:00");
   }, 30000);
