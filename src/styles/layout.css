@@ -1979,6 +1979,20 @@
   min-width: 0;
 }
 
+.orderbook-secondary-filters {
+  width: 100%;
+}
+
+.orderbook-secondary-filters .filter-select-field {
+  width: min(13rem, 100%);
+  flex: 0 1 13rem;
+}
+
+.orderbook-secondary-filters .filter-select-field-wide {
+  min-width: 0;
+  margin-left: auto;
+}
+
 .segmented-compact {
   padding: 0.2rem;
 }
@@ -2109,6 +2123,7 @@
 }
 
 .image-select-input {
+  width: 100%;
   min-width: 0;
   color: var(--foreground);
   background: transparent;
@@ -2234,8 +2249,8 @@
 }
 
 .offer-table {
-  --offer-columns: 2.75rem minmax(13rem, 1.45fr) minmax(5.4rem, 0.55fr) minmax(7.5rem, 0.7fr) 5.25rem 6.5rem;
-  min-width: 46rem;
+  --offer-columns: 3.25rem minmax(11rem, 12rem) 9rem minmax(14rem, 1fr) 5.25rem 6.5rem;
+  min-width: 50rem;
   display: grid;
   gap: 0.3rem;
 }
@@ -2344,8 +2359,7 @@
   height: 0.82rem;
 }
 
-.offer-skeleton-short,
-.offer-skeleton-bond {
+.offer-skeleton-short {
   width: 4.8rem;
   height: 1rem;
 }
@@ -2358,11 +2372,26 @@
 }
 
 .offer-direction {
-  width: 2.1rem;
-  height: 2.1rem;
-  display: inline-grid;
-  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  border: 0;
   border-radius: 999px;
+}
+
+.offer-direction svg {
+  width: 0.8rem;
+  height: 0.8rem;
+}
+
+.offer-direction small {
+  font-size: 0.7em;
+  font-weight: 600;
+  line-height: 1;
 }
 
 .offer-direction-buy {
@@ -2377,14 +2406,14 @@
 
 .offer-main-cell,
 .offer-amount-line,
+.offer-method-cell,
 .offer-method-line,
-.offer-bond-cell {
+.offer-premium {
   min-width: 0;
 }
 
 .offer-main-cell {
-  display: grid;
-  gap: 0.32rem;
+  display: block;
 }
 
 .offer-amount-line {
@@ -2394,9 +2423,7 @@
 }
 
 .offer-amount-line span,
-.offer-method-line > span:last-child,
-.offer-bond-cell strong,
-.offer-bond-cell small {
+.offer-method-line > span:last-child {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2408,8 +2435,8 @@
   min-width: 0;
   max-width: 100%;
   color: var(--foreground);
-  font-size: 1.08rem;
-  font-weight: 600;
+  font-size: 1.12rem;
+  font-weight: 700;
   letter-spacing: 0;
   overflow: visible;
   text-overflow: clip;
@@ -2437,8 +2464,7 @@
 }
 
 .offer-amount-line span,
-.offer-method-line,
-.offer-bond-cell small {
+.offer-method-line {
   color: var(--muted-foreground);
   font-size: 0.79rem;
   font-weight: 600;
@@ -2455,6 +2481,12 @@
   display: flex;
   align-items: center;
   gap: 0.42rem;
+}
+
+.offer-method-cell {
+  display: block;
+  overflow: hidden;
+  color: var(--muted-foreground);
 }
 
 .offer-swap-chip {
@@ -2548,7 +2580,9 @@
 }
 
 .offer-premium {
-  font-weight: 600;
+  color: var(--foreground);
+  font-size: 1.08rem;
+  font-weight: 700;
 }
 
 .offer-premium-positive {
@@ -2557,24 +2591,6 @@
 
 .offer-premium-negative {
   color: var(--warning);
-}
-
-.offer-bond-cell {
-  display: grid;
-  grid-template-columns: auto auto;
-  align-items: center;
-  justify-content: end;
-  justify-self: end;
-  gap: 0.45rem;
-}
-
-.offer-bond-cell svg {
-  color: var(--primary);
-}
-
-.offer-bond-cell strong,
-.offer-bond-cell small {
-  display: block;
 }
 
 .offer-expiry {
@@ -3186,6 +3202,11 @@
   display: inline-flex;
   align-items: center;
   gap: 0.2rem;
+}
+
+.offer-summary dt > svg {
+  flex: 0 0 auto;
+  color: var(--muted-foreground);
 }
 
 .summary-list dd {
@@ -7260,6 +7281,7 @@
   .orderbook-secondary-filters .filter-select-field-wide {
     grid-column: 1 / -1;
     width: 100%;
+    margin-left: 0;
   }
 
   .orderbook-secondary-filters .filter-select-field:nth-child(2) .image-select-menu {
@@ -7298,6 +7320,7 @@
 
   .filter-select-field,
   .filter-select-field-wide {
+    width: 100%;
     min-width: 0;
   }
 
@@ -7368,8 +7391,10 @@
   }
 
   .offer-row {
-    grid-template-columns: 2rem minmax(6.4rem, 1fr) minmax(2.8rem, 0.4fr) minmax(2.8rem, 0.4fr) 2.25rem 1.4rem;
-    grid-template-areas: "side main premium bond expiry host";
+    grid-template-columns: 2.65rem minmax(6.4rem, 1fr) minmax(2.8rem, 0.4fr) 2.25rem 1.4rem;
+    grid-template-areas:
+      "side main premium expiry host"
+      "side method premium expiry host";
     align-items: center;
     gap: 0.42rem;
     border-color: var(--border);
@@ -7383,13 +7408,13 @@
 
   .offer-direction {
     grid-area: side;
-    width: 2rem;
-    height: 2rem;
+    width: 2.5rem;
+    height: 2.5rem;
+    min-height: 2.5rem;
   }
 
   .offer-main-cell {
     grid-area: main;
-    gap: 0.16rem;
   }
 
   .offer-amount-line {
@@ -7397,7 +7422,7 @@
   }
 
   .offer-amount-line > span:not(:first-child) {
-    display: none;
+    font-size: 0.75rem;
   }
 
   .offer-amount-line strong {
@@ -7408,6 +7433,11 @@
   .offer-method-line {
     gap: 0.22rem;
     min-height: 1.25rem;
+  }
+
+  .offer-method-cell,
+  .offer-skeleton-method {
+    grid-area: method;
   }
 
   .offer-method-line-has-icon .offer-method-text {
@@ -7427,39 +7457,14 @@
   .offer-premium {
     grid-area: premium;
     justify-self: end;
-    font-size: 0.8rem;
+    text-align: right;
+    font-size: 0.96rem;
   }
 
   .offer-skeleton-short {
     grid-area: premium;
     justify-self: end;
     width: 2.7rem;
-  }
-
-  .offer-bond-cell {
-    grid-area: bond;
-    justify-self: end;
-    grid-template-columns: minmax(0, 1fr);
-    gap: 0;
-    text-align: right;
-  }
-
-  .offer-bond-cell svg {
-    display: none;
-  }
-
-  .offer-bond-cell strong {
-    font-size: 0.82rem;
-  }
-
-  .offer-bond-cell small {
-    display: none;
-  }
-
-  .offer-skeleton-bond {
-    grid-area: bond;
-    justify-self: end;
-    width: 3.1rem;
   }
 
   .offer-expiry {
@@ -7866,7 +7871,7 @@
   }
 
   .orderbook-secondary-filters {
-    grid-template-columns: 0.82fr 0.82fr 1.36fr;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 0.4rem;
   }
 
@@ -7892,6 +7897,17 @@
 
   .image-select-value,
   .image-select-input {
+    font-size: 0.82rem;
+  }
+
+  .orderbook-secondary-filters .filter-select-field-wide .image-select-browse {
+    width: 2rem;
+    min-width: 2rem;
+    min-height: 2rem;
+  }
+
+  .orderbook-secondary-filters .filter-select-field-wide .image-select-input {
+    padding-inline: 0;
     font-size: 0.82rem;
   }
 
@@ -9952,29 +9968,19 @@
 
 @media (max-width: 640px) {
   .offer-row {
-    grid-template-columns: 2rem minmax(0, 1fr) auto auto 2.15rem 1.55rem;
+    grid-template-columns: 2.45rem minmax(0, 1fr) auto 2.15rem 1.55rem;
     grid-template-areas:
-      "side amount amount amount amount amount"
-      "side method premium bond expiry host";
+      "side main premium expiry host"
+      "side method premium expiry host";
     row-gap: 0.12rem;
   }
 
   .offer-main-cell {
-    display: contents;
+    display: block;
   }
 
-  .offer-amount-line {
-    grid-area: amount;
-    align-items: flex-start;
-  }
-
-  .offer-method-line {
-    grid-area: method;
+  .offer-method-cell {
     overflow: hidden;
-  }
-
-  .offer-skeleton-amount {
-    grid-area: amount;
   }
 
   .offer-skeleton-method {
@@ -10308,5 +10314,610 @@
   .app-transition-mark::before,
   .ui-spinner {
     animation-duration: 1ms !important;
+  }
+}
+
+/* Guided trade discovery */
+.orderbook-guided-trade-button {
+  white-space: nowrap;
+}
+
+.guided-trade-overlay {
+  z-index: 245;
+  padding: 1rem;
+}
+
+.guided-trade-dialog {
+  width: min(47rem, calc(100vw - 2rem));
+  max-height: min(48rem, calc(100dvh - 2rem));
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--card);
+  box-shadow: var(--shadow-lg);
+}
+
+.guided-trade-header {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.15rem 1.25rem 0.9rem;
+}
+
+.guided-trade-header > div {
+  min-width: 0;
+  display: grid;
+  gap: 0.18rem;
+}
+
+.guided-trade-header p,
+.guided-trade-header h2,
+.guided-trade-step > header h3,
+.guided-trade-step > header p {
+  margin: 0;
+}
+
+.guided-trade-header h2 {
+  font-size: var(--type-h2-size);
+  font-weight: var(--weight-semibold);
+  line-height: var(--type-h2-line);
+}
+
+.guided-trade-progress {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin: 0;
+  padding: 0.25rem 1.5rem 1rem;
+  list-style: none;
+}
+
+.guided-trade-progress li {
+  position: relative;
+  min-width: 0;
+  display: grid;
+  justify-items: center;
+  gap: 0.32rem;
+  color: var(--muted-foreground);
+}
+
+.guided-trade-progress li:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  top: 0.68rem;
+  left: calc(50% + 0.85rem);
+  width: calc(100% - 1.7rem);
+  height: 1px;
+  background: var(--border);
+}
+
+.guided-trade-progress li > span {
+  position: relative;
+  z-index: 1;
+  width: 1.4rem;
+  height: 1.4rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.guided-trade-progress li > small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.75rem;
+}
+
+.guided-trade-progress .guided-trade-progress-complete {
+  color: var(--success);
+}
+
+.guided-trade-progress .guided-trade-progress-complete > span {
+  color: var(--success-foreground);
+  border-color: var(--success);
+  background: var(--success);
+}
+
+.guided-trade-progress .guided-trade-progress-complete::after {
+  background: var(--success);
+}
+
+.guided-trade-progress .guided-trade-progress-active {
+  color: var(--foreground);
+}
+
+.guided-trade-progress .guided-trade-progress-active > span {
+  color: var(--primary-foreground);
+  border-color: var(--primary);
+  background: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 14%, transparent);
+}
+
+.guided-trade-content {
+  min-height: 20rem;
+  overflow: auto;
+  border-top: 1px solid var(--border);
+  padding: 1.35rem 1.5rem;
+}
+
+.guided-trade-step {
+  min-width: 0;
+  display: grid;
+  gap: 1.25rem;
+}
+
+.guided-trade-step > header {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.guided-trade-step > header h3 {
+  outline: 0;
+  font-size: 1.2rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.guided-trade-step > header p {
+  color: var(--muted-foreground);
+  font-size: var(--type-compact-size);
+  line-height: var(--type-body-line);
+}
+
+.guided-intent-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.guided-intent-choice {
+  appearance: none;
+  min-width: 0;
+  min-height: 6.25rem;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 1.25rem;
+  align-items: center;
+  gap: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--foreground);
+  background: var(--input);
+  padding: 1rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.guided-intent-choice:hover,
+.guided-intent-choice:focus-visible {
+  border-color: color-mix(in srgb, var(--primary) 65%, var(--border));
+  background: var(--interactive-hover);
+}
+
+.guided-intent-choice:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.guided-intent-choice-active {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 9%, var(--card));
+}
+
+.guided-intent-choice > span:nth-child(2) {
+  min-width: 0;
+  display: grid;
+  gap: 0.26rem;
+}
+
+.guided-intent-choice strong {
+  font-size: 1rem;
+}
+
+.guided-intent-choice small {
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.guided-intent-icon {
+  width: 2.6rem;
+  height: 2.6rem;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+}
+
+.guided-intent-icon-buy {
+  color: var(--buy-foreground);
+  background: var(--buy);
+}
+
+.guided-intent-icon-sell {
+  color: var(--sell-foreground);
+  background: var(--sell);
+}
+
+.guided-trade-field {
+  width: min(100%, 28rem);
+}
+
+.guided-trade-field .image-select-menu {
+  width: max(100%, 17rem);
+}
+
+.guided-amount-field {
+  width: min(100%, 28rem);
+  display: grid;
+  gap: 0.42rem;
+  color: var(--muted-foreground);
+  font-size: var(--type-compact-size);
+  font-weight: var(--weight-semibold);
+}
+
+.guided-amount-field > div {
+  min-height: 3.6rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--input);
+  padding: 0 1rem;
+}
+
+.guided-amount-field input {
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  color: var(--foreground);
+  background: transparent;
+  padding: 0;
+  font-size: 1.45rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.guided-amount-field strong {
+  color: var(--muted-foreground);
+  font-size: 0.9rem;
+}
+
+.guided-amount-field > div:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 14%, transparent);
+}
+
+.guided-quick-choices {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.guided-quick-choices > span {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.guided-quick-choices > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.guided-quick-choice {
+  appearance: none;
+  min-height: 2.25rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--foreground);
+  background: transparent;
+  padding: 0.32rem 0.68rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.guided-quick-choice:hover,
+.guided-quick-choice:focus-visible,
+.guided-quick-choice-active {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 9%, var(--card));
+}
+
+.guided-quick-choice .currency-flag {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+.guided-match-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.guided-match {
+  appearance: none;
+  min-width: 0;
+  min-height: 4.5rem;
+  display: grid;
+  grid-template-columns: minmax(9rem, 1.05fr) minmax(11rem, 1.35fr) minmax(7rem, 0.8fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--foreground);
+  background: var(--input);
+  padding: 0.7rem 0.85rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.guided-match:hover,
+.guided-match:focus-visible {
+  border-color: var(--primary);
+  background: var(--interactive-hover);
+}
+
+.guided-match:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+.guided-match-featured {
+  border-color: color-mix(in srgb, var(--primary) 55%, var(--border));
+}
+
+.guided-match-amount,
+.guided-match-terms,
+.guided-match-host {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.guided-match-amount {
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.guided-match-amount strong {
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.guided-match-amount small {
+  color: var(--primary);
+  border: 1px solid color-mix(in srgb, var(--primary) 48%, var(--border));
+  border-radius: 999px;
+  padding: 0.08rem 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.guided-match-terms {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.guided-match-terms > strong {
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.guided-match-terms > span {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.75rem;
+}
+
+.guided-match-host {
+  gap: 0.4rem;
+}
+
+.guided-match-host small {
+  overflow: hidden;
+  color: var(--muted-foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.75rem;
+}
+
+.guided-match-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: var(--foreground);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.guided-more-matches {
+  color: var(--muted-foreground);
+  padding: 0.2rem 0.25rem 0;
+  text-align: center;
+}
+
+.guided-results-loading,
+.guided-no-match {
+  min-height: 7rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.85rem;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  color: var(--muted-foreground);
+  padding: 1rem;
+}
+
+.guided-no-match > div {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.guided-no-match strong {
+  color: var(--foreground);
+}
+
+.guided-no-match span {
+  font-size: 0.8rem;
+}
+
+.guided-create-choice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-top: 1px solid var(--border);
+  padding-top: 1rem;
+}
+
+.guided-create-choice > div {
+  min-width: 0;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.guided-create-choice > div span {
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.guided-trade-error {
+  margin-top: 1rem;
+  color: var(--warning);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.guided-trade-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border-top: 1px solid var(--border);
+  padding: 0.85rem 1.25rem;
+}
+
+@media (max-width: 700px) {
+  .guided-trade-overlay {
+    align-items: center;
+    padding: 1rem;
+  }
+
+  .guided-trade-dialog {
+    width: min(100%, 31rem);
+    max-height: calc(100dvh - 2rem);
+    border-radius: var(--radius-lg);
+  }
+
+  .guided-trade-header {
+    padding: 1rem 1rem 0.75rem;
+  }
+
+  .guided-trade-progress {
+    padding: 0.2rem 0.8rem 0.8rem;
+  }
+
+  .guided-trade-progress li > small {
+    font-size: 0.75rem;
+  }
+
+  .guided-trade-content {
+    min-height: 20rem;
+    padding: 1.1rem 1rem;
+  }
+
+  .guided-intent-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .guided-intent-choice {
+    min-height: 5rem;
+  }
+
+  .guided-match {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "amount action"
+      "terms host";
+    gap: 0.45rem 0.75rem;
+  }
+
+  .guided-match-amount {
+    grid-area: amount;
+  }
+
+  .guided-match-terms {
+    grid-area: terms;
+  }
+
+  .guided-match-host {
+    grid-area: host;
+    justify-self: end;
+  }
+
+  .guided-match-action {
+    grid-area: action;
+  }
+
+  .guided-create-choice {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .guided-create-choice .ui-button {
+    width: 100%;
+  }
+
+  .guided-trade-footer {
+    padding: 0.75rem 1rem max(0.75rem, env(safe-area-inset-bottom));
+  }
+}
+
+@media (max-width: 500px) {
+  .orderbook-guided-trade-button {
+    width: auto;
+    min-width: 0;
+    min-height: 2rem;
+    gap: 0.35rem;
+    padding-inline: 0.6rem;
+    font-size: var(--type-caption-size);
+  }
+
+  .orderbook-guided-trade-button svg {
+    width: 0.875rem;
+    height: 0.875rem;
+  }
+}
+
+@media (max-width: 390px) {
+  .orderbook-refresh-state .orderbook-refreshing {
+    display: none;
+  }
+
+  .guided-trade-progress {
+    padding-bottom: 0.65rem;
+  }
+
+  .guided-trade-progress li > small {
+    display: none;
   }
 }

@@ -29,6 +29,7 @@ import {
 import { RobotTokenBackupDialog } from "@/domains/garage/RobotTokenBackupDialog";
 import { TelegramSetupDialog } from "@/domains/garage/TelegramSetupDialog";
 import { downloadRobotTokenBackup } from "@/domains/garage/tokenBackup";
+import type { CreateOrderDraft } from "@/domains/maker/maker.types";
 import { OrderPage } from "@/domains/orders/OrderPage";
 import { ingestCoordinatorOrder } from "@/domains/orders/orderActivity";
 import { submitOrderAction } from "@/domains/orders/orderApi";
@@ -122,7 +123,11 @@ export function ProWorkspacePage() {
   const removeTrade = useProTradeIndexStore((state) => state.removeTrade);
   const location = useLocation();
   const navigate = useNavigate();
-  const routeState = location.state as { openCreate?: boolean; openPresets?: boolean } | null;
+  const routeState = location.state as {
+    openCreate?: boolean;
+    openPresets?: boolean;
+    prefillDraft?: Pick<CreateOrderDraft, "amount" | "currency" | "paymentMethod" | "type">;
+  } | null;
   const [announcement, setAnnouncement] = useState("");
   const [addingRobot, setAddingRobot] = useState(false);
   const [garageSetupOpen, setGarageSetupOpen] = useState(false);
@@ -133,6 +138,7 @@ export function ProWorkspacePage() {
   const [abandoningFleet, setAbandoningFleet] = useState(false);
   const [addedRobot, setAddedRobot] = useState<{ slotId: string; hashId: string; nickname: string }>();
   const [createPickerOpen, setCreatePickerOpen] = useState(() => Boolean(routeState?.openCreate));
+  const [pendingCreatePrefill, setPendingCreatePrefill] = useState(routeState?.prefillDraft);
   const [pendingPresetId, setPendingPresetId] = useState<string>();
   const [settingsSlotId, setSettingsSlotId] = useState<string>();
   const [settingsAlias, setSettingsAlias] = useState<string>();
@@ -214,7 +220,11 @@ export function ProWorkspacePage() {
     setFilter(filter === next ? "all" : next);
   }
 
-  function startCreateOffer(slotId: string, presetId?: string) {
+  function startCreateOffer(
+    slotId: string,
+    presetId?: string,
+    prefillDraft?: Pick<CreateOrderDraft, "amount" | "currency" | "paymentMethod" | "type">
+  ) {
     const slot = slots.find((item) => item.tokenSHA256 === slotId);
     if (!slot) return;
     if (!offerReadySlotIds.has(slotId)) {
@@ -229,7 +239,8 @@ export function ProWorkspacePage() {
       state: {
         creatingOfferAs: { hashId: slot.hashId, nickname: slot.nickname },
         robotSlotId: slot.tokenSHA256,
-        presetId
+        presetId,
+        prefillDraft
       }
     });
   }
@@ -704,10 +715,15 @@ export function ProWorkspacePage() {
           onAddRobot={() => void requestRobotCreation()}
           addingRobot={addingRobot}
           fleetFull={fleetFull}
-          onClose={() => { setCreatePickerOpen(false); setPendingPresetId(undefined); }}
+          onClose={() => {
+            setCreatePickerOpen(false);
+            setPendingCreatePrefill(undefined);
+            setPendingPresetId(undefined);
+          }}
           onSelect={(slotId) => {
             setCreatePickerOpen(false);
-            startCreateOffer(slotId, pendingPresetId);
+            startCreateOffer(slotId, pendingPresetId, pendingCreatePrefill);
+            setPendingCreatePrefill(undefined);
             setPendingPresetId(undefined);
           }}
           robots={offerReadyRobots}

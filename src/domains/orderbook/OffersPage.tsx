@@ -9,6 +9,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Check,
+  CircleHelp,
   Copy,
   Download,
   Lock,
@@ -21,7 +22,7 @@ import { useNavigate } from "react-router-dom";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import { useOrderbookStore } from "@/domains/orderbook/orderbookStore";
-import { orderCurrencyCodes } from "@/domains/orderbook/currencies";
+import { currencyIdFromCode, orderCurrencyCodes } from "@/domains/orderbook/currencies";
 import { resetNostrOrderbookSession, subscribeNostrOrderbook } from "@/domains/orderbook/nostrOrderbook";
 import { subscribeRefreshIntents, type RefreshReason } from "@/domains/transport/refreshIntents";
 import type { PublicOrder } from "@/domains/orderbook/orderbook.types";
@@ -40,6 +41,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { InfoHint } from "@/components/ui/infoHint";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CurrencyFlag, CurrencyPicker, IntentPicker, PaymentMethodIcons, PaymentMethodPicker, type IntentPickerOption } from "@/domains/orderbook/OfferMeta";
+import { BeginnerTradeWizard } from "@/domains/orderbook/BeginnerTradeWizard";
+import type { GuidedTradeCriteria } from "@/domains/orderbook/guidedTrade";
 import { isSwapPaymentMethod, matchedPaymentMethods, paymentIconSrc, paymentMethodOptions } from "@/domains/orderbook/paymentMethods";
 import { CreateOfferRobotPicker } from "@/domains/pro/ProWorkspaceDialogs";
 import { selectOfferReadyRobots } from "@/domains/pro/proRobotLifecycle";
@@ -51,7 +54,7 @@ import { bondDisplayValue, expiryRingValue, formatExpiryTitle, knownSatsValue, o
 import { formatFiat, formatSats } from "@/lib/format";
 import { toUserMessage } from "@/lib/userError";
 
-type SortColumn = "amount" | "premium" | "bond" | "expiry";
+type SortColumn = "amount" | "premium" | "expiry";
 type SortDirection = "asc" | "desc";
 type IntentFilter = "any" | "buy" | "sell" | "swap-in" | "swap-out";
 type OpenFilter = "intent" | "currency" | "method";
@@ -69,7 +72,7 @@ const preloadedPaymentIconUrls = new Set<string>();
 export function OffersPage() {
   const navigate = useNavigate();
   const { connection, coordinators, origin, refreshCoordinators } = useFederationStore();
-  const { orders, loading, refreshing, error, lastUpdated, refreshOrderbook, applyLiveOrders } = useOrderbookStore();
+  const { orders, loading, refreshing, error, refreshOrderbook, applyLiveOrders } = useOrderbookStore();
   const hydrateGarage = useGarageStore((state) => state.hydrate);
   const garageSlots = useGarageStore((state) => state.slots);
   const currentToken = useGarageStore((state) => state.currentToken);
@@ -100,6 +103,7 @@ export function OffersPage() {
   const [orderDetailsResolved, setOrderDetailsResolved] = useState(true);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [nostrSessionEpoch, setNostrSessionEpoch] = useState(0);
+  const [guidedTradeOpen, setGuidedTradeOpen] = useState(false);
   const fleetSlots = useMemo(
     () => selectProGarageSlots(garageSlots, fleetManifest),
     [fleetManifest, garageSlots]
@@ -470,16 +474,42 @@ export function OffersPage() {
     }
   }
 
+  function createGuidedOffer(criteria: GuidedTradeCriteria) {
+    const prefillDraft = {
+      type: criteria.intent === "buy" ? 0 : 1,
+      currency: currencyIdFromCode(criteria.currency),
+      amount: String(criteria.amount),
+      paymentMethod: criteria.paymentMethod
+    };
+
+    setGuidedTradeOpen(false);
+    navigate(proEnabled ? "/pro" : "/create", {
+      state: proEnabled
+        ? { openCreate: true, prefillDraft }
+        : { prefillDraft }
+    });
+  }
+
   return (
     <main className="page page-wide">
       <section className="orderbook-layout">
-        <Card className="orderbook-table-card">
+          <Card className="orderbook-table-card">
           <CardHeader className="orderbook-card-header">
             <CardTitle>Public offers</CardTitle>
             <div className="orderbook-refresh-state">
               {refreshing ? <span className="orderbook-refreshing">Refreshing</span> : null}
               {!refreshing && error && orders.length > 0 ? <span className="orderbook-refreshing">Reconnecting</span> : null}
-              {!refreshing && !error && lastUpdated ? <span className="muted-copy">Updated {new Date(lastUpdated).toLocaleTimeString()}</span> : null}
+              <Button
+                aria-label="Find a trade"
+                className="orderbook-guided-trade-button"
+                onClick={() => setGuidedTradeOpen(true)}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                <CircleHelp size={16} />
+                <span>Find a trade</span>
+              </Button>
               <Button
                 size="icon"
                 variant="ghost"
@@ -497,7 +527,7 @@ export function OffersPage() {
             <div className="table-toolbar orderbook-toolbar">
               <div className="orderbook-filter-strip orderbook-secondary-filters" aria-label="Filter public offers">
                 <div className="filter-select-field">
-                  <span>I want to</span>
+                  <span>Buy/Sell</span>
                   <IntentPicker
                     label="Filter public offers by trade direction"
                     open={openFilter === "intent"}
@@ -522,7 +552,7 @@ export function OffersPage() {
                   />
                 </div>
                 <div className="filter-select-field filter-select-field-wide">
-                  <span>{intentIsSwap(intentFilter) ? "Destination" : "Method"}</span>
+                  <span>{intentIsSwap(intentFilter) ? "Destination" : "Payment Method"}</span>
                   <PaymentMethodPicker
                     defaultIcon={<CurrencyFlag code="ANY" size={18} />}
                     label={intentIsSwap(intentFilter) ? "Filter by swap destination" : "Filter by payment method"}
@@ -556,9 +586,7 @@ export function OffersPage() {
                   <SortHeader active={sortColumn === "premium"} direction={sortDirection} onClick={() => toggleSort("premium")}>
                     Premium
                   </SortHeader>
-                  <SortHeader active={sortColumn === "bond"} direction={sortDirection} onClick={() => toggleSort("bond")}>
-                    Bond
-                  </SortHeader>
+                  <span className="offer-table-header-cell">Payment Method</span>
                   <SortHeader active={sortColumn === "expiry"} direction={sortDirection} onClick={() => toggleSort("expiry")}>
                     Expiry
                   </SortHeader>
@@ -587,13 +615,15 @@ export function OffersPage() {
                   <button className="offer-row" key={orderKey(order)} onClick={() => openTakeModal(order)} type="button">
                     <span className={isTakerBuying(order) ? "offer-direction offer-direction-buy" : "offer-direction offer-direction-sell"}>
                       <DirectionIcon order={order} />
+                      <small>{order.is_swap ? "SWAP" : isTakerBuying(order) ? "BUY" : "SELL"}</small>
                     </span>
                     <span className="offer-main-cell">
                       <OfferAmountLine order={order} />
-                      <OfferMethodLine order={order} />
                     </span>
                     <span className={premiumClassName(order.premium)}>{formatPremium(order.premium)}</span>
-                    <BondDisplay order={order} />
+                    <span className="offer-method-cell">
+                      <OfferMethodLine order={order} />
+                    </span>
                     <ExpiryDisplay expiresAt={order.expires_at} nowMs={nowMs} />
                     <CoordinatorPill coordinator={coordinators.find((item) => item.shortAlias === order.coordinatorShortAlias)} />
                   </button>
@@ -629,6 +659,20 @@ export function OffersPage() {
           </CardContent>
         </Card>
       </section>
+
+      {guidedTradeOpen ? (
+        <BeginnerTradeWizard
+          coordinators={coordinators}
+          loading={(loading || refreshing) && orders.length === 0}
+          onClose={() => setGuidedTradeOpen(false)}
+          onCreateOffer={createGuidedOffer}
+          onSelectOffer={(order) => {
+            setGuidedTradeOpen(false);
+            openTakeModal(order);
+          }}
+          orders={orders}
+        />
+      ) : null}
 
       {takeModalOpen && selectedOrder ? (
         <TakeOfferModal
@@ -698,10 +742,9 @@ function OfferSkeletonRows() {
           <Skeleton className="offer-skeleton-side" />
           <span className="offer-main-cell">
             <Skeleton className="offer-skeleton-amount" />
-            <Skeleton className="offer-skeleton-method" />
           </span>
           <Skeleton className="offer-skeleton-short" />
-          <Skeleton className="offer-skeleton-bond" />
+          <Skeleton className="offer-skeleton-method" />
           <Skeleton className="offer-skeleton-expiry" />
           <Skeleton className="offer-skeleton-host" />
         </div>
@@ -833,6 +876,7 @@ function TakeOfferModal({
           />
           <SummaryItem
             help="The Lightning hold invoice each peer locks as a good-behavior bond."
+            icon={<Lock size={14} aria-hidden />}
             label="Bond"
             value={formatBond(order)}
           />
@@ -843,7 +887,7 @@ function TakeOfferModal({
           />
           <SummaryItem
             help={order.is_swap ? "Where the Lightning swap settles." : "The fiat payment methods accepted by the maker."}
-            label={order.is_swap ? "Swap destination" : "Method"}
+            label={order.is_swap ? "Swap destination" : "Payment Method"}
             value={order.payment_method || "Not specified"}
           />
           <SummaryItem
@@ -1018,10 +1062,21 @@ function TokenBackupDialog({
   );
 }
 
-function SummaryItem({ help, label, value }: { help?: string; label: string; value: string }) {
+function SummaryItem({
+  help,
+  icon,
+  label,
+  value
+}: {
+  help?: string;
+  icon?: ReactNode;
+  label: string;
+  value: string;
+}) {
   return (
     <div>
       <dt>
+        {icon}
         {label}
         {help ? <InfoHint title={help} /> : null}
       </dt>
@@ -1151,21 +1206,6 @@ function FiatAmount({ amountOverride, order, size = 18 }: { amountOverride?: num
   );
 }
 
-function BondDisplay({ order }: { order: PublicOrder }) {
-  const bond = bondDisplayValue(order);
-  const percentLabel = bond.percent != null ? `${formatCompactNumber(bond.percent)}%` : undefined;
-
-  return (
-    <span className="offer-bond-cell">
-      <Lock size={14} />
-      <span>
-        <strong className="amount-mono">{bond.sats > 0 ? formatSats(bond.sats) : percentLabel ?? "-"}</strong>
-        {bond.sats > 0 && percentLabel ? <small>{percentLabel}</small> : null}
-      </span>
-    </span>
-  );
-}
-
 function ExpiryDisplay({ expiresAt, nowMs }: { expiresAt?: string; nowMs: number }) {
   const expiry = expiryRingValue(expiresAt, nowMs);
   const radius = 15;
@@ -1214,7 +1254,6 @@ function compareOrders(left: PublicOrder, right: PublicOrder, column: SortColumn
 function sortValue(order: PublicOrder, column: SortColumn): number {
   if (column === "amount") return knownSatsValue(order.satoshis) ?? knownSatsValue(order.satoshis_now) ?? safeNumber(order.amount);
   if (column === "premium") return safeNumber(order.premium);
-  if (column === "bond") return bondDisplayValue(order).sortValue;
   const expiryMs = order.expires_at ? Date.parse(order.expires_at) : Number.POSITIVE_INFINITY;
   return Number.isFinite(expiryMs) ? expiryMs : Number.POSITIVE_INFINITY;
 }
