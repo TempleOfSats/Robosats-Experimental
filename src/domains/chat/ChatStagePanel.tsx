@@ -6,7 +6,7 @@ import { decryptChatMessage, encryptChatMessage } from "@/domains/chat/chatCrypt
 import { messageContainsRobotToken } from "@/domains/chat/chatSafety";
 import type { ChatMessage, ChatResponse, DisplayChatMessage } from "@/domains/chat/chat.types";
 import type { RobotRecord } from "@/domains/garage/garageStore";
-import type { Auth } from "@/domains/transport/apiClient";
+import type { ApiRequestOptions, Auth } from "@/domains/transport/apiClient";
 import { Button } from "@/components/ui/button";
 import { toUserMessage } from "@/lib/userError";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -53,6 +53,9 @@ export function ChatStagePanel({
   const [peerPubkey, setPeerPubkey] = useState("");
   const [sending, setSending] = useState(false);
   const [socketConnected, setSocketConnected] = useState(previewMode);
+  const [historyStatus, setHistoryStatus] = useState<"idle" | "loading" | "ready" | "error">(
+    previewMode ? "ready" : "idle"
+  );
   const [connectionEpoch, setConnectionEpoch] = useState(0);
   const socketRef = useRef<WebSocket | undefined>(undefined);
   const knownMessageIndexesRef = useRef(new Set(messages.map((message) => message.index)));
@@ -82,15 +85,25 @@ export function ChatStagePanel({
     if (element) element.scrollTop = element.scrollHeight;
   }, [messages.length]);
 
-  async function loadMessages(offset = lastIndex, reportError = true) {
-    if (!baseUrl || !auth || !canLoad) return;
+  async function loadMessages(
+    offset = lastIndex,
+    reportError = true,
+    options: ApiRequestOptions = {}
+  ): Promise<ChatResponse | undefined> {
+    if (!baseUrl || !auth || !canLoad) return undefined;
+    const loadingHistory = offset === 0 && !historyReadyRef.current;
+    if (loadingHistory) setHistoryStatus("loading");
     if (reportError) setError("");
     try {
-      const response = await fetchChatMessages(baseUrl, orderId, offset, auth);
+      const response = await fetchChatMessages(baseUrl, orderId, offset, auth, undefined, options);
       await applyChatResponse(response, historyReadyRef.current);
       historyReadyRef.current = true;
+      if (loadingHistory) setHistoryStatus("ready");
+      return response;
     } catch (loadError) {
+      if (loadingHistory) setHistoryStatus("error");
       if (reportError) setError(toUserMessage(loadError, "Could not load chat."));
+      return undefined;
     }
   }
 
@@ -124,8 +137,9 @@ export function ChatStagePanel({
       return;
     }
     const sendsPlaintextCommand = variant === "trade" && text.startsWith("#");
-    if (!sendsPlaintextCommand && !peerPubkey) {
-      setError("Peer public key is not available yet. Refresh chat first.");
+    const currentPeerPubkey = peerPubkeyRef.current;
+    if (!sendsPlaintextCommand && !currentPeerPubkey) {
+      setError("Preparing your peer's encryption key. The message can be sent as soon as it is ready.");
       return;
     }
 
@@ -138,7 +152,7 @@ export function ChatStagePanel({
             ownPrivateKeyArmored: robot.encPrivKey,
             ownPublicKeyArmored: robot.pubKey,
             passphrase: slotToken,
-            peerPublicKeyArmored: peerPubkey
+            peerPublicKeyArmored: currentPeerPubkey
           });
       const socket = socketRef.current;
       setDraft("");
@@ -192,8 +206,33 @@ export function ChatStagePanel({
   }
 
   useEffect(() => {
-    if (!canLoad || previewMode) return;
-    void loadMessages(0);
+    if (!canLoad || previewMode || isPreChat) return;
+    void loadMessages(0, true, { timeoutProfile: "interactive", priority: "foreground" });
+  }, [canLoad, connectionEpoch, isPreChat, orderId, previewMode]);
+
+  useEffect(() => {
+    if (!canLoad || previewMode || !isPreChat) return;
+    let disposed = false;
+    let retryTimer: number | undefined;
+
+    const reconcilePreChat = async (attempt: number) => {
+      const response = await loadMessages(
+        0,
+        attempt === 0,
+        attempt === 0
+          ? { timeoutProfile: "interactive", priority: "foreground" }
+          : { timeoutProfile: "background", priority: "visible" }
+      );
+      if (disposed || response?.peerPubkey) return;
+      const delay = Math.min(12_000, 1_500 * 2 ** Math.min(attempt, 3));
+      retryTimer = window.setTimeout(() => void reconcilePreChat(attempt + 1), delay);
+    };
+
+    void reconcilePreChat(0);
+    return () => {
+      disposed = true;
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+    };
   }, [canLoad, connectionEpoch, isPreChat, orderId, previewMode]);
 
   useEffect(() => {
@@ -304,9 +343,11 @@ export function ChatStagePanel({
             <RobotAvatar hashId={peerHashId} label={peerNick || "Trade peer"} size="sm" />
             <span>
               <strong>{peerNick || "Trade peer"}</strong>
-              <span className={peerConnected ? "chat-presence chat-presence-online" : "chat-presence"}>
-                {peerConnected ? "Online" : socketConnected ? "Away" : "Offline"}
-              </span>
+              {!isPreChat ? (
+                <span className={peerConnected ? "chat-presence chat-presence-online" : "chat-presence"}>
+                  {peerConnected ? "Online" : socketConnected ? "Away" : "Offline"}
+                </span>
+              ) : null}
             </span>
           </div>
         </div>
@@ -317,7 +358,13 @@ export function ChatStagePanel({
         ) : (
           <div className="chat-stack">
             <div className="chat-messages" ref={messagesRef} role="log" aria-live="polite">
-              {messages.length === 0 ? (
+              {messages.length === 0 && historyStatus === "loading" ? (
+                <div className="chat-loading" role="status">
+                  <span className="ui-spinner" aria-hidden="true" />
+                  <span>{isPreChat ? "Loading early message..." : "Loading chat..."}</span>
+                </div>
+              ) : null}
+              {messages.length === 0 && historyStatus === "ready" ? (
                 <p className="chat-empty">
                   {isPreChat ? "No early message sent." : "No chat messages yet."}
                 </p>
@@ -359,10 +406,16 @@ export function ChatStagePanel({
               <Button
                 aria-label={sending ? "Sending message" : "Send message"}
                 className="chat-send-button"
-                disabled={!canSend || !draft.trim() || preChatMessageSent}
+                disabled={!canSend || !draft.trim() || preChatMessageSent || (isPreChat && !peerPubkey)}
                 loading={sending}
                 size="icon"
-                title={draft.trim() ? "Send message" : "Type a message first"}
+                title={
+                  isPreChat && !peerPubkey
+                    ? "Preparing encrypted message"
+                    : draft.trim()
+                      ? "Send message"
+                      : "Type a message first"
+                }
                 type="submit"
                 variant="outline"
               >
@@ -374,6 +427,11 @@ export function ChatStagePanel({
             {preChatMessageSent ? (
               <p className="pre-chat-saved" role="status">
                 Message saved. Your peer will see it when trade chat opens.
+              </p>
+            ) : isPreChat && !peerPubkey ? (
+              <p className="pre-chat-key-status" role="status">
+                <span className="ui-spinner" aria-hidden="true" />
+                Preparing encrypted messaging...
               </p>
             ) : null}
             {error ? <p className="field-error">{error}</p> : null}
@@ -431,7 +489,11 @@ export function PreChatDisclosure(props: Omit<Parameters<typeof ChatStagePanel>[
         </span>
         <ChevronDown className="pre-chat-summary-chevron" size={18} aria-hidden="true" />
       </summary>
-      {open ? <ChatStagePanel {...props} variant="pre-chat" /> : null}
+      <ChatStagePanel
+        key={`${props.orderId}:${props.peerHashId || props.peerNick}`}
+        {...props}
+        variant="pre-chat"
+      />
     </details>
   );
 }
@@ -502,11 +564,12 @@ async function decryptDisplayMessage(
     peerPublicKeyArmored?: string;
   }
 ): Promise<DisplayChatMessage> {
+  const mine = message.nick === keys.myNick;
   if (message.encryptedMessage.startsWith("#")) {
     return {
       ...message,
       decryptFailed: false,
-      mine: message.nick === keys.myNick,
+      mine,
       plaintext: message.encryptedMessage
     };
   }
@@ -517,19 +580,19 @@ async function decryptDisplayMessage(
       ownPrivateKeyArmored: keys.ownPrivateKeyArmored,
       ownPublicKeyArmored: keys.ownPublicKeyArmored,
       passphrase: keys.passphrase,
-      peerPublicKeyArmored: keys.peerPublicKeyArmored
+      peerPublicKeyArmored: mine ? undefined : keys.peerPublicKeyArmored
     });
     return {
       ...message,
       decryptFailed: false,
-      mine: message.nick === keys.myNick,
+      mine,
       plaintext
     };
   } catch {
     return {
       ...message,
       decryptFailed: true,
-      mine: message.nick === keys.myNick,
+      mine,
       plaintext: "Encrypted message could not be decrypted."
     };
   }

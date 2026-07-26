@@ -29,6 +29,16 @@ export function preloadAllAppRoutes(): void {
   if (useProPreferencesStore.getState().enabled) void preloadProRoute();
 }
 
+export function preloadAppRoute(path: string): void {
+  if (path === "/garage" || path.startsWith("/garage/")) void preloadGarageRoute();
+  else if (path === "/offers") void preloadOffersRoute();
+  else if (path === "/create") void preloadCreateOrderRoute();
+  else if (path === "/coordinators") void preloadCoordinatorsRoute();
+  else if (path === "/settings") void preloadSettingsRoute();
+  else if (path === "/pro") void preloadProRoute();
+  else if (path === "/order" || path.startsWith("/order/")) void preloadOrderRoute();
+}
+
 export function AppRoutes() {
   return (
     <Suspense fallback={<RouteFallback />}>
@@ -74,6 +84,7 @@ function RouteFallback() {
 
 function ReadyRoute({ children }: { children: ReactNode }) {
   useEffect(() => {
+    document.documentElement.dataset.robosatsAppReady = "true";
     window.dispatchEvent(new Event("robosats:app-ready"));
   }, []);
 

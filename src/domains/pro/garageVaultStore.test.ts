@@ -7,6 +7,7 @@ import {
   createGarageSecret,
   deriveGarageRobotToken,
   encodeGarageToken,
+  GARAGE_LIMITS,
   garageTokenId,
   upsertGarageEntry
 } from "@/domains/pro/garageVault";
@@ -166,24 +167,26 @@ describe("Garage vault persistence", () => {
       .toEqual([]);
   });
 
-  it("enforces 16 active robots and restores capacity after removal", async () => {
+  it("enforces the active robot limit and restores capacity after removal", async () => {
     await useGarageVaultStore.getState().setup();
     useGarageVaultStore.getState().markBackedUp();
     const tokens: string[] = [];
-    for (let index = 0; index < 16; index += 1) {
+    for (let index = 0; index < GARAGE_LIMITS.activeRobots; index += 1) {
       const robot = await useGarageVaultStore.getState().createDerivedRobot(`Robot ${index + 1}`);
       tokens.push(robot.token);
     }
 
-    expect(activeGarageEntries(useGarageVaultStore.getState().manifest!)).toHaveLength(16);
+    expect(activeGarageEntries(useGarageVaultStore.getState().manifest!))
+      .toHaveLength(GARAGE_LIMITS.activeRobots);
     await expect(useGarageVaultStore.getState().createDerivedRobot("One too many"))
-      .rejects.toThrow("A Fleet can hold up to 16 robots");
+      .rejects.toThrow(`A Fleet can hold up to ${GARAGE_LIMITS.activeRobots} robots`);
 
     await useGarageVaultStore.getState().removeRobot(tokens[0]);
     await expect(useGarageVaultStore.getState().createDerivedRobot("Replacement")).resolves.toMatchObject({
       nickname: "Replacement"
     });
-    expect(activeGarageEntries(useGarageVaultStore.getState().manifest!)).toHaveLength(16);
+    expect(activeGarageEntries(useGarageVaultStore.getState().manifest!))
+      .toHaveLength(GARAGE_LIMITS.activeRobots);
   });
 
   it("abandons the Fleet without leaving its local key or envelope", async () => {

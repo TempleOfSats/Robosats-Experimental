@@ -70,6 +70,7 @@ class AsyncLimiter {
 export class GarageReconciler implements GarageReconcileController {
   private epoch = 0;
   private readonly inFlightSlots = new Map<string, Promise<void>>();
+  private readonly inFlightOrderReads = new Map<string, Promise<OrderDto>>();
   private readonly orderLimiter = new AsyncLimiter(PRO_RECONCILE_POLICY.maxOrderRequests);
   private readonly handledHintIds = new Set<string>();
   private readonly lastDiscoveryBySlot = new Map<string, number>();
@@ -91,6 +92,7 @@ export class GarageReconciler implements GarageReconcileController {
     const sync = useProTradeIndexStore.getState().syncBySlot[slotId];
     const now = this.dependencies.now();
     if (this.canKeepLocalReady(slotId, sync, reason, now)) return;
+    if (shouldSuppressAutomaticBurst(sync, reason, now)) return;
     if (!canBypassCadence(reason) && sync?.nextEligibleAt && sync.nextEligibleAt > now) return;
 
     const refresh = this.performSlotReconcile(slotId, reason).finally(() => {
@@ -275,7 +277,7 @@ export class GarageReconciler implements GarageReconcileController {
     const actionGeneration = actionSequences.get(key) ?? 0;
 
     try {
-      const order = await this.orderLimiter.run(() => this.dependencies.fetchOrder(coordinator, locator.orderId, slot));
+      const order = await this.readOrder(slot, coordinator, locator, epoch, actionGeneration);
       if (epoch !== this.epoch || actionGeneration !== (actionSequences.get(key) ?? 0)) return;
 
       const observedOrder = ingestCoordinatorOrder({
@@ -326,6 +328,25 @@ export class GarageReconciler implements GarageReconcileController {
         });
       }
     }
+  }
+
+  private readOrder(
+    slot: RobotSlot,
+    coordinator: CoordinatorSummary,
+    locator: ProTradeLocator,
+    epoch: number,
+    actionGeneration: number
+  ): Promise<OrderDto> {
+    const key = `${proTradeKey(locator)}:${epoch}:${actionGeneration}`;
+    const existing = this.inFlightOrderReads.get(key);
+    if (existing) return existing;
+    const request = this.orderLimiter
+      .run(() => this.dependencies.fetchOrder(coordinator, locator.orderId, slot))
+      .finally(() => {
+        if (this.inFlightOrderReads.get(key) === request) this.inFlightOrderReads.delete(key);
+      });
+    this.inFlightOrderReads.set(key, request);
+    return request;
   }
 
 }
@@ -475,4 +496,22 @@ function isReleasedPublicTake(order: OrderDto, robot?: RefreshRobotCoordinatorRe
 function isRecentHint(hint: OrderHint, now: number): boolean {
   const createdAt = hint.createdAt < 1_000_000_000_000 ? hint.createdAt * 1000 : hint.createdAt;
   return createdAt <= now + 10 * 60_000 && createdAt >= now - 7 * 24 * 60 * 60_000;
+}
+
+function shouldSuppressAutomaticBurst(
+  sync: SlotSyncState | undefined,
+  reason: ReconcileReason,
+  now: number
+): boolean {
+  if (!sync?.lastAttemptAt || sync.error) return false;
+  if (![
+    "startup",
+    "fleet-ready",
+    "online",
+    "tor-ready",
+    "tor-reconnected",
+    "window-focus",
+    "visibility-resume"
+  ].includes(reason)) return false;
+  return now - sync.lastAttemptAt < PRO_RECONCILE_POLICY.automaticBurstGuardMs;
 }

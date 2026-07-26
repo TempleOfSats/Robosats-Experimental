@@ -283,7 +283,7 @@ export const useGarageStore: UseBoundStore<StoreApi<GarageState>> = create<Garag
       return publishRobotRefreshResult({ slotId: slot.tokenSHA256, coordinators: [] });
     }
 
-    const refreshKey = robotRefreshKey(slot, targets, options.priority);
+    const refreshKey = robotRefreshKey(slot, targets);
     const existingRefresh = robotRefreshes.get(refreshKey);
     if (existingRefresh) return existingRefresh;
 
@@ -438,13 +438,11 @@ export function getRobotAuthForCoordinator(slot: RobotSlot | undefined, shortAli
 
 function robotRefreshKey(
   slot: RobotSlot,
-  coordinators: CoordinatorSummary[],
-  priority: RequestPriority = "visible"
+  coordinators: CoordinatorSummary[]
 ): string {
   return [
     slot.tokenSHA256,
-    coordinators.map((coordinator) => `${coordinator.shortAlias}:${coordinator.url}`).join(","),
-    priority
+    coordinators.map((coordinator) => `${coordinator.shortAlias}:${coordinator.url}`).join(",")
   ].join("|");
 }
 

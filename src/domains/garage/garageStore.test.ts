@@ -406,6 +406,26 @@ describe("garage order sync", () => {
     });
   }, 30000);
 
+  it("shares a robot refresh across foreground and background callers", async () => {
+    useGarageStore.setState({ slots: [slotWithCoordinatorKeys()], currentToken: "token", hydrated: true });
+    let resolveRobot: ((snapshot: ReturnType<typeof robotSnapshot>) => void) | undefined;
+    fetchRobotMock.mockReturnValue(new Promise((resolve) => {
+      resolveRobot = resolve;
+    }));
+
+    const background = useGarageStore.getState().refreshRobotSlot("token", [coordinator], {
+      priority: "background"
+    });
+    await vi.waitFor(() => expect(fetchRobotMock).toHaveBeenCalledOnce());
+    const foreground = useGarageStore.getState().refreshRobotSlot("token", [coordinator], {
+      priority: "foreground"
+    });
+    resolveRobot?.(robotSnapshot());
+    await Promise.all([background, foreground]);
+
+    expect(fetchRobotMock).toHaveBeenCalledOnce();
+  }, 30000);
+
   it("applies a preferred coordinator before slower refreshes settle", async () => {
     const temple = {
       ...coordinator,

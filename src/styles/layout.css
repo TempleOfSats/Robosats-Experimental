@@ -3667,6 +3667,31 @@
   line-height: 1.4;
 }
 
+.pre-chat-key-status {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.pre-chat-key-status .ui-spinner {
+  width: 0.85rem;
+  height: 0.85rem;
+}
+
+.chat-loading {
+  min-height: 5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  color: var(--muted-foreground);
+  font-size: 0.85rem;
+}
+
 .chat-header {
   display: grid;
   gap: 0.75rem;

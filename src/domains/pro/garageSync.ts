@@ -13,6 +13,7 @@ import {
   noteRelaySuccess,
   orderRelays
 } from "@/domains/nostr/relayHealth";
+import { relayRetryDelay } from "@/domains/nostr/relayRetry";
 import { buildNostrRelayUrl } from "@/domains/orderbook/nostrOrderbook";
 import { systemClient } from "@/domains/transport/systemClient";
 import { decryptGaragePayload, deriveGarageDomainKey, encryptGaragePayload, type GarageKeyDomain } from "@/domains/pro/garageCrypto";
@@ -38,6 +39,8 @@ import {
 const APPLICATION_DATA_KIND = 30078;
 const BOOTSTRAP_TIMEOUT_MS = 8_000;
 const ROUTINE_RELAY_TIMEOUT_MS = BOOTSTRAP_TIMEOUT_MS;
+const ROUTINE_PRIMARY_RELAY_COUNT = 2;
+const ROUTINE_SECONDARY_DELAY_MS = 15_000;
 const CURSOR_OVERLAP_SECONDS = 120;
 const FULL_PULL_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const FALLBACK_PULL_MIN_MS = 30_000;
@@ -79,6 +82,8 @@ export class GarageSyncEngine {
   private mutationTimer?: ReturnType<typeof setTimeout>;
   private retryTimer?: ReturnType<typeof setTimeout>;
   private fallbackTimer?: ReturnType<typeof setTimeout>;
+  private readonly subscriptionRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly subscriptionRetryAttempts = new Map<string, number>();
   private retryIndex = 0;
   private generation = 0;
   private lastSynchronizationStartedAt = 0;
@@ -98,6 +103,7 @@ export class GarageSyncEngine {
     this.generation += 1;
     this.closeSubscriptions("stopped");
     this.relayKey = "";
+    this.clearSubscriptionRetryTimers();
     if (this.mutationTimer) clearTimeout(this.mutationTimer);
     if (this.retryTimer) clearTimeout(this.retryTimer);
     if (this.fallbackTimer) clearTimeout(this.fallbackTimer);
@@ -128,6 +134,7 @@ export class GarageSyncEngine {
   pause(): void {
     this.closeSubscriptions("paused");
     this.relayKey = "";
+    this.clearSubscriptionRetryTimers();
     if (this.fallbackTimer) clearTimeout(this.fallbackTimer);
     this.fallbackTimer = undefined;
   }
@@ -164,6 +171,7 @@ export class GarageSyncEngine {
         const relays = this.orderedRelays();
         if (!secret || relays.length === 0) throw new Error("No coordinator relay is available.");
         await this.pullRoutineRecords(secret, relays, force);
+        this.ensureSubscription();
         lastPublicationAt = await this.flushOutbox(secret, relays);
       } while (this.syncRequested);
       this.retryIndex = 0;
@@ -235,47 +243,78 @@ export class GarageSyncEngine {
 
   private ensureSubscription(): void {
     const secret = getGarageSecret();
-    const relays = this.orderedRelays();
+    const relays = this.orderedRelays().slice(0, ROUTINE_PRIMARY_RELAY_COUNT);
     if (this.stopped || !secret || relays.length === 0 || !isForeground()) return;
     const key = relays.slice().sort().join("|");
-    if (this.subscriptions.size > 0 && key === this.relayKey) return;
-    this.closeSubscriptions("reconfigured");
+    const desiredRelays = new Set(relays);
+    for (const [relay, subscription] of this.subscriptions) {
+      if (desiredRelays.has(relay)) continue;
+      this.subscriptions.delete(relay);
+      subscription.close("reconfigured");
+      this.clearSubscriptionRetry(relay);
+    }
+    for (const relay of this.subscriptionRetryTimers.keys()) {
+      if (!desiredRelays.has(relay)) this.clearSubscriptionRetry(relay);
+    }
     this.relayKey = key;
-    const authors = syncAuthors(secret);
     relays.forEach((relay) => {
-      const startedAt = Date.now();
-      noteRelayConnected(relay);
-      recordRelayPerformance(relay, "connect", 0);
-      let subscription: SubCloser;
-      subscription = this.pool.subscribeMany([relay], {
-        authors,
-        kinds: [APPLICATION_DATA_KIND],
-        since: Math.floor(Date.now() / 1000) - 30
-      }, {
-        onevent: (event) => {
-          noteRelayEvent(relay);
-          if (!this.liveRelaysWithEvents.has(relay)) {
-            this.liveRelaysWithEvents.add(relay);
-            recordRelayPerformance(relay, "first-event", Date.now() - startedAt);
-          }
-          const observed = decodeGarageRecordEvent(event, secret);
-          if (!observed) return;
-          useGarageVaultStore.getState().applyRemoteRecords([observed]);
-        },
-        oneose: () => {
-          noteRelayEose(relay, Date.now() - startedAt);
-          recordRelayPerformance(relay, "eose", Date.now() - startedAt);
-        },
-        onclose: () => {
-          noteRelayDisconnected(relay);
-          this.liveRelaysWithEvents.delete(relay);
-          recordRelayPerformance(relay, "close", Date.now() - startedAt, "network-error");
-          if (this.subscriptions.get(relay) === subscription) this.subscriptions.delete(relay);
-          if (!this.stopped && isForeground()) this.scheduleFallbackPull();
-        }
-      });
-      this.subscriptions.set(relay, subscription);
+      if (!this.subscriptions.has(relay) && !this.subscriptionRetryTimers.has(relay)) {
+        this.subscribeRelay(relay, secret);
+      }
     });
+  }
+
+  private subscribeRelay(relay: string, secret: Uint8Array): void {
+    const startedAt = Date.now();
+    noteRelayConnected(relay);
+    recordRelayPerformance(relay, "connect", 0);
+    let subscription: SubCloser;
+    subscription = this.pool.subscribeMany([relay], {
+      authors: syncAuthors(secret),
+      kinds: [APPLICATION_DATA_KIND],
+      since: Math.floor(Date.now() / 1000) - 30
+    }, {
+      onevent: (event) => {
+        this.subscriptionRetryAttempts.delete(relay);
+        noteRelayEvent(relay);
+        if (!this.liveRelaysWithEvents.has(relay)) {
+          this.liveRelaysWithEvents.add(relay);
+          recordRelayPerformance(relay, "first-event", Date.now() - startedAt);
+        }
+        const observed = decodeGarageRecordEvent(event, secret);
+        if (!observed) return;
+        useGarageVaultStore.getState().applyRemoteRecords([observed]);
+      },
+      oneose: () => {
+        this.subscriptionRetryAttempts.delete(relay);
+        noteRelayEose(relay, Date.now() - startedAt);
+        recordRelayPerformance(relay, "eose", Date.now() - startedAt);
+      },
+      onclose: () => {
+        if (this.subscriptions.get(relay) !== subscription) return;
+        this.subscriptions.delete(relay);
+        noteRelayDisconnected(relay);
+        this.liveRelaysWithEvents.delete(relay);
+        recordRelayPerformance(relay, "close", Date.now() - startedAt, "network-error");
+        if (!this.stopped && isForeground()) {
+          this.scheduleSubscriptionReconnect(relay);
+          this.scheduleFallbackPull();
+        }
+      }
+    });
+    this.subscriptions.set(relay, subscription);
+  }
+
+  private scheduleSubscriptionReconnect(relay: string): void {
+    if (this.subscriptionRetryTimers.has(relay)) return;
+    const attempt = this.subscriptionRetryAttempts.get(relay) ?? 0;
+    this.subscriptionRetryAttempts.set(relay, attempt + 1);
+    const timer = setTimeout(() => {
+      this.subscriptionRetryTimers.delete(relay);
+      if (this.stopped || !isForeground() || !this.relays().includes(relay)) return;
+      this.ensureSubscription();
+    }, relayRetryDelay(attempt));
+    this.subscriptionRetryTimers.set(relay, timer);
   }
 
   private closeSubscriptions(reason: string): void {
@@ -283,6 +322,17 @@ export class GarageSyncEngine {
     this.subscriptions.clear();
     this.liveRelaysWithEvents.clear();
     subscriptions.forEach((subscription) => subscription.close(reason));
+  }
+
+  private clearSubscriptionRetry(relay: string): void {
+    const timer = this.subscriptionRetryTimers.get(relay);
+    if (timer) clearTimeout(timer);
+    this.subscriptionRetryTimers.delete(relay);
+    this.subscriptionRetryAttempts.delete(relay);
+  }
+
+  private clearSubscriptionRetryTimers(): void {
+    [...this.subscriptionRetryTimers.keys()].forEach((relay) => this.clearSubscriptionRetry(relay));
   }
 
   private scheduleRetry(): void {
@@ -320,7 +370,17 @@ export class GarageSyncEngine {
   private async pullRoutineRecords(secret: Uint8Array, relays: string[], waitForAll: boolean): Promise<void> {
     const generation = this.generation;
     const identity = syncIdentity(secret);
-    const pulls = relays.map((relay) => this.pullRelay(secret, identity, relay));
+    const secondaryDelay = waitForAll ? 0 : ROUTINE_SECONDARY_DELAY_MS;
+    const primaryPulls = relays
+      .slice(0, ROUTINE_PRIMARY_RELAY_COUNT)
+      .map((relay) => this.pullRelay(secret, identity, relay));
+    const secondaryPulls = relays
+      .slice(ROUTINE_PRIMARY_RELAY_COUNT)
+      .map(async (relay) => {
+        if (secondaryDelay > 0) await wait(secondaryDelay);
+        return this.pullRelay(secret, identity, relay);
+      });
+    const pulls = [...primaryPulls, ...secondaryPulls];
     if (waitForAll) {
       const results = await Promise.allSettled(pulls);
       const successful = results.flatMap((result) => result.status === "fulfilled" ? result.value.records : []);

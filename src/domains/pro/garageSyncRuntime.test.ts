@@ -102,6 +102,44 @@ describe("Garage synchronization runtime", () => {
     resolveSlow([]);
   });
 
+  it("keeps two live relay subscriptions and backs off only the failed relay", async () => {
+    await useGarageVaultStore.getState().setup();
+    useGarageVaultStore.getState().markBackedUp();
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const subscriptions: Array<{
+      relay: string;
+      params: { oneose?: () => void; onclose?: (reasons: string[]) => void };
+    }> = [];
+    vi.spyOn(SimplePool.prototype, "subscribeMany").mockImplementation((relays, _filter, params) => {
+      subscriptions.push({ relay: relays[0], params });
+      return { close: vi.fn() };
+    });
+    const coordinators = [
+      coordinator("alpha", "https://alpha.example"),
+      coordinator("bravo", "https://bravo.example"),
+      coordinator("charlie", "https://charlie.example")
+    ];
+
+    try {
+      garageSyncEngine.start(() => coordinators, false);
+      expect(subscriptions).toHaveLength(2);
+      const failedRelay = subscriptions[0].relay;
+      const healthyRelay = subscriptions[1].relay;
+
+      subscriptions[0].params.onclose?.(["network-error"]);
+      await vi.advanceTimersByTimeAsync(4_999);
+      expect(subscriptions).toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(1);
+
+      expect(subscriptions.filter(({ relay }) => relay === failedRelay)).toHaveLength(2);
+      expect(subscriptions.filter(({ relay }) => relay === healthyRelay)).toHaveLength(1);
+    } finally {
+      garageSyncEngine.stop();
+      vi.useRealTimers();
+    }
+  });
+
   it("persists one relay acknowledgement until a second relay accepts", async () => {
     await useGarageVaultStore.getState().setup();
     useGarageVaultStore.getState().markBackedUp();

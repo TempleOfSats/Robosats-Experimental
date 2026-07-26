@@ -9,6 +9,7 @@ import {
   noteRelayFailure,
   orderRelays
 } from "@/domains/nostr/relayHealth";
+import { relayRetryDelay } from "@/domains/nostr/relayRetry";
 import { currencyIdFromCode } from "@/domains/orderbook/currencies";
 import type { PublicOrder } from "@/domains/orderbook/orderbook.types";
 
@@ -132,6 +133,8 @@ class NostrOrderbookSession {
   private readonly fallbackTimers: Array<ReturnType<typeof setTimeout>> = [];
   private readonly relayStartedAt = new Map<number, number>();
   private readonly relaysWithEvents = new Set<string>();
+  private readonly relayRetryTimers = new Map<number, ReturnType<typeof setTimeout>>();
+  private readonly relayRetryAttempts = new Map<number, number>();
   private readonly maxWaitMs: number;
   private readonly coordinators: CoordinatorSummary[];
   private readonly network: Network;
@@ -246,7 +249,7 @@ class NostrOrderbookSession {
       maxWait: this.maxWaitMs,
       onevent: (event) => this.handleEvent(event, relay),
       oneose: () => this.markEose(relayIndex, filterIndex, subscriptionKey),
-      onclose: () => this.handleRelayClose(relayIndex, relay, filterIndex)
+      onclose: () => this.handleRelayClose(relayIndex, relay, filterIndex, subscriptionKey)
     });
     this.subscriptions.set(subscriptionKey, subscription);
   }
@@ -261,10 +264,11 @@ class NostrOrderbookSession {
 
   private handleEvent(event: Event, relay: string): void {
     if (this.closed || !verifyEvent(event)) return;
+    const relayIndex = this.relays.indexOf(relay);
+    if (relayIndex >= 0) this.relayRetryAttempts.delete(relayIndex);
     noteRelayEvent(relay);
     if (!this.relaysWithEvents.has(relay)) {
       this.relaysWithEvents.add(relay);
-      const relayIndex = this.relays.indexOf(relay);
       recordRelayPerformance(relay, "first-event", Date.now() - (this.relayStartedAt.get(relayIndex) ?? Date.now()));
     }
     this.events.set(event.id, event);
@@ -278,6 +282,7 @@ class NostrOrderbookSession {
 
   private markEose(relayIndex: number, filterIndex: number, subscriptionKey: string): void {
     if (this.closed) return;
+    this.relayRetryAttempts.delete(relayIndex);
     const completedFilters = this.relayEoses.get(relayIndex);
     if (!completedFilters) return;
     completedFilters.add(filterIndex);
@@ -307,7 +312,13 @@ class NostrOrderbookSession {
     }
   }
 
-  private handleRelayClose(relayIndex: number, relay: string, filterIndex: number): void {
+  private handleRelayClose(
+    relayIndex: number,
+    relay: string,
+    filterIndex: number,
+    subscriptionKey: string
+  ): void {
+    this.subscriptions.delete(subscriptionKey);
     if (filterIndex === 0 && this.relayEoses.get(relayIndex)?.has(filterIndex)) return;
     if (this.closed || this.closedRelays.has(relayIndex)) return;
     this.closedRelays.add(relayIndex);
@@ -324,6 +335,21 @@ class NostrOrderbookSession {
     // live update channel. Replace it even when the initial fetch has settled.
     const nextRelay = this.relays.findIndex((_candidate, index) => index > relayIndex && !this.relayEoses.has(index));
     if (nextRelay >= 0) this.startRelay(nextRelay);
+    this.scheduleRelayReconnect(relayIndex);
+  }
+
+  private scheduleRelayReconnect(relayIndex: number): void {
+    if (this.closed || this.relayRetryTimers.has(relayIndex)) return;
+    const attempt = this.relayRetryAttempts.get(relayIndex) ?? 0;
+    this.relayRetryAttempts.set(relayIndex, attempt + 1);
+    const timer = setTimeout(() => {
+      this.relayRetryTimers.delete(relayIndex);
+      if (this.closed) return;
+      this.closedRelays.delete(relayIndex);
+      this.relayEoses.delete(relayIndex);
+      this.startRelay(relayIndex);
+    }, relayRetryDelay(attempt));
+    this.relayRetryTimers.set(relayIndex, timer);
   }
 
   private finishInitial(orders = this.currentOrders(), authoritative = true): void {
@@ -388,6 +414,8 @@ class NostrOrderbookSession {
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.fallbackTimers.forEach((timer) => clearTimeout(timer));
     this.fallbackTimers.length = 0;
+    this.relayRetryTimers.forEach((timer) => clearTimeout(timer));
+    this.relayRetryTimers.clear();
   }
 }
 

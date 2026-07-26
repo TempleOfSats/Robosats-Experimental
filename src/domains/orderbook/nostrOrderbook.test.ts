@@ -187,6 +187,35 @@ describe("nostr orderbook", () => {
     expect(selectNostrRelays(coordinators)[0]).not.toBe(failedRelay);
   });
 
+  it("backs off reconnecting the same failed relay", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    poolState.subscriptions.length = 0;
+
+    try {
+      const unsubscribe = subscribeNostrOrderbook([coordinator], "mainnet");
+      expect(poolState.subscriptions).toHaveLength(1);
+
+      poolState.subscriptions[0].params.onclose?.();
+      await vi.advanceTimersByTimeAsync(4_999);
+      expect(poolState.subscriptions).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(poolState.subscriptions).toHaveLength(2);
+
+      poolState.subscriptions[1].params.onclose?.();
+      await vi.advanceTimersByTimeAsync(14_999);
+      expect(poolState.subscriptions).toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(poolState.subscriptions).toHaveLength(3);
+
+      resetNostrOrderbookSession();
+      unsubscribe();
+    } finally {
+      resetNostrOrderbookSession();
+      vi.useRealTimers();
+    }
+  });
+
   it("sequences the host snapshot and live streams before finishing the initial fetch", async () => {
     poolState.subscriptions.length = 0;
     const updates: Array<{ partial: boolean }> = [];
