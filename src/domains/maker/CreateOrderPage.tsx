@@ -71,6 +71,7 @@ const wizardSteps = [
 
 type CreateOrderRouteState = {
   renewDraft?: CreateOrderDraft;
+  prefillDraft?: Pick<CreateOrderDraft, "amount" | "currency" | "paymentMethod" | "type">;
   shortAlias?: string;
   creatingOfferAs?: { hashId: string; nickname: string };
   presetId?: string;
@@ -119,9 +120,12 @@ export function CreateOrderPage() {
   const setProLastView = useProPreferencesStore((state) => state.setLastView);
   const portableManifest = usePortableSettingsStore((state) => state.manifest);
   const savePreset = usePortableSettingsStore((state) => state.savePreset);
-  const [draft, setDraft] = useState<CreateOrderDraft>(() => renewal?.renewDraft ?? initialDraft);
+  const [draft, setDraft] = useState<CreateOrderDraft>(() => renewal?.renewDraft ?? {
+    ...initialDraft,
+    ...renewal?.prefillDraft
+  });
   const [selectedShortAlias, setSelectedShortAlias] = useState(() => renewal?.shortAlias ?? "");
-  const [currentStep, setCurrentStep] = useState(0);
+  const [currentStep, setCurrentStep] = useState(() => renewal?.prefillDraft ? wizardSteps.length - 1 : 0);
   const [reviewReady, setReviewReady] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
