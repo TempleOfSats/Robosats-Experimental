@@ -1,9 +1,11 @@
-import { LayoutList, PlusCircle, Settings, Store, Workflow } from "lucide-react";
-import { useEffect, useMemo } from "react";
+import { Info, LayoutList, PlusCircle, Settings, Store, Workflow, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { NavLink } from "react-router-dom";
 import type { RoboSatsPlatform } from "@/app/platform";
 import { preloadAppRoute } from "@/app/routes";
 import { RoboSatsLogo } from "@/components/app/RoboSatsLogo";
+import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
 import { RobotIcon } from "@/components/ui/robotIcon";
 import { selectFleetManagedSlots, selectStandardGarageSlots, type RobotSlot, useGarageStore } from "@/domains/garage/garageStore";
 import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
@@ -29,6 +31,7 @@ export function AppSidebar({ platform: _platform }: { platform: RoboSatsPlatform
     () => Object.values(snapshots).filter((snapshot) => classifyProTrade(snapshot) === "needs-action").length,
     [snapshots]
   );
+  const [unavailableItem, setUnavailableItem] = useState<"robot" | "trade" | null>(null);
 
   useEffect(() => {
     hydrate();
@@ -42,10 +45,18 @@ export function AppSidebar({ platform: _platform }: { platform: RoboSatsPlatform
 
       <nav className={proEnabled ? "sidebar-nav sidebar-nav-pro" : "sidebar-nav"} aria-label="Main navigation">
         {items.map((item) => item.to === "/garage" && proEnabled ? (
-          <span className="nav-item nav-item-disabled" aria-disabled="true" key={item.to} title="Disable PRO to use the standard Garage">
+          <button
+            aria-describedby="standard-garage-disabled-reason"
+            className="nav-item nav-item-disabled"
+            data-disabled-reason="Unavailable while Pro Mode is enabled"
+            key={item.to}
+            onClick={() => setUnavailableItem("robot")}
+            type="button"
+          >
             <item.icon size={18} />
             <span>{item.label}</span>
-          </span>
+            <span className="sr-only" id="standard-garage-disabled-reason">Open Settings and disable Pro Mode to use the standard Garage.</span>
+          </button>
         ) : (
           <NavLink
             key={item.to}
@@ -83,10 +94,17 @@ export function AppSidebar({ platform: _platform }: { platform: RoboSatsPlatform
             <span>Trade</span>
           </NavLink>
         ) : (
-          <span className="nav-item nav-item-disabled" aria-disabled="true">
+          <button
+            aria-describedby="trade-disabled-reason"
+            className="nav-item nav-item-disabled"
+            data-disabled-reason="Choose or create an offer first"
+            onClick={() => setUnavailableItem("trade")}
+            type="button"
+          >
             <Workflow size={18} />
             <span>Trade</span>
-          </span>
+            <span className="sr-only" id="trade-disabled-reason">Choose or create an offer before opening a trade.</span>
+          </button>
         )}
         <NavLink
           to="/settings"
@@ -98,6 +116,39 @@ export function AppSidebar({ platform: _platform }: { platform: RoboSatsPlatform
           <span>Settings</span>
         </NavLink>
       </nav>
+
+      {unavailableItem ? (
+        <Dialog
+          ariaLabelledby="unavailable-navigation-title"
+          onClose={() => setUnavailableItem(null)}
+          overlayClassName="confirm-overlay"
+          panelClassName="confirm-sheet nav-unavailable-dialog"
+        >
+          <header className="confirm-header">
+            <span className="nav-unavailable-icon" aria-hidden="true"><Info size={20} /></span>
+            <div>
+              <h3 id="unavailable-navigation-title">
+                {unavailableItem === "robot" ? "Standard Garage unavailable" : "No active trade"}
+              </h3>
+              <p className="muted-copy">
+                {unavailableItem === "robot"
+                  ? "The standard Garage is unavailable while Pro Mode is enabled. Your robots are managed from the Pro Desk. If you were using any robot in the standard Garage, toggle off Pro Mode from settings to show them again."
+                  : "The Trade view becomes available after a robot creates or takes an offer."}
+              </p>
+            </div>
+            <Button
+              aria-label="Close information"
+              className="nav-unavailable-close"
+              data-dialog-initial-focus
+              onClick={() => setUnavailableItem(null)}
+              size="icon"
+              variant="ghost"
+            >
+              <X size={18} />
+            </Button>
+          </header>
+        </Dialog>
+      ) : null}
     </aside>
   );
 }

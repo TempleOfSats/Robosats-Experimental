@@ -47,7 +47,7 @@ export function registerReconcileTriggers(options: ReconcileTriggerOptions): () 
     if (!result) return;
     markProOrderActionFinished(result);
     if (result.status !== undefined && result.isMaker !== undefined
-      && isTerminalForProDesk(result.status, result.isMaker)) {
+      && isTerminalForProDesk(result.status, result.isMaker, result.hasFailedPayout)) {
       useProTradeIndexStore.getState().removeTrade(result);
       return;
     }
@@ -139,18 +139,26 @@ function validLocator(value: unknown): ProTradeLocator | undefined {
 function validOrderActionResult(value: unknown): (ProTradeLocator & {
   status?: number;
   isMaker?: boolean;
+  hasFailedPayout?: boolean;
   snapshotApplied?: boolean;
 }) | undefined {
   const locator = validLocator(value);
   if (!locator) return undefined;
-  const result = value as { status?: unknown; isMaker?: unknown; snapshotApplied?: unknown };
+  const result = value as {
+    status?: unknown;
+    isMaker?: unknown;
+    hasFailedPayout?: unknown;
+    snapshotApplied?: unknown;
+  };
   if (result.status !== undefined && !Number.isInteger(result.status)) return undefined;
   if (result.isMaker !== undefined && typeof result.isMaker !== "boolean") return undefined;
+  if (result.hasFailedPayout !== undefined && typeof result.hasFailedPayout !== "boolean") return undefined;
   if (result.snapshotApplied !== undefined && typeof result.snapshotApplied !== "boolean") return undefined;
   return {
     ...locator,
     status: result.status as number | undefined,
     isMaker: result.isMaker as boolean | undefined,
+    hasFailedPayout: result.hasFailedPayout as boolean | undefined,
     snapshotApplied: result.snapshotApplied as boolean | undefined
   };
 }

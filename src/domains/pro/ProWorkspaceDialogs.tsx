@@ -1,6 +1,7 @@
 import { AlertTriangle, ChevronRight, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import { useGarageStore, type RobotSlot } from "@/domains/garage/garageStore";
 import { RobotAvatar } from "@/domains/identity/RobotAvatar";
@@ -32,14 +33,12 @@ export function CreateOfferRobotPicker({
   title?: string;
 }) {
   return (
-    <div className="confirm-overlay" onClick={onClose}>
-      <section
-        aria-labelledby="pro-create-robot-title"
-        aria-modal="true"
-        className="garage-switcher-panel pro-create-robot-picker"
-        onClick={(event) => event.stopPropagation()}
-        role="dialog"
-      >
+    <Dialog
+      ariaLabelledby="pro-create-robot-title"
+      onClose={onClose}
+      overlayClassName="confirm-overlay"
+      panelClassName="garage-switcher-panel pro-create-robot-picker"
+    >
         <header className="garage-switcher-header">
           <span>
             <h3 id="pro-create-robot-title">{title}</h3>
@@ -81,8 +80,7 @@ export function CreateOfferRobotPicker({
             ) : null}
           </div>
         )}
-      </section>
-    </div>
+    </Dialog>
   );
 }
 
@@ -145,8 +143,12 @@ export function TelegramCoordinatorPicker({
   }
 
   return (
-    <div className="confirm-overlay" role="dialog" aria-modal="true" aria-labelledby="pro-telegram-title" onClick={onClose}>
-      <section className="confirm-sheet pro-telegram-picker" onClick={(event) => event.stopPropagation()}>
+    <Dialog
+      ariaLabelledby="pro-telegram-title"
+      onClose={onClose}
+      overlayClassName="confirm-overlay"
+      panelClassName="confirm-sheet pro-telegram-picker"
+    >
         <button className="take-modal-close" onClick={onClose} type="button" aria-label="Close Telegram coordinator picker">
           <X size={20} />
         </button>
@@ -189,8 +191,7 @@ export function TelegramCoordinatorPicker({
         <div className="confirm-actions">
           <Button variant="secondary" onClick={onClose}>Back</Button>
         </div>
-      </section>
-    </div>
+    </Dialog>
   );
 }
 
@@ -204,8 +205,12 @@ export function ConfirmDeleteRobot({
   robotName: string;
 }) {
   return (
-    <div className="confirm-overlay" role="dialog" aria-modal="true" aria-labelledby="pro-delete-robot-title" onClick={onCancel}>
-      <section className="confirm-sheet" onClick={(event) => event.stopPropagation()}>
+    <Dialog
+      ariaLabelledby="pro-delete-robot-title"
+      onClose={onCancel}
+      overlayClassName="confirm-overlay"
+      panelClassName="confirm-sheet"
+    >
         <div className="confirm-header">
           <span className="confirm-icon-shell" aria-hidden="true"><AlertTriangle size={22} /></span>
           <h3 id="pro-delete-robot-title">Remove {robotName}?</h3>
@@ -215,8 +220,7 @@ export function ConfirmDeleteRobot({
           <Button variant="secondary" onClick={onCancel}>Keep robot</Button>
           <Button variant="destructive" onClick={onConfirm}><Trash2 size={16} /> Remove from Fleet</Button>
         </div>
-      </section>
-    </div>
+    </Dialog>
   );
 }
 
@@ -232,8 +236,13 @@ export function ConfirmCancelOffer({
   orderId: number;
 }) {
   return (
-    <div className="confirm-overlay" role="dialog" aria-modal="true" aria-labelledby="pro-cancel-offer-title" onClick={onCancel}>
-      <section className="confirm-sheet" onClick={(event) => event.stopPropagation()}>
+    <Dialog
+      ariaLabelledby="pro-cancel-offer-title"
+      closeOnEscape={!loading}
+      onClose={onCancel}
+      overlayClassName="confirm-overlay"
+      panelClassName="confirm-sheet"
+    >
         <div className="confirm-header">
           <span className="confirm-icon-shell" aria-hidden="true"><AlertTriangle size={22} /></span>
           <h3 id="pro-cancel-offer-title">Cancel order #{orderId}?</h3>
@@ -243,7 +252,6 @@ export function ConfirmCancelOffer({
           <Button disabled={loading} variant="secondary" onClick={onCancel}>Keep offer</Button>
           <Button loading={loading} variant="destructive" onClick={onConfirm}><X size={16} /> Cancel offer</Button>
         </div>
-      </section>
-    </div>
+    </Dialog>
   );
 }

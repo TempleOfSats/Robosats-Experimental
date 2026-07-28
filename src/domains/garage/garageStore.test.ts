@@ -290,6 +290,27 @@ describe("garage order sync", () => {
     expect(storage.get("robosats_exp_garage_current_slot")).toBe("token");
   });
 
+  it("keeps routing status only for the robot whose payout failed", () => {
+    useGarageStore.setState({ slots: [makeSlot("token")], currentToken: "token", hydrated: true });
+    useGarageStore.getState().syncOrderSnapshot({
+      token: "token",
+      shortAlias: "lake",
+      orderId: 89895,
+      status: 15,
+      hasFailedPayout: false
+    });
+    expect(useGarageStore.getState().slots[0].activeOrderId).toBeUndefined();
+
+    useGarageStore.getState().syncOrderSnapshot({
+      token: "token",
+      shortAlias: "lake",
+      orderId: 89896,
+      status: 15,
+      hasFailedPayout: true
+    });
+    expect(useGarageStore.getState().slots[0].activeOrderId).toBe(89896);
+  });
+
   it("keeps an expired maker order active so it can be renewed", () => {
     useGarageStore.setState({ slots: [makeSlot("token")], currentToken: "token", hydrated: true });
 
@@ -426,6 +447,73 @@ describe("garage order sync", () => {
     expect(fetchRobotMock).toHaveBeenCalledOnce();
   }, 30000);
 
+  it("reuses a recent successful robot result for background reconciliation", async () => {
+    const checkedAt = Date.now() - 10_000;
+    const freshSlot = slotWithCoordinatorKeys({ activeOrderId: 91234, lastOrderId: 91234 });
+    freshSlot.robots.lake.lastCheckedAt = checkedAt;
+    useGarageStore.setState({ slots: [freshSlot], currentToken: "token", hydrated: true });
+    const observer = vi.fn();
+
+    const result = await useGarageStore.getState().refreshRobotSlot("token", [coordinator], {
+      maxAgeMs: 300_000,
+      onCoordinatorResult: observer,
+      priority: "background"
+    });
+
+    expect(fetchRobotMock).not.toHaveBeenCalled();
+    expect(result.coordinators).toEqual([expect.objectContaining({
+      shortAlias: "lake",
+      cached: true,
+      activeOrderId: 91234,
+      lastOrderId: 91234
+    })]);
+    expect(observer).toHaveBeenCalledOnce();
+    expect(useGarageStore.getState().slots[0].loading).toBeFalsy();
+  });
+
+  it("bypasses robot freshness when no maximum age is requested", async () => {
+    const freshSlot = slotWithCoordinatorKeys();
+    freshSlot.robots.lake.lastCheckedAt = Date.now();
+    useGarageStore.setState({ slots: [freshSlot], currentToken: "token", hydrated: true });
+    fetchRobotMock.mockResolvedValue(robotSnapshot());
+
+    await useGarageStore.getState().refreshRobotSlot("token", [coordinator], {
+      priority: "foreground"
+    });
+
+    expect(fetchRobotMock).toHaveBeenCalledOnce();
+  });
+
+  it("does not let a foreground refresh join a partial cached background run", async () => {
+    const temple = {
+      ...coordinator,
+      shortAlias: "temple",
+      longAlias: "Temple",
+      url: "https://temple.example"
+    };
+    const freshSlot = slotWithCoordinatorKeys();
+    freshSlot.robots.lake.lastCheckedAt = Date.now();
+    useGarageStore.setState({ slots: [freshSlot], currentToken: "token", hydrated: true });
+    const resolvers: Array<(value: ReturnType<typeof robotSnapshot>) => void> = [];
+    fetchRobotMock.mockImplementation(() => new Promise((resolve) => resolvers.push(resolve)));
+
+    const background = useGarageStore.getState().refreshRobotSlot(
+      "token",
+      [coordinator, temple],
+      { maxAgeMs: 300_000, priority: "background" }
+    );
+    await vi.waitFor(() => expect(fetchRobotMock).toHaveBeenCalledTimes(1));
+
+    const foreground = useGarageStore.getState().refreshRobotSlot(
+      "token",
+      [coordinator, temple],
+      { priority: "foreground" }
+    );
+    await vi.waitFor(() => expect(fetchRobotMock).toHaveBeenCalledTimes(3));
+    resolvers.forEach((resolve) => resolve(robotSnapshot()));
+    await Promise.all([background, foreground]);
+  });
+
   it("applies a preferred coordinator before slower refreshes settle", async () => {
     const temple = {
       ...coordinator,
@@ -452,6 +540,41 @@ describe("garage order sync", () => {
     resolveTemple?.(robotSnapshot());
     await refresh;
     expect(useGarageStore.getState().slots[0].loading).toBe(false);
+  }, 30000);
+
+  it("notifies observers as each coordinator settles", async () => {
+    const temple = {
+      ...coordinator,
+      shortAlias: "temple",
+      longAlias: "Temple",
+      url: "https://temple.example"
+    };
+    useGarageStore.setState({ slots: [slotWithCoordinatorKeys()], currentToken: "token", hydrated: true });
+    let resolveLake: ((value: ReturnType<typeof robotSnapshot>) => void) | undefined;
+    let resolveTemple: ((value: ReturnType<typeof robotSnapshot>) => void) | undefined;
+    fetchRobotMock.mockImplementation((url: string) => new Promise((resolve) => {
+      if (url.includes("temple")) resolveTemple = resolve;
+      else resolveLake = resolve;
+    }));
+    const observer = vi.fn();
+
+    const refresh = useGarageStore.getState().refreshRobotSlot("token", [temple, coordinator], {
+      onCoordinatorResult: observer,
+      preferredAliases: ["lake"]
+    });
+    await vi.waitFor(() => expect(fetchRobotMock).toHaveBeenCalledTimes(2));
+    resolveLake?.(robotSnapshot({ activeOrderId: 91234, lastOrderId: 91234 }));
+
+    await vi.waitFor(() => expect(observer).toHaveBeenCalledWith(expect.objectContaining({
+      shortAlias: "lake",
+      activeOrderId: 91234,
+      transportFailed: false
+    })));
+    expect(observer).toHaveBeenCalledTimes(1);
+
+    resolveTemple?.(robotSnapshot());
+    await refresh;
+    expect(observer).toHaveBeenCalledTimes(2);
   }, 30000);
 
   it("does not resurrect a released reservation from a stale robot snapshot", async () => {

@@ -4,8 +4,10 @@ import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.type
 import { getRobotAuthForCoordinator, type RobotSlot, useGarageStore } from "@/domains/garage/garageStore";
 import { ingestCoordinatorOrder } from "@/domains/orders/orderActivity";
 import { fetchOrder, isCompleteOrderActionResponse, submitOrderAction } from "@/domains/orders/orderApi";
+import { hasFailedPayoutForCurrentRobot } from "@/domains/orders/orderStateMachine";
 import type { OrderDto, SubmitOrderActionPayload } from "@/domains/orders/order.types";
 import type { ApiRequestOptions } from "@/domains/transport/apiClient";
+import { hasRoboSatsApiErrorCode } from "@/domains/transport/apiError";
 
 let requestSequence = 0;
 
@@ -139,7 +141,12 @@ export const useOrderStore = create<OrderState>((set, get) => ({
         coordinator.shortAlias,
         orderId,
         completedOrder
-          ? { status: completedOrder.status, isMaker: completedOrder.is_maker, snapshotApplied: true }
+          ? {
+              status: completedOrder.status,
+              isMaker: completedOrder.is_maker,
+              hasFailedPayout: hasFailedPayoutForCurrentRobot(completedOrder),
+              snapshotApplied: true
+            }
           : undefined
       );
     }
@@ -161,6 +168,7 @@ export function orderLoadRequestOptions(reason: OrderLoadReason): ApiRequestOpti
 }
 
 export function isAlreadyCancelledError(error: unknown): boolean {
+  if (hasRoboSatsApiErrorCode(error, 1043)) return true;
   if (!(error instanceof Error)) return false;
   return /(?:error_code["']?\s*:\s*1043|this order has been cancelled)/i.test(error.message);
 }
@@ -197,7 +205,7 @@ function dispatchOrderActionEvent(
   slot: RobotSlot | undefined,
   shortAlias: string,
   orderId: number,
-  result?: { status: number; isMaker: boolean; snapshotApplied: boolean }
+  result?: { status: number; isMaker: boolean; hasFailedPayout: boolean; snapshotApplied: boolean }
 ): void {
   if (!slot || typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent(name, {

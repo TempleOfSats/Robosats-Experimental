@@ -1,4 +1,8 @@
 import { SimplePool } from "nostr-tools/pool";
+import {
+  LiveRelaySubscriptionManager,
+  type LiveRelaySubscriptions
+} from "@/domains/nostr/liveRelaySubscriptions";
 
 export const RELAY_CONNECTION_TIMEOUT_MS = 120_000;
 
@@ -7,6 +11,7 @@ const sharedRelayPool = new SimplePool({
   enableReconnect: false
 });
 sharedRelayPool.maxWaitForConnection = RELAY_CONNECTION_TIMEOUT_MS;
+const liveRelaySubscriptions = new LiveRelaySubscriptionManager(sharedRelayPool);
 
 const relayQueries = new Map<string, Promise<void>>();
 
@@ -14,8 +19,12 @@ export function getSharedRelayPool(): SimplePool {
   return sharedRelayPool;
 }
 
-// Query callers share the same physical relay connections as live subscriptions.
-// The callback wrapper remains to keep existing call sites and query semantics stable.
+export function getLiveRelaySubscriptions(): LiveRelaySubscriptions {
+  return liveRelaySubscriptions;
+}
+
+// Queries reuse the live WebSocket and are serialized per relay, while the
+// multiplexer keeps persistent consumers inside a single concurrent REQ.
 export async function withRelayQueryPool<T>(query: (pool: SimplePool) => Promise<T>): Promise<T> {
   return query(sharedRelayPool);
 }
@@ -29,4 +38,8 @@ export function runRelayQuery<T>(relay: string, query: () => Promise<T>): Promis
     if (relayQueries.get(relay) === settled) relayQueries.delete(relay);
   });
   return result;
+}
+
+export function resetLiveRelaySubscriptionsForTests(): void {
+  liveRelaySubscriptions.reset();
 }

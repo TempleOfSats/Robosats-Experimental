@@ -42,6 +42,8 @@ import {
   robotEntryToSyncRecord,
   syncRecordKey,
   syncRecordToRobotEntry,
+  syncRecordToTradeHistory,
+  tradeHistoryToSyncRecord,
   validateGarageSyncRecord,
   type GarageObservedEvent,
   type GarageOutboxItem,
@@ -50,6 +52,16 @@ import {
   type GarageSyncRecord,
   type ObservedGarageSyncRecord
 } from "@/domains/pro/garageSyncRecords";
+import {
+  archiveTradeHistoryEntry,
+  createTradeHistoryManifest,
+  pruneTradeHistoryManifest,
+  tradeHistoryEntryFromOrder,
+  upsertTradeHistoryEntry,
+  validateTradeHistoryManifest,
+  type ArchiveTradeInput,
+  type TradeHistoryManifest
+} from "@/domains/pro/tradeHistory";
 
 const DEVICE_ID_KEY = "robosats_exp_garage_device_v3";
 const ENVELOPE_KEY = "robosats_exp_garage_envelope_v3";
@@ -66,6 +78,7 @@ export type GarageLocalEnvelope = {
   updatedAt: number;
   garage: GarageManifest;
   settings: PortableSettingsManifest;
+  history: TradeHistoryManifest;
   outbox: GarageOutboxItem[];
   observed: Record<string, GarageObservedEvent>;
 };
@@ -76,6 +89,7 @@ export type GarageRecoverySnapshot = {
   createdAt: number;
   garage: GarageManifest;
   settings: PortableSettingsManifest;
+  history: TradeHistoryManifest;
 };
 
 export type MaterializedGarageRobot = GarageRobotEntry & { token: string };
@@ -92,6 +106,7 @@ type GarageVaultState = {
   lastPublicationAt?: number;
   envelope?: GarageLocalEnvelope;
   manifest?: GarageManifest;
+  history?: TradeHistoryManifest;
   error?: string;
   initialize: () => Promise<void>;
   setup: () => Promise<string>;
@@ -103,6 +118,7 @@ type GarageVaultState = {
   exportToken: () => string;
   markBackedUp: () => void;
   replacePortableSettings: (settings: PortableSettingsManifest) => void;
+  archiveTrade: (input: ArchiveTradeInput) => void;
   applyRemoteRecords: (records: ObservedGarageSyncRecord[]) => void;
   pendingOutbox: () => GaragePendingRecord[];
   recordOutboxAcknowledgements: (
@@ -130,7 +146,7 @@ export const useGarageVaultStore = create<GarageVaultState>((set, get) => ({
     initialization = (async () => {
       const storedToken = await garageSecretStore.load();
       if (!storedToken) {
-        set({ status: "unconfigured", envelope: undefined, manifest: undefined });
+        set({ status: "unconfigured", envelope: undefined, manifest: undefined, history: undefined });
         return;
       }
       garageSecret = decodeGarageToken(storedToken);
@@ -204,6 +220,7 @@ export const useGarageVaultStore = create<GarageVaultState>((set, get) => ({
       lastPublicationAt: undefined,
       envelope: undefined,
       manifest: undefined,
+      history: undefined,
       error: undefined
     });
   },
@@ -279,6 +296,17 @@ export const useGarageVaultStore = create<GarageVaultState>((set, get) => ({
     }
     commitEnvelope(envelope, set);
   },
+  archiveTrade: (input) => {
+    if (!garageSecret || !get().envelope) return;
+    const envelope = get().envelope!;
+    const entry = tradeHistoryEntryFromOrder(input, envelope.deviceId);
+    if (!entry) return;
+    const history = archiveTradeHistoryEntry(envelope.history, entry, input.observedAt);
+    if (history === envelope.history) return;
+    const archived = history.entries.find((candidate) => candidate.id === entry.id);
+    if (!archived) return;
+    commitEnvelope(queueRecord(updateEnvelope(envelope, { history }), tradeHistoryToSyncRecord(archived)), set);
+  },
   applyRemoteRecords: (records) => {
     if (!garageSecret || !get().envelope || records.length === 0) return;
     const next = mergeObservedRecords(get().envelope!, records, garageSecret);
@@ -335,6 +363,7 @@ export const useGarageVaultStore = create<GarageVaultState>((set, get) => ({
     for (const entry of envelope.garage.entries) envelope = queueRecord(envelope, robotEntryToSyncRecord(entry));
     envelope = queueRecord(envelope, preferencesToSyncRecord(envelope.settings));
     for (const preset of envelope.settings.presets) envelope = queueRecord(envelope, presetToSyncRecord(preset));
+    for (const entry of envelope.history.entries) envelope = queueRecord(envelope, tradeHistoryToSyncRecord(entry));
     commitEnvelope(envelope, set);
   },
   setSyncState: (syncStatus, lastSyncAt, error, lastPublicationAt) => set((state) => ({
@@ -359,6 +388,7 @@ export function resetGarageVaultRuntimeForTests(): void {
     lastPublicationAt: undefined,
     envelope: undefined,
     manifest: undefined,
+    history: undefined,
     error: undefined
   });
 }
@@ -389,7 +419,8 @@ export function recoverySnapshotFromRecords(
       version: 3,
     createdAt: Date.now(),
     garage: envelope.garage,
-    settings: envelope.settings
+    settings: envelope.settings,
+    history: envelope.history
   };
 }
 
@@ -403,24 +434,28 @@ function createLocalEnvelope(deviceId: string, now = Date.now()): GarageLocalEnv
     updatedAt: now,
     garage: createGarageManifest(deviceId, now),
     settings: createPortableSettingsManifest(deviceId, { theme: ui.theme }, now),
+    history: createTradeHistoryManifest(deviceId, now),
     outbox: [],
     observed: {}
   };
 }
 
 function envelopeFromSnapshot(snapshot: GarageRecoverySnapshot, deviceId: string): GarageLocalEnvelope {
-  validateRecoverySnapshot(snapshot);
-  const garage = mergeGarageManifests([createGarageManifest(deviceId), snapshot.garage], deviceId);
+  const normalized = normalizeRecoverySnapshot(snapshot, deviceId);
+  validateRecoverySnapshot(normalized);
+  const garage = mergeGarageManifests([createGarageManifest(deviceId), normalized.garage], deviceId);
   const settings = mergePortableSettings([
     createPortableSettingsManifest(deviceId, {
-      theme: snapshot.settings.theme.value
+      theme: normalized.settings.theme.value
     }),
-    snapshot.settings
+    normalized.settings
   ], deviceId);
-  let envelope = updateEnvelope(createLocalEnvelope(deviceId), { garage, settings });
+  const history = pruneTradeHistoryManifest(normalized.history);
+  let envelope = updateEnvelope(createLocalEnvelope(deviceId), { garage, settings, history });
   for (const entry of garage.entries) envelope = queueRecord(envelope, robotEntryToSyncRecord(entry));
   envelope = queueRecord(envelope, preferencesToSyncRecord(settings));
   for (const preset of settings.presets) envelope = queueRecord(envelope, presetToSyncRecord(preset));
+  for (const entry of history.entries) envelope = queueRecord(envelope, tradeHistoryToSyncRecord(entry));
   return envelope;
 }
 
@@ -431,6 +466,7 @@ function mergeObservedRecords(
 ): GarageLocalEnvelope {
   let garage = envelope.garage;
   let settings = envelope.settings;
+  let history = envelope.history;
   let changed = false;
   const observed = { ...envelope.observed };
   let outbox = envelope.outbox;
@@ -441,7 +477,7 @@ function mergeObservedRecords(
     if (previousObserved && compareObserved(item, previousObserved) <= 0) {
       if (item.publishedAt > previousObserved.publishedAt) {
         observed[key] = { ...previousObserved, publishedAt: item.publishedAt };
-        const currentRecord = currentRecordForKey({ ...envelope, garage, settings }, key);
+        const currentRecord = currentRecordForKey({ ...envelope, garage, settings, history }, key);
         if (currentRecord && compareSyncRecords(currentRecord, item.record) > 0) {
           outbox = queueOutboxItem(outbox, currentRecord);
         }
@@ -464,6 +500,21 @@ function mergeObservedRecords(
         changed = true;
       } else if (existing) {
         outbox = queueOutboxItem(outbox, robotEntryToSyncRecord(existing));
+      }
+    } else if (item.record.type === "trade-history") {
+      const entry = syncRecordToTradeHistory(item.record);
+      const nextHistory = upsertTradeHistoryEntry(history, entry);
+      if (nextHistory !== history) {
+        history = nextHistory;
+        changed = true;
+      } else {
+        const currentEntry = history.entries.find((candidate) => candidate.id === entry.id);
+        if (currentEntry) {
+          const currentRecord = tradeHistoryToSyncRecord(currentEntry);
+          if (compareSyncRecords(currentRecord, item.record) > 0) {
+            outbox = queueOutboxItem(outbox, currentRecord);
+          }
+        }
       }
     } else {
       if (item.record.type === "preset" && settings.presets.some((preset) => preset.id === item.record.id && preset.deleted)) {
@@ -502,7 +553,7 @@ function mergeObservedRecords(
     });
   }
   if (!changed && outbox === envelope.outbox && JSON.stringify(observed) === JSON.stringify(envelope.observed)) return envelope;
-  return updateEnvelope(envelope, { garage, settings, outbox, observed });
+  return updateEnvelope(envelope, { garage, settings, history, outbox, observed });
 }
 
 function settingsFromRecord(current: PortableSettingsManifest, record: GarageSyncRecord): PortableSettingsManifest {
@@ -637,7 +688,7 @@ function currentSettingsRecord(settings: PortableSettingsManifest, incoming: Gar
 
 function updateEnvelope(
   envelope: GarageLocalEnvelope,
-  values: Partial<Pick<GarageLocalEnvelope, "garage" | "settings" | "outbox" | "observed">>,
+  values: Partial<Pick<GarageLocalEnvelope, "garage" | "settings" | "history" | "outbox" | "observed">>,
   now = Date.now()
 ): GarageLocalEnvelope {
   const next = { ...envelope, ...values, revision: envelope.revision + 1, updatedAt: now };
@@ -649,8 +700,12 @@ function loadLocalEnvelope(secret: Uint8Array, deviceId: string): GarageLocalEnv
   const ciphertext = systemClient.getItem(ENVELOPE_KEY);
   if (ciphertext) {
     try {
-      const parsed = JSON.parse(decryptGaragePayload(secret, "local", ciphertext)) as unknown;
+      const parsed = normalizeLocalEnvelope(
+        JSON.parse(decryptGaragePayload(secret, "local", ciphertext)) as GarageLocalEnvelope,
+        deviceId
+      );
       validateEnvelope(parsed, secret);
+      persistEnvelope(secret, parsed);
       return parsed;
     } catch {
       systemClient.deleteItem(ENVELOPE_KEY);
@@ -678,6 +733,7 @@ function setEnvelopeState(
   set({
     envelope,
     manifest: envelope.garage,
+    history: envelope.history,
     ...extra
   });
 }
@@ -690,13 +746,14 @@ function persistEnvelope(secret: Uint8Array, envelope: GarageLocalEnvelope): voi
 function validateEnvelope(value: unknown, secret: Uint8Array): asserts value is GarageLocalEnvelope {
   if (!value || typeof value !== "object") throw new Error("Invalid Garage envelope.");
   const envelope = value as Partial<GarageLocalEnvelope>;
-  const fields = new Set(["format", "version", "deviceId", "revision", "updatedAt", "garage", "settings", "outbox", "observed"]);
+  const fields = new Set(["format", "version", "deviceId", "revision", "updatedAt", "garage", "settings", "history", "outbox", "observed"]);
   if (Object.keys(envelope).some((key) => !fields.has(key))) throw new Error("Garage envelope has unknown fields.");
   if (envelope.format !== "robosats-exp-garage-envelope" || envelope.version !== 3) throw new Error("Unsupported Garage envelope.");
   if (!/^[0-9a-f]{32}$/.test(envelope.deviceId ?? "")) throw new Error("Invalid Garage device.");
   if (!Number.isSafeInteger(envelope.revision) || Number(envelope.revision) < 0) throw new Error("Invalid Garage envelope revision.");
   validateGarageManifestForSecret(envelope.garage, secret);
   validatePortableSettings(envelope.settings);
+  validateTradeHistoryManifest(envelope.history);
   if (!Array.isArray(envelope.outbox) || envelope.outbox.length > GARAGE_SYNC_LIMITS.outbox) throw new Error("Invalid Garage outbox.");
   for (const item of envelope.outbox) {
     if (typeof item.key !== "string" || !Number.isSafeInteger(item.revision) || item.revision < 1
@@ -726,11 +783,12 @@ function validateEnvelope(value: unknown, secret: Uint8Array): asserts value is 
 function validateRecoverySnapshot(value: unknown): asserts value is GarageRecoverySnapshot {
   if (!value || typeof value !== "object") throw new Error("Invalid Garage snapshot.");
   const snapshot = value as Partial<GarageRecoverySnapshot>;
-  const fields = new Set(["format", "version", "createdAt", "garage", "settings"]);
+  const fields = new Set(["format", "version", "createdAt", "garage", "settings", "history"]);
   if (Object.keys(snapshot).some((key) => !fields.has(key))) throw new Error("Garage snapshot has unknown fields.");
   if (snapshot.format !== "robosats-exp-garage-snapshot" || snapshot.version !== 3) throw new Error("Unsupported Garage snapshot.");
   validateGarageManifest(snapshot.garage);
   validatePortableSettings(snapshot.settings);
+  validateTradeHistoryManifest(snapshot.history);
 }
 
 function currentDeviceId(): string {
@@ -755,7 +813,8 @@ function recordForOutboxItem(envelope: GarageLocalEnvelope, item: GarageOutboxIt
   const records: GarageSyncRecord[] = [
     ...envelope.garage.entries.map(robotEntryToSyncRecord),
     preferencesToSyncRecord(envelope.settings),
-    ...envelope.settings.presets.map(presetToSyncRecord)
+    ...envelope.settings.presets.map(presetToSyncRecord),
+    ...envelope.history.entries.map(tradeHistoryToSyncRecord)
   ];
   return records.find((record) => syncRecordKey(record) === item.key && record.revision === item.revision);
 }
@@ -764,6 +823,23 @@ function currentRecordForKey(envelope: GarageLocalEnvelope, key: string): Garage
   return [
     ...envelope.garage.entries.map(robotEntryToSyncRecord),
     preferencesToSyncRecord(envelope.settings),
-    ...envelope.settings.presets.map(presetToSyncRecord)
+    ...envelope.settings.presets.map(presetToSyncRecord),
+    ...envelope.history.entries.map(tradeHistoryToSyncRecord)
   ].find((record) => syncRecordKey(record) === key);
+}
+
+function normalizeLocalEnvelope(envelope: GarageLocalEnvelope, deviceId: string): GarageLocalEnvelope {
+  const normalized = envelope.history
+    ? envelope
+    : { ...envelope, history: createTradeHistoryManifest(envelope.deviceId || deviceId, envelope.updatedAt) };
+  const history = pruneTradeHistoryManifest(normalized.history);
+  return history === normalized.history
+    ? normalized
+    : { ...normalized, history, revision: normalized.revision + 1, updatedAt: history.updatedAt };
+}
+
+function normalizeRecoverySnapshot(snapshot: GarageRecoverySnapshot, deviceId: string): GarageRecoverySnapshot {
+  return snapshot.history
+    ? snapshot
+    : { ...snapshot, history: createTradeHistoryManifest(deviceId, snapshot.createdAt) };
 }

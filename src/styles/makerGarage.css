@@ -1,0 +1,1536 @@
+.maker-layout,
+.maker-form {
+  width: 100%;
+  max-width: 48rem;
+  margin-inline: auto;
+}
+
+.maker-wizard-card {
+  overflow: visible;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--primary) 5%, transparent), transparent 12rem),
+    var(--card);
+}
+
+.maker-wizard-card-header {
+  display: grid;
+  gap: 1rem;
+}
+
+.maker-preset-panel {
+  display: grid;
+  gap: 0.625rem;
+  margin-block-end: 1rem;
+  padding-block-end: 1rem;
+  border-block-end: 1px solid var(--border);
+}
+
+.maker-preset-name-field {
+  display: grid;
+  gap: 0.35rem;
+  padding: 1rem 1rem 0;
+  color: var(--text-muted);
+  font-size: var(--type-compact-size);
+  font-weight: 600;
+}
+
+.maker-preset-name-field input {
+  min-height: 2.75rem;
+}
+
+.maker-preset-name-field-step {
+  margin-block-end: 1rem;
+  padding: 0;
+}
+
+.maker-preset-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 0.75rem;
+}
+
+.maker-preset-control {
+  display: grid;
+  gap: 0.4rem;
+  min-inline-size: 0;
+}
+
+.maker-preset-label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--text-muted);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
+  font-weight: 600;
+}
+
+.maker-preset-label .info-hint {
+  margin-inline-start: 0.05rem;
+}
+
+.maker-preset-select {
+  min-inline-size: 0;
+}
+
+.maker-preset-select .visual-select-trigger {
+  min-height: 2.5rem;
+}
+
+.maker-preset-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+@media (max-width: 600px) {
+  .maker-preset-main {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .maker-preset-actions {
+    justify-content: flex-end;
+  }
+}
+
+.maker-preset-save {
+  display: flex;
+  align-items: end;
+  gap: 0.5rem;
+}
+
+.maker-preset-save > label {
+  display: grid;
+  flex: 1;
+  gap: 0.3rem;
+  min-inline-size: 0;
+  color: var(--text-muted);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
+  font-weight: 600;
+}
+
+.maker-preset-save input {
+  block-size: 2.5rem;
+}
+
+.maker-stepper {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.maker-step-pill {
+  appearance: none;
+  min-width: 0;
+  min-height: 2.45rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--muted-foreground);
+  background: color-mix(in srgb, var(--muted) 72%, transparent);
+  cursor: default;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 0.45rem 0.55rem;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.maker-step-pill-complete,
+.maker-step-pill-active {
+  cursor: pointer;
+}
+
+.maker-step-pill-active {
+  color: var(--primary-foreground);
+  background: var(--primary);
+  border-color: transparent;
+}
+
+.maker-step-pill-complete {
+  color: var(--foreground);
+  border-color: color-mix(in srgb, var(--success) 45%, var(--border));
+}
+
+.maker-step-index {
+  width: 1.35rem;
+  height: 1.35rem;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--foreground) 8%, transparent);
+}
+
+.maker-step-panel {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 1rem;
+  animation: section-in 180ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.maker-step-panel:focus-within {
+  z-index: 40;
+}
+
+.maker-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+  margin-bottom: 0.85rem;
+}
+
+.maker-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.maker-choice-card {
+  appearance: none;
+  min-height: 9rem;
+  display: grid;
+  align-content: start;
+  gap: 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--muted) 55%, transparent);
+  cursor: pointer;
+  padding: 1rem;
+  text-align: left;
+  font: inherit;
+}
+
+.maker-choice-card:hover,
+.maker-choice-card:focus-visible {
+  border-color: var(--control-border-hover);
+  outline: 0;
+}
+
+.maker-choice-card-active {
+  border-color: var(--selection-indicator);
+  background: var(--selection-background);
+  box-shadow: inset 0 0 0 1px var(--selection-indicator);
+}
+
+.maker-choice-card-buy:hover,
+.maker-choice-card-buy:focus-visible,
+.maker-choice-card-swap-in:hover,
+.maker-choice-card-swap-in:focus-visible {
+  border-color: var(--direction-buy-border);
+}
+
+.maker-choice-card-sell:hover,
+.maker-choice-card-sell:focus-visible,
+.maker-choice-card-swap-out:hover,
+.maker-choice-card-swap-out:focus-visible {
+  border-color: var(--direction-sell-border);
+}
+
+.maker-choice-card-buy.maker-choice-card-active,
+.maker-choice-card-swap-in.maker-choice-card-active {
+  border-color: var(--direction-buy-border);
+  background: var(--direction-buy-surface);
+  box-shadow: inset 0 0 0 1px var(--direction-buy-border);
+}
+
+.maker-choice-card-sell.maker-choice-card-active,
+.maker-choice-card-swap-out.maker-choice-card-active {
+  border-color: var(--direction-sell-border);
+  background: var(--direction-sell-surface);
+  box-shadow: inset 0 0 0 1px var(--direction-sell-border);
+}
+
+.maker-choice-card strong {
+  font-size: 1.15rem;
+  line-height: 1.2;
+}
+
+.maker-choice-card small {
+  color: var(--muted-foreground);
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.maker-choice-icon {
+  width: 2.4rem;
+  height: 2.4rem;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+}
+
+.maker-choice-icon-buy {
+  color: var(--buy-foreground);
+  background: var(--buy);
+}
+
+.maker-choice-icon-sell {
+  color: var(--sell-foreground);
+  background: var(--sell);
+}
+
+.maker-choice-icon-swap-in {
+  color: var(--buy-foreground);
+  background: var(--buy);
+}
+
+.maker-choice-icon-swap-out {
+  color: var(--sell-foreground);
+  background: var(--sell);
+}
+
+.field-block {
+  display: grid;
+  gap: 0.4rem;
+  min-width: 0;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.field-block > span,
+.maker-field-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.maker-field-label {
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.info-hint {
+  position: relative;
+  display: inline-flex;
+  vertical-align: middle;
+}
+
+.info-hint > button {
+  width: 1.6rem;
+  height: 1.6rem;
+  display: inline-grid;
+  place-items: center;
+  margin: -0.3rem;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: help;
+}
+
+.info-hint > button:hover,
+.info-hint > button:focus-visible,
+.info-hint > button[aria-expanded="true"] {
+  background: var(--info-surface);
+  color: var(--info-foreground);
+}
+
+.info-hint-popover {
+  position: absolute;
+  z-index: 120;
+  left: 50%;
+  bottom: calc(100% + 0.55rem);
+  width: max-content;
+  max-width: min(17rem, calc(100vw - 2rem));
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--info-border);
+  border-radius: var(--radius-sm);
+  background: var(--popover, var(--card));
+  color: var(--foreground);
+  font-size: 0.76rem;
+  font-weight: 500;
+  line-height: 1.4;
+  text-align: left;
+  text-transform: none;
+  box-shadow: var(--shadow-lg);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translate(-50%, 0.25rem);
+  transition: opacity 120ms ease, transform 120ms ease, visibility 120ms ease;
+}
+
+.info-hint > button[aria-expanded="true"] + .info-hint-popover {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0);
+}
+
+@media (hover: hover) {
+  .info-hint:hover .info-hint-popover {
+    opacity: 1;
+    visibility: visible;
+    transform: translate(-50%, 0);
+  }
+}
+
+.info-hint-popover.info-hint-popover-tap {
+  position: fixed;
+  right: auto;
+  bottom: auto;
+  width: max-content;
+  max-width: min(17rem, calc(100vw - 1.5rem));
+  transform: none;
+  transition: opacity 120ms ease, visibility 120ms ease;
+}
+
+.info-hint > button[aria-expanded="true"] + .info-hint-popover-tap {
+  transform: none;
+}
+
+.field-block input,
+.field-block select,
+.field-block textarea {
+  width: 100%;
+  min-width: 0;
+  min-height: 2.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--input);
+  color: var(--foreground);
+  padding: 0.7rem 0.8rem;
+  outline: 0;
+}
+
+.field-block textarea {
+  min-height: 5.5rem;
+  resize: vertical;
+}
+
+.field-block input:focus,
+.field-block select:focus,
+.field-block textarea:focus {
+  border-color: var(--focus-ring);
+}
+
+.field-block input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.check-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.85rem;
+  color: var(--muted-foreground);
+  font-weight: 600;
+}
+
+.chip-set {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin: 0 0 0.85rem;
+}
+
+.chip-button {
+  appearance: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-subtle);
+  color: var(--muted-foreground);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 0.45rem 0.7rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.chip-button:hover,
+.chip-button-active {
+  color: var(--foreground);
+  border-color: var(--secondary);
+}
+
+.chip-button-active {
+  background: var(--selection-background);
+}
+
+.wide-segmented {
+  margin-bottom: 0.85rem;
+}
+
+.wide-segmented .ui-button {
+  flex: 1;
+}
+
+.maker-advanced summary,
+.maker-sub-advanced summary,
+.inline-details summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.maker-sub-advanced {
+  margin-top: 0.85rem;
+  background: color-mix(in srgb, var(--muted) 50%, transparent);
+}
+
+.maker-sub-advanced summary {
+  width: 100%;
+  justify-content: space-between;
+}
+
+.maker-sub-advanced > summary,
+.maker-amount-advanced > summary {
+  list-style: none;
+}
+
+.maker-sub-advanced > summary::-webkit-details-marker,
+.maker-amount-advanced > summary::-webkit-details-marker {
+  display: none;
+}
+
+.maker-sub-advanced > summary::after,
+.maker-amount-advanced > summary::after {
+  content: "";
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-left: auto;
+  flex: 0 0 auto;
+  border-right: 1.5px solid var(--muted-foreground);
+  border-bottom: 1.5px solid var(--muted-foreground);
+  transform: rotate(45deg) translateY(-0.12rem);
+  transition: transform 140ms ease;
+}
+
+.maker-sub-advanced[open] > summary::after,
+.maker-amount-advanced[open] > summary::after {
+  transform: rotate(225deg) translate(-0.08rem, -0.08rem);
+}
+
+.maker-settlement-toggle {
+  margin-bottom: 0.65rem;
+}
+
+.maker-inline-warning,
+.maker-step-error {
+  margin-bottom: 1rem;
+}
+
+.maker-compact-status {
+  margin-top: -0.15rem;
+}
+
+.maker-payment-method {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.maker-method-entry {
+  position: relative;
+  z-index: 35;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.65rem;
+  align-items: end;
+}
+
+.maker-method-field {
+  min-width: 0;
+}
+
+.maker-method-field .image-select-input {
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+  box-shadow: none;
+}
+
+.maker-method-field .image-select-input:focus {
+  border-color: transparent;
+}
+
+.maker-method-add-button {
+  min-height: 2.75rem;
+  white-space: nowrap;
+}
+
+.maker-selected-methods {
+  margin-bottom: 0.2rem;
+}
+
+.maker-select-shell select {
+  width: 100%;
+  min-width: 0;
+  min-height: 3rem;
+  color: var(--foreground);
+  background: transparent;
+  border: 0;
+  outline: 0;
+}
+
+.maker-range-toggle {
+  margin-top: -0.2rem;
+}
+
+.maker-range-toggle .info-hint {
+  margin-left: 0.15rem;
+}
+
+.maker-inline-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--muted) 60%, transparent);
+  padding: 0.75rem;
+  color: var(--muted-foreground);
+  font-weight: 600;
+}
+
+.maker-inline-summary span:last-child {
+  color: var(--foreground);
+}
+
+.maker-coordinator-picker {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.maker-coordinator-row {
+  position: relative;
+  z-index: 20;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.65rem;
+  align-items: start;
+}
+
+.coordinator-select {
+  position: relative;
+  min-width: 0;
+}
+
+.coordinator-select-button {
+  min-height: 3.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--input);
+  color: var(--foreground);
+  padding: 0.55rem 0.75rem;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.coordinator-select-button::-webkit-details-marker {
+  display: none;
+}
+
+.coordinator-select-button::after {
+  content: "";
+  width: 0.55rem;
+  height: 0.55rem;
+  margin-left: auto;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg) translateY(-0.12rem);
+  opacity: 0.7;
+}
+
+.coordinator-select-open .coordinator-select-button {
+  border-color: var(--primary);
+}
+
+.coordinator-select-menu {
+  position: absolute;
+  z-index: 120;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  right: 0;
+  max-height: 18rem;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card);
+  box-shadow: var(--shadow-lg);
+  padding: 0.35rem;
+}
+
+.coordinator-select-option {
+  appearance: none;
+  width: 100%;
+  min-height: 3rem;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.65rem;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--foreground);
+  background: transparent;
+  cursor: pointer;
+  padding: 0.45rem 0.5rem;
+  text-align: left;
+  font: inherit;
+  font-weight: 600;
+}
+
+.coordinator-select-option:hover,
+.coordinator-select-option-active {
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+}
+
+.maker-time-section {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.maker-amount-advanced {
+  margin-top: 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--card) 88%, var(--muted));
+  padding: 0;
+}
+
+.maker-amount-advanced > summary {
+  min-height: 3rem;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  color: var(--foreground);
+  font-weight: 600;
+  padding: 0.6rem 0.9rem;
+}
+
+.maker-step-panel .field-block > input,
+.maker-step-panel .field-block > select,
+.maker-step-panel .image-select-button,
+.maker-step-panel .image-select-combo,
+.maker-step-panel .maker-clock-summary {
+  min-height: 3rem;
+}
+
+.maker-amount-advanced > .maker-grid,
+.maker-amount-advanced > .maker-time-grid {
+  padding-inline: 0.9rem;
+}
+
+.maker-amount-advanced > :last-child {
+  margin-bottom: 0.9rem;
+}
+
+.maker-advanced-body {
+  display: grid;
+  gap: 0.9rem;
+  border-top: 1px solid var(--border);
+  padding: 0.9rem;
+}
+
+.maker-advanced-timers {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.maker-clock-selector {
+  position: relative;
+}
+
+.maker-clock-selector[open] {
+  z-index: 30;
+}
+
+.maker-clock-summary {
+  width: 100%;
+  min-height: 3rem;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--input);
+  color: var(--foreground);
+  padding: 0.7rem 0.85rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.maker-clock-summary::-webkit-details-marker {
+  display: none;
+}
+
+.maker-clock-summary::after {
+  content: "";
+  width: 0.48rem;
+  height: 0.48rem;
+  border-right: 1.5px solid var(--muted-foreground);
+  border-bottom: 1.5px solid var(--muted-foreground);
+  transform: rotate(45deg) translateY(-0.15rem);
+  margin-left: auto;
+}
+
+.maker-clock-summary svg {
+  color: var(--primary);
+}
+
+.maker-clock-summary strong {
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.maker-clock-selector[open] .maker-clock-summary {
+  border-color: var(--primary);
+}
+
+.maker-time-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 240;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: var(--overlay-scrim);
+  backdrop-filter: blur(8px);
+}
+
+.maker-time-dialog {
+  width: min(100%, 36rem);
+  max-height: calc(100dvh - 2rem);
+  overflow: auto;
+  display: grid;
+  gap: 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--card);
+  box-shadow: var(--shadow-lg);
+  padding: 1rem;
+}
+
+.maker-time-dialog > header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.maker-time-dialog > header strong {
+  font-size: 1.65rem;
+}
+
+.maker-time-dialog-heading {
+  min-width: 0;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.maker-time-dialog-heading small {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.maker-clock-panel {
+  position: static;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--muted) 48%, var(--card));
+  padding: 1rem;
+}
+
+.maker-clock-face {
+  --clock-hand-angle: 0deg;
+  position: relative;
+  width: 15rem;
+  aspect-ratio: 1;
+  border: 1px solid color-mix(in srgb, var(--primary) 38%, var(--border));
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--primary) 18%, transparent) 0 7%, transparent 8%),
+    color-mix(in srgb, var(--muted) 46%, transparent);
+}
+
+.maker-clock-hour {
+  --clock-hour-angle: 0deg;
+  --clock-hour-radius: 5.85rem;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 2;
+  width: 1.75rem;
+  height: 1.75rem;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  color: var(--foreground);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  transform: translate(-50%, -50%) rotate(var(--clock-hour-angle)) translateY(calc(-1 * var(--clock-hour-radius))) rotate(calc(-1 * var(--clock-hour-angle)));
+}
+
+.maker-clock-hour:hover,
+.maker-clock-hour:focus-visible,
+.maker-clock-hour-active {
+  color: var(--primary-foreground);
+  background: var(--primary);
+  outline: 0;
+}
+
+.maker-clock-hour:disabled {
+  color: color-mix(in srgb, var(--muted-foreground) 38%, transparent);
+  background: transparent;
+  cursor: not-allowed;
+}
+
+.maker-clock-mark {
+  position: absolute;
+  color: var(--muted-foreground);
+  font-size: 0.76rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.maker-clock-mark-12 {
+  top: 0.7rem;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.maker-clock-mark-3 {
+  top: 50%;
+  right: 0.82rem;
+  transform: translateY(-50%);
+}
+
+.maker-clock-mark-6 {
+  bottom: 0.7rem;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.maker-clock-mark-9 {
+  top: 50%;
+  left: 0.82rem;
+  transform: translateY(-50%);
+}
+
+.maker-clock-hand {
+  position: absolute;
+  left: calc(50% - 1px);
+  bottom: 50%;
+  width: 2px;
+  height: 35%;
+  border-radius: 999px;
+  background: var(--primary);
+  transform: rotate(var(--clock-hand-angle));
+  transform-origin: bottom center;
+  pointer-events: none;
+}
+
+.maker-clock-pin {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0.58rem;
+  aspect-ratio: 1;
+  border-radius: 999px;
+  background: var(--primary);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.maker-time-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.maker-clock-controls {
+  min-width: 0;
+  display: grid;
+  gap: 0.65rem;
+}
+
+.maker-clock-controls .field-block {
+  gap: 0.35rem;
+}
+
+.maker-clock-controls input {
+  min-height: 2.5rem;
+}
+
+.maker-clock-minute-grid,
+.maker-clock-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.maker-clock-minute,
+.maker-clock-preset {
+  appearance: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted) 42%, transparent);
+  color: var(--muted-foreground);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.38rem 0.62rem;
+}
+
+.maker-clock-minute:hover,
+.maker-clock-minute:focus-visible,
+.maker-clock-preset:hover,
+.maker-clock-preset:focus-visible {
+  border-color: color-mix(in srgb, var(--primary) 55%, var(--border));
+  color: var(--foreground);
+  outline: 0;
+}
+
+.maker-clock-minute-active,
+.maker-clock-preset-active {
+  border-color: transparent;
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.maker-clock-minute:disabled {
+  border-color: color-mix(in srgb, var(--border) 55%, transparent);
+  color: color-mix(in srgb, var(--muted-foreground) 42%, transparent);
+  background: transparent;
+  cursor: not-allowed;
+}
+
+.maker-time-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(5.75rem, 1fr));
+  gap: 0.5rem;
+}
+
+.maker-time-option {
+  appearance: none;
+  min-height: 4.2rem;
+  display: grid;
+  place-items: center;
+  gap: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--muted) 55%, transparent);
+  color: var(--muted-foreground);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+}
+
+.maker-time-option:hover,
+.maker-time-option:focus-visible {
+  color: var(--foreground);
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+  outline: 0;
+}
+
+.maker-time-option-active {
+  color: var(--primary-foreground);
+  background: var(--primary);
+  border-color: transparent;
+}
+
+.maker-review-identity {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.maker-review-identity > div,
+.maker-review-identity > a {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--muted) 56%, transparent);
+  color: var(--foreground);
+  padding: 0.7rem;
+  text-decoration: none;
+  overflow: hidden;
+}
+
+.maker-review-identity .robot-avatar,
+.maker-review-identity .coordinator-avatar {
+  flex: 0 0 auto;
+}
+
+.maker-review-identity > div > span,
+.maker-review-identity > a > span {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.maker-review-identity > .maker-review-coordinator,
+.maker-review-identity > .maker-review-coordinator > span {
+  overflow: visible;
+}
+
+.maker-review-identity small {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: none;
+}
+
+.maker-review-identity strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.maker-review-coordinator strong {
+  display: -webkit-box;
+  line-height: 1.2;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.maker-review-hero {
+  display: grid;
+  gap: 0.35rem;
+  border: 1px solid color-mix(in srgb, var(--primary) 35%, var(--border));
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--primary) 9%, var(--muted));
+  padding: 1rem;
+}
+
+.maker-review-hero .ui-badge {
+  justify-self: start;
+}
+
+.maker-review-hero strong {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: var(--type-payment-size);
+  line-height: 1.15;
+}
+
+.maker-review-hero span:last-child {
+  color: var(--muted-foreground);
+  font-weight: 600;
+}
+
+.maker-swap-amount-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.maker-review-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 0;
+}
+
+.maker-review-grid > div {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--muted) 56%, transparent);
+  padding: 0.8rem;
+}
+
+.maker-review-grid dt {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: none;
+}
+
+.maker-review-grid dd {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0.25rem 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+.maker-wizard-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 1.1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.payload-preview {
+  display: block;
+  max-height: 18rem;
+  overflow: auto;
+  margin-top: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--input-surface);
+  color: var(--muted-foreground);
+  padding: 0.75rem;
+  font-size: 0.78rem;
+  white-space: pre-wrap;
+}
+
+.validation-list {
+  display: grid;
+  gap: 0.4rem;
+  margin-top: 0.85rem;
+  color: var(--destructive);
+  font-size: 0.875rem;
+}
+
+.validation-list p {
+  margin: 0;
+}
+
+.garage-focus-card {
+  background: var(--surface);
+}
+
+.garage-page {
+  max-width: 960px;
+  margin-inline: auto;
+}
+
+.robot-slot-row {
+  appearance: none;
+  width: 100%;
+  min-height: 3.5rem;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0.65rem 0.75rem;
+  color: var(--foreground);
+  text-align: left;
+  background: var(--surface-subtle);
+  cursor: pointer;
+}
+
+.robot-slot-row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.robot-slot-row.active {
+  border-color: var(--selection-indicator);
+  background: var(--selection-background);
+}
+
+.robot-state-row {
+  cursor: default;
+}
+
+.garage-page .page-heading {
+  max-width: 48rem;
+  margin: 0 auto 1.35rem;
+  text-align: left;
+}
+
+.garage-page .start-card {
+  max-width: 48rem;
+  margin: 0 auto;
+}
+
+.garage-page .ui-card-header {
+  padding: 1rem 1rem 0;
+}
+
+.garage-page .ui-card-title {
+  justify-content: center;
+}
+
+.garage-page .ui-card-content {
+  padding: 1rem;
+}
+
+.robot-wizard {
+  display: grid;
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.wizard-section {
+  min-width: 0;
+  display: grid;
+  gap: 0;
+  border-top: 1px solid var(--border);
+  padding: 1rem;
+}
+
+.wizard-section:first-child {
+  border-top: 0;
+}
+
+.wizard-section h3 {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 1.22rem;
+  line-height: 1.25;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.wizard-section.active h3 {
+  color: var(--foreground);
+}
+
+.wizard-section.complete h3 {
+  color: color-mix(in srgb, var(--muted-foreground) 72%, var(--foreground));
+}
+
+.wizard-section.complete h3 svg {
+  color: var(--primary);
+}
+
+.wizard-step-body {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+  gap: 0.95rem;
+  padding-top: 1.35rem;
+  text-align: center;
+  animation: section-in 180ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.wizard-step-body p {
+  margin: 0;
+  max-width: 29rem;
+  color: var(--foreground);
+  line-height: 1.55;
+}
+
+.token-start-step {
+  padding-bottom: 0.15rem;
+}
+
+.token-review-step {
+  width: 100%;
+  justify-items: stretch;
+  text-align: left;
+}
+
+.token-alert {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.7rem;
+  align-items: flex-start;
+  border: 1px solid var(--info-border);
+  border-radius: var(--radius-sm);
+  color: var(--info-foreground);
+  background: var(--info-surface);
+  padding: 0.85rem;
+}
+
+.token-alert svg {
+  color: var(--buy);
+  margin-top: 0.1rem;
+}
+
+.token-alert p {
+  min-width: 0;
+  color: inherit;
+}
+
+.recover-token-details,
+.learn-details,
+.inline-details {
+  width: 100%;
+  color: var(--muted-foreground);
+}
+
+.recover-token-details summary,
+.learn-details summary,
+.inline-details summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.recover-token-details[open],
+.learn-details[open],
+.inline-details[open] {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.endpoint-list {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 0.75rem;
+}
+
+.endpoint-row {
+  display: grid;
+  grid-template-columns: 5rem minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: baseline;
+}
+
+.endpoint-row span {
+  min-width: 0;
+  color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+}
+
+.token-output {
+  display: block;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--muted);
+  padding: 0.7rem;
+  overflow-wrap: anywhere;
+}
+
+.centered-actions,
+.market-actions {
+  justify-content: center;
+}
+
+.identity-step {
+  gap: 0.8rem;
+}
+
+.identity-step > p {
+  color: var(--foreground);
+}
+
+.identity-step .robot-avatar {
+  border-width: 2px;
+  box-shadow: none;
+}
+
+.robot-name-reveal {
+  display: grid;
+  justify-items: center;
+  gap: 0.3rem;
+}
+
+.robot-name-reveal span {
+  color: var(--foreground);
+}
+
+.robot-name-reveal strong {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  font-size: var(--type-h2-size);
+  line-height: 1.15;
+}
+
+.robot-name-reveal svg {
+  color: var(--warning);
+}
+
+.market-step {
+  padding-bottom: 0.35rem;
+}
+
+.market-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+}
+
+.wizard-link-button {
+  min-height: 2.6rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.7rem 1rem;
+  font-weight: 600;
+}
+
+.secondary-accent-link {
+  background: color-mix(in srgb, var(--sell) 82%, var(--surface-raised));
+  color: var(--sell-foreground);
+}
+
+.learn-details {
+  max-width: 24rem;
+}
+
+.learn-details a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-height: 2.4rem;
+  border-radius: var(--radius-sm);
+  background: var(--muted);
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+.text-command {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--foreground);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-transform: none;
+}
+
+.text-command:hover {
+  color: var(--primary);
+}
+
+.dice-roll {
+  animation: dice-roll 420ms cubic-bezier(0.2, 0, 0, 1);
+}

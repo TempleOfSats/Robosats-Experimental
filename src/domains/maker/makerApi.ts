@@ -11,6 +11,11 @@ import {
 import type { CreateOrderDraft, CreateOrderPayload, CreateOrderResponse } from "@/domains/maker/maker.types";
 import { normalizeOrderDto } from "@/domains/orders/orderModel";
 import type { OrderDto } from "@/domains/orders/order.types";
+import {
+  approximateF2FLocation,
+  hasApproximateF2FLocation,
+  paymentMethodHasF2F
+} from "@/domains/location/f2fLocation";
 
 export async function createOrder(
   baseUrl: string,
@@ -58,6 +63,7 @@ export function buildCreateOrderPayload(draft: CreateOrderDraft): CreateOrderPay
   const amount = parseNumericField(draft.amount);
   const password = draft.password.trim();
   const description = draft.description.trim();
+  const hasF2F = paymentMethodHasF2F(draft.paymentMethod);
 
   return {
     type: draft.type,
@@ -73,8 +79,8 @@ export function buildCreateOrderPayload(draft: CreateOrderDraft): CreateOrderPay
     public_duration: parseIntegerField(draft.publicDuration),
     escrow_duration: parseIntegerField(draft.escrowDuration),
     bond_size: parseNumericField(draft.bondSize),
-    latitude: parseNumericField(draft.latitude),
-    longitude: parseNumericField(draft.longitude),
+    latitude: hasF2F ? parseNumericField(draft.latitude) : 0,
+    longitude: hasF2F ? parseNumericField(draft.longitude) : 0,
     password: password ? sha256(password) : null,
     description: description || null
   };
@@ -84,6 +90,10 @@ export function buildRenewOrderPayload(order: OrderDto, password = ""): CreateOr
   const hasRange = Boolean(order.has_range);
   const isExplicit = Boolean(order.is_explicit);
   const normalizedPassword = password.trim();
+  const hasF2F = paymentMethodHasF2F(order.payment_method);
+  const approximateLocation = hasF2F && hasApproximateF2FLocation(order.latitude, order.longitude)
+    ? approximateF2FLocation(Number(order.latitude), Number(order.longitude))
+    : [0, 0];
 
   return {
     type: order.type === 1 ? 1 : 0,
@@ -99,8 +109,8 @@ export function buildRenewOrderPayload(order: OrderDto, password = ""): CreateOr
     public_duration: order.public_duration || 86_340,
     escrow_duration: order.escrow_duration || 10_800,
     bond_size: order.bond_size || 3,
-    latitude: order.latitude ?? 0,
-    longitude: order.longitude ?? 0,
+    latitude: approximateLocation[0],
+    longitude: approximateLocation[1],
     password: normalizedPassword ? sha256(normalizedPassword) : null,
     description: order.description?.trim() || null
   };
@@ -109,6 +119,12 @@ export function buildRenewOrderPayload(order: OrderDto, password = ""): CreateOr
 export function validateCreateOrderPayload(payload: CreateOrderPayload): string[] {
   const errors: string[] = [];
   if (!payload.payment_method) errors.push("Add a payment method.");
+  if (
+    paymentMethodHasF2F(payload.payment_method)
+    && !hasApproximateF2FLocation(payload.latitude, payload.longitude)
+  ) {
+    errors.push("Choose an approximate meeting area for Cash F2F.");
+  }
   if (payload.has_range) {
     if (payload.min_amount === null || payload.max_amount === null || payload.min_amount <= 0 || payload.max_amount <= 0) {
       errors.push("Add a valid amount range.");

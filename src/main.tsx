@@ -9,6 +9,7 @@ import { webSocketImplementation } from "@/domains/transport/androidBridge";
 import { initializeDesktopRuntimeBridge } from "@/domains/transport/tauriBridge";
 import { installRefreshIntentLifecycle } from "@/domains/transport/refreshIntents";
 import { startOrderFeedbackRuntime } from "@/domains/notifications/orderFeedbackRuntime";
+import { AppErrorBoundary } from "@/components/app/AppErrorBoundary";
 
 initializeDesktopRuntimeBridge();
 installRefreshIntentLifecycle();
@@ -22,6 +23,8 @@ useWebSocketImplementation(webSocketImplementation());
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <App />
+    <AppErrorBoundary scope="app">
+      <App />
+    </AppErrorBoundary>
   </React.StrictMode>
 );

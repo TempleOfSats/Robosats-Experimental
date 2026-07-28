@@ -11,7 +11,7 @@ import {
   useGarageStore
 } from "@/domains/garage/garageStore";
 import { relayRetryDelay } from "@/domains/nostr/relayRetry";
-import { getSharedRelayPool } from "@/domains/nostr/sharedRelayPool";
+import { getLiveRelaySubscriptions } from "@/domains/nostr/sharedRelayPool";
 import { buildNostrRelayUrl } from "@/domains/orderbook/nostrOrderbook";
 import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
 import type { OrderHint } from "@/domains/pro/pro.types";
@@ -257,7 +257,7 @@ export class OrderChangeHintRuntime {
 
 function defaultDependencies(): RuntimeDependencies {
   return {
-    pool: getSharedRelayPool(),
+    pool: getLiveRelaySubscriptions(),
     now: Date.now,
     canConnect: () => !isNativeApp() || Boolean(getNativeTorDiagnostics()?.connected),
     garageState: () => useGarageStore.getState(),

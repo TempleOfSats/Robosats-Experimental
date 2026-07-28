@@ -1,4 +1,5 @@
 import { createGarageEntryId } from "@/domains/pro/garageVault";
+import type { UiTheme } from "@/domains/settings/uiPreferences";
 
 export const PORTABLE_SETTINGS_LIMITS = {
   devices: 32,
@@ -44,7 +45,7 @@ export type PortableSettingsManifest = {
   deviceId: string;
   revision: number;
   updatedAt: number;
-  theme: PortableValue<"dark" | "light">;
+  theme: PortableValue<UiTheme>;
   presets: OfferPreset[];
 };
 
@@ -55,7 +56,7 @@ export type OfferPresetInput = Omit<
 
 export function createPortableSettingsManifest(
   deviceId: string,
-  preferences: { theme: "dark" | "light" },
+  preferences: { theme: UiTheme },
   now = Date.now()
 ): PortableSettingsManifest {
   return {
@@ -71,7 +72,7 @@ export function createPortableSettingsManifest(
 
 export function updatePortablePreferences(
   manifest: PortableSettingsManifest,
-  preferences: Partial<{ theme: "dark" | "light" }>,
+  preferences: Partial<{ theme: UiTheme }>,
   now = Date.now()
 ): PortableSettingsManifest {
   validatePortableSettings(manifest);

@@ -22,6 +22,8 @@ export type ProTradeSnapshot = {
   renewable: boolean;
   released: boolean;
   freshness: SnapshotFreshness;
+  settlementInvoice?: string;
+  settlementInvoicePurpose?: "payout-received" | "escrow-paid";
   updatedAt?: number;
   changedAt?: number;
   errorCode?: string;

@@ -38,6 +38,7 @@ describe("PRO trade cache", () => {
     expect(raw).not.toContain("QuietRobot");
     expect(raw).not.toContain("SEPA");
     expect(raw).not.toContain("lnbc-sensitive");
+    expect(raw).not.toContain("lnbc1000n1buyerinvoice");
 
     const restored = loadProTradeRuntimeCache(secret, new Set(["slot-alpha"]));
     expect(restored.snapshots[snapshot.key]).toMatchObject({
@@ -49,7 +50,9 @@ describe("PRO trade cache", () => {
         payment_method: "SEPA",
         bond_invoice: "",
         escrow_invoice: ""
-      }
+      },
+      settlementInvoice: "lnbc1000n1buyerinvoice0123456789",
+      settlementInvoicePurpose: "payout-received"
     });
     expect(restored.syncBySlot["slot-alpha"]).toMatchObject({
       epoch: 0,
@@ -88,6 +91,25 @@ describe("PRO trade cache", () => {
       snapshots: {},
       syncBySlot: {}
     });
+  });
+
+  it("rejects cached invoices whose purpose does not match the robot role", () => {
+    const secret = createGarageSecret();
+    const snapshot = {
+      ...tradeSnapshot(),
+      settlementInvoicePurpose: "escrow-paid" as const
+    };
+    persistProTradeRuntimeCache(
+      secret,
+      { snapshots: { [snapshot.key]: snapshot }, syncBySlot: {} },
+      new Set(["slot-alpha"])
+    );
+
+    expect(loadProTradeRuntimeCache(secret, new Set(["slot-alpha"]))).toEqual({
+      snapshots: {},
+      syncBySlot: {}
+    });
+    expect(storage.has(PRO_TRADE_CACHE_STORAGE_KEY)).toBe(false);
   });
 });
 
@@ -144,6 +166,8 @@ function tradeSnapshot(): ProTradeSnapshot {
     renewable: false,
     released: false,
     freshness: "fresh",
+    settlementInvoice: "lnbc1000n1buyerinvoice0123456789",
+    settlementInvoicePurpose: "payout-received",
     updatedAt: 18_000,
     changedAt: 17_000
   };

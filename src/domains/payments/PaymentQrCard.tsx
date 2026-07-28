@@ -8,6 +8,7 @@ import { resolvePaymentExpiry } from "@/domains/payments/paymentExpiry";
 import type { PaymentConcept } from "@/domains/payments/payment.types";
 import { formatSats } from "@/lib/format";
 import { readUiPreferences } from "@/domains/settings/uiPreferences";
+import { writeClipboard } from "@/lib/clipboard";
 
 type PaymentQrCardProps = {
   concept: PaymentConcept;
@@ -17,7 +18,7 @@ type PaymentQrCardProps = {
   expiresAt?: string | null;
   footer?: ReactNode;
   openWalletHref?: string;
-  onCopy?: (value: string) => void;
+  onCopy?: (value: string) => void | Promise<void>;
   previewMode?: boolean;
 };
 
@@ -30,7 +31,7 @@ export function PaymentQrCard({
   footer,
   openWalletHref,
   previewMode = false,
-  onCopy = copyToClipboard
+  onCopy = writeClipboard
 }: PaymentQrCardProps) {
   const paymentUri = openWalletHref ?? value;
   const paymentExpiresAt = useMemo(
@@ -39,12 +40,25 @@ export function PaymentQrCard({
   );
   const hasWebLn = !previewMode && typeof window !== "undefined" && Boolean((window as Window & { webln?: WebLnProvider }).webln);
   const [qrTheme, setQrTheme] = useState(() => readUiPreferences().qrTheme);
+  const [webLnState, setWebLnState] = useState<"idle" | "paying" | "success" | "error">("idle");
 
   useEffect(() => {
     const update = () => setQrTheme(readUiPreferences().qrTheme);
     window.addEventListener("robosats-ui-preferences", update);
     return () => window.removeEventListener("robosats-ui-preferences", update);
   }, []);
+
+  const handleWebLnPayment = async () => {
+    if (webLnState === "paying" || !value) return;
+    setWebLnState("paying");
+    try {
+      await payWithWebLn(value);
+      setWebLnState("success");
+    } catch {
+      setWebLnState("error");
+    }
+  };
+
   return (
     <Card className={`payment-card payment-card-${concept}`} aria-label={title}>
       <CardContent>
@@ -80,16 +94,30 @@ export function PaymentQrCard({
               </div>
             ) : null}
             <div className="payment-actions">
-              <Button onClick={() => onCopy(value)} disabled={!value}>
+              <Button onClick={() => onCopy(value)} disabled={!value || webLnState === "paying"}>
                 <Copy size={16} />
                 Copy
               </Button>
               {hasWebLn && value ? (
-                <Button variant="secondary" onClick={() => payWithWebLn(value)}>
+                <Button
+                  variant="secondary"
+                  loading={webLnState === "paying"}
+                  loadingLabel="Paying with WebLN"
+                  onClick={handleWebLnPayment}
+                >
                   <WalletCards size={16} /> WebLN
                 </Button>
               ) : null}
             </div>
+            {webLnState === "success" ? (
+              <p className="payment-action-status payment-action-status-success" role="status">
+                Payment completed in your WebLN wallet.
+              </p>
+            ) : webLnState === "error" ? (
+              <p className="payment-action-status payment-action-status-error" role="alert">
+                Your WebLN wallet could not complete the payment. Check it and try again.
+              </p>
+            ) : null}
           </div>
         </div>
         {footer ? <div className="payment-card-footer">{footer}</div> : null}
@@ -105,7 +133,7 @@ interface WebLnProvider {
 
 async function payWithWebLn(invoice: string) {
   const provider = (window as Window & { webln?: WebLnProvider }).webln;
-  if (!provider) return;
+  if (!provider) throw new Error("WebLN is unavailable.");
   await provider.enable();
   await provider.sendPayment(invoice);
 }
@@ -139,9 +167,4 @@ function formatCountdown(remainingMs: number): string {
   const seconds = totalSeconds % 60;
   const clock = [hours, minutes, seconds].map((part) => String(part).padStart(2, "0")).join(":");
   return days > 0 ? `${days}d ${clock}` : clock;
-}
-
-async function copyToClipboard(value: string) {
-  if (!value || typeof navigator === "undefined") return;
-  await navigator.clipboard?.writeText(value);
 }

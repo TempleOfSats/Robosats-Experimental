@@ -1,10 +1,11 @@
 import { AlertTriangle, Copy, Download, Eye, EyeOff, Hash, Home, KeyRound, Plus, Search, Send, Settings, Trash2, Trophy, X } from "lucide-react";
 import { lazy, Suspense, useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { AppTransitionFeedback } from "@/components/app/AppTransitionFeedback";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
+import { Dialog } from "@/components/ui/dialog";
 import { VisualSelect } from "@/components/ui/visualSelect";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import { CoordinatorDetailDialog } from "@/domains/coordinators/CoordinatorsPage";
@@ -21,17 +22,23 @@ import { deriveRobotIdentity } from "@/domains/identity/robotIdentity";
 import { ingestCoordinatorOrder } from "@/domains/orders/orderActivity";
 import { fetchOrder } from "@/domains/orders/orderApi";
 import type { OrderDto } from "@/domains/orders/order.types";
-import { currencyOptions } from "@/domains/orderbook/currencies";
+import { BeginnerTradeWizard } from "@/domains/orderbook/BeginnerTradeWizard";
+import { currencyIdFromCode, currencyOptions } from "@/domains/orderbook/currencies";
+import type { GuidedTradeCriteria } from "@/domains/orderbook/guidedTrade";
+import { useOrderbookStore } from "@/domains/orderbook/orderbookStore";
+import type { PublicOrder } from "@/domains/orderbook/orderbook.types";
 import { CurrencyFlag, PaymentMethodIcons } from "@/domains/orderbook/OfferMeta";
 import { RewardWithdrawalPanel } from "@/domains/rewards/RewardWithdrawalPanel";
 import { formatFiat, formatSats } from "@/lib/format";
 import { toUserMessage } from "@/lib/userError";
+import { writeClipboard } from "@/lib/clipboard";
 
 const RobotKeysDialog = lazy(() =>
   import("@/domains/garage/RobotKeysDialog").then((module) => ({ default: module.RobotKeysDialog }))
 );
 
 export function RobotGaragePage() {
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const allSlots = useGarageStore((state) => state.slots);
   const slots = selectStandardGarageSlots(allSlots);
@@ -60,8 +67,17 @@ export function RobotGaragePage() {
   const [removeError, setRemoveError] = useState("");
   const [removingRobot, setRemovingRobot] = useState(false);
   const [selectedAlias, setSelectedAlias] = useState<string | undefined>();
+  const [showGuidedTrade, setShowGuidedTrade] = useState(false);
   const selectedCoordinator = displayCoordinators.find((coordinator) => coordinator.shortAlias === selectedAlias);
   const selectedRobot = selectedCoordinator && activeSlot ? activeSlot.robots[selectedCoordinator.shortAlias] : undefined;
+  const checkingExistingOrders = Boolean(
+    activeSlot?.loading
+    || Object.values(activeSlot?.robots ?? {}).some((robot) => robot.loading)
+  );
+  const guidedOrders = useOrderbookStore((state) => state.orders);
+  const guidedOrdersLoading = useOrderbookStore((state) => state.loading);
+  const guidedOrdersRefreshing = useOrderbookStore((state) => state.refreshing);
+  const refreshOrderbook = useOrderbookStore((state) => state.refreshOrderbook);
 
   useEffect(() => {
     hydrate();
@@ -81,9 +97,13 @@ export function RobotGaragePage() {
 
   const copyToken = async () => {
     if (!activeSlot?.token) return;
-    await navigator.clipboard?.writeText(activeSlot.token);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1500);
+    try {
+      await writeClipboard(activeSlot.token);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setCopied(false);
+    }
   };
 
   const removeRobotFromGarage = async (slot: RobotSlot) => {
@@ -98,6 +118,51 @@ export function RobotGaragePage() {
       setRemovingRobot(false);
     }
   };
+
+  function openGuidedTrade() {
+    setShowGuidedTrade(true);
+    void refreshGuidedOrders();
+  }
+
+  async function refreshGuidedOrders() {
+    let federation = useFederationStore.getState();
+    if (federation.connection !== "nostr") {
+      await federation.refreshCoordinators();
+      federation = useFederationStore.getState();
+    }
+    await refreshOrderbook(federation.coordinators, {
+      connection: federation.connection,
+      hostUrl: typeof window === "undefined" ? "" : window.location.host,
+      network: federation.network,
+      origin: federation.origin
+    });
+  }
+
+  function createGuidedOffer(criteria: GuidedTradeCriteria) {
+    setShowGuidedTrade(false);
+    navigate("/create", {
+      state: {
+        prefillDraft: {
+          type: criteria.intent === "buy" ? 0 : 1,
+          currency: currencyIdFromCode(criteria.currency),
+          amount: String(criteria.amount),
+          paymentMethod: criteria.paymentMethod
+        }
+      }
+    });
+  }
+
+  function reviewGuidedOffer(order: PublicOrder, criteria: GuidedTradeCriteria) {
+    navigate("/offers", {
+      state: {
+        guidedTradeLaunch: {
+          criteria,
+          returnTo: "/garage",
+          reviewOrder: order
+        }
+      }
+    });
+  }
 
   if (!hydrated) {
     return (
@@ -120,11 +185,9 @@ export function RobotGaragePage() {
             <p>Generate a private token, meet your robot, then browse or create an order.</p>
           </div>
         </div>
-        <Card className="import-card start-card">
-          <CardContent>
-            <CreateRobotPanel onProfile={() => setShowFirstRunWizard(false)} />
-          </CardContent>
-        </Card>
+        <div className="start-card start-card-unframed">
+          <CreateRobotPanel onProfile={() => setShowFirstRunWizard(false)} />
+        </div>
       </main>
     );
   }
@@ -166,6 +229,11 @@ export function RobotGaragePage() {
               <Link to={orderPath(activeSlot, activeSlot.activeOrderId)}>Active order #{activeSlot.activeOrderId}</Link>
             ) : activeSlot.lastOrderId ? (
               <button type="button" onClick={() => setShowLastOrder(true)}>Last order #{activeSlot.lastOrderId}</button>
+            ) : checkingExistingOrders ? (
+              <span className="garage-robot-status-loading" role="status" aria-live="polite">
+                <span className="ui-spinner" aria-hidden="true" />
+                Checking coordinators...
+              </span>
             ) : (
               <span>No existing orders found</span>
             )}
@@ -224,11 +292,15 @@ export function RobotGaragePage() {
         </Card>
 
         <div className="next-action-grid">
-          <Link className="action-tile action-tile-primary" to="/offers">
+          <button
+            className="action-tile action-tile-primary garage-guided-trade-action"
+            onClick={openGuidedTrade}
+            type="button"
+          >
             <Search size={20} />
-            <strong>Browse offers</strong>
-            <span>Find a peer.</span>
-          </Link>
+            <strong>Find a trade</strong>
+            <span>Choose step by step.</span>
+          </button>
           <Link className="action-tile" to="/create">
             <Plus size={20} />
             <strong>Create offer</strong>
@@ -272,6 +344,17 @@ export function RobotGaragePage() {
         </div>
       </div>
 
+      {showGuidedTrade ? (
+        <BeginnerTradeWizard
+          coordinators={displayCoordinators}
+          loading={(guidedOrdersLoading || guidedOrdersRefreshing) && guidedOrders.length === 0}
+          onClose={() => setShowGuidedTrade(false)}
+          onCreateOffer={createGuidedOffer}
+          onSelectOffer={reviewGuidedOffer}
+          orders={guidedOrders}
+        />
+      ) : null}
+
       {showRobotSwitcher ? (
         <RobotSwitcher
           activeToken={activeSlot.token}
@@ -307,14 +390,15 @@ export function RobotGaragePage() {
       ) : null}
 
       {showDeleteConfirmation ? (
-        <div
-          className="confirm-overlay"
-          onClick={() => setShowDeleteConfirmation(false)}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="delete-robot-title"
+        <Dialog
+          ariaLabelledby="delete-robot-title"
+          closeOnEscape={!removingRobot}
+          onClose={() => {
+            if (!removingRobot) setShowDeleteConfirmation(false);
+          }}
+          overlayClassName="confirm-overlay"
+          panelClassName="confirm-sheet"
         >
-          <section className="confirm-sheet" onClick={(event) => event.stopPropagation()}>
             <div className="confirm-header">
               <span className="confirm-icon-shell" aria-hidden="true"><AlertTriangle size={24} /></span>
               <h3 id="delete-robot-title">Remove {activeSlot.nickname}?</h3>
@@ -326,15 +410,14 @@ export function RobotGaragePage() {
               <Button
                 variant="destructive"
                 type="button"
-                disabled={removingRobot}
+                loading={removingRobot}
                 onClick={() => void removeRobotFromGarage(activeSlot)}
               >
-                {removingRobot ? <span className="ui-spinner" aria-hidden="true" /> : <Trash2 size={16} />}
+                <Trash2 size={16} />
                 Remove from Garage
               </Button>
             </div>
-          </section>
-        </div>
+        </Dialog>
       ) : null}
 
       {showRobotSettings ? (
@@ -396,8 +479,12 @@ function RobotRecoveryDialog({ onClose, onRecover }: { onClose: () => void; onRe
   };
 
   return (
-    <div className="garage-switcher-overlay" onClick={onClose}>
-      <section className="garage-recovery-dialog" role="dialog" aria-modal="true" aria-labelledby="robot-recovery-title" onClick={(event) => event.stopPropagation()}>
+    <Dialog
+      ariaLabelledby="robot-recovery-title"
+      onClose={onClose}
+      overlayClassName="garage-switcher-overlay"
+      panelClassName="garage-recovery-dialog"
+    >
         <header>
           <div className="garage-recovery-heading">
             <span className="garage-recovery-icon" aria-hidden="true"><KeyRound size={20} /></span>
@@ -412,6 +499,8 @@ function RobotRecoveryDialog({ onClose, onRecover }: { onClose: () => void; onRe
           <label className="garage-recovery-field">
             <span>Robot token</span>
             <textarea
+              aria-describedby={error ? "robot-recovery-error" : undefined}
+              aria-invalid={Boolean(error)}
               autoFocus
               autoCapitalize="none"
               autoComplete="off"
@@ -425,14 +514,13 @@ function RobotRecoveryDialog({ onClose, onRecover }: { onClose: () => void; onRe
               value={token}
             />
           </label>
-          {error ? <p className="field-error">{error}</p> : null}
+          {error ? <p className="field-error" id="robot-recovery-error" role="alert">{error}</p> : null}
           <div className="garage-recovery-actions">
             <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
             <Button type="submit" disabled={!cleanToken}><KeyRound size={16} />Recover robot</Button>
           </div>
         </form>
-      </section>
-    </div>
+    </Dialog>
   );
 }
 
@@ -501,13 +589,17 @@ export function RobotSettingsDialog({
   toggleKeys: () => void;
 }) {
   return (
-    <div className="garage-settings-overlay" onClick={onClose}>
-      <aside className="garage-settings-panel garage-settings-dialog" onClick={(event) => event.stopPropagation()}>
+    <Dialog
+      ariaLabelledby="robot-settings-title"
+      onClose={onClose}
+      overlayClassName="garage-settings-overlay"
+      panelClassName="garage-settings-panel garage-settings-dialog"
+    >
         <button className="take-modal-close" onClick={onClose} type="button" aria-label="Close robot settings">
           <X size={20} />
         </button>
 
-        <h2>Your Robot</h2>
+        <h2 id="robot-settings-title">Your Robot</h2>
 
         <VisualSelect
           ariaLabel="Select robot"
@@ -534,7 +626,7 @@ export function RobotSettingsDialog({
         </div>
 
         {showKeys ? (
-          <Suspense fallback={null}>
+          <Suspense fallback={<AppTransitionFeedback compact title="Preparing robot keys" message="Loading local credentials..." />}>
             <RobotKeysDialog slot={slot} onClose={toggleKeys} />
           </Suspense>
         ) : null}
@@ -547,6 +639,7 @@ export function RobotSettingsDialog({
                 className="garage-known-row"
                 key={coordinator.shortAlias}
                 type="button"
+                aria-label={`Open ${coordinator.longAlias}: ${coordinatorStatus(slot.robots[coordinator.shortAlias])}`}
                 onClick={() => onCoordinatorSelect(coordinator.shortAlias)}
               >
                 <img className="coordinator-avatar coordinator-avatar-lg" src={coordinator.avatarUrl} alt="" />
@@ -558,8 +651,7 @@ export function RobotSettingsDialog({
             ))}
           </div>
         </section>
-      </aside>
-    </div>
+    </Dialog>
   );
 }
 
@@ -575,10 +667,14 @@ function RobotSwitcher({
   slots: Array<NonNullable<ReturnType<typeof selectCurrentSlot>>>;
 }) {
   return (
-    <div className="garage-switcher-overlay" onClick={onClose}>
-      <div className="garage-switcher-panel" onClick={(event) => event.stopPropagation()}>
+    <Dialog
+      ariaLabelledby="robot-switcher-title"
+      onClose={onClose}
+      overlayClassName="garage-switcher-overlay"
+      panelClassName="garage-switcher-panel"
+    >
         <div className="garage-switcher-header">
-          <h3>Select robot</h3>
+          <h3 id="robot-switcher-title">Select robot</h3>
           <button className="icon-button" onClick={onClose} type="button" aria-label="Close robot switcher">
             <X size={18} />
           </button>
@@ -601,8 +697,7 @@ function RobotSwitcher({
             </button>
           ))}
         </div>
-      </div>
-    </div>
+    </Dialog>
   );
 }
 
@@ -637,8 +732,13 @@ export function RobotCoordinatorDialog({
   }
 
   return (
-    <div className="garage-robot-dialog-overlay" onClick={onClose}>
-      <aside className="garage-robot-dialog" onClick={(event) => event.stopPropagation()}>
+    <>
+      <Dialog
+        ariaLabelledby="coordinator-robot-title"
+        onClose={onClose}
+        overlayClassName="garage-robot-dialog-overlay"
+        panelClassName="garage-robot-dialog"
+      >
         <button className="take-modal-close" onClick={onClose} type="button" aria-label="Close coordinator robot details">
           <X size={20} />
         </button>
@@ -651,7 +751,7 @@ export function RobotCoordinatorDialog({
           >
             <img className="coordinator-avatar coordinator-avatar-sm" src={coordinator.smallAvatarUrl} alt="" />
           </button>
-          <h2>{coordinator.longAlias}</h2>
+          <h2 id="coordinator-robot-title">{coordinator.longAlias}</h2>
         </header>
 
         <div className="garage-dialog-row">
@@ -693,7 +793,7 @@ export function RobotCoordinatorDialog({
         <Button className="garage-dialog-back" type="button" variant="ghost" onClick={onClose}>
           Back
         </Button>
-      </aside>
+      </Dialog>
 
       {showTelegramSetup && robot?.tgBotName && robot.tgToken ? (
         <TelegramSetupDialog botName={robot.tgBotName} token={robot.tgToken} onClose={() => setShowTelegramSetup(false)} />
@@ -711,14 +811,12 @@ export function RobotCoordinatorDialog({
       ) : null}
 
       {showRewardWithdrawal && rewards > 0 ? (
-        <div
-          className="garage-reward-dialog-overlay"
-          onClick={(event) => {
-            event.stopPropagation();
-            setShowRewardWithdrawal(false);
-          }}
+        <Dialog
+          ariaLabelledby="reward-withdrawal-title"
+          onClose={() => setShowRewardWithdrawal(false)}
+          overlayClassName="garage-reward-dialog-overlay"
+          panelClassName="garage-reward-dialog"
         >
-          <section className="garage-reward-dialog" role="dialog" aria-modal="true" aria-labelledby="reward-withdrawal-title" onClick={(event) => event.stopPropagation()}>
             <button className="take-modal-close" onClick={() => setShowRewardWithdrawal(false)} type="button" aria-label="Close reward withdrawal">
               <X size={20} />
             </button>
@@ -737,10 +835,9 @@ export function RobotCoordinatorDialog({
               }}
               slot={slot}
             />
-          </section>
-        </div>
+        </Dialog>
       ) : null}
-    </div>
+    </>
   );
 }
 
@@ -786,12 +883,16 @@ function LatestOrderDialog({ coordinators, onClose, orderId, slot }: {
     : order ? formatFiat(order.amount, currency) : "";
 
   return (
-    <div className="garage-switcher-overlay" onClick={onClose}>
-      <section className="garage-last-order-dialog" onClick={(event) => event.stopPropagation()}>
+    <Dialog
+      ariaLabelledby="last-order-title"
+      onClose={onClose}
+      overlayClassName="garage-switcher-overlay"
+      panelClassName="garage-last-order-dialog"
+    >
         <header>
           <div>
             <span className="app-eyebrow">Last order</span>
-            <h3>Order #{orderId}</h3>
+            <h3 id="last-order-title">Order #{orderId}</h3>
           </div>
           <button className="icon-button" type="button" onClick={onClose} aria-label="Close order details"><X size={18} /></button>
         </header>
@@ -817,8 +918,7 @@ function LatestOrderDialog({ coordinators, onClose, orderId, slot }: {
           </dl>
         ) : null}
         <Button type="button" variant="secondary" onClick={onClose}>Close</Button>
-      </section>
-    </div>
+    </Dialog>
   );
 }
 

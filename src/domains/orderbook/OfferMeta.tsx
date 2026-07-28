@@ -1,5 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { ArrowDownLeft, ArrowUpRight, ChevronDown, CircleDollarSign, Globe2, Repeat2 } from "lucide-react";
 import { matchedPaymentMethods, paymentIconSrc, type PaymentMethodOption } from "@/domains/orderbook/paymentMethods";
 
@@ -284,6 +284,9 @@ export function IntentPicker({
 
 export function PaymentMethodPicker({
   allowCustom = false,
+  allowAny = true,
+  ariaDescribedby,
+  ariaInvalid,
   defaultIcon,
   label,
   open: controlledOpen,
@@ -294,6 +297,9 @@ export function PaymentMethodPicker({
   onSelect
 }: {
   allowCustom?: boolean;
+  allowAny?: boolean;
+  ariaDescribedby?: string;
+  ariaInvalid?: boolean;
   defaultIcon?: ReactNode;
   label: string;
   open?: boolean;
@@ -305,14 +311,16 @@ export function PaymentMethodPicker({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listboxId = useId();
   const [internalOpen, setInternalOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
   const open = controlledOpen ?? internalOpen;
   const setOpen = onOpenChange ?? setInternalOpen;
   const [query, setQuery] = useState("");
   const selected = options.find((option) => option.name === value);
   const selectedIcon = selected?.icon
     ? <PaymentMethodImage icon={selected.icon} name={selected.name} size={18} />
-    : value === "all" ? defaultIcon : undefined;
+    : allowAny && value === "all" ? defaultIcon : undefined;
   const filteredOptions = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     if (!normalizedQuery) return options;
@@ -321,6 +329,8 @@ export function PaymentMethodPicker({
 
   useEffect(() => {
     if (!open) return;
+    const selectedIndex = filteredOptions.findIndex((option) => option.name === value);
+    setActiveIndex(Math.max(0, selectedIndex));
 
     const closeOnOutsidePointer = (event: PointerEvent) => {
       const container = containerRef.current;
@@ -331,7 +341,7 @@ export function PaymentMethodPicker({
 
     document.addEventListener("pointerdown", closeOnOutsidePointer, true);
     return () => document.removeEventListener("pointerdown", closeOnOutsidePointer, true);
-  }, [open]);
+  }, [filteredOptions, open, setOpen, value]);
 
   useEffect(() => {
     if (value === "all" || !value) {
@@ -351,7 +361,7 @@ export function PaymentMethodPicker({
       return;
     }
 
-    onChange(nextQuery.trim() ? nextQuery : "all");
+    onChange(nextQuery.trim() ? nextQuery : allowAny ? "all" : "");
   }
 
   function selectOption(nextValue: string) {
@@ -359,6 +369,14 @@ export function PaymentMethodPicker({
     setQuery(allowCustom && onSelect ? "" : nextValue === "all" ? "" : nextValue);
     setOpen(false);
     onSelect?.(nextValue);
+  }
+
+  function moveActiveOption(direction: 1 | -1) {
+    if (!open) setOpen(true);
+    setActiveIndex((current) => {
+      if (filteredOptions.length === 0) return 0;
+      return (current + direction + filteredOptions.length) % filteredOptions.length;
+    });
   }
 
   return (
@@ -375,24 +393,56 @@ export function PaymentMethodPicker({
       <div className={selectedIcon ? "image-select-combo" : "image-select-combo image-select-combo-no-icon"}>
         {selectedIcon ? <span className="image-select-icon">{selectedIcon}</span> : null}
         <input
+          aria-activedescendant={open && filteredOptions[activeIndex]
+            ? `${listboxId}-option-${activeIndex}`
+            : undefined}
+          aria-autocomplete="list"
+          aria-controls={listboxId}
+          aria-describedby={ariaDescribedby}
+          aria-expanded={open}
+          aria-invalid={ariaInvalid}
           aria-label={label}
           className="image-select-input"
           ref={inputRef}
-          placeholder={allowCustom ? "Type Method" : "ANY"}
+          placeholder={allowCustom ? "Type Method" : allowAny ? "ANY" : "Select a method"}
           value={query}
           onChange={(event) => updateQuery(event.target.value)}
           onFocus={() => setOpen(true)}
           onKeyDown={(event) => {
             if (event.key === "Escape") {
+              event.preventDefault();
               setOpen(false);
+              return;
+            }
+            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+              event.preventDefault();
+              moveActiveOption(event.key === "ArrowDown" ? 1 : -1);
+              return;
+            }
+            if (event.key === "Home" && open && filteredOptions.length > 0) {
+              event.preventDefault();
+              setActiveIndex(0);
+              return;
+            }
+            if (event.key === "End" && open && filteredOptions.length > 0) {
+              event.preventDefault();
+              setActiveIndex(filteredOptions.length - 1);
+              return;
+            }
+            if (event.key === "Enter" && open && filteredOptions[activeIndex]) {
+              event.preventDefault();
+              selectOption(filteredOptions[activeIndex].name);
+              return;
             }
             if (allowCustom && event.key === "Enter" && query.trim()) {
               event.preventDefault();
               selectOption(query.trim());
             }
           }}
+          role="combobox"
         />
         <button
+          aria-controls={listboxId}
           aria-expanded={open}
           aria-label="Browse payment methods"
           className="image-select-browse"
@@ -408,32 +458,35 @@ export function PaymentMethodPicker({
         </button>
       </div>
       {open ? (
-        <div className="image-select-menu">
+        <div aria-label={label} className="image-select-menu" id={listboxId} role="listbox">
           {allowCustom && query.trim() && !options.some((option) => option.name.toLowerCase() === query.trim().toLowerCase()) ? (
             <ImageSelectOption
-              active
+              highlighted
               icon={null}
               label={`Add "${query.trim()}"`}
               onClick={() => {
                 selectOption(query.trim());
               }}
             />
-          ) : !allowCustom ? (
+          ) : !allowCustom && allowAny ? (
             <ImageSelectOption
-              active={value === "all"}
+              highlighted={value === "all"}
               icon={defaultIcon ?? null}
               label="ANY"
+              selected={value === "all"}
               onClick={() => {
                 selectOption("all");
               }}
             />
           ) : null}
-          {filteredOptions.map((option) => (
+          {filteredOptions.map((option, index) => (
             <ImageSelectOption
-              active={option.name === value}
+              highlighted={index === activeIndex}
+              id={`${listboxId}-option-${index}`}
               icon={option.icon ? <PaymentMethodImage icon={option.icon} name={option.name} size={20} /> : null}
               key={option.name}
               label={option.name}
+              selected={option.name === value}
               onClick={() => {
                 selectOption(option.name);
               }}
@@ -446,19 +499,26 @@ export function PaymentMethodPicker({
 }
 
 function ImageSelectOption({
-  active,
+  highlighted,
+  id,
   icon,
   label,
+  selected = false,
   onClick
 }: {
-  active: boolean;
+  highlighted: boolean;
+  id?: string;
   icon: ReactNode;
   label: string;
+  selected?: boolean;
   onClick: () => void;
 }) {
   return (
     <button
-      className={active ? optionClassName(icon, true) : optionClassName(icon, false)}
+      aria-selected={selected}
+      className={optionClassName(icon, highlighted || selected)}
+      id={id}
+      role="option"
       type="button"
       onClick={onClick}
     >

@@ -2,7 +2,7 @@ import { type Event, type Filter, verifyEvent } from "nostr-tools";
 import type { SimplePool } from "nostr-tools/pool";
 import type { CoordinatorSummary, Network } from "@/domains/coordinators/coordinator.types";
 import { recordRelayPerformance } from "@/domains/diagnostics/networkPerformance";
-import { getSharedRelayPool } from "@/domains/nostr/sharedRelayPool";
+import { getLiveRelaySubscriptions } from "@/domains/nostr/sharedRelayPool";
 import {
   noteRelayEose,
   noteRelayEvent,
@@ -12,6 +12,7 @@ import {
 import { relayRetryDelay } from "@/domains/nostr/relayRetry";
 import { currencyIdFromCode } from "@/domains/orderbook/currencies";
 import type { PublicOrder } from "@/domains/orderbook/orderbook.types";
+import { decodeGeohashCenter } from "@/domains/location/f2fLocation";
 
 const ORDER_KIND = 38383;
 const RELAY_MAX_WAIT_MS = 20000;
@@ -123,7 +124,7 @@ function getNostrOrderbookSession(
 
 class NostrOrderbookSession {
   readonly key: string;
-  private readonly pool = getSharedRelayPool();
+  private readonly pool = getLiveRelaySubscriptions();
   private readonly filters: Filter[];
   private readonly listeners = new Set<NostrOrderbookListener>();
   private readonly events = new Map<string, Event>();
@@ -473,6 +474,7 @@ export function nostrEventToPublicOrder(
   const makerHashId = name?.[2] || `${orderId}${coordinator.shortAlias}`;
   const bondSizePercent = toOptionalNumber(tagValue(event, "bond"));
   const expiration = toOptionalNumber(tagValue(event, "expiration"));
+  const approximateLocation = decodeGeohashCenter(tagValue(event, "g") ?? "");
 
   return {
     dTag,
@@ -496,6 +498,10 @@ export function nostrEventToPublicOrder(
       maker_hash_id: makerHashId,
       bond_size_sats: 0,
       ...(bondSizePercent != null ? { bond_size_percent: bondSizePercent } : {}),
+      ...(approximateLocation ? {
+        latitude: approximateLocation[0],
+        longitude: approximateLocation[1]
+      } : {}),
       coordinatorShortAlias: coordinator.shortAlias
     }
   };

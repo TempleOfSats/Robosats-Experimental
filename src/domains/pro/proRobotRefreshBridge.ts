@@ -21,8 +21,10 @@ export function recordProRobotRefreshResult(
 
   const tradeIndex = useProTradeIndexStore.getState();
   const previous = tradeIndex.syncBySlot[result.slotId];
-  const attemptedCoordinators = result.coordinators.length;
-  const failedCoordinators = result.coordinators.filter((coordinator) => coordinator.error).length;
+  const attempted = result.coordinators.filter((coordinator) => !coordinator.cached);
+  if (attempted.length === 0 && result.coordinators.length > 0) return;
+  const attemptedCoordinators = attempted.length;
+  const failedCoordinators = attempted.filter((coordinator) => coordinator.error).length;
   const successfulCoordinators = attemptedCoordinators - failedCoordinators;
 
   tradeIndex.setSlotSync({

@@ -1,34 +1,44 @@
 import {
+  CalendarClock,
   ChevronRight,
+  CircleCheck,
   CirclePlus,
   Clock3,
+  Copy,
   Download,
+  History,
   ListChecks,
   Pause,
   Play,
+  Search,
   Send,
   Trash2,
   X
 } from "lucide-react";
-import { Fragment } from "react";
-import { useNavigate } from "react-router-dom";
+import { Fragment, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import type { RobotSlot } from "@/domains/garage/garageStore";
 import { RobotAvatar } from "@/domains/identity/RobotAvatar";
 import { formatExpiryCountdown, formatExpiryTitle } from "@/domains/orderbook/offerDisplay";
+import { currencyCodeFromId } from "@/domains/orderbook/currencies";
 import { toProTradePresentation } from "@/domains/pro/proPresentation";
 import { deriveProRobotLifecycle } from "@/domains/pro/proRobotLifecycle";
 import { summarizeProRobots } from "@/domains/pro/proSelectors";
 import { FleetGlyph } from "@/domains/pro/ProWorkspaceIcons";
 import type { ProTradeLocator, ProTradeSnapshot, SlotSyncState } from "@/domains/pro/pro.types";
+import type { TradeHistoryEntry, TradeHistoryOutcome } from "@/domains/pro/tradeHistory";
 import { formatLastRefresh, groupLabel } from "@/domains/pro/proWorkspacePresentation";
+import { writeClipboard } from "@/lib/clipboard";
+import { formatFiat, formatSats } from "@/lib/format";
 
 export function TradeList({
   coordinators,
   onCancel,
   onCreate,
+  onFindTrade,
   onOpen,
   onPause,
   onResume,
@@ -38,13 +48,16 @@ export function TradeList({
   coordinators: CoordinatorSummary[];
   onCancel: (snapshot: ProTradeSnapshot) => void;
   onCreate: () => void;
+  onFindTrade: () => void;
   onOpen: (locator: ProTradeLocator) => void;
   onPause: (snapshot: ProTradeSnapshot) => void;
   onResume: (snapshot: ProTradeSnapshot) => void;
   quickActionKey: string;
   snapshots: ProTradeSnapshot[];
 }) {
-  if (snapshots.length === 0) return <TradeEmptyState onCreate={onCreate} />;
+  if (snapshots.length === 0) {
+    return <TradeEmptyState onCreate={onCreate} onFindTrade={onFindTrade} />;
+  }
 
   return (
     <div className="pro-trade-list" aria-label="Trades">
@@ -261,14 +274,159 @@ export function RobotList({
   );
 }
 
-function TradeEmptyState({ onCreate }: { onCreate: () => void }) {
-  const navigate = useNavigate();
+export function HistoryList({
+  coordinators,
+  entries
+}: {
+  coordinators: CoordinatorSummary[];
+  entries: TradeHistoryEntry[];
+}) {
+  const [selected, setSelected] = useState<TradeHistoryEntry>();
+  const [copiedInvoice, setCopiedInvoice] = useState(false);
+  if (entries.length === 0) {
+    return (
+      <div className="pro-empty-state pro-history-empty-state">
+        <span className="pro-history-empty-mark" aria-hidden="true">
+          <History size={22} />
+        </span>
+        <div className="pro-history-empty-copy">
+          <strong>No completed trades yet</strong>
+          <p>Completed trades and collaborative cancellations will appear here.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div className="pro-history-list" aria-label="Finished trade history">
+        <div className="pro-history-header" aria-hidden="true">
+          <span>Robot</span>
+          <span>Trade</span>
+          <span>Coordinator</span>
+          <span>Result</span>
+          <span>Completed</span>
+        </div>
+        {entries.map((entry) => {
+          const coordinator = coordinators.find((item) => item.shortAlias === entry.coordinatorShortAlias);
+          const outcome = historyOutcome(entry.outcome);
+          const OutcomeIcon = outcome.icon;
+          return (
+            <button
+              className="pro-history-row"
+              key={entry.id}
+              type="button"
+              onClick={() => {
+                setCopiedInvoice(false);
+                setSelected(entry);
+              }}
+              aria-label={`Open finished order ${entry.orderId} for ${entry.robotName}`}
+            >
+              <span className="pro-history-robot">
+                <RobotAvatar hashId={entry.robotHashId} label={entry.robotName} size="sm" />
+                <span><strong>{entry.robotName}</strong><small>{entry.role === "buyer" ? "Bought BTC" : "Sold BTC"}</small></span>
+              </span>
+              <span className="pro-history-trade">
+                <strong>{formatHistoryAmount(entry)}</strong>
+                <small>{entry.paymentMethod || "Method not specified"} · #{entry.orderId}</small>
+              </span>
+              <span className="pro-history-coordinator">
+                {coordinator ? <img className="coordinator-avatar coordinator-avatar-xs" src={coordinator.smallAvatarUrl} alt="" /> : null}
+                <span>{coordinator?.longAlias ?? entry.coordinatorShortAlias}</span>
+              </span>
+              <span><Badge tone={outcome.tone} icon={<OutcomeIcon size={12} />}>{outcome.label}</Badge></span>
+              <span className="pro-history-date">{formatHistoryDate(entry.completedAt)}</span>
+            </button>
+          );
+        })}
+      </div>
+      {selected ? (
+        <Dialog
+          ariaLabelledby="pro-history-detail-title"
+          onClose={() => setSelected(undefined)}
+          overlayClassName="pro-trade-dialog-overlay"
+          panelClassName="confirm-sheet pro-history-detail"
+        >
+          <header className="garage-switcher-header">
+            <div>
+              <p className="app-eyebrow">Finished trade</p>
+              <h3 id="pro-history-detail-title">Order #{selected.orderId}</h3>
+            </div>
+            <button className="icon-button" type="button" onClick={() => setSelected(undefined)} aria-label="Close trade history">
+              <X size={18} />
+            </button>
+          </header>
+          <div className="pro-history-detail-identity">
+            <RobotAvatar hashId={selected.robotHashId} label={selected.robotName} size="md" />
+            <span><strong>{selected.robotName}</strong><small>{selected.role === "buyer" ? "Bought BTC" : "Sold BTC"}</small></span>
+            <Badge
+              tone={historyOutcome(selected.outcome).tone}
+              icon={historyOutcomeIcon(selected.outcome)}
+            >
+              {historyOutcome(selected.outcome).label}
+            </Badge>
+          </div>
+          <dl className="pro-history-detail-list">
+            <div><dt>Amount</dt><dd>{formatHistoryAmount(selected)}</dd></div>
+            <div><dt>Payment method</dt><dd>{selected.paymentMethod || "Not specified"}</dd></div>
+            <div><dt>Premium</dt><dd>{formatSignedPercent(selected.premium)}</dd></div>
+            <div><dt>Bitcoin</dt><dd>{formatSats(selected.satoshis)}</dd></div>
+            <div><dt>Role</dt><dd>{selected.origin === "maker" ? "Offer maker" : "Offer taker"}</dd></div>
+            <div><dt>Coordinator</dt><dd>{coordinatorName(coordinators, selected.coordinatorShortAlias)}</dd></div>
+            <div><dt>Completed</dt><dd>{new Date(selected.completedAt).toLocaleString()}</dd></div>
+          </dl>
+          {selected.settlementInvoice && selected.settlementInvoicePurpose ? (
+            <section className="pro-history-invoice">
+              <div>
+                <strong>
+                  {selected.settlementInvoicePurpose === "payout-received"
+                    ? "Payout invoice"
+                    : "Seller collateral invoice"}
+                </strong>
+                <small>
+                  {selected.settlementInvoicePurpose === "payout-received"
+                    ? "Bitcoin received through this invoice"
+                    : "Bitcoin collateral paid through this invoice"}
+                </small>
+              </div>
+              <code>{selected.settlementInvoice}</code>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  void writeClipboard(selected.settlementInvoice!)
+                    .then(() => setCopiedInvoice(true))
+                    .catch(() => setCopiedInvoice(false));
+                }}
+              >
+                <Copy size={14} /> {copiedInvoice ? "Copied" : "Copy invoice"}
+              </Button>
+            </section>
+          ) : null}
+          <p className="pro-history-retention-note">
+            This summary is kept in your encrypted Fleet history. Banking details, peer identity and chat are not stored.
+          </p>
+        </Dialog>
+      ) : null}
+    </>
+  );
+}
+
+function TradeEmptyState({
+  onCreate,
+  onFindTrade
+}: {
+  onCreate: () => void;
+  onFindTrade: () => void;
+}) {
   return (
     <div className="pro-empty-state">
       <ListChecks size={22} aria-hidden="true" />
       <div><strong>No matching trades</strong><p>Active trades and public offers for every robot will appear here.</p></div>
       <div>
-        <Button size="sm" variant="secondary" onClick={() => navigate("/offers")}>Browse offers</Button>
+        <Button size="sm" variant="secondary" onClick={onFindTrade}>
+          <Search size={15} /> Find a trade
+        </Button>
         <Button size="sm" variant="ghost" onClick={onCreate}>Create offer</Button>
       </div>
     </div>
@@ -281,4 +439,36 @@ function OpenTradeButton({ onClick, orderId }: { onClick: () => void; orderId: n
       <ChevronRight size={18} />
     </button>
   );
+}
+
+function historyOutcome(outcome: TradeHistoryOutcome): {
+  icon: typeof CircleCheck;
+  label: string;
+  tone: "success" | "warning" | "danger" | "muted";
+} {
+  if (outcome === "completed") return { icon: CircleCheck, label: "Completed", tone: "success" };
+  return { icon: CalendarClock, label: "Cancelled together", tone: "muted" };
+}
+
+function historyOutcomeIcon(outcome: TradeHistoryOutcome) {
+  const Icon = historyOutcome(outcome).icon;
+  return <Icon size={12} />;
+}
+
+function formatHistoryAmount(entry: TradeHistoryEntry): string {
+  if (entry.amount === undefined) return "Amount unavailable";
+  const currency = currencyCodeFromId(entry.currency) ?? String(entry.currency);
+  return entry.currency === 1000 ? formatSats(entry.amount) : formatFiat(entry.amount, currency);
+}
+
+function formatHistoryDate(value: number): string {
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(value);
+}
+
+function formatSignedPercent(value: number): string {
+  return `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
+}
+
+function coordinatorName(coordinators: CoordinatorSummary[], shortAlias: string): string {
+  return coordinators.find((item) => item.shortAlias === shortAlias)?.longAlias ?? shortAlias;
 }

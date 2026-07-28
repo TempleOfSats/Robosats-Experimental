@@ -1,6 +1,7 @@
 import { ExternalLink, Send, X } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
 
 type TelegramSetupDialogProps = {
   botName: string;
@@ -12,8 +13,12 @@ export function TelegramSetupDialog({ botName, token, onClose }: TelegramSetupDi
   const links = telegramSetupLinks(botName, token);
 
   return (
-    <div className="telegram-setup-overlay" onClick={onClose} role="dialog" aria-modal="true" aria-labelledby="telegram-setup-title">
-      <section className="telegram-setup-dialog" onClick={(event) => event.stopPropagation()}>
+    <Dialog
+      ariaLabelledby="telegram-setup-title"
+      onClose={onClose}
+      overlayClassName="telegram-setup-overlay"
+      panelClassName="telegram-setup-dialog"
+    >
         <button className="take-modal-close" onClick={onClose} type="button" aria-label="Close Telegram setup">
           <X size={20} />
         </button>
@@ -44,8 +49,7 @@ export function TelegramSetupDialog({ botName, token, onClose }: TelegramSetupDi
             Enable
           </Button>
         </div>
-      </section>
-    </div>
+    </Dialog>
   );
 }
 

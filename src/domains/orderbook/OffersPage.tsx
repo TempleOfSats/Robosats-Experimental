@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   AlertCircle,
@@ -6,19 +6,24 @@ import {
   ArrowRight,
   ArrowUpDown,
   ArrowUpRight,
+  BarChart3,
   ChevronLeft,
   ChevronRight,
   Check,
-  CircleHelp,
   Copy,
   Download,
   Lock,
+  MapPin,
+  MapPinned,
   RefreshCw,
   Repeat2,
+  Search,
   WifiOff,
   X
 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { preloadAppRoute } from "@/app/routes";
+import { beginRouteTransition } from "@/app/routeTransition";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import { useOrderbookStore } from "@/domains/orderbook/orderbookStore";
@@ -33,11 +38,13 @@ import { getRobotOrderAvailability } from "@/domains/garage/robotAvailability";
 import { reserveRobotOrderAction, revalidateRobotForNewOrder } from "@/domains/orders/robotOrderGuard";
 import { downloadRobotTokenBackup } from "@/domains/garage/tokenBackup";
 import { ingestCoordinatorOrder } from "@/domains/orders/orderActivity";
+import { writeClipboard } from "@/lib/clipboard";
 import { fetchOrder, submitOrderAction } from "@/domains/orders/orderApi";
 import { roleBuysBitcoin, roleIntentLabel } from "@/domains/orders/orderRole";
 import type { OrderDto } from "@/domains/orders/order.types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog } from "@/components/ui/dialog";
 import { InfoHint } from "@/components/ui/infoHint";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CurrencyFlag, CurrencyPicker, IntentPicker, PaymentMethodIcons, PaymentMethodPicker, type IntentPickerOption } from "@/domains/orderbook/OfferMeta";
@@ -53,11 +60,25 @@ import { selectProGarageSlots, useGarageVaultStore } from "@/domains/pro/garageV
 import { bondDisplayValue, expiryRingValue, formatExpiryTitle, knownSatsValue, orderSatsPreview } from "@/domains/orderbook/offerDisplay";
 import { formatFiat, formatSats } from "@/lib/format";
 import { toUserMessage } from "@/lib/userError";
+import { selectCashF2FOffers } from "@/domains/location/f2fOfferMap";
+import { hasApproximateF2FLocation, paymentMethodHasF2F } from "@/domains/location/f2fLocation";
 
 type SortColumn = "amount" | "premium" | "expiry";
 type SortDirection = "asc" | "desc";
 type IntentFilter = "any" | "buy" | "sell" | "swap-in" | "swap-out";
 type OpenFilter = "intent" | "currency" | "method";
+type GuidedTradeLaunch = {
+  criteria: GuidedTradeCriteria;
+  returnTo?: string;
+  reviewOrder: PublicOrder;
+};
+type DirectOfferLaunch = {
+  reviewOrder: PublicOrder;
+};
+type OffersLocationState = {
+  directOfferLaunch?: DirectOfferLaunch;
+  guidedTradeLaunch?: GuidedTradeLaunch;
+};
 
 const pageSize = 13;
 const intentOptions: IntentPickerOption[] = [
@@ -68,9 +89,22 @@ const intentOptions: IntentPickerOption[] = [
   { label: "SWAP OUT", value: "swap-out", tone: "swap-out" }
 ];
 const preloadedPaymentIconUrls = new Set<string>();
+const loadF2FOffersMapDialog = () => import("@/domains/location/F2FOffersMapDialog");
+const LazyF2FOffersMapDialog = lazy(loadF2FOffersMapDialog);
+const LazyF2FLocationDialog = lazy(() =>
+  import("@/domains/location/F2FLocationDialog").then((module) => ({ default: module.F2FLocationDialog }))
+);
 
 export function OffersPage() {
+  const location = useLocation();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [guidedLaunch] = useState(
+    () => (location.state as OffersLocationState | null)?.guidedTradeLaunch
+  );
+  const [directOfferLaunch] = useState(
+    () => (location.state as OffersLocationState | null)?.directOfferLaunch
+  );
   const { connection, coordinators, origin, refreshCoordinators } = useFederationStore();
   const { orders, loading, refreshing, error, refreshOrderbook, applyLiveOrders } = useOrderbookStore();
   const hydrateGarage = useGarageStore((state) => state.hydrate);
@@ -90,6 +124,7 @@ export function OffersPage() {
   const [selectedOrderKey, setSelectedOrderKey] = useState<string | null>(null);
   const [takeModalOpen, setTakeModalOpen] = useState(false);
   const [takeAmount, setTakeAmount] = useState("");
+  const takeAmountPrefill = useRef<number | undefined>(undefined);
   const [offerPassword, setOfferPassword] = useState("");
   const [takeError, setTakeError] = useState<string | undefined>();
   const [taking, setTaking] = useState(false);
@@ -103,12 +138,18 @@ export function OffersPage() {
   const [orderDetailsResolved, setOrderDetailsResolved] = useState(true);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [nostrSessionEpoch, setNostrSessionEpoch] = useState(0);
-  const [guidedTradeOpen, setGuidedTradeOpen] = useState(false);
+  const [guidedTradeOpen, setGuidedTradeOpen] = useState(
+    () => searchParams.get("guided") === "1" || Boolean(guidedLaunch)
+  );
+  const [guidedReviewOpened, setGuidedReviewOpened] = useState(false);
+  const [directReviewOpened, setDirectReviewOpened] = useState(false);
+  const [f2fOffersMapOpen, setF2FOffersMapOpen] = useState(false);
   const fleetSlots = useMemo(
     () => selectProGarageSlots(garageSlots, fleetManifest),
     [fleetManifest, garageSlots]
   );
   const standardSlots = useMemo(() => selectStandardGarageSlots(garageSlots), [garageSlots]);
+  const cashF2FOffers = useMemo(() => selectCashF2FOffers(orders), [orders]);
   const activeSlot = selectCurrentSlot(standardSlots, currentToken);
   const readyFleetRobots = useMemo(
     () => selectOfferReadyRobots(
@@ -126,6 +167,15 @@ export function OffersPage() {
     : standardTakeAvailability.available
       ? undefined
       : standardTakeAvailability.message ?? "Create or recover a robot in Garage first.";
+
+  useEffect(() => {
+    if (searchParams.get("guided") !== "1") return;
+
+    setGuidedTradeOpen(true);
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete("guided");
+    setSearchParams(nextParams, { replace: true });
+  }, [searchParams, setSearchParams]);
   const takeSlot = proEnabled
     ? fleetSlots.find((slot) => slot.tokenSHA256 === takeSlotId)
     : activeSlot;
@@ -149,14 +199,14 @@ export function OffersPage() {
     }
 
     // Refreshing offers must not fan out into /info and /limits requests for
-    // every coordinator. The federation store maintains its own slower TTL.
-    await refreshCoordinators();
-    const refreshedState = useFederationStore.getState();
-    await refreshOrderbook(refreshedState.coordinators, {
-      connection: refreshedState.connection,
+    // every coordinator before /book can start. Federation health has its own
+    // slower TTL and updates independently from the visible orderbook.
+    void refreshCoordinators().catch(() => undefined);
+    await refreshOrderbook(currentState.coordinators, {
+      connection: currentState.connection,
       force,
-        network: refreshedState.network,
-        origin: refreshedState.origin
+      network: currentState.network,
+      origin: currentState.origin
     });
   }
 
@@ -250,7 +300,10 @@ export function OffersPage() {
   const pageStart = (currentPage - 1) * pageSize;
   const visibleOrders = useMemo(() => filteredOrders.slice(pageStart, pageStart + pageSize), [filteredOrders, pageStart]);
   const visiblePaymentMethodKey = useMemo(() => visibleOrders.map((order) => order.payment_method).join("|"), [visibleOrders]);
-  const selectedOrder = selectedOrderKey ? filteredOrders.find((order) => orderKey(order) === selectedOrderKey) : undefined;
+  const selectedOrder = selectedOrderKey
+    ? filteredOrders.find((order) => orderKey(order) === selectedOrderKey)
+      ?? (orderKey(directOfferLaunch?.reviewOrder) === selectedOrderKey ? directOfferLaunch?.reviewOrder : undefined)
+    : undefined;
   const selectedCoordinator = selectedOrder
     ? coordinators.find((item) => item.shortAlias === selectedOrder.coordinatorShortAlias)
     : undefined;
@@ -298,7 +351,7 @@ export function OffersPage() {
       return;
     }
 
-    setTakeAmount(defaultTakeAmount(selectedOrder));
+    setTakeAmount(defaultTakeAmount(selectedOrder, takeAmountPrefill.current));
     setOfferPassword("");
     setTakeError(undefined);
   }, [selectedOrder?.coordinatorShortAlias, selectedOrder?.id]);
@@ -337,9 +390,10 @@ export function OffersPage() {
     else setConfirmTakeOpen(true);
   }, [orderDetailsResolved, privateOrderLoading, selectedDescription, takeIntentPending]);
 
-  function openTakeModal(order: PublicOrder) {
+  function openTakeModal(order: PublicOrder, preferredAmount?: number) {
+    takeAmountPrefill.current = preferredAmount;
     setSelectedOrderKey(orderKey(order));
-    setTakeAmount(defaultTakeAmount(order));
+    setTakeAmount(defaultTakeAmount(order, preferredAmount));
     setOfferPassword("");
     setTakeError(undefined);
     setDescriptionConfirmOpen(false);
@@ -352,6 +406,22 @@ export function OffersPage() {
     setOrderDetailsResolved(!canFetchDetails);
     setTakeModalOpen(true);
   }
+
+  useEffect(() => {
+    if (!guidedLaunch || guidedReviewOpened) return;
+
+    setGuidedReviewOpened(true);
+    openTakeModal(guidedLaunch.reviewOrder, guidedLaunch.criteria.amount);
+    navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
+  }, [guidedLaunch, guidedReviewOpened, location.pathname, location.search, navigate]);
+
+  useEffect(() => {
+    if (!directOfferLaunch || directReviewOpened) return;
+
+    setDirectReviewOpened(true);
+    openTakeModal(directOfferLaunch.reviewOrder);
+    navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
+  }, [directOfferLaunch, directReviewOpened, location.pathname, location.search, navigate]);
 
   function closeTakeModal() {
     if (taking) return;
@@ -441,6 +511,7 @@ export function OffersPage() {
 
     setTaking(true);
     setTakeError(undefined);
+    preloadAppRoute("/order");
     try {
       const actionSlot = await revalidateRobotForNewOrder({
         coordinator: selectedCoordinator,
@@ -457,14 +528,16 @@ export function OffersPage() {
         return;
       }
       const orderId = order.id || selectedOrder.id;
+      setCurrentToken(actionSlot.token);
       ingestCoordinatorOrder({
         order,
         orderId,
         shortAlias: selectedCoordinator.shortAlias,
         slot: actionSlot
       });
-      setCurrentToken(actionSlot.token);
-      navigate(`/order/${selectedCoordinator.shortAlias}/${orderId}`);
+      const orderPath = `/order/${selectedCoordinator.shortAlias}/${orderId}`;
+      beginRouteTransition(orderPath);
+      navigate(orderPath, { state: { robotSlotId: actionSlot.tokenSHA256 } });
     } catch (error) {
       setTakeError(toUserMessage(error, "Could not take this offer."));
       if (proEnabled) setTakeSlotId(undefined);
@@ -490,26 +563,68 @@ export function OffersPage() {
     });
   }
 
+  function closeGuidedTrade() {
+    setGuidedTradeOpen(false);
+    if (guidedLaunch?.returnTo) navigate(guidedLaunch.returnTo, { replace: true });
+  }
+
   return (
     <main className="page page-wide">
       <section className="orderbook-layout">
           <Card className="orderbook-table-card">
           <CardHeader className="orderbook-card-header">
-            <CardTitle>Public offers</CardTitle>
+            <div className="orderbook-heading-group">
+              <CardTitle>Public offers</CardTitle>
+              <Button
+                aria-label="Find a trade step by step"
+                className="orderbook-guided-trade-link"
+                onClick={() => setGuidedTradeOpen(true)}
+                size="sm"
+                title="Find a trade step by step"
+                type="button"
+                variant="ghost"
+              >
+                <Search size={15} />
+                <span>Guided trade</span>
+              </Button>
+              <Button
+                aria-label="View market statistics"
+                className="orderbook-guided-trade-link orderbook-statistics-link"
+                onClick={() => {
+                  beginRouteTransition("/statistics");
+                  navigate("/statistics");
+                }}
+                onFocus={() => preloadAppRoute("/statistics")}
+                onPointerEnter={() => preloadAppRoute("/statistics")}
+                size="sm"
+                title="View market statistics"
+                type="button"
+                variant="ghost"
+              >
+                <BarChart3 size={15} />
+                <span className="orderbook-statistics-label">Statistics</span>
+              </Button>
+              {cashF2FOffers.length > 0 ? (
+                <Button
+                  aria-label={`View ${cashF2FOffers.length} Cash F2F ${cashF2FOffers.length === 1 ? "offer" : "offers"} on a map`}
+                  className="orderbook-guided-trade-link orderbook-f2f-map-link"
+                  onClick={() => setF2FOffersMapOpen(true)}
+                  onFocus={() => void loadF2FOffersMapDialog()}
+                  onPointerEnter={() => void loadF2FOffersMapDialog()}
+                  size="sm"
+                  title="View Cash F2F offers on a map"
+                  type="button"
+                  variant="ghost"
+                >
+                  <MapPinned size={15} />
+                  <span>F2F map</span>
+                  <small>{cashF2FOffers.length}</small>
+                </Button>
+              ) : null}
+            </div>
             <div className="orderbook-refresh-state">
               {refreshing ? <span className="orderbook-refreshing">Refreshing</span> : null}
               {!refreshing && error && orders.length > 0 ? <span className="orderbook-refreshing">Reconnecting</span> : null}
-              <Button
-                aria-label="Find a trade"
-                className="orderbook-guided-trade-button"
-                onClick={() => setGuidedTradeOpen(true)}
-                size="sm"
-                type="button"
-                variant="outline"
-              >
-                <CircleHelp size={16} />
-                <span>Find a trade</span>
-              </Button>
               <Button
                 size="icon"
                 variant="ghost"
@@ -625,7 +740,10 @@ export function OffersPage() {
                       <OfferMethodLine order={order} />
                     </span>
                     <ExpiryDisplay expiresAt={order.expires_at} nowMs={nowMs} />
-                    <CoordinatorPill coordinator={coordinators.find((item) => item.shortAlias === order.coordinatorShortAlias)} />
+                    <CoordinatorPill
+                      coordinator={coordinators.find((item) => item.shortAlias === order.coordinatorShortAlias)}
+                      showName
+                    />
                   </button>
                 ))}
               </div>
@@ -663,15 +781,28 @@ export function OffersPage() {
       {guidedTradeOpen ? (
         <BeginnerTradeWizard
           coordinators={coordinators}
+          initialCriteria={guidedLaunch?.criteria}
           loading={(loading || refreshing) && orders.length === 0}
-          onClose={() => setGuidedTradeOpen(false)}
+          onClose={closeGuidedTrade}
           onCreateOffer={createGuidedOffer}
-          onSelectOffer={(order) => {
-            setGuidedTradeOpen(false);
-            openTakeModal(order);
-          }}
+          onSelectOffer={(order, criteria) => openTakeModal(order, criteria.amount)}
           orders={orders}
+          reviewOpen={takeModalOpen}
         />
+      ) : null}
+
+      {f2fOffersMapOpen ? (
+        <Suspense fallback={<F2FOffersMapLoadingDialog onClose={() => setF2FOffersMapOpen(false)} />}>
+          <LazyF2FOffersMapDialog
+            coordinators={coordinators}
+            offers={cashF2FOffers}
+            onClose={() => setF2FOffersMapOpen(false)}
+            onSelectOffer={(order) => {
+              setF2FOffersMapOpen(false);
+              openTakeModal(order);
+            }}
+          />
+        </Suspense>
       ) : null}
 
       {takeModalOpen && selectedOrder ? (
@@ -798,6 +929,36 @@ function MobileSortButton({
   );
 }
 
+function F2FOffersMapLoadingDialog({ onClose }: { onClose: () => void }) {
+  return (
+    <Dialog
+      ariaLabel="Loading Cash F2F map"
+      onClose={onClose}
+      overlayClassName="confirm-overlay f2f-offers-map-overlay"
+      panelClassName="confirm-sheet f2f-offers-map-loading-sheet"
+    >
+      <span className="ui-spinner" aria-hidden="true" />
+      <strong>Loading Cash F2F map…</strong>
+      <Button onClick={onClose} size="sm" type="button" variant="ghost">Cancel</Button>
+    </Dialog>
+  );
+}
+
+function F2FLocationLoadingDialog({ onClose }: { onClose: () => void }) {
+  return (
+    <Dialog
+      ariaLabel="Loading meeting map"
+      onClose={onClose}
+      overlayClassName="confirm-overlay f2f-location-overlay"
+      panelClassName="confirm-sheet f2f-offers-map-loading-sheet"
+    >
+      <span className="ui-spinner" aria-hidden="true" />
+      <strong>Loading meeting map…</strong>
+      <Button onClick={onClose} size="sm" type="button" variant="ghost">Cancel</Button>
+    </Dialog>
+  );
+}
+
 function TakeOfferModal({
   coordinator,
   error,
@@ -833,6 +994,7 @@ function TakeOfferModal({
   onClose: () => void;
   onTake: () => void;
 }) {
+  const [showF2FMap, setShowF2FMap] = useState(false);
   const validationErrors = validateTakeOffer(order, takeAmount);
   const passwordMissing = hasPassword && !offerPassword.trim();
   const penaltyDeadline = penalty ? new Date(penalty).getTime() : 0;
@@ -845,10 +1007,17 @@ function TakeOfferModal({
       : penaltyActive
         ? `This robot can take another order after ${new Date(penaltyDeadline).toLocaleString()}.`
         : undefined;
+  const hasF2FLocation = paymentMethodHasF2F(order.payment_method)
+    && hasApproximateF2FLocation(order.latitude, order.longitude);
 
   return (
-    <div className="take-offer-overlay" onClick={onClose}>
-      <section className="take-offer-sheet" onClick={(event) => event.stopPropagation()}>
+    <Dialog
+      ariaLabelledby="take-offer-title"
+      closeOnEscape={!taking}
+      onClose={onClose}
+      overlayClassName="take-offer-overlay"
+      panelClassName="take-offer-sheet"
+    >
         <button className="take-modal-close" onClick={onClose} type="button" aria-label="Close take offer">
           <X size={20} />
         </button>
@@ -859,7 +1028,7 @@ function TakeOfferModal({
           </span>
           <div>
             <p className="app-eyebrow">{orderTypeLabel(order)}</p>
-            <h2>
+            <h2 id="take-offer-title">
               <FiatAmount amountOverride={amountOverride} order={order} size={22} />
             </h2>
             <p>{formatOfferSats(order, coordinator, amountOverride)}</p>
@@ -896,6 +1065,18 @@ function TakeOfferModal({
             value={coordinator?.longAlias ?? order.coordinatorShortAlias}
           />
         </dl>
+
+        {hasF2FLocation ? (
+          <Button
+            className="take-offer-f2f-map"
+            onClick={() => setShowF2FMap(true)}
+            type="button"
+            variant="secondary"
+          >
+            <MapPin size={16} />
+            View approximate meeting area
+          </Button>
+        ) : null}
 
         {description ? (
           <section className="take-offer-description" aria-label="Maker order description">
@@ -969,8 +1150,17 @@ function TakeOfferModal({
             Take offer
           </Button>
         </div>
-      </section>
-    </div>
+        {showF2FMap ? (
+          <Suspense fallback={<F2FLocationLoadingDialog onClose={() => setShowF2FMap(false)} />}>
+            <LazyF2FLocationDialog
+              latitude={order.latitude}
+              longitude={order.longitude}
+              onClose={() => setShowF2FMap(false)}
+              readOnly
+            />
+          </Suspense>
+        ) : null}
+    </Dialog>
   );
 }
 
@@ -984,8 +1174,12 @@ function OrderDescriptionDialog({
   onContinue: () => void;
 }) {
   return (
-    <div className="confirm-overlay" role="dialog" aria-modal="true" aria-labelledby="order-description-title">
-      <section className="confirm-sheet order-description-sheet">
+    <Dialog
+      ariaLabelledby="order-description-title"
+      onClose={onBack}
+      overlayClassName="confirm-overlay"
+      panelClassName="confirm-sheet order-description-sheet"
+    >
         <div className="confirm-header">
           <span className="confirm-icon-shell"><AlertCircle size={20} /></span>
           <div>
@@ -998,8 +1192,7 @@ function OrderDescriptionDialog({
           <Button variant="secondary" onClick={onBack}>Go back</Button>
           <Button onClick={onContinue}>I understand</Button>
         </div>
-      </section>
-    </div>
+    </Dialog>
   );
 }
 
@@ -1019,14 +1212,23 @@ function TokenBackupDialog({
   const [copied, setCopied] = useState(false);
 
   async function copyToken() {
-    await navigator.clipboard.writeText(token);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1400);
+    try {
+      await writeClipboard(token);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1400);
+    } catch {
+      setCopied(false);
+    }
   }
 
   return (
-    <div className="confirm-overlay token-backup-overlay" role="dialog" aria-modal="true" aria-labelledby="token-backup-title">
-      <section className="confirm-sheet token-backup-sheet">
+    <Dialog
+      ariaLabelledby="token-backup-title"
+      closeOnEscape={!taking}
+      onClose={onBack}
+      overlayClassName="confirm-overlay token-backup-overlay"
+      panelClassName="confirm-sheet token-backup-sheet"
+    >
         <div>
           <h3 id="token-backup-title">Store your robot token</h3>
           <p className="muted-copy">
@@ -1057,8 +1259,7 @@ function TokenBackupDialog({
           <Button variant="secondary" disabled={taking} onClick={onBack}>Go back</Button>
           <Button loading={taking} onClick={onDone}>Done</Button>
         </div>
-      </section>
-    </div>
+    </Dialog>
   );
 }
 
@@ -1198,10 +1399,15 @@ function TradeFlowCard({
 }
 
 function FiatAmount({ amountOverride, order, size = 18 }: { amountOverride?: number; order: PublicOrder; size?: number }) {
+  const { amount, currency } = formatOfferFiatParts(order, amountOverride);
+
   return (
     <span className="offer-fiat-with-flag">
-      <span>{formatOfferFiat(order, amountOverride)}</span>
-      <CurrencyFlag code={order.currencyCode ?? String(order.currency)} size={size} />
+      <span className="offer-fiat-number">{amount}</span>
+      <span className="offer-fiat-unit">
+        <span>{currency}</span>
+        <CurrencyFlag code={currency} size={size} />
+      </span>
     </span>
   );
 }
@@ -1232,12 +1438,19 @@ function ExpiryDisplay({ expiresAt, nowMs }: { expiresAt?: string; nowMs: number
   );
 }
 
-function CoordinatorPill({ coordinator }: { coordinator?: CoordinatorSummary }) {
+function CoordinatorPill({
+  coordinator,
+  showName = false
+}: {
+  coordinator?: CoordinatorSummary;
+  showName?: boolean;
+}) {
   if (!coordinator) return <span className="coordinator-pill coordinator-pill-muted">?</span>;
 
   return (
     <span className="coordinator-pill" title={coordinator.longAlias}>
       <img className="coordinator-avatar coordinator-avatar-xs" src={coordinator.smallAvatarUrl} alt="" />
+      {showName ? <span className="coordinator-pill-name">{coordinator.longAlias}</span> : null}
     </span>
   );
 }
@@ -1288,13 +1501,13 @@ function orderKey(order?: PublicOrder): string {
   return order ? `${order.coordinatorShortAlias}-${order.id}` : "";
 }
 
-function formatOfferFiat(order: PublicOrder, amountOverride?: number): string {
+function formatOfferFiatParts(order: PublicOrder, amountOverride?: number): { amount: string; currency: string } {
   const currency = order.currencyCode ?? String(order.currency);
-  if (amountOverride != null) return formatFiat(amountOverride, currency);
+  if (amountOverride != null) return { amount: formatFiat(amountOverride), currency };
   if (order.has_range) {
-    return `${formatFiat(order.min_amount)} - ${formatFiat(order.max_amount, currency)}`;
+    return { amount: `${formatFiat(order.min_amount)} - ${formatFiat(order.max_amount)}`, currency };
   }
-  return formatFiat(order.amount, currency);
+  return { amount: formatFiat(order.amount), currency };
 }
 
 function formatOfferSats(order: PublicOrder, coordinator?: CoordinatorSummary, amountOverride?: number): string {

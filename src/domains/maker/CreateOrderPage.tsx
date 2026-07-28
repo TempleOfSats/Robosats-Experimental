@@ -9,18 +9,23 @@ import {
   Landmark,
   LoaderCircle,
   Lock,
+  MapPin,
   Info,
   PlusCircle,
   ReceiptText,
   Repeat2,
   Save,
-  ShieldCheck
+  ShieldCheck,
+  X
 } from "lucide-react";
 import { type CSSProperties, type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import { preloadAppRoute } from "@/app/routes";
+import { beginRouteTransition } from "@/app/routeTransition";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Dialog } from "@/components/ui/dialog";
 import { InfoHint } from "@/components/ui/infoHint";
 import { VisualSelect } from "@/components/ui/visualSelect";
 import { CoordinatorDetailDialog } from "@/domains/coordinators/CoordinatorsPage";
@@ -56,6 +61,13 @@ import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
 import { deriveProRobotLifecycle } from "@/domains/pro/proRobotLifecycle";
 import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
 import { formatFiat } from "@/lib/format";
+import { F2FLocationDialog } from "@/domains/location/F2FLocationDialog";
+import {
+  CASH_F2F_METHOD,
+  hasApproximateF2FLocation,
+  isCashF2FMethod,
+  paymentMethodHasF2F
+} from "@/domains/location/f2fLocation";
 
 const NORMAL_PAYMENT_METHODS = normalPaymentMethodOptions();
 const SWAP_PAYMENT_METHODS = swapPaymentMethodOptions();
@@ -107,6 +119,7 @@ export function CreateOrderPage() {
   const { coordinators, refreshCoordinators } = useFederationStore();
   const slots = useGarageStore((state) => state.slots);
   const currentToken = useGarageStore((state) => state.currentToken);
+  const setCurrentToken = useGarageStore((state) => state.setCurrentToken);
   const hydrateGarage = useGarageStore((state) => state.hydrate);
   const proEnabled = useProPreferencesStore((state) => state.enabled);
   const tradeSnapshots = useProTradeIndexStore((state) => state.snapshots);
@@ -354,6 +367,7 @@ export function CreateOrderPage() {
 
     setSubmitting(true);
     setSubmitError("");
+    preloadAppRoute("/order");
 
     try {
       const actionSlot = await revalidateRobotForNewOrder({
@@ -373,13 +387,16 @@ export function CreateOrderPage() {
         setSubmitError("Coordinator did not return an order id.");
         return;
       }
+      setCurrentToken(actionSlot.token);
       ingestCoordinatorOrder({
         authoritative: false,
         order: buildProvisionalMakerOrder(response.id, selectedAlias, payload, actionSlot),
         shortAlias: selectedAlias,
         slot: actionSlot
       });
-      navigate(`/order/${selectedAlias}/${response.id}`);
+      const orderPath = `/order/${selectedAlias}/${response.id}`;
+      beginRouteTransition(orderPath);
+      navigate(orderPath, { state: { robotSlotId: actionSlot.tokenSHA256 } });
     } catch (error) {
       setSubmitError(toUserMessage(error, "Could not create order."));
     } finally {
@@ -564,19 +581,34 @@ function OfferPresetPanel({
   return (
     <section className="maker-preset-panel" aria-label="Offer presets">
       <div className="maker-preset-main">
-        <Bookmark size={17} aria-hidden="true" />
-        <select
-          aria-label="Offer preset"
-          value={selectedId}
-          onChange={(event) => {
-            const next = presets.find((preset) => preset.id === event.target.value);
-            setSelectedId(event.target.value);
-            if (next) onApply(next);
-          }}
-        >
-          <option value="">{presets.length ? "Choose preset" : "No saved presets"}</option>
-          {presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
-        </select>
+        <div className="maker-preset-control">
+          <span className="maker-preset-label">
+            <Bookmark size={16} aria-hidden="true" />
+            <span>Offer preset</span>
+            <InfoHint title="A preset saves reusable offer terms so you can fill this form faster. You still choose the coordinator for each new offer." />
+          </span>
+          <VisualSelect
+            ariaLabel="Offer preset"
+            className="maker-preset-select"
+            disabled={presets.length === 0}
+            options={[
+              {
+                value: "",
+                label: presets.length ? "Choose preset" : "No saved presets"
+              },
+              ...presets.map((preset) => ({
+                value: preset.id,
+                label: preset.name
+              }))
+            ]}
+            value={selectedId}
+            onChange={(value) => {
+              const next = presets.find((preset) => preset.id === value);
+              setSelectedId(value);
+              if (next) onApply(next);
+            }}
+          />
+        </div>
         <div className="maker-preset-actions">
           <Button type="button" size="sm" variant="outline" onClick={() => setSaving((current) => !current)}><Save size={16} /> Save preset</Button>
           <Button type="button" size="sm" variant="ghost" onClick={onManage}>Manage</Button>
@@ -635,14 +667,14 @@ function SideStep({
           <Button
             type="button"
             variant={!draft.isSwap ? "primary" : "outline"}
-            onClick={() => updateDraft({ isSwap: false, currency: 1, paymentMethod: "" })}
+            onClick={() => updateDraft({ isSwap: false, currency: 1, paymentMethod: "", latitude: "0", longitude: "0" })}
           >
             Fiat Trade
           </Button>
           <Button
             type="button"
             variant={draft.isSwap ? "primary" : "outline"}
-            onClick={() => updateDraft({ isSwap: true, currency: BTC_CURRENCY_ID, paymentMethod: "" })}
+            onClick={() => updateDraft({ isSwap: true, currency: BTC_CURRENCY_ID, paymentMethod: "", latitude: "0", longitude: "0" })}
           >
             Bitcoin Swap
           </Button>
@@ -669,11 +701,18 @@ function AmountStep({
 }) {
   const paymentMethods = draft.isSwap ? SWAP_PAYMENT_METHODS : NORMAL_PAYMENT_METHODS;
   const selectedMethods = paymentMethodList(draft.paymentMethod);
+  const hasSelectedF2FLocation = hasApproximateF2FLocation(draft.latitude, draft.longitude);
   const [methodQuery, setMethodQuery] = useState("");
+  const [showF2FMap, setShowF2FMap] = useState(false);
 
   function addPaymentMethod(method: string) {
     const cleanMethod = method.trim();
     if (!cleanMethod) return;
+    if (!draft.isSwap && isCashF2FMethod(cleanMethod)) {
+      setMethodQuery("");
+      setShowF2FMap(true);
+      return;
+    }
     const nextMethods = selectedMethods.some((selected) => selected.toLowerCase() === cleanMethod.toLowerCase())
       ? selectedMethods
       : [...selectedMethods, cleanMethod];
@@ -682,7 +721,22 @@ function AmountStep({
   }
 
   function removePaymentMethod(method: string) {
-    updateDraft({ paymentMethod: paymentMethodText(selectedMethods.filter((selected) => selected !== method)) });
+    updateDraft({
+      paymentMethod: paymentMethodText(selectedMethods.filter((selected) => selected !== method)),
+      ...(isCashF2FMethod(method) ? { latitude: "0", longitude: "0" } : {})
+    });
+  }
+
+  function confirmF2FLocation([latitude, longitude]: [number, number]) {
+    const nextMethods = selectedMethods.some(isCashF2FMethod)
+      ? selectedMethods
+      : [...selectedMethods, CASH_F2F_METHOD];
+    updateDraft({
+      paymentMethod: paymentMethodText(nextMethods),
+      latitude: String(latitude),
+      longitude: String(longitude)
+    });
+    setShowF2FMap(false);
   }
 
   return (
@@ -770,7 +824,29 @@ function AmountStep({
         </div>
         {selectedMethods.length > 0 ? (
           <div className="chip-set maker-selected-methods" aria-label="Selected payment methods">
-            {selectedMethods.map((method) => (
+            {selectedMethods.map((method) => isCashF2FMethod(method) ? (
+              <span className="maker-f2f-chip" key={method}>
+                <button
+                  aria-label="Edit approximate Cash F2F meeting area"
+                  className="maker-f2f-chip-main"
+                  onClick={() => setShowF2FMap(true)}
+                  type="button"
+                >
+                  <PaymentMethodIcons text={method} size={17} />
+                  <span>{method}</span>
+                  <small>{hasSelectedF2FLocation ? "Area selected" : "Choose area"}</small>
+                  <MapPin size={14} aria-hidden="true" />
+                </button>
+                <button
+                  aria-label="Remove Cash F2F payment method"
+                  className="maker-f2f-chip-remove"
+                  onClick={() => removePaymentMethod(method)}
+                  type="button"
+                >
+                  <X size={14} />
+                </button>
+              </span>
+            ) : (
               <button className="chip-button chip-button-active" type="button" key={method} onClick={() => removePaymentMethod(method)}>
                 <PaymentMethodIcons text={method} size={17} />
                 <span>{method}</span>
@@ -779,6 +855,15 @@ function AmountStep({
           </div>
         ) : null}
       </div>
+
+      {showF2FMap ? (
+        <F2FLocationDialog
+          latitude={draft.latitude}
+          longitude={draft.longitude}
+          onClose={() => setShowF2FMap(false)}
+          onConfirm={confirmF2FLocation}
+        />
+      ) : null}
 
       <div className="maker-grid">
         <label className="field-block">
@@ -870,6 +955,10 @@ function ReviewStep({
   presetMode?: boolean;
   validationErrors: string[];
 }) {
+  const [showF2FMap, setShowF2FMap] = useState(false);
+  const showF2FLocation = paymentMethodHasF2F(draft.paymentMethod)
+    && hasApproximateF2FLocation(draft.latitude, draft.longitude);
+
   return (
     <div className="maker-step-panel">
       {!presetMode ? <div className="maker-review-identity">
@@ -899,6 +988,18 @@ function ReviewStep({
           {draft.hasRange ? `${draft.minAmount} - ${draft.maxAmount} ${currency}` : formatFiat(Number(draft.amount), currency)}
         </strong>
         <span>{draft.paymentMethod || (draft.isSwap ? "Swap destination not set" : "Payment method not set")}</span>
+        {showF2FLocation ? (
+          <Button
+            className="maker-review-f2f-map"
+            onClick={() => setShowF2FMap(true)}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            <MapPin size={15} />
+            View approximate area
+          </Button>
+        ) : null}
       </div>
 
       <dl className="maker-review-grid">
@@ -914,6 +1015,14 @@ function ReviewStep({
             <p key={error}>{error}</p>
           ))}
         </div>
+      ) : null}
+      {showF2FMap ? (
+        <F2FLocationDialog
+          latitude={draft.latitude}
+          longitude={draft.longitude}
+          onClose={() => setShowF2FMap(false)}
+          readOnly
+        />
       ) : null}
     </div>
   );
@@ -1109,8 +1218,13 @@ function TimeClockField({
           <strong>{formatClockDuration(seconds)}</strong>
       </button>
       {open ? (
-        <div className="maker-time-dialog-overlay" onClick={() => setOpen(false)}>
-          <section className="maker-time-dialog" role="dialog" aria-modal="true" aria-label={label} onClick={(event) => event.stopPropagation()}>
+        <Dialog
+          ariaLabel={label}
+          dismissOnBackdrop
+          onClose={() => setOpen(false)}
+          overlayClassName="maker-time-dialog-overlay"
+          panelClassName="maker-time-dialog"
+        >
             <header>
               <span className="maker-time-dialog-heading">
                 <span className="app-eyebrow">{label}</span>
@@ -1184,8 +1298,7 @@ function TimeClockField({
               <Button type="button" variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
               <Button type="button" onClick={() => { onChange(String(draftSeconds)); setOpen(false); }}>OK</Button>
             </div>
-          </section>
-        </div>
+        </Dialog>
       ) : null}
       <div className="maker-clock-presets">
         {durationPresets(minSeconds, maxSeconds, presetSeconds).map((option) => (

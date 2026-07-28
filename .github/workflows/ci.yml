@@ -31,12 +31,15 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run audit:dependencies -- high
-      - run: npm run typecheck
-      - run: npm run check:typography
+      - run: npm run lint
+      - run: npm run check:asset-budgets
       - run: npm test
       - run: npm run check:release-signing
       - run: npm run build
       - run: npm run check:production-build
+      - run: npm run check:web-csp
+      - run: npx playwright install --with-deps chromium
+      - run: npm run audit:journeys
       - run: npm run check:ios:config
       - name: Reject tracked build output
         run: |
@@ -169,5 +172,34 @@ jobs:
           done
           test "$(docker inspect --format '{{.Config.User}}' robosats-exp-nodeapp-test)" = "nginx"
           test "$(docker inspect --format '{{.HostConfig.ReadonlyRootfs}}' robosats-exp-nodeapp-test)" = "true"
+          curl --fail --silent --show-error --head http://127.0.0.1:12597/offers |
+            grep -qi '^Content-Security-Policy:'
           curl --fail --silent --show-error http://127.0.0.1:12597/not-a-real-route |
             grep -q '<div id="root"></div>'
+          asset_path="$(
+            curl --fail --silent --show-error http://127.0.0.1:12597/ |
+              grep -oE '/assets/[^" ]+\.js' |
+              head -n 1
+          )"
+          test -n "$asset_path"
+          curl --fail --silent --show-error \
+            --header 'Accept-Encoding: br' \
+            --dump-header - \
+            --output /dev/null \
+            "http://127.0.0.1:12597${asset_path}" |
+            grep -qi '^Content-Encoding: br'
+          curl --fail --silent --show-error \
+            --header 'Accept-Encoding: gzip' \
+            --dump-header - \
+            --output /dev/null \
+            "http://127.0.0.1:12597${asset_path}" |
+            grep -qi '^Content-Encoding: gzip'
+          if curl --fail --silent --show-error \
+            --header 'Accept-Encoding: identity' \
+            --dump-header - \
+            --output /dev/null \
+            "http://127.0.0.1:12597${asset_path}" |
+            grep -qi '^Content-Encoding:'; then
+            echo "Identity requests must receive the original representation."
+            exit 1
+          fi

@@ -7,6 +7,17 @@ export function getTradeViewState(order: OrderDto): TradeViewState {
   return { status: order.status, ...view };
 }
 
+export function hasFailedPayoutForCurrentRobot(
+  order: Pick<OrderDto, "status" | "retries" | "next_retry_time" | "failure_reason" | "invoice_expired">
+): boolean {
+  return order.status === 15 && (
+    order.retries !== undefined
+    || order.next_retry_time !== undefined
+    || order.failure_reason !== undefined
+    || order.invoice_expired !== undefined
+  );
+}
+
 function viewForOrder(order: OrderDto): ViewOverrides {
   switch (order.status) {
     case 0:
@@ -67,7 +78,7 @@ function viewForOrder(order: OrderDto): ViewOverrides {
     case 14:
       return successView("Trade finished");
     case 15:
-      return order.is_buyer
+      return hasFailedPayoutForCurrentRobot(order)
         ? view("Lightning routing failed", "warning", order.invoice_expired ? "retry_invoice" : "wait", "unlocked", "routing_failed",
             "The payout could not be routed", routingFailureBody(order), order.invoice_expired ? "Submit a fresh invoice to retry the payout." : "The coordinator retries automatically unless a replacement invoice is required.")
         : successView("Trade finished");

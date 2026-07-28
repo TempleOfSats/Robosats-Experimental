@@ -28,7 +28,7 @@
 .pro-add-robot-button:focus-visible,
 .pro-robot-create-button:hover,
 .pro-robot-create-button:focus-visible {
-  background: var(--interactive-selected);
+  background: var(--selection-background);
 }
 
 .pro-refresh-icon-active {
@@ -90,12 +90,12 @@
 
 .pro-summary-item:hover,
 .pro-summary-item:focus-visible {
-  background: var(--interactive-hover);
+  background: var(--control-hover-background);
 }
 
 .pro-summary-item.active {
-  box-shadow: inset 0 -3px 0 var(--secondary);
-  background: var(--interactive-selected);
+  box-shadow: inset 0 -3px 0 var(--selection-indicator);
+  background: var(--selection-background);
   color: var(--foreground);
 }
 
@@ -117,6 +117,7 @@
 }
 
 .pro-view-tabs {
+  width: 100%;
   display: flex;
   align-self: stretch;
   gap: 1.25rem;
@@ -151,6 +152,10 @@
   background: var(--primary);
 }
 
+.pro-view-tabs button:last-child {
+  margin-left: auto;
+}
+
 .pro-workspace-content {
   min-height: 16rem;
 }
@@ -158,4 +163,3 @@
 .pro-fleet-utility-bar {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
-

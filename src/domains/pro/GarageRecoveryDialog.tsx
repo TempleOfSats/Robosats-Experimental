@@ -2,6 +2,7 @@ import { Check, X } from "lucide-react";
 import { useState } from "react";
 import { AppTransitionFeedback } from "@/components/app/AppTransitionFeedback";
 import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
 import { activeGarageEntries, decodeGarageToken } from "@/domains/pro/garageVault";
 import { useGarageVaultStore } from "@/domains/pro/garageVaultStore";
@@ -62,8 +63,13 @@ export function GarageRecoveryDialog({ onClose, onRestored }: { onClose: () => v
   }
 
   return (
-    <div className="confirm-overlay" role="dialog" aria-modal="true" aria-labelledby="fleet-recovery-title" onClick={closeDialog}>
-      <section className="confirm-sheet pro-garage-recovery-sheet" onClick={(event) => event.stopPropagation()}>
+    <Dialog
+      ariaLabelledby="fleet-recovery-title"
+      closeOnEscape={!working && !finishing}
+      onClose={closeDialog}
+      overlayClassName="confirm-overlay"
+      panelClassName="confirm-sheet pro-garage-recovery-sheet"
+    >
         <header className="garage-switcher-header">
           <div><p className="app-eyebrow">Pro Fleet</p><h3 id="fleet-recovery-title">Restore Fleet</h3></div>
           <button className="icon-button" disabled={working || finishing} onClick={closeDialog} type="button" aria-label="Close Fleet restore"><X size={18} /></button>
@@ -96,14 +102,23 @@ export function GarageRecoveryDialog({ onClose, onRestored }: { onClose: () => v
             <p>Enter your Fleet key to recover its robots and reconnect the Trade Desk on this device.</p>
             <label className="pro-fleet-key-input">
               <span>Fleet key</span>
-              <input autoComplete="off" spellCheck={false} value={fleetKey} onChange={(event) => setFleetKey(event.target.value)} />
+              <input
+                aria-describedby={error ? "fleet-recovery-error" : undefined}
+                aria-invalid={Boolean(error)}
+                autoComplete="off"
+                spellCheck={false}
+                value={fleetKey}
+                onChange={(event) => {
+                  setFleetKey(event.target.value);
+                  setError("");
+                }}
+              />
             </label>
-            {error ? <p className="form-error" role="alert">{error}</p> : null}
+            {error ? <p className="form-error" id="fleet-recovery-error" role="alert">{error}</p> : null}
             <Button disabled={!fleetKey.trim()} onClick={() => void confirmRestore()}>Restore Fleet</Button>
           </>
         )}
-      </section>
-    </div>
+    </Dialog>
   );
 }
 
