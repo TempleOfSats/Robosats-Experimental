@@ -95,7 +95,12 @@ export const useFederationStore = create<FederationState>((set, get) => ({
           : item)
       }));
 
-      const refreshed = await refreshCoordinatorSummary(summaryToDefinition(coordinator), settings, coordinator);
+      const refreshed = await refreshCoordinatorSummary(
+        summaryToDefinition(coordinator),
+        settings,
+        coordinator,
+        options.force
+      );
       if (!sameFederationSettings(currentFederationSettings(get()), settings)) return false;
 
       const current = get();
@@ -135,7 +140,7 @@ export const useFederationStore = create<FederationState>((set, get) => ({
       if (state.lastRefreshed && Date.now() - state.lastRefreshed < FEDERATION_REFRESH_MIN_INTERVAL_MS) return;
     }
 
-    const refresh = refreshFederation(settings, set, get).finally(() => {
+    const refresh = refreshFederation(settings, set, get, options.force).finally(() => {
       if (refreshInFlight === refresh) {
         refreshInFlight = undefined;
         refreshInFlightKey = "";
@@ -227,7 +232,8 @@ function applyFederationSettings(settings: FederationSettings): Partial<Federati
 async function refreshFederation(
   settings: FederationSettings,
   set: FederationSet,
-  get: FederationGet
+  get: FederationGet,
+  force = false
 ): Promise<void> {
   set((state) => ({
     refreshing: true,
@@ -236,7 +242,12 @@ async function refreshFederation(
 
   const current = get().coordinators;
   await Promise.allSettled(current.map(async (coordinator) => {
-    const refreshed = await refreshCoordinatorSummary(summaryToDefinition(coordinator), settings, coordinator);
+    const refreshed = await refreshCoordinatorSummary(
+      summaryToDefinition(coordinator),
+      settings,
+      coordinator,
+      force
+    );
     if (!sameFederationSettings(currentFederationSettings(get()), settings)) return;
     set((state) => {
       const coordinators = applyCoordinatorPreferences(state.coordinators.map((item) =>
@@ -258,7 +269,8 @@ async function refreshFederation(
 async function refreshCoordinatorSummary(
   definition: CoordinatorDefinition,
   settings: FederationSettings,
-  previous?: CoordinatorSummary
+  previous?: CoordinatorSummary,
+  force = false
 ): Promise<CoordinatorSummary> {
   const summary = buildCoordinatorSummary(definition, {
     ...settings,
@@ -277,8 +289,8 @@ async function refreshCoordinatorSummary(
 
   try {
     const [infoResult, limitsResult] = await Promise.allSettled([
-      fetchCoordinatorInfo(summary.url),
-      fetchCoordinatorLimits(summary.url)
+      fetchCoordinatorInfo(summary.url, { force }),
+      fetchCoordinatorLimits(summary.url, { force })
     ]);
     const info = infoResult.status === "fulfilled" ? infoResult.value : undefined;
     const limits = limitsResult.status === "fulfilled" ? limitsResult.value : undefined;

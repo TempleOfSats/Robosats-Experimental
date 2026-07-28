@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { sha256 } from "js-sha256";
 import { ChevronDown, Download, MessageSquare, Send } from "lucide-react";
 import { escapeChatPayload, fetchChatMessages, normalizeChatMessage, postChatMessage } from "@/domains/chat/chatApi";
@@ -56,12 +56,14 @@ export function ChatStagePanel({
   const [historyStatus, setHistoryStatus] = useState<"idle" | "loading" | "ready" | "error">(
     previewMode ? "ready" : "idle"
   );
+  const [messageAnnouncement, setMessageAnnouncement] = useState("");
   const [connectionEpoch, setConnectionEpoch] = useState(0);
   const socketRef = useRef<WebSocket | undefined>(undefined);
   const knownMessageIndexesRef = useRef(new Set(messages.map((message) => message.index)));
   const historyReadyRef = useRef(previewMode);
   const peerPubkeyRef = useRef("");
   const messagesRef = useRef<HTMLDivElement | null>(null);
+  const errorId = useId();
 
   const isPreChat = variant === "pre-chat";
   const canLoad = previewMode || Boolean(baseUrl && auth && robot?.encPrivKey && robot.pubKey && slotToken && orderId);
@@ -195,6 +197,10 @@ export function ChatStagePanel({
     );
     visibleMessages.forEach((message) => knownMessageIndexesRef.current.add(message.index));
     setMessages((current) => mergeMessages(current, visibleMessages));
+    if (notifyNewMessages && newPeerMessages.length > 0) {
+      const latest = newPeerMessages.at(-1);
+      setMessageAnnouncement(`New message from ${latest?.nick || peerNick}: ${latest?.plaintext || ""}`);
+    }
     if (!isPreChat && notifyNewMessages && shortAlias && newPeerMessages.length > 0) {
       deliverChatFeedback({
         lastIndex: Math.max(...newPeerMessages.map((message) => message.index)),
@@ -334,15 +340,27 @@ export function ChatStagePanel({
           ) : null}
         </div>
         <div className="chat-participants" aria-label="Trade participants">
-          <div className="chat-participant chat-participant-you">
+          <div
+            aria-label={`Your robot: ${myNick || "Your robot"}`}
+            className="chat-participant chat-participant-you"
+            tabIndex={0}
+          >
             <RobotAvatar hashId={myHashId} label={myNick || "Your robot"} size="sm" />
-            <span><strong>{myNick || "Your robot"}</strong></span>
+            <span>
+              <strong title={myNick || "Your robot"}>{myNick || "Your robot"}</strong>
+              <small>You</small>
+            </span>
           </div>
           <span className="chat-participant-divider" aria-hidden>trading with</span>
-          <div className="chat-participant chat-participant-peer">
+          <div
+            aria-label={`Trade peer: ${peerNick || "Trade peer"}`}
+            className="chat-participant chat-participant-peer"
+            tabIndex={0}
+          >
             <RobotAvatar hashId={peerHashId} label={peerNick || "Trade peer"} size="sm" />
             <span>
-              <strong>{peerNick || "Trade peer"}</strong>
+              <strong title={peerNick || "Trade peer"}>{peerNick || "Trade peer"}</strong>
+              <small>Peer</small>
               {!isPreChat ? (
                 <span className={peerConnected ? "chat-presence chat-presence-online" : "chat-presence"}>
                   {peerConnected ? "Online" : socketConnected ? "Away" : "Offline"}
@@ -357,7 +375,8 @@ export function ChatStagePanel({
           <p className="muted-copy">Load this live order with your robot keys to decrypt chat.</p>
         ) : (
           <div className="chat-stack">
-            <div className="chat-messages" ref={messagesRef} role="log" aria-live="polite">
+            <span aria-live="polite" className="sr-only" role="status">{messageAnnouncement}</span>
+            <div aria-label="Trade chat history" className="chat-messages" ref={messagesRef} role="log">
               {messages.length === 0 && historyStatus === "loading" ? (
                 <div className="chat-loading" role="status">
                   <span className="ui-spinner" aria-hidden="true" />
@@ -389,6 +408,9 @@ export function ChatStagePanel({
               }}
             >
               <textarea
+                aria-describedby={error ? errorId : undefined}
+                aria-invalid={Boolean(error)}
+                aria-label={isPreChat ? "Early message to your peer" : "Message to your trade peer"}
                 disabled={!canSend || sending || preChatMessageSent}
                 onChange={(event) => setDraft(event.target.value)}
                 placeholder={
@@ -434,7 +456,7 @@ export function ChatStagePanel({
                 Preparing encrypted messaging...
               </p>
             ) : null}
-            {error ? <p className="field-error">{error}</p> : null}
+            {error ? <p className="field-error" id={errorId} role="alert">{error}</p> : null}
           </div>
         )}
       </CardContent>

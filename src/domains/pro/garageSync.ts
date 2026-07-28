@@ -2,7 +2,12 @@ import { finalizeEvent, getPublicKey, verifyEvent, type Event } from "nostr-tool
 import type { SimplePool, SubCloser } from "nostr-tools/pool";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import { recordRelayPerformance } from "@/domains/diagnostics/networkPerformance";
-import { getSharedRelayPool, runRelayQuery, withRelayQueryPool } from "@/domains/nostr/sharedRelayPool";
+import {
+  getLiveRelaySubscriptions,
+  getSharedRelayPool,
+  runRelayQuery,
+  withRelayQueryPool
+} from "@/domains/nostr/sharedRelayPool";
 import {
   isRelayLiveHealthy,
   noteRelayConnected,
@@ -54,7 +59,7 @@ const retryDelays = [5_000, 15_000, 45_000, 120_000, 300_000] as const;
 const encoder = new TextEncoder();
 const CURSOR_STORAGE_KEY = "robosats_exp_garage_sync_cursors_v3";
 
-type SyncDomain = Extract<GarageKeyDomain, "garage-sync" | "settings-sync">;
+type SyncDomain = Extract<GarageKeyDomain, "garage-sync" | "settings-sync" | "history-sync">;
 
 type PullCursor = {
   since: number;
@@ -72,6 +77,7 @@ type GarageSyncOptions = {
 
 export class GarageSyncEngine {
   private readonly pool = getSharedRelayPool();
+  private readonly liveSubscriptions = getLiveRelaySubscriptions();
   private coordinators: () => CoordinatorSummary[] = () => [];
   private readonly subscriptions = new Map<string, SubCloser>();
   private relayKey = "";
@@ -269,7 +275,7 @@ export class GarageSyncEngine {
     noteRelayConnected(relay);
     recordRelayPerformance(relay, "connect", 0);
     let subscription: SubCloser;
-    subscription = this.pool.subscribeMany([relay], {
+    subscription = this.liveSubscriptions.subscribeMany([relay], {
       authors: syncAuthors(secret),
       kinds: [APPLICATION_DATA_KIND],
       since: Math.floor(Date.now() / 1000) - 30
@@ -693,7 +699,7 @@ function syncAuthors(secret: Uint8Array): string[] {
 }
 
 function syncDomainAuthors(secret: Uint8Array): Array<{ domain: SyncDomain; author: string }> {
-  return (["garage-sync", "settings-sync"] as const).map((domain) => ({
+  return (["garage-sync", "settings-sync", "history-sync"] as const).map((domain) => ({
     domain,
     author: getPublicKey(deriveGarageDomainKey(secret, domain))
   }));
@@ -702,6 +708,7 @@ function syncDomainAuthors(secret: Uint8Array): Array<{ domain: SyncDomain; auth
 function eventDomain(event: Event, secret: Uint8Array): GarageKeyDomain | undefined {
   if (event.pubkey === getPublicKey(deriveGarageDomainKey(secret, "garage-sync"))) return "garage-sync";
   if (event.pubkey === getPublicKey(deriveGarageDomainKey(secret, "settings-sync"))) return "settings-sync";
+  if (event.pubkey === getPublicKey(deriveGarageDomainKey(secret, "history-sync"))) return "history-sync";
   return undefined;
 }
 
@@ -725,7 +732,8 @@ function recordPriority(record: GarageSyncRecord): number {
   if (record.type === "robot") return 1;
   if (record.type === "preset-tombstone") return 2;
   if (record.type === "preset") return 3;
-  return 4;
+  if (record.type === "preferences") return 4;
+  return 5;
 }
 
 type CursorStore = {

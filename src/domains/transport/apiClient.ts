@@ -22,9 +22,11 @@ export type RequestSource =
   | "orderbook-fallback"
   | "fleet-reconcile"
   | "prewarm"
+  | "statistics"
   | "manual";
 
 export interface ApiRequestOptions {
+  bypassCircuit?: boolean;
   timeoutProfile?: TimeoutProfile;
   timeoutMs?: number;
   priority?: RequestPriority;
@@ -64,5 +66,7 @@ export const apiRoutes = {
   chatPost: "/api/chat/",
   reward: "/api/reward/",
   stealth: "/api/stealth/",
-  review: "/api/review/"
+  review: "/api/review/",
+  historical: "/api/historical/",
+  ticks: (start: string, end: string) => `/api/ticks/?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`
 } as const;

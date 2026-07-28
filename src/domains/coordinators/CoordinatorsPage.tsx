@@ -30,6 +30,7 @@ import {
   X
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
 import type {
   CoordinatorContact,
   CoordinatorInfo,
@@ -119,12 +120,12 @@ export function CoordinatorsPage() {
         </Button>
       </div>
 
-      <section className="coordinator-directory-table" aria-label="RoboSats coordinators">
-        <div className="coordinator-directory-header">
-          <span>Coordinator</span>
-          <span>Rating</span>
-          <span>Up</span>
-          <span>Enabled</span>
+      <section className="coordinator-directory-table" aria-label="RoboSats coordinators" role="table">
+        <div className="coordinator-directory-header" role="row">
+          <span role="columnheader">Coordinator</span>
+          <span role="columnheader">Rating</span>
+          <span role="columnheader">Status</span>
+          <span role="columnheader">Enabled</span>
         </div>
         {displayCoordinators.map((coordinator) => {
           const rating = ratingFor(coordinator, ratings);
@@ -132,18 +133,22 @@ export function CoordinatorsPage() {
             <div
               className={coordinator.online ? "coordinator-directory-row coordinator-directory-row-online" : "coordinator-directory-row"}
               key={coordinator.shortAlias}
+              role="row"
             >
-              <button className="coordinator-directory-name" type="button" onClick={() => setSelectedAlias(coordinator.shortAlias)} aria-label={`Open ${coordinator.longAlias} coordinator details`}>
-                <img className="coordinator-avatar coordinator-avatar-lg" src={coordinator.avatarUrl} alt="" />
-                <strong>{coordinator.longAlias}</strong>
-              </button>
-              <span className="coordinator-rating-cell">
+              <span className="coordinator-name-cell" role="cell">
+                <button className="coordinator-directory-name" type="button" onClick={() => setSelectedAlias(coordinator.shortAlias)} aria-label={`Open ${coordinator.longAlias} coordinator details`}>
+                  <img className="coordinator-avatar coordinator-avatar-lg" src={coordinator.avatarUrl} alt="" />
+                  <strong>{coordinator.longAlias}</strong>
+                </button>
+              </span>
+              <span className="coordinator-rating-cell" role="cell">
                 {rating.count > 0 ? <><RatingStars rating={rating.score} /><small>({rating.count})</small></> : <small>Not rated</small>}
               </span>
-              <span className="coordinator-status-cell" title={coordinatorStatusTitle(coordinator)}>
-                {coordinator.loading ? <RefreshCw className="coordinator-status-spinner" size={19} /> : <Link2 size={20} />}
+              <span className="coordinator-status-cell" role="cell">
+                {coordinator.loading ? <RefreshCw aria-hidden="true" className="coordinator-status-spinner" size={19} /> : <Link2 aria-hidden="true" size={20} />}
+                <span className="sr-only">{coordinatorStatusTitle(coordinator)}</span>
               </span>
-              <label className={coordinator.enabled ? "coordinator-enabled-cell" : "coordinator-enabled-cell coordinator-enabled-cell-muted"}>
+              <label className={coordinator.enabled ? "coordinator-enabled-cell" : "coordinator-enabled-cell coordinator-enabled-cell-muted"} role="cell">
                 <input type="checkbox" checked={coordinator.enabled} onChange={() => toggleCoordinator(coordinator.shortAlias)} aria-label={`Enable ${coordinator.longAlias}`} />
               </label>
             </div>
@@ -154,9 +159,9 @@ export function CoordinatorsPage() {
       <details className="details-panel coordinator-custom-panel">
         <summary>Custom coordinator</summary>
         <form className="payout-form" onSubmit={(event) => { event.preventDefault(); submitCustomCoordinator(); }}>
-          <label className="field-block">Alias<input value={customAlias} onChange={(event) => { setCustomAlias(event.target.value); setCustomError(""); }} placeholder="my-coordinator" /></label>
-          <label className="field-block">URL<input value={customUrl} onChange={(event) => { setCustomUrl(event.target.value); setCustomError(""); }} placeholder="http://...onion" /></label>
-          {customError ? <p className="form-error" role="alert">{customError}</p> : null}
+          <label className="field-block">Alias<input aria-describedby={customError ? "custom-coordinator-error" : undefined} aria-invalid={Boolean(customError)} value={customAlias} onChange={(event) => { setCustomAlias(event.target.value); setCustomError(""); }} placeholder="my-coordinator" /></label>
+          <label className="field-block">URL<input aria-describedby={customError ? "custom-coordinator-error" : undefined} aria-invalid={Boolean(customError)} value={customUrl} onChange={(event) => { setCustomUrl(event.target.value); setCustomError(""); }} placeholder="http://...onion" /></label>
+          {customError ? <p className="form-error" id="custom-coordinator-error" role="alert">{customError}</p> : null}
           <Button type="submit"><Plus size={15} /> Add coordinator</Button>
           {displayCoordinators.filter((item) => item.federated === false).map((item) => (
             <Button key={item.shortAlias} type="button" variant="ghost" onClick={() => removeCustomCoordinator(item.shortAlias)}><Trash2 size={14} /> Remove {item.longAlias}</Button>
@@ -198,23 +203,16 @@ export function CoordinatorDetailDialog({
   const policies = Object.entries(coordinator.policies ?? {});
   const notice = info?.notice_message ? plainText(info.notice_message) : "";
 
-  useEffect(() => {
-    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [onClose]);
-
   return (
-    <div className="coordinator-dialog-overlay" onClick={onClose}>
-      <aside
-        className={compact
+    <Dialog
+      ariaLabelledby="coordinator-dialog-title"
+      dismissOnBackdrop
+      onClose={onClose}
+      overlayClassName="coordinator-dialog-overlay"
+      panelClassName={compact
           ? "coordinator-dialog coordinator-production-dialog coordinator-choice-dialog"
           : "coordinator-dialog coordinator-production-dialog"}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="coordinator-dialog-title"
-        onClick={(event) => event.stopPropagation()}
-      >
+    >
         <button className="take-modal-close" onClick={onClose} type="button" aria-label="Close coordinator details">
           <X size={20} />
         </button>
@@ -278,8 +276,7 @@ export function CoordinatorDetailDialog({
         ) : null}
 
         {!compact && info ? <TechnicalDetails coordinator={coordinator} info={info} networkUrls={networkUrls} /> : null}
-      </aside>
-    </div>
+    </Dialog>
   );
 }
 
@@ -384,8 +381,8 @@ function ContactIcons({ contact }: { contact?: CoordinatorContact }) {
       {contacts.map(([key, value]) => {
         const href = contactHref(key, String(value));
         const title = key === "pgp" && contact?.fingerprint ? `PGP fingerprint: ${formatFingerprint(contact.fingerprint)}` : contactLabel(key);
-        if (!href) return <span key={key} title={title}>{contactIcon(key)}</span>;
-        return <a href={href} key={key} rel="noreferrer" target={href.startsWith("mailto:") || href.startsWith("nostr:") ? undefined : "_blank"} title={title}>{contactIcon(key)}</a>;
+        if (!href) return <span aria-label={title} key={key} role="img">{contactIcon(key)}</span>;
+        return <a aria-label={title} href={href} key={key} rel="noreferrer" target={href.startsWith("mailto:") || href.startsWith("nostr:") ? undefined : "_blank"}>{contactIcon(key)}</a>;
       })}
     </div>
   );

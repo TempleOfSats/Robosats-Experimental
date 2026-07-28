@@ -12,6 +12,7 @@ import { fetchOrder } from "@/domains/orders/orderApi";
 import { ingestCoordinatorOrder } from "@/domains/orders/orderActivity";
 import { isAlreadyCancelledError } from "@/domains/orders/orderStore";
 import type { OrderDto } from "@/domains/orders/order.types";
+import { CoordinatorRequestBackoff } from "@/domains/pro/coordinatorRequestBackoff";
 import { applyProOrderSnapshot } from "@/domains/pro/proOrderActivity";
 import { deriveProRobotLifecycle } from "@/domains/pro/proRobotLifecycle";
 import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
@@ -36,7 +37,12 @@ type GarageReconcilerDependencies = {
     coordinators: CoordinatorSummary[],
     options?: RefreshRobotSlotOptions
   ) => Promise<RefreshRobotSlotResult>;
-  fetchOrder: (coordinator: CoordinatorSummary, orderId: number, slot: RobotSlot) => Promise<OrderDto>;
+  fetchOrder: (
+    coordinator: CoordinatorSummary,
+    orderId: number,
+    slot: RobotSlot,
+    reason: ReconcileReason
+  ) => Promise<OrderDto>;
 };
 
 export interface GarageReconcileController {
@@ -74,6 +80,7 @@ export class GarageReconciler implements GarageReconcileController {
   private readonly orderLimiter = new AsyncLimiter(PRO_RECONCILE_POLICY.maxOrderRequests);
   private readonly handledHintIds = new Set<string>();
   private readonly lastDiscoveryBySlot = new Map<string, number>();
+  private readonly coordinatorBackoff = new CoordinatorRequestBackoff();
 
   constructor(private readonly dependencies: GarageReconcilerDependencies) {}
 
@@ -182,40 +189,78 @@ export class GarageReconciler implements GarageReconcileController {
       startedAt,
       this.lastDiscoveryBySlot.get(slotId)
     );
-    const coordinators = selection.coordinators;
+    const bypassBackoff = canBypassCoordinatorBackoff(reason);
+    const coordinators = selection.coordinators.filter((coordinator) =>
+      this.coordinatorBackoff.tryAcquire(coordinator.url, startedAt, bypassBackoff)
+    );
     if (selection.discovery) this.lastDiscoveryBySlot.set(slotId, startedAt);
     if (coordinators.length === 0) {
+      const nextCoordinatorAttempt = earliestCoordinatorRetry(
+        selection.coordinators,
+        this.coordinatorBackoff
+      );
       useProTradeIndexStore.getState().setSlotSync({
+        ...previousSync,
         slotId,
         epoch,
         inFlight: false,
         attemptedCoordinators: 0,
         lastAttemptAt: startedAt,
         lastSuccessAt: previousSync?.lastSuccessAt,
-        nextEligibleAt: startedAt + PRO_RECONCILE_POLICY.idleMinMs
+        nextEligibleAt: nextCoordinatorAttempt
+          ? Math.min(nextCoordinatorAttempt, startedAt + PRO_RECONCILE_POLICY.idleMinMs)
+          : startedAt + PRO_RECONCILE_POLICY.idleMinMs
       });
       return;
     }
 
     try {
+      const directlyRefreshed = new Set<string>();
+      const directOrderRefresh = this.reconcileKnownOrders(
+        slot,
+        coordinators,
+        reason,
+        epoch,
+        directlyRefreshed
+      );
+      const immediateCoordinatorTasks: Promise<void>[] = [];
+      const observedAliases = new Set<string>();
       const result = await this.dependencies.refreshRobotSlot(slot.token, coordinators, {
         priority: reason === "manual" || reason === "order-action" ? "foreground" : "background",
         source: "fleet-reconcile",
-        preferredAliases: preferredCoordinatorAliases(slot)
+        preferredAliases: preferredCoordinatorAliases(slot),
+        maxAgeMs: reason === "interval" ? PRO_RECONCILE_POLICY.statusFreshMs : undefined,
+        onCoordinatorResult: (robot) => {
+          observedAliases.add(robot.shortAlias);
+          this.recordCoordinatorResult(coordinators, robot);
+          immediateCoordinatorTasks.push(
+            this.reconcileCoordinator(slot, robot, reason, epoch, directlyRefreshed)
+          );
+        }
       });
       if (epoch !== this.epoch) return;
-      await mapWithConcurrency(result.coordinators, PRO_RECONCILE_POLICY.maxOrderRequests, async (robot) => {
-        await this.reconcileCoordinator(slot, robot, reason, epoch);
-      });
+      await Promise.all([
+        directOrderRefresh,
+        ...immediateCoordinatorTasks,
+        mapWithConcurrency(
+          result.coordinators.filter((robot) => !observedAliases.has(robot.shortAlias)),
+          PRO_RECONCILE_POLICY.maxOrderRequests,
+          async (robot) => {
+            this.recordCoordinatorResult(coordinators, robot);
+            await this.reconcileCoordinator(slot, robot, reason, epoch, directlyRefreshed);
+          }
+        )
+      ]);
       if (epoch !== this.epoch) return;
       const completedAt = this.dependencies.now();
-      const failures = result.coordinators.filter((robot) => Boolean(robot.error)).length;
-      const successes = result.coordinators.length - failures;
+      const attempted = result.coordinators.filter((robot) => !robot.cached);
+      const failures = attempted.filter((robot) => Boolean(robot.error)).length;
+      const successes = attempted.length - failures;
       useProTradeIndexStore.getState().setSlotSync({
         slotId,
         epoch,
         inFlight: false,
-        attemptedCoordinators: coordinators.length,
+        attemptedCoordinators: attempted.length,
         lastAttemptAt: startedAt,
         lastSuccessAt: successes > 0 ? completedAt : previousSync?.lastSuccessAt,
         nextEligibleAt: completedAt + (failures > 0
@@ -242,7 +287,8 @@ export class GarageReconciler implements GarageReconcileController {
     slot: RobotSlot,
     robot: RefreshRobotCoordinatorResult,
     reason: ReconcileReason,
-    epoch: number
+    epoch: number,
+    alreadyRefreshed = new Set<string>()
   ): Promise<void> {
     const coordinator = this.dependencies.getCoordinators().find((item) => item.shortAlias === robot.shortAlias);
     if (!coordinator?.url) return;
@@ -254,7 +300,13 @@ export class GarageReconciler implements GarageReconcileController {
     }
 
     useProTradeIndexStore.getState().removeCoordinatorSnapshots(slot.tokenSHA256, robot.shortAlias, orderIds);
-    await Promise.all(orderIds.map((orderId) => this.refreshOrder(
+    await Promise.all(orderIds
+      .filter((orderId) => !alreadyRefreshed.has(proTradeKey({
+        slotId: slot.tokenSHA256,
+        shortAlias: robot.shortAlias,
+        orderId
+      })))
+      .map((orderId) => this.refreshOrder(
       slot,
       coordinator,
       { slotId: slot.tokenSHA256, shortAlias: robot.shortAlias, orderId },
@@ -264,12 +316,49 @@ export class GarageReconciler implements GarageReconcileController {
     )));
   }
 
+  private async reconcileKnownOrders(
+    slot: RobotSlot,
+    coordinators: CoordinatorSummary[],
+    reason: ReconcileReason,
+    epoch: number,
+    refreshedKeys: Set<string>
+  ): Promise<void> {
+    const coordinatorsByAlias = new Map(coordinators.map((coordinator) => [
+      coordinator.shortAlias,
+      coordinator
+    ]));
+    const snapshots = Object.values(useProTradeIndexStore.getState().snapshots)
+      .filter((snapshot) => snapshot.locator.slotId === slot.tokenSHA256)
+      .filter((snapshot) => coordinatorsByAlias.has(snapshot.locator.shortAlias));
+
+    await mapWithConcurrency(snapshots, PRO_RECONCILE_POLICY.maxOrderRequests, async (snapshot) => {
+      const coordinator = coordinatorsByAlias.get(snapshot.locator.shortAlias);
+      if (!coordinator) return;
+      refreshedKeys.add(snapshot.key);
+      await this.refreshOrder(slot, coordinator, snapshot.locator, undefined, reason, epoch);
+    });
+  }
+
+  private recordCoordinatorResult(
+    coordinators: CoordinatorSummary[],
+    robot: RefreshRobotCoordinatorResult
+  ): void {
+    if (robot.cached) return;
+    const coordinator = coordinators.find((item) => item.shortAlias === robot.shortAlias);
+    if (!coordinator?.url) return;
+    if (robot.transportFailed ?? Boolean(robot.error)) {
+      this.coordinatorBackoff.recordFailure(coordinator.url, this.dependencies.now());
+      return;
+    }
+    this.coordinatorBackoff.recordSuccess(coordinator.url);
+  }
+
   private async refreshOrder(
     slot: RobotSlot,
     coordinator: CoordinatorSummary,
     locator: ProTradeLocator,
     robot: RefreshRobotCoordinatorResult | undefined,
-    _reason: ReconcileReason,
+    reason: ReconcileReason,
     epoch: number
   ): Promise<void> {
     const key = proTradeKey(locator);
@@ -277,7 +366,7 @@ export class GarageReconciler implements GarageReconcileController {
     const actionGeneration = actionSequences.get(key) ?? 0;
 
     try {
-      const order = await this.readOrder(slot, coordinator, locator, epoch, actionGeneration);
+      const order = await this.readOrder(slot, coordinator, locator, reason, epoch, actionGeneration);
       if (epoch !== this.epoch || actionGeneration !== (actionSequences.get(key) ?? 0)) return;
 
       const observedOrder = ingestCoordinatorOrder({
@@ -322,9 +411,12 @@ export class GarageReconciler implements GarageReconcileController {
         return;
       }
       if (previous) {
+        const current = useProTradeIndexStore.getState().snapshots[key] ?? previous;
         useProTradeIndexStore.getState().upsertSnapshot({
-          ...previous,
-          errorCode: "order-unavailable"
+          ...current,
+          errorCode: current.errorCode === "coordinator-unavailable"
+            ? current.errorCode
+            : "order-unavailable"
         });
       }
     }
@@ -334,6 +426,7 @@ export class GarageReconciler implements GarageReconcileController {
     slot: RobotSlot,
     coordinator: CoordinatorSummary,
     locator: ProTradeLocator,
+    reason: ReconcileReason,
     epoch: number,
     actionGeneration: number
   ): Promise<OrderDto> {
@@ -341,7 +434,7 @@ export class GarageReconciler implements GarageReconcileController {
     const existing = this.inFlightOrderReads.get(key);
     if (existing) return existing;
     const request = this.orderLimiter
-      .run(() => this.dependencies.fetchOrder(coordinator, locator.orderId, slot))
+      .run(() => this.dependencies.fetchOrder(coordinator, locator.orderId, slot, reason))
       .finally(() => {
         if (this.inFlightOrderReads.get(key) === request) this.inFlightOrderReads.delete(key);
       });
@@ -372,13 +465,14 @@ export const garageReconciler = new GarageReconciler({
   getCoordinators: () => useFederationStore.getState().coordinators,
   refreshRobotSlot: (token, coordinators, options) =>
     useGarageStore.getState().refreshRobotSlot(token, coordinators, options),
-  fetchOrder: async (coordinator, orderId, slot) => {
+  fetchOrder: async (coordinator, orderId, slot, reason) => {
     const auth = getRobotAuthForCoordinator(slot, coordinator.shortAlias);
     if (!auth) throw new Error("robot-auth-unavailable");
+    const foreground = canBypassCoordinatorBackoff(reason);
     return {
       ...(await fetchOrder(coordinator.url, orderId, auth, {
-        timeoutProfile: "background",
-        priority: "background",
+        timeoutProfile: foreground ? "interactive" : "background",
+        priority: foreground ? "foreground" : "background",
         source: "fleet-reconcile"
       })),
       shortAlias: coordinator.shortAlias
@@ -496,6 +590,20 @@ function isReleasedPublicTake(order: OrderDto, robot?: RefreshRobotCoordinatorRe
 function isRecentHint(hint: OrderHint, now: number): boolean {
   const createdAt = hint.createdAt < 1_000_000_000_000 ? hint.createdAt * 1000 : hint.createdAt;
   return createdAt <= now + 10 * 60_000 && createdAt >= now - 7 * 24 * 60 * 60_000;
+}
+
+function canBypassCoordinatorBackoff(reason: ReconcileReason): boolean {
+  return reason === "manual" || reason === "order-action" || reason === "nostr-hint";
+}
+
+function earliestCoordinatorRetry(
+  coordinators: CoordinatorSummary[],
+  backoff: CoordinatorRequestBackoff
+): number | undefined {
+  const attempts = coordinators
+    .map((coordinator) => backoff.nextAttemptAt(coordinator.url))
+    .filter((value): value is number => value !== undefined);
+  return attempts.length > 0 ? Math.min(...attempts) : undefined;
 }
 
 function shouldSuppressAutomaticBurst(

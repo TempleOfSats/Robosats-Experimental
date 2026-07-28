@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Banknote, Check, ChevronDown, Clock, Copy, Download, ExternalLink, FileText, Link2, Paperclip, RefreshCw, Rocket, ShieldAlert, Star, Tag, WifiOff, AlertTriangle, XCircle, Zap } from "lucide-react";
+import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Banknote, Check, ChevronDown, Clock, Copy, Download, ExternalLink, FileText, Link2, MapPin, Paperclip, RefreshCw, Rocket, ShieldAlert, Star, Tag, WifiOff, AlertTriangle, XCircle, Zap } from "lucide-react";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
 import type { CoordinatorContact, CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import { getCoordinatorAvatarUrl } from "@/domains/coordinators/coordinatorAssets";
@@ -16,10 +16,14 @@ import {
   useGarageStore
 } from "@/domains/garage/garageStore";
 import { ChatStagePanel, PreChatDisclosure } from "@/domains/chat/ChatStagePanel";
+import { Dialog } from "@/components/ui/dialog";
 import { shouldOfferPreChat } from "@/domains/chat/preChat";
 import { signCleartextMessage } from "@/domains/crypto/pgp";
 import { getTradeActionCommands, type TradeActionCommand } from "@/domains/orders/orderActions";
-import { getTradeViewState } from "@/domains/orders/orderStateMachine";
+import {
+  getTradeViewState,
+  hasFailedPayoutForCurrentRobot
+} from "@/domains/orders/orderStateMachine";
 import { useOrderStore } from "@/domains/orders/orderStore";
 import { tradePreviewOrder } from "@/domains/orders/tradePreviewFixtures";
 import { isOrderReferenceSatsApproximate, orderReferenceSats, orderReferenceSatsRange } from "@/domains/orders/orderModel";
@@ -36,8 +40,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, tabId } from "@/components/ui/tabs";
 import { formatFiat, formatSats } from "@/lib/format";
 import { deriveRobotIdentity } from "@/domains/identity/robotIdentity";
+import { writeClipboard } from "@/lib/clipboard";
 import { RobotAvatar } from "@/domains/identity/RobotAvatar";
 import { requestReviewToken } from "@/domains/reviews/reviewApi";
 import { publishCoordinatorRating } from "@/domains/coordinators/coordinatorRatings";
@@ -45,8 +51,11 @@ import { fetchChatMessages } from "@/domains/chat/chatApi";
 import { decryptChatMessage } from "@/domains/chat/chatCrypto";
 import { toUserMessage } from "@/lib/userError";
 import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
+import { recordProSettlementInvoice } from "@/domains/pro/proOrderActivity";
 import { isNativeApp } from "@/domains/transport/androidBridge";
 import { runRefreshIntent, subscribeRefreshIntents } from "@/domains/transport/refreshIntents";
+import { F2FLocationDialog } from "@/domains/location/F2FLocationDialog";
+import { hasApproximateF2FLocation, paymentMethodHasF2F } from "@/domains/location/f2fLocation";
 
 export function OrderPage({
   embeddedLocator,
@@ -58,6 +67,7 @@ export function OrderPage({
   onEmbeddedOrderChange?: (locator: { shortAlias: string; orderId: number }) => void;
 } = {}) {
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const params = useParams();
   const shortAlias = embeddedLocator?.shortAlias ?? params.shortAlias ?? "local";
@@ -70,7 +80,11 @@ export function OrderPage({
   const releaseOrderReservation = useGarageStore((state) => state.releaseOrderReservation);
   const { order: loadedOrder, submitting, error, loadOrder, submitAction, clearOrder } = useOrderStore();
   const eligibleSlots = proEnabled || embeddedLocator ? slots : selectStandardGarageSlots(slots);
-  const currentSlot = selectCurrentSlot(eligibleSlots, currentToken);
+  const routeSlotId = (location.state as { robotSlotId?: string } | null)?.robotSlotId;
+  const routeSlot = routeSlotId
+    ? eligibleSlots.find((slot) => slot.tokenSHA256 === routeSlotId)
+    : undefined;
+  const currentSlot = routeSlot ?? selectCurrentSlot(eligibleSlots, currentToken);
   const coordinator = coordinators.find((item) => item.shortAlias === shortAlias) ?? coordinators.find((item) => item.shortAlias === "local");
   const coordinatorAuth = coordinator ? getRobotAuthForCoordinator(currentSlot, coordinator.shortAlias) : undefined;
   const signingRobot = getSigningRobot(currentSlot, shortAlias);
@@ -231,6 +245,9 @@ export function OrderPage({
   const view = getTradeViewState(order);
   const motionClass = tradeMotionClass(view);
   const actions = getTradeActionCommands(order, view);
+  const currentRobotName = robotDisplayName(order, currentSlot);
+  const currentRobotHashId = currentSlot?.hashId
+    || (order.is_maker ? order.maker_hash_id : order.is_taker ? order.taker_hash_id : "");
   const isPayoutRoutingState = view.panel === "sending_sats" || view.panel === "routing_failed";
   const isQuietPaymentState = view.panel === "sending_sats" || view.panel === "routing_failed" || view.panel === "success";
 
@@ -281,7 +298,7 @@ export function OrderPage({
             coordinatorContact={previewOrder ? { email: "fixture", telegram: "fixture", simplex: "fixture", nostr: "fixture" } : coordinator?.contact}
             coordinatorName={coordinator?.longAlias || coordinator?.shortAlias || order.shortAlias || "Coordinator"}
             loading={submitting}
-            myNick={getCurrentRobotNick(order)}
+            myNick={currentRobotName}
             order={order}
             previewMode={Boolean(previewOrder)}
             preChatEnabled={shouldOfferPreChat(order.status, coordinator?.info)}
@@ -357,13 +374,24 @@ export function OrderPage({
                 }
               }
             }}
-            onSubmitPayout={async (payload) => {
+            onSubmitPayout={async (payload, clearInvoice) => {
               if (previewOrder) {
                 setPreviewNotice(`${previewActionLabel(payload.action)} simulated locally. No request was sent.`);
                 return;
               }
               if (!coordinator || !currentSlot) return;
               await submitAction({ coordinator, orderId: order.id, slot: currentSlot, payload });
+              const result = useOrderStore.getState();
+              if (payload.action === "update_invoice"
+                && clearInvoice
+                && !result.error
+                && !result.order?.bad_invoice) {
+                recordProSettlementInvoice({
+                  slotId: currentSlot.tokenSHA256,
+                  shortAlias: coordinator.shortAlias,
+                  orderId: order.id
+                }, "payout-received", clearInvoice);
+              }
             }}
           />
         </div>
@@ -375,6 +403,8 @@ export function OrderPage({
               coordinatorAlias={shortAlias}
               defaultOpen={shouldOpenOrderDetailsByDefault(order)}
               order={order}
+              robotHashId={currentRobotHashId}
+              robotName={currentRobotName}
             />
           </div>
         ) : null}
@@ -496,7 +526,7 @@ function ContractPanel({
   view: ReturnType<typeof getTradeViewState>;
   onSubmitAction: (payload: SubmitOrderActionPayload) => Promise<void>;
   onSubmitCommand: (action: TradeActionCommand) => Promise<void>;
-  onSubmitPayout: (payload: SubmitOrderActionPayload) => Promise<void>;
+  onSubmitPayout: (payload: SubmitOrderActionPayload, clearInvoice?: string) => Promise<void>;
   onRenew: (password?: string) => Promise<void>;
   onStartAgain: () => void;
   onPublishRating?: (rating: number) => Promise<void>;
@@ -644,12 +674,16 @@ function OrderDetailsPanel({
   coordinator,
   coordinatorAlias,
   defaultOpen,
-  order
+  order,
+  robotHashId,
+  robotName
 }: {
   coordinator?: CoordinatorSummary;
   coordinatorAlias: string;
   defaultOpen: boolean;
   order: OrderDto;
+  robotHashId: string;
+  robotName: string;
 }) {
   const currencyCode = currencyCodeFromId(order.currency) ?? String(order.currency);
   const fiatAmount = formatOrderAmount(order, currencyCode);
@@ -665,8 +699,14 @@ function OrderDetailsPanel({
     (Boolean(order.escrow_invoice) && (order.status === 6 || order.status === 7));
   const coordinatorName = coordinator?.longAlias || coordinator?.shortAlias || order.shortAlias || coordinatorAlias || "Coordinator";
   const coordinatorAvatar = coordinator?.smallAvatarUrl || (coordinatorAlias ? getCoordinatorAvatarUrl(coordinatorAlias, "small") : "");
+  const coordinatorTradeUrl = coordinator?.url
+    ? `${coordinator.url.trim().replace(/\/+$/, "")}/trade/${order.id}`
+    : window.location.href;
   const preferenceKey = `robosats_order_details_${coordinatorAlias}_${order.id}_${order.status}`;
   const [detailsOpen, setDetailsOpen] = useState(() => readOrderDetailsPreference(preferenceKey, defaultOpen));
+  const [showF2FMap, setShowF2FMap] = useState(false);
+  const hasF2FLocation = paymentMethodHasF2F(order.payment_method)
+    && hasApproximateF2FLocation(order.latitude, order.longitude);
 
   useEffect(() => {
     setDetailsOpen(readOrderDetailsPreference(preferenceKey, defaultOpen));
@@ -679,6 +719,19 @@ function OrderDetailsPanel({
 
   return (
     <Card className="trade-order-card">
+      <div className="trade-order-context">
+        <div className="trade-order-user">
+          <RobotAvatar hashId={robotHashId || robotName} label={robotName} size="sm" />
+          <span>
+            <small>Your robot</small>
+            <strong>{robotName}</strong>
+          </span>
+        </div>
+        <span className="trade-order-number">
+          <small>Order</small>
+          <strong>#{order.id || "-"}</strong>
+        </span>
+      </div>
       <details
         className="trade-order-disclosure"
         open={detailsOpen}
@@ -735,6 +788,19 @@ function OrderDetailsPanel({
           </div>
         </dl>
 
+        {hasF2FLocation ? (
+          <Button
+            className="trade-f2f-map-button"
+            onClick={() => setShowF2FMap(true)}
+            size="sm"
+            type="button"
+            variant="secondary"
+          >
+            <MapPin size={15} />
+            View approximate meeting area
+          </Button>
+        ) : null}
+
         <div className="trade-flow-lines">
           <div className="trade-flow-line trade-flow-line-send">
             {order.is_buyer ? (
@@ -764,12 +830,20 @@ function OrderDetailsPanel({
           className="trade-copy-link"
           size="sm"
           variant="ghost"
-          onClick={() => navigator.clipboard?.writeText(window.location.href)}
+          onClick={() => void writeClipboard(coordinatorTradeUrl).catch(() => undefined)}
         >
           <Copy size={14} /> Copy order link
         </Button>
         </CardContent>
       </details>
+      {showF2FMap ? (
+        <F2FLocationDialog
+          latitude={order.latitude}
+          longitude={order.longitude}
+          onClose={() => setShowF2FMap(false)}
+          readOnly
+        />
+      ) : null}
     </Card>
   );
 }
@@ -921,8 +995,12 @@ function TradeActionSurface({
 
       {/* Review and confirm dialog for critical actions */}
       {pendingAction && (
-        <div className="confirm-overlay" onClick={handleCancel} role="dialog" aria-modal="true" aria-label="Confirm action">
-          <div className="confirm-sheet" onClick={(e) => e.stopPropagation()}>
+        <Dialog
+          ariaLabel="Confirm action"
+          onClose={handleCancel}
+          overlayClassName="confirm-overlay"
+          panelClassName="confirm-sheet"
+        >
             <div className="confirm-header">
               <div className="confirm-icon-shell">
                 <AlertTriangle size={24} />
@@ -943,8 +1021,7 @@ function TradeActionSurface({
                 Confirm
               </Button>
             </div>
-          </div>
-        </div>
+        </Dialog>
       )}
     </>
   );
@@ -994,7 +1071,7 @@ function TradePaymentPanel({
   onStartAgain: () => void;
   onPublishRating?: (rating: number) => Promise<void>;
   onSubmitAction: (payload: SubmitOrderActionPayload) => Promise<void>;
-  onSubmitPayout: (payload: SubmitOrderActionPayload) => Promise<void>;
+  onSubmitPayout: (payload: SubmitOrderActionPayload, clearInvoice?: string) => Promise<void>;
 }) {
   const view = getTradeViewState(order);
   const trustKey = `robosats_trusted_coordinator_${order.shortAlias || "unknown"}`;
@@ -1361,7 +1438,7 @@ function PayoutSubmissionCard({
   retryInvoice: boolean;
   signingRobot?: RobotRecord;
   slotToken?: string;
-  onSubmit: (payload: SubmitOrderActionPayload) => Promise<void>;
+  onSubmit: (payload: SubmitOrderActionPayload, clearInvoice?: string) => Promise<void>;
 }) {
   const [mode, setMode] = useState<PayoutMode>("lightning");
   const [invoice, setInvoice] = useState("");
@@ -1396,9 +1473,12 @@ function PayoutSubmissionCard({
     }
 
     if (previewMode) {
-      await onSubmit(payoutMode === "lightning"
-        ? { action: "update_invoice", invoice: rawValue, routing_budget_ppm: effectiveRoutingPpm }
-        : { action: "update_address", address: rawValue, mining_fee_rate: Number(miningFeeRate) || 2 });
+      await onSubmit(
+        payoutMode === "lightning"
+          ? { action: "update_invoice", invoice: rawValue, routing_budget_ppm: effectiveRoutingPpm }
+          : { action: "update_address", address: rawValue, mining_fee_rate: Number(miningFeeRate) || 2 },
+        payoutMode === "lightning" ? rawValue : undefined
+      );
       return;
     }
 
@@ -1424,7 +1504,7 @@ function PayoutSubmissionCard({
           action: "update_invoice",
           invoice: signedValue,
           routing_budget_ppm: effectiveRoutingPpm
-        });
+        }, rawValue);
       } else {
         await onSubmit({
           action: "update_address",
@@ -1494,13 +1574,15 @@ function PayoutSubmissionCard({
               <div className="payout-invoice-target">
                 <span>Invoice amount</span>
                 <strong className="tabular amount-mono">{formatSats(lightningAmount)}</strong>
-                <Button type="button" size="icon" variant="ghost" aria-label="Copy invoice amount" onClick={() => navigator.clipboard?.writeText(String(lightningAmount))}>
+                <Button type="button" size="icon" variant="ghost" aria-label="Copy invoice amount" onClick={() => void writeClipboard(String(lightningAmount)).catch(() => undefined)}>
                   <Copy size={15} />
                 </Button>
               </div>
               <label className="field-block">
                 Lightning invoice
                 <input
+                  aria-describedby={error ? "payout-error" : undefined}
+                  aria-invalid={Boolean(error)}
                   value={invoice}
                   onChange={(event) => setInvoice(event.target.value)}
                   placeholder="lnbc..."
@@ -1580,7 +1662,7 @@ function PayoutSubmissionCard({
               <div className="payout-onchain-fields">
                 <label className="field-block">
                   Bitcoin address
-                  <input value={address} onChange={(event) => setAddress(event.target.value)} placeholder="bc1..." />
+                  <input aria-describedby={error ? "payout-error" : undefined} aria-invalid={Boolean(error)} value={address} onChange={(event) => setAddress(event.target.value)} placeholder="bc1..." />
                 </label>
                 <label className="field-block">
                   Mining fee
@@ -1589,6 +1671,7 @@ function PayoutSubmissionCard({
                       inputMode="decimal"
                       min={2}
                       max={500}
+                      step="any"
                       type="number"
                       value={miningFeeRate}
                       onChange={(event) => setMiningFeeRate(event.target.value)}
@@ -1600,7 +1683,7 @@ function PayoutSubmissionCard({
             </>
           )}
 
-          {error ? <p className="field-error">{error}</p> : null}
+          {error ? <p className="field-error" id="payout-error" role="alert">{error}</p> : null}
 
           <Button
             className="full-width"
@@ -1626,6 +1709,13 @@ function getCurrentRobotNick(order: OrderDto): string {
   if (order.is_maker) return order.maker_nick;
   if (order.is_taker) return order.taker_nick;
   return "";
+}
+
+function robotDisplayName(order: OrderDto, slot: RobotSlot | undefined): string {
+  if (slot?.nickname?.trim()) return slot.nickname.trim();
+  const orderNick = getCurrentRobotNick(order).trim();
+  if (orderNick && !/^(?:none|null|undefined)$/i.test(orderNick)) return orderNick;
+  return "Your robot";
 }
 
 function normalizeLightningInvoice(value: string): string {
@@ -1664,12 +1754,14 @@ function tradeStepIndex(order: OrderDto): number {
 
 function progressStateForIndex(index: number, activeIndex: number, order: OrderDto): string {
   const disputeLost = (order.status === 17 && order.is_maker) || (order.status === 18 && order.is_taker);
-  const payoutRetrying = order.status === 15 && order.is_buyer && !order.invoice_expired;
+  const failedPayout = hasFailedPayoutForCurrentRobot(order);
+  const payoutRetrying = failedPayout && !order.invoice_expired;
   const completed =
     order.status === 14 ||
-    ([13, 15].includes(order.status) && order.is_seller) ||
+    (order.status === 13 && order.is_seller) ||
+    (order.status === 15 && !failedPayout) ||
     ([17, 18].includes(order.status) && !disputeLost);
-  if ((order.status === 15 && order.is_buyer) || disputeLost) {
+  if (failedPayout || disputeLost) {
     if (index === activeIndex) return payoutRetrying ? "waiting" : "danger";
   }
   if (completed && index <= activeIndex) return "complete";
@@ -1818,6 +1910,8 @@ function DisputeStatementCard({
           <label className="field-block">
             Statement *
             <textarea
+              aria-describedby={error ? "dispute-statement-error" : undefined}
+              aria-invalid={Boolean(error)}
               value={statement}
               onChange={(event) => setStatement(event.target.value)}
               placeholder="I sent fiat at HH:MM using the agreed method. The seller has not confirmed..."
@@ -1827,7 +1921,7 @@ function DisputeStatementCard({
           <div className="dispute-contact-grid">
             <label className="field-block">
               Contact method *
-              <select required value={contactMethod} onChange={(event) => setContactMethod(event.target.value)}>
+              <select aria-describedby={error ? "dispute-statement-error" : undefined} aria-invalid={Boolean(error)} required value={contactMethod} onChange={(event) => setContactMethod(event.target.value)}>
                 <option value="" disabled>Select a contact method</option>
                 {availableContactMethods.map((method) => <option key={method} value={method}>{contactMethodLabel(method)}</option>)}
                 <option value="other">Other</option>
@@ -1835,7 +1929,7 @@ function DisputeStatementCard({
             </label>
             <label className="field-block">
               Contact address or username *
-              <input required value={contact} onChange={(event) => setContact(event.target.value)} placeholder={contactPlaceholder(contactMethod)} />
+              <input aria-describedby={error ? "dispute-statement-error" : undefined} aria-invalid={Boolean(error)} required value={contact} onChange={(event) => setContact(event.target.value)} placeholder={contactPlaceholder(contactMethod)} />
             </label>
           </div>
           <label className="toggle-row dispute-logs-toggle">
@@ -1843,7 +1937,7 @@ function DisputeStatementCard({
             <Paperclip size={17} />
             <span><strong>Attach chat logs</strong><small>This helps the dispute solver, but may reveal private trade details.</small></span>
           </label>
-          {error ? <p className="field-error">{error}</p> : null}
+          {error ? <p className="field-error" id="dispute-statement-error" role="alert">{error}</p> : null}
           <Button className="full-width dispute-submit-button" loading={loading || preparingLogs} type="submit" variant="outline">
             <FileText size={16} />
             Submit statement
@@ -1940,7 +2034,7 @@ function RatingSubmissionCard({
         <p className="trade-rating-thanks" role="status">
           Also {coordinatorName || "your coordinator"} loves you <span aria-hidden="true">❤️</span>
         </p>
-      ) : localError ? <p className="field-error">{localError}</p> : null}
+      ) : localError ? <p className="field-error" role="alert">{localError}</p> : null}
     </section>
   );
 }
@@ -2060,39 +2154,65 @@ function CompletedTradeSummary({ order }: { order: OrderDto }) {
   return (
     <section className="completed-trade-summary">
       <h3>Trade summary</h3>
-      <div className="completed-summary-tabs" role="tablist" aria-label="Trade summary participant">
-        <button className={side === "maker" ? "active" : ""} onClick={() => setSide("maker")} role="tab" type="button">
-          <RobotAvatar hashId={order.maker_hash_id || order.maker_nick} label={order.maker_nick || "Maker"} size="sm" />
-          <span>Maker</span>
-        </button>
-        <button className={side === "platform" ? "active" : ""} onClick={() => setSide("platform")} role="tab" type="button" aria-label="RoboSats summary">
-          <img className="completed-summary-platform-mark" alt="" src="/static/assets/vector/R-notext.svg" />
-        </button>
-        <button className={side === "taker" ? "active" : ""} onClick={() => setSide("taker")} role="tab" type="button">
-          <span>Taker</span>
-          <RobotAvatar hashId={order.taker_hash_id || order.taker_nick} label={order.taker_nick || "Taker"} size="sm" />
-        </button>
-      </div>
+      <Tabs
+        ariaLabel="Trade summary participant"
+        className="completed-summary-tabs"
+        id="completed-summary"
+        onChange={setSide}
+        options={[
+          {
+            value: "maker",
+            label: (
+              <>
+                <RobotAvatar hashId={order.maker_hash_id || order.maker_nick} label={order.maker_nick || "Maker"} size="sm" />
+                <span>Maker</span>
+              </>
+            )
+          },
+          {
+            value: "platform",
+            ariaLabel: "RoboSats summary",
+            label: <img className="completed-summary-platform-mark" alt="" src="/static/assets/vector/R-notext.svg" />
+          },
+          {
+            value: "taker",
+            label: (
+              <>
+                <span>Taker</span>
+                <RobotAvatar hashId={order.taker_hash_id || order.taker_nick} label={order.taker_nick || "Taker"} size="sm" />
+              </>
+            )
+          }
+        ]}
+        panelId="completed-summary-panel"
+        value={side}
+      />
 
-      {side === "platform" ? (
-        <dl className="completed-summary-details">
-          <div><dt>Coordinator</dt><dd>{order.shortAlias || "RoboSats"}</dd></div>
-          <div><dt>Order</dt><dd>#{order.id}</dd></div>
-          {recordNumber(order.platform_summary, "trade_revenue_sats", 0) > 0 ? (
-            <div><dt>Trade revenue</dt><dd>{formatSats(recordNumber(order.platform_summary, "trade_revenue_sats", 0))}</dd></div>
-          ) : null}
-        </dl>
-      ) : (
-        <dl className="completed-summary-details">
-          <div><dt>User role</dt><dd>{selectedIsBuyer ? "Buyer" : "Seller"}</dd></div>
-          <div><dt>{selectedIsBuyer ? "Fiat sent" : "Fiat received"}</dt><dd>{formatFiat(fiatAmount, currencyCode)}</dd></div>
-          <div><dt>{selectedIsBuyer ? "Bitcoin received" : "Bitcoin sent"}</dt><dd>{formatSats(bitcoinAmount)}</dd></div>
-          <div>
-            <dt>Trade fee</dt>
-            <dd>{formatSats(tradeFeeSats)}{tradeFeePercent > 0 ? ` (${formatSummaryPercent(tradeFeePercent)})` : ""}</dd>
-          </div>
-        </dl>
-      )}
+      <div
+        aria-labelledby={tabId("completed-summary", side)}
+        id="completed-summary-panel"
+        role="tabpanel"
+      >
+        {side === "platform" ? (
+          <dl className="completed-summary-details">
+            <div><dt>Coordinator</dt><dd>{order.shortAlias || "RoboSats"}</dd></div>
+            <div><dt>Order</dt><dd>#{order.id}</dd></div>
+            {recordNumber(order.platform_summary, "trade_revenue_sats", 0) > 0 ? (
+              <div><dt>Trade revenue</dt><dd>{formatSats(recordNumber(order.platform_summary, "trade_revenue_sats", 0))}</dd></div>
+            ) : null}
+          </dl>
+        ) : (
+          <dl className="completed-summary-details">
+            <div><dt>User role</dt><dd>{selectedIsBuyer ? "Buyer" : "Seller"}</dd></div>
+            <div><dt>{selectedIsBuyer ? "Fiat sent" : "Fiat received"}</dt><dd>{formatFiat(fiatAmount, currencyCode)}</dd></div>
+            <div><dt>{selectedIsBuyer ? "Bitcoin received" : "Bitcoin sent"}</dt><dd>{formatSats(bitcoinAmount)}</dd></div>
+            <div>
+              <dt>Trade fee</dt>
+              <dd>{formatSats(tradeFeeSats)}{tradeFeePercent > 0 ? ` (${formatSummaryPercent(tradeFeePercent)})` : ""}</dd>
+            </div>
+          </dl>
+        )}
+      </div>
     </section>
   );
 }

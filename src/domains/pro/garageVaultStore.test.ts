@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { garageSecretStore } from "@/domains/pro/garageSecretStore";
 import { deriveRobotIdentity } from "@/domains/identity/robotIdentity";
+import type { OrderDto } from "@/domains/orders/order.types";
 import {
   activeGarageEntries,
   createGarageManifest,
@@ -12,6 +13,7 @@ import {
   upsertGarageEntry
 } from "@/domains/pro/garageVault";
 import { createPortableSettingsManifest } from "@/domains/pro/portableSettings";
+import { createTradeHistoryManifest } from "@/domains/pro/tradeHistory";
 import {
   resetGarageVaultRuntimeForTests,
   selectProGarageSlots,
@@ -65,7 +67,8 @@ describe("Garage vault persistence", () => {
       version: 3,
       createdAt: 1,
       garage: restoredManifest,
-      settings: createPortableSettingsManifest("ffeeddccbbaa99887766554433221100", { theme: "dark" }, 1)
+      settings: createPortableSettingsManifest("ffeeddccbbaa99887766554433221100", { theme: "dark" }, 1),
+      history: createTradeHistoryManifest("ffeeddccbbaa99887766554433221100", 1)
     };
     failNextManifestWrite = true;
 
@@ -86,6 +89,30 @@ describe("Garage vault persistence", () => {
     expect(await garageSecretStore.load()).toBeNull();
     expect(storage.get(ENVELOPE_KEY)).toBeUndefined();
     expect(useGarageVaultStore.getState()).toMatchObject({ status: "idle", manifest: undefined });
+  });
+
+  it("persists a sanitized finished trade in the encrypted Fleet envelope", async () => {
+    await useGarageVaultStore.getState().setup();
+    useGarageVaultStore.getState().markBackedUp();
+    useGarageVaultStore.getState().archiveTrade({
+      slotId: "a".repeat(64),
+      robotName: "Finished Robot",
+      robotHashId: "robot-hash",
+      coordinatorShortAlias: "lake",
+      order: completedOrder(),
+      observedAt: Date.now()
+    });
+
+    expect(useGarageVaultStore.getState().history?.entries[0]).toMatchObject({
+      robotName: "Finished Robot",
+      orderId: 42,
+      outcome: "completed"
+    });
+    expect(storage.get(ENVELOPE_KEY)).not.toContain("Finished Robot");
+
+    resetGarageVaultRuntimeForTests();
+    await useGarageVaultStore.getState().initialize();
+    expect(useGarageVaultStore.getState().history?.entries[0]?.orderId).toBe(42);
   });
 
   it("restores an unacknowledged mutation from the encrypted envelope", async () => {
@@ -207,3 +234,34 @@ describe("Garage vault persistence", () => {
   });
 
 });
+
+function completedOrder(): OrderDto {
+  return {
+    id: 42,
+    status: 14,
+    type: 0,
+    amount: 100,
+    currency: 1,
+    payment_method: "SEPA",
+    premium: 0,
+    satoshis: 1_000,
+    is_maker: false,
+    is_taker: true,
+    is_buyer: true,
+    is_seller: false,
+    maker_nick: "Maker",
+    maker_hash_id: "maker",
+    taker_nick: "Taker",
+    taker_hash_id: "taker",
+    bond_invoice: "ln-sensitive",
+    bond_satoshis: 0,
+    escrow_invoice: "",
+    escrow_satoshis: 0,
+    invoice_amount: 0,
+    swap_allowed: false,
+    suggested_mining_fee_rate: 0,
+    swap_fee_rate: 0,
+    expires_at: "2026-07-23T12:00:00Z",
+    shortAlias: "lake"
+  };
+}

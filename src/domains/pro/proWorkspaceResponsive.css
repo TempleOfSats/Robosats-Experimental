@@ -79,6 +79,25 @@
     gap: 0.75rem;
   }
 
+  .pro-history-header {
+    display: none;
+  }
+
+  .pro-history-row {
+    grid-template-areas:
+      "robot result"
+      "trade date"
+      "coordinator coordinator";
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.4rem 0.75rem;
+  }
+
+  .pro-history-robot { grid-area: robot; }
+  .pro-history-trade { grid-area: trade; }
+  .pro-history-coordinator { grid-area: coordinator; }
+  .pro-history-row > span:nth-child(4) { grid-area: result; justify-self: end; }
+  .pro-history-date { grid-area: date; justify-self: end; }
+
   .pro-robot-actions {
     flex-wrap: wrap;
   }
@@ -350,6 +369,29 @@
 
   .pro-refresh-warning {
     align-items: start;
+  }
+
+  .pro-view-tabs {
+    width: 100%;
+    justify-content: space-between;
+    gap: 0.65rem;
+  }
+
+  .pro-history-row {
+    padding-inline: 0.75rem;
+  }
+
+  .pro-history-coordinator span {
+    font-size: var(--type-caption-size);
+  }
+
+  .pro-history-detail-identity {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .pro-history-detail-identity > .ui-badge {
+    grid-column: 2;
+    justify-self: start;
   }
 }
 

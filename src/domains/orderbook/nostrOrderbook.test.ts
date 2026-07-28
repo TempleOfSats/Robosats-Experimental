@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Event } from "nostr-tools";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 
@@ -14,8 +14,8 @@ vi.mock("nostr-tools", async (importOriginal) => {
   return { ...actual, verifyEvent: () => true };
 });
 
-vi.mock("nostr-tools/pool", () => {
-  class TestSimplePool {
+vi.mock("@/domains/nostr/sharedRelayPool", () => ({
+  getLiveRelaySubscriptions: () => ({
     subscribeMany(
       relays: string[],
       _filter: unknown,
@@ -24,12 +24,9 @@ vi.mock("nostr-tools/pool", () => {
       poolState.subscriptions.push({ relays, params });
       return { close: () => Promise.resolve() };
     }
-
-    destroy() {}
-  }
-
-  return { SimplePool: TestSimplePool };
-});
+  }),
+  resetLiveRelaySubscriptionsForTests: () => undefined
+}));
 
 import {
   buildNostrRelayUrl,
@@ -40,6 +37,7 @@ import {
   selectNostrRelays,
   subscribeNostrOrderbook
 } from "@/domains/orderbook/nostrOrderbook";
+import { resetLiveRelaySubscriptionsForTests } from "@/domains/nostr/sharedRelayPool";
 
 const coordinator = {
   shortAlias: "lake",
@@ -55,6 +53,12 @@ const coordinator = {
 } satisfies CoordinatorSummary;
 
 describe("nostr orderbook", () => {
+  beforeEach(() => {
+    resetNostrOrderbookSession();
+    resetLiveRelaySubscriptionsForTests();
+    poolState.subscriptions.length = 0;
+  });
+
   it("converts current RoboSats kind 38383 order tags into public offers", () => {
     const parsed = nostrEventToPublicOrder(
       event({
@@ -69,6 +73,7 @@ describe("nostr orderbook", () => {
           ["name", "HelpfulVeranda735", "maker-hash"],
           ["premium", "0"],
           ["pm", "PIX", "Revolut"],
+          ["g", "xn774"],
           ["f", "BRL"],
           ["source", "http://example.onion/order/lake/89895"],
           ["y", "robosats", "lake"]
@@ -91,8 +96,12 @@ describe("nostr orderbook", () => {
       maker_nick: "HelpfulVeranda735",
       maker_hash_id: "maker-hash",
       bond_size_percent: 3,
+      latitude: expect.any(Number),
+      longitude: expect.any(Number),
       coordinatorShortAlias: "lake"
     });
+    expect(parsed.publicOrder?.latitude).toBeCloseTo(35.7, 0);
+    expect(parsed.publicOrder?.longitude).toBeCloseTo(139.7, 0);
   });
 
   it("removes an offer when a newer event for the same d tag is not pending", () => {
@@ -227,8 +236,7 @@ describe("nostr orderbook", () => {
 
     expect(poolState.subscriptions).toHaveLength(1);
     poolState.subscriptions[0].params.oneose?.();
-    await Promise.resolve();
-    expect(poolState.subscriptions).toHaveLength(2);
+    await vi.waitFor(() => expect(poolState.subscriptions).toHaveLength(2));
     expect(poolState.subscriptions.every((subscription) => subscription.relays[0] === "wss://unsafe.thebiglake.org/relay/")).toBe(true);
     poolState.subscriptions[1].params.oneose?.();
 
@@ -252,10 +260,9 @@ describe("nostr orderbook", () => {
 
     expect(poolState.subscriptions).toHaveLength(1);
     poolState.subscriptions[0].params.oneose?.();
-    await Promise.resolve();
+    await vi.waitFor(() => expect(poolState.subscriptions).toHaveLength(2));
     poolState.subscriptions[1].params.oneose?.();
-    await Promise.resolve();
-    expect(poolState.subscriptions).toHaveLength(3);
+    await vi.waitFor(() => expect(poolState.subscriptions).toHaveLength(3));
 
     let settled = false;
     void promise.then(() => { settled = true; });
@@ -263,7 +270,7 @@ describe("nostr orderbook", () => {
     expect(settled).toBe(false);
 
     poolState.subscriptions[2].params.oneose?.();
-    await Promise.resolve();
+    await vi.waitFor(() => expect(poolState.subscriptions).toHaveLength(4));
     poolState.subscriptions[3].params.oneose?.();
     await expect(promise).resolves.toEqual([]);
   });

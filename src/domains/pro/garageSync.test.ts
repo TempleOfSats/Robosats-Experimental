@@ -9,7 +9,14 @@ import {
 } from "@/domains/pro/garageSync";
 import { deriveGarageDomainKey } from "@/domains/pro/garageCrypto";
 import { deriveGarageRobotToken, garageTokenId } from "@/domains/pro/garageVault";
-import { syncRecordAddress, validateGarageSyncRecord, type GarageRobotRecord } from "@/domains/pro/garageSyncRecords";
+import {
+  syncRecordAddress,
+  tradeHistoryToSyncRecord,
+  validateGarageSyncRecord,
+  type GarageRobotRecord
+} from "@/domains/pro/garageSyncRecords";
+import { tradeHistoryEntryFromOrder } from "@/domains/pro/tradeHistory";
+import type { OrderDto } from "@/domains/orders/order.types";
 
 const secret = Uint8Array.from({ length: 32 }, (_, index) => index + 1);
 const deviceId = "00112233445566778899aabbccddeeff";
@@ -76,6 +83,27 @@ describe("Garage NIP-78 records", () => {
       .toThrow("unknown fields");
   });
 
+  it("publishes finished trades under an independent encrypted history identity", () => {
+    const entry = tradeHistoryEntryFromOrder({
+      slotId: "b".repeat(64),
+      robotName: "Robot",
+      robotHashId: "hash",
+      coordinatorShortAlias: "lake",
+      order: completedOrder(),
+      settlementInvoice: "lnbc1000n1buyerinvoice0123456789",
+      settlementInvoicePurpose: "payout-received",
+      observedAt: 10_000
+    }, deviceId)!;
+    const record = tradeHistoryToSyncRecord(entry);
+    const event = buildGarageRecordEvent(secret, record, 10);
+
+    expect(event.pubkey).toBe(getPublicKey(deriveGarageDomainKey(secret, "history-sync")));
+    expect(event.content).not.toContain("Robot");
+    expect(event.content).not.toContain("lnbc1000n1buyerinvoice");
+    expect(JSON.stringify(event.tags)).not.toContain("lnbc1000n1buyerinvoice");
+    expect(decodeGarageRecordEvent(event, secret)?.record).toEqual(record);
+  });
+
   it("paginates full relay pages without losing the decoded record", async () => {
     const event = buildGarageRecordEvent(secret, robotRecord(), 10);
     const querySync = vi.fn(async (_relays, filter: { authors?: string[]; until?: number }) => {
@@ -86,7 +114,7 @@ describe("Garage NIP-78 records", () => {
 
     expect(records).toHaveLength(1);
     expect(querySync).toHaveBeenCalledTimes(2);
-    expect(querySync.mock.calls[0]?.[1].authors).toHaveLength(2);
+    expect(querySync.mock.calls[0]?.[1].authors).toHaveLength(3);
     expect(querySync.mock.calls.map((call) => call[1])).toContainEqual(expect.objectContaining({ until: 9 }));
   });
 
@@ -98,3 +126,34 @@ describe("Garage NIP-78 records", () => {
     ])).toEqual(["wss://example.com/relay/"]);
   });
 });
+
+function completedOrder(): OrderDto {
+  return {
+    id: 42,
+    status: 14,
+    type: 0,
+    amount: 100,
+    currency: 1,
+    payment_method: "SEPA",
+    premium: 0,
+    satoshis: 1_000,
+    is_maker: false,
+    is_taker: true,
+    is_buyer: true,
+    is_seller: false,
+    maker_nick: "Maker",
+    maker_hash_id: "maker",
+    taker_nick: "Taker",
+    taker_hash_id: "taker",
+    bond_invoice: "",
+    bond_satoshis: 0,
+    escrow_invoice: "",
+    escrow_satoshis: 0,
+    invoice_amount: 0,
+    swap_allowed: false,
+    suggested_mining_fee_rate: 0,
+    swap_fee_rate: 0,
+    expires_at: "2026-07-23T12:00:00Z",
+    shortAlias: "lake"
+  };
+}

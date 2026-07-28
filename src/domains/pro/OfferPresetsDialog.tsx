@@ -1,6 +1,7 @@
 import { BookmarkCheck, Copy, Pencil, Plus, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
 import type { OfferPreset } from "@/domains/pro/portableSettings";
 
 export function OfferPresetsDialog({
@@ -23,8 +24,12 @@ export function OfferPresetsDialog({
   const [removingId, setRemovingId] = useState("");
 
   return (
-    <div className="confirm-overlay" role="dialog" aria-modal="true" aria-labelledby="offer-presets-title" onClick={onClose}>
-      <section className="confirm-sheet pro-presets-sheet" onClick={(event) => event.stopPropagation()}>
+    <Dialog
+      ariaLabelledby="offer-presets-title"
+      onClose={onClose}
+      overlayClassName="confirm-overlay"
+      panelClassName="confirm-sheet pro-presets-sheet"
+    >
         <header className="garage-switcher-header">
           <div className="pro-presets-title">
             <span aria-hidden="true"><BookmarkCheck size={20} /></span>
@@ -73,8 +78,7 @@ export function OfferPresetsDialog({
             <p>Create multiple presets to quickly reuse the offer parameters you prefer for different trades.</p>
           </div>
         )}
-      </section>
-    </div>
+    </Dialog>
   );
 }
 

@@ -1,6 +1,8 @@
 import { lazy, Suspense, useEffect, type ReactNode } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { finishRouteTransition, routeTransitionDetail } from "@/app/routeTransition";
 import { AppTransitionFeedback } from "@/components/app/AppTransitionFeedback";
+import { AppErrorBoundary } from "@/components/app/AppErrorBoundary";
 import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
 
 const RobotGaragePage = lazy(() => import("@/domains/garage/RobotGaragePage").then((module) => ({ default: module.RobotGaragePage })));
@@ -10,6 +12,7 @@ const CoordinatorsPage = lazy(() => import("@/domains/coordinators/CoordinatorsP
 const OrderPage = lazy(() => import("@/domains/orders/OrderPage").then((module) => ({ default: module.OrderPage })));
 const SettingsPage = lazy(() => import("@/domains/settings/SettingsPage").then((module) => ({ default: module.SettingsPage })));
 const ProWorkspacePage = lazy(() => import("@/domains/pro/ProWorkspacePage").then((module) => ({ default: module.ProWorkspacePage })));
+const StatisticsPage = lazy(() => import("@/domains/statistics/StatisticsPage").then((module) => ({ default: module.StatisticsPage })));
 const TradeLabPage = (import.meta.env.DEV || import.meta.env.VITE_ENABLE_TRADE_LAB === "true")
   ? lazy(() => import("@/dev/TradeLabPage").then((module) => ({ default: module.TradeLabPage })))
   : null;
@@ -19,6 +22,13 @@ export function preloadPrimaryTradeRoutes(): void {
   void preloadCreateOrderRoute();
 }
 
+export function preloadQuickAccessRoutes(): void {
+  void Promise.allSettled([
+    preloadOffersRoute(),
+    preloadSettingsRoute()
+  ]);
+}
+
 export function preloadAllAppRoutes(): void {
   void preloadGarageRoute();
   void preloadOffersRoute();
@@ -26,6 +36,7 @@ export function preloadAllAppRoutes(): void {
   void preloadCoordinatorsRoute();
   void preloadOrderRoute();
   void preloadSettingsRoute();
+  void preloadStatisticsRoute();
   if (useProPreferencesStore.getState().enabled) void preloadProRoute();
 }
 
@@ -35,26 +46,30 @@ export function preloadAppRoute(path: string): void {
   else if (path === "/create") void preloadCreateOrderRoute();
   else if (path === "/coordinators") void preloadCoordinatorsRoute();
   else if (path === "/settings") void preloadSettingsRoute();
+  else if (path === "/statistics") void preloadStatisticsRoute();
   else if (path === "/pro") void preloadProRoute();
   else if (path === "/order" || path.startsWith("/order/")) void preloadOrderRoute();
 }
 
 export function AppRoutes() {
   return (
-    <Suspense fallback={<RouteFallback />}>
-      <Routes>
-        <Route path="/" element={<RootRedirect />} />
-        <Route path="/garage/:token?" element={<StandardGarageRoute />} />
-        <Route path="/offers" element={<ReadyRoute><OffersPage /></ReadyRoute>} />
-        <Route path="/create" element={<ReadyRoute><CreateOrderPage /></ReadyRoute>} />
-        <Route path="/coordinators" element={<ReadyRoute><CoordinatorsPage /></ReadyRoute>} />
-        <Route path="/order/:shortAlias/:orderId" element={<ReadyRoute><OrderPage /></ReadyRoute>} />
-        <Route path="/settings" element={<ReadyRoute><SettingsPage /></ReadyRoute>} />
-        <Route path="/pro" element={<ReadyRoute><ProWorkspacePage /></ReadyRoute>} />
-        {TradeLabPage ? <Route path="/__dev/trade-lab" element={<ReadyRoute><TradeLabPage /></ReadyRoute>} /> : null}
-        <Route path="*" element={<RootRedirect />} />
-      </Routes>
-    </Suspense>
+    <AppErrorBoundary scope="route">
+      <Suspense fallback={<RouteFallback />}>
+        <Routes>
+          <Route path="/" element={<RootRedirect />} />
+          <Route path="/garage/:token?" element={<StandardGarageRoute />} />
+          <Route path="/offers" element={<ReadyRoute><OffersPage /></ReadyRoute>} />
+          <Route path="/create" element={<ReadyRoute><CreateOrderPage /></ReadyRoute>} />
+          <Route path="/coordinators" element={<ReadyRoute><CoordinatorsPage /></ReadyRoute>} />
+          <Route path="/order/:shortAlias/:orderId" element={<ReadyRoute><OrderPage /></ReadyRoute>} />
+          <Route path="/settings" element={<ReadyRoute><SettingsPage /></ReadyRoute>} />
+          <Route path="/statistics" element={<ReadyRoute><StatisticsPage /></ReadyRoute>} />
+          <Route path="/pro" element={<ReadyRoute><ProWorkspacePage /></ReadyRoute>} />
+          {TradeLabPage ? <Route path="/__dev/trade-lab" element={<ReadyRoute><TradeLabPage /></ReadyRoute>} /> : null}
+          <Route path="*" element={<RootRedirect />} />
+        </Routes>
+      </Suspense>
+    </AppErrorBoundary>
   );
 }
 
@@ -70,12 +85,14 @@ function StandardGarageRoute() {
 }
 
 function RouteFallback() {
+  const { pathname } = useLocation();
+  const feedback = routeTransitionDetail(pathname);
   return (
     <main className="page page-narrow">
       <div className="route-fallback" aria-label="Loading">
         <AppTransitionFeedback
-          title="Preparing RoboSats"
-          message="Loading the private interface..."
+          title={feedback.title}
+          message={feedback.message}
         />
       </div>
     </main>
@@ -83,10 +100,12 @@ function RouteFallback() {
 }
 
 function ReadyRoute({ children }: { children: ReactNode }) {
+  const { pathname } = useLocation();
   useEffect(() => {
     document.documentElement.dataset.robosatsAppReady = "true";
     window.dispatchEvent(new Event("robosats:app-ready"));
-  }, []);
+    finishRouteTransition(pathname);
+  }, [pathname]);
 
   return children;
 }
@@ -113,6 +132,10 @@ function preloadOrderRoute() {
 
 function preloadSettingsRoute() {
   return import("@/domains/settings/SettingsPage");
+}
+
+function preloadStatisticsRoute() {
+  return import("@/domains/statistics/StatisticsPage");
 }
 
 function preloadProRoute() {

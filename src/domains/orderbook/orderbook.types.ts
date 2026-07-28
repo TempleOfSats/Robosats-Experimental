@@ -20,5 +20,7 @@ export interface PublicOrder {
   maker_hash_id: string;
   bond_size_sats: number;
   bond_size_percent?: number;
+  latitude?: number;
+  longitude?: number;
   coordinatorShortAlias: string;
 }

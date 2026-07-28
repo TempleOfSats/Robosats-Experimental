@@ -10,7 +10,7 @@ packages embed Arti and route coordinator traffic through a local SOCKS proxy.
 [**http://roboexpaotkiicp3rktwo6a5g2rlnmjub44mu7k4hrhcfxaxqmr63wyd.onion**](http://roboexpaotkiicp3rktwo6a5g2rlnmjub44mu7k4hrhcfxaxqmr63wyd.onion)
 
 <p align="center">
-  <img src="public/static/assets/demos/smooth.gif" width="80%" alt="RoboSats Exp. Demo">
+  <img src="docs/assets/smooth.gif" width="80%" alt="RoboSats Exp. Demo">
 </p>
 
 RoboSats Exp. is alpha software. Review the release notes and verify published
@@ -56,28 +56,6 @@ The command runs TypeScript validation before Vite and exits without producing
 a successful build when validation fails. The resulting `dist/` directory is a
 complete static SPA and must be deployed as a unit; do not copy individual
 hashed files from it.
-
-### Local Nginx deployment
-
-Build and atomically deploy the production web bundle to
-`/srv/robosats-exp`:
-
-```bash
-npm run build:nginx
-```
-
-This command requires `sudo` access, validates the Nginx configuration, and
-reloads Nginx after deployment. Set `ROBOSATS_NGINX_ROOT` to use another
-document root:
-
-```bash
-ROBOSATS_NGINX_ROOT=/srv/another-root npm run build:nginx
-```
-
-The deployment script installs files only. Configure the Nginx virtual host
-and Tor hidden-service mapping separately. Production assets are namespaced by
-source revision, and the atomic deployment retains one previous asset
-generation so clients loading through Tor are not stranded during a release.
 
 ### Android APKs
 
@@ -179,24 +157,6 @@ requires version 14 or newer.
 
 GitHub's **Desktop builds** workflow can package any or all desktop platforms
 without creating a release.
-
-### Docker node app
-
-Build the self-hosted Nginx image:
-
-```bash
-npm run build:nodeapp
-```
-
-Run the local compose configuration:
-
-```bash
-docker compose -f nodeapp/compose.yml up --build
-```
-
-The client is available at `http://127.0.0.1:12596`. The image contains only
-the static frontend and Nginx; it does not proxy coordinator requests. See
-[nodeapp/README.md](nodeapp/README.md) for deployment and Tor Browser behavior.
 
 ### Installing on iOS
 

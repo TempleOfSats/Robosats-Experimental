@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Event } from "nostr-tools/pure";
 import { SimplePool } from "nostr-tools/pool";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
+import { resetLiveRelaySubscriptionsForTests } from "@/domains/nostr/sharedRelayPool";
 import { garageSecretStore } from "@/domains/pro/garageSecretStore";
 import { buildGarageRecordEvent, decodeGarageRecordEvent, garageSyncEngine } from "@/domains/pro/garageSync";
 import { activeGarageEntries, decodeGarageToken, deriveGarageRobotToken, garageTokenId } from "@/domains/pro/garageVault";
@@ -22,13 +23,15 @@ describe("Garage synchronization runtime", () => {
       setItem: (key: string, value: string) => storage.set(key, value),
       removeItem: (key: string) => storage.delete(key)
     });
-    vi.spyOn(SimplePool.prototype, "subscribeMany").mockReturnValue({ close: () => undefined });
+    resetLiveRelaySubscriptionsForTests();
+    vi.spyOn(SimplePool.prototype, "subscribeMap").mockReturnValue({ close: () => undefined });
     await garageSecretStore.remove();
     resetGarageVaultRuntimeForTests();
   });
 
   afterEach(() => {
     garageSyncEngine.stop();
+    resetLiveRelaySubscriptionsForTests();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -111,8 +114,8 @@ describe("Garage synchronization runtime", () => {
       relay: string;
       params: { oneose?: () => void; onclose?: (reasons: string[]) => void };
     }> = [];
-    vi.spyOn(SimplePool.prototype, "subscribeMany").mockImplementation((relays, _filter, params) => {
-      subscriptions.push({ relay: relays[0], params });
+    vi.spyOn(SimplePool.prototype, "subscribeMap").mockImplementation((requests, params) => {
+      subscriptions.push({ relay: requests[0].url, params });
       return { close: vi.fn() };
     });
     const coordinators = [
@@ -123,6 +126,7 @@ describe("Garage synchronization runtime", () => {
 
     try {
       garageSyncEngine.start(() => coordinators, false);
+      await vi.advanceTimersByTimeAsync(50);
       expect(subscriptions).toHaveLength(2);
       const failedRelay = subscriptions[0].relay;
       const healthyRelay = subscriptions[1].relay;
@@ -131,6 +135,7 @@ describe("Garage synchronization runtime", () => {
       await vi.advanceTimersByTimeAsync(4_999);
       expect(subscriptions).toHaveLength(2);
       await vi.advanceTimersByTimeAsync(1);
+      await vi.advanceTimersByTimeAsync(50);
 
       expect(subscriptions.filter(({ relay }) => relay === failedRelay)).toHaveLength(2);
       expect(subscriptions.filter(({ relay }) => relay === healthyRelay)).toHaveLength(1);

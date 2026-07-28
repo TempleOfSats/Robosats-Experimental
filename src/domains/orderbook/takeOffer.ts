@@ -17,8 +17,18 @@ export function buildTakeOfferPayload(order: PublicOrder, amountInput: string, p
   };
 }
 
-export function defaultTakeAmount(order: PublicOrder): string {
-  if (order.has_range) return "";
+export function defaultTakeAmount(order: PublicOrder, preferredAmount?: number): string {
+  if (order.has_range) {
+    if (
+      Number.isFinite(preferredAmount)
+      && preferredAmount != null
+      && preferredAmount >= order.min_amount
+      && preferredAmount <= order.max_amount
+    ) {
+      return String(preferredAmount);
+    }
+    return "";
+  }
   return String(order.amount ?? "");
 }
 

@@ -57,7 +57,7 @@ export function App() {
     <Router>
       <DesktopNotificationRouter />
       {tradeLabContext && new URLSearchParams(window.location.search).get("tradeLab") === "1" ? (
-        <div id="main-content" className="app-content trade-lab-standalone-preview"><AppRoutes /></div>
+        <main id="main-content" className="app-content trade-lab-standalone-preview" tabIndex={-1}><AppRoutes /></main>
       ) : (
         <AppShell platform={platform}>
           <AppRoutes />

@@ -2,13 +2,16 @@ import type { ApiClient, ApiRequestOptions, Auth, RequestPriority, TimeoutProfil
 import { buildAuthHeaders } from "@/domains/transport/apiClient";
 import { recordNetworkPerformance, type NetworkOutcome } from "@/domains/diagnostics/networkPerformance";
 import { transportRequest } from "@/domains/transport/androidBridge";
-import { coordinatorRequestScheduler } from "@/domains/transport/requestScheduler";
+import { RoboSatsApiError } from "@/domains/transport/apiError";
+import {
+  CoordinatorRequestDeferredError,
+  coordinatorRequestScheduler
+} from "@/domains/transport/requestScheduler";
 import {
   noteTransportFailure,
   noteTransportReachable,
   type TransportFailureCategory
 } from "@/domains/transport/transportHealth";
-import { toUserMessage } from "@/lib/userError";
 
 class ApiWebClient implements ApiClient {
   async get<T>(baseUrl: string, path: string, auth?: Auth, options?: ApiRequestOptions): Promise<T> {
@@ -49,10 +52,12 @@ async function request<T>(
   const method = init.method ?? "GET";
   const priority = options.priority ?? defaultPriority(method, options.timeoutProfile);
   const source = options.source ?? defaultSource(method);
+  const origin = requestOrigin(baseUrl);
   const queuedAt = now();
   const scheduled = coordinatorRequestScheduler.schedule<T>({
+    bypassCircuit: options.bypassCircuit,
     key: requestKey,
-    origin: requestOrigin(baseUrl),
+    origin,
     method,
     priority,
     source,
@@ -66,17 +71,23 @@ async function request<T>(
       // ceiling in case a native bridge fails to honor cancellation.
       const response = await transportRequest(baseUrl + path, init, 90_000, signal);
       noteTransportReachable(baseUrl);
+      coordinatorRequestScheduler.noteOriginReachable(origin);
       const contentType = response.headers["content-type"] ?? "";
       const data = contentType.includes("application/json") ? JSON.parse(response.body || "null") : response.body;
       if (response.status < 200 || response.status >= 300) {
         outcome = "http-error";
-        throw new RoboSatsApiError(response.status, data);
+        throw new RoboSatsApiError(response.status, data, apiStatusFallback(response.status));
       }
       return data as T;
     } catch (error) {
       outcome = classifyOutcome(error);
-      if (!(error instanceof RoboSatsApiError) && outcome !== "cancelled") {
+      if (
+        !(error instanceof RoboSatsApiError)
+        && !(error instanceof CoordinatorRequestDeferredError)
+        && outcome !== "cancelled"
+      ) {
         noteTransportFailure(baseUrl, failureCategory(error));
+        coordinatorRequestScheduler.noteOriginFailure(origin);
       }
       if (error instanceof Error && error.message.includes("timeout after")) {
         throw new Error("The request took too long. Please try again.");
@@ -85,7 +96,7 @@ async function request<T>(
     } finally {
       const completedAt = now();
       recordNetworkPerformance({
-        origin: requestOrigin(baseUrl),
+        origin,
         source,
         priority,
         queuedMs: Math.max(0, transportStartedAt - queuedAt),
@@ -96,13 +107,6 @@ async function request<T>(
     }
   });
   return scheduled.promise;
-}
-
-class RoboSatsApiError extends Error {
-  constructor(readonly status: number, readonly response: unknown) {
-    super(toUserMessage(response, apiStatusFallback(status)));
-    this.name = "RoboSatsApiError";
-  }
 }
 
 function apiStatusFallback(status: number): string {
@@ -139,6 +143,7 @@ function requestOrigin(baseUrl: string): string {
 
 function classifyOutcome(error: unknown): NetworkOutcome {
   if (error instanceof RoboSatsApiError) return "http-error";
+  if (error instanceof CoordinatorRequestDeferredError) return "cancelled";
   if (error instanceof DOMException && error.name === "AbortError") return "cancelled";
   if (error instanceof Error && /timeout/i.test(error.message)) return "timeout";
   return "network-error";

@@ -6,10 +6,10 @@ import {
   ArrowUpRight,
   Check,
   PlusCircle,
-  Search,
   X
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import { currencyOptions } from "@/domains/orderbook/currencies";
 import {
@@ -35,24 +35,28 @@ const allMethods = normalPaymentMethodOptions();
 
 export function BeginnerTradeWizard({
   coordinators,
+  initialCriteria,
   loading,
   onClose,
   onCreateOffer,
   onSelectOffer,
-  orders
+  orders,
+  reviewOpen = false
 }: {
   coordinators: CoordinatorSummary[];
+  initialCriteria?: GuidedTradeCriteria;
   loading: boolean;
   onClose: () => void;
   onCreateOffer: (criteria: GuidedTradeCriteria) => void;
-  onSelectOffer: (order: PublicOrder) => void;
+  onSelectOffer: (order: PublicOrder, criteria: GuidedTradeCriteria) => void;
   orders: PublicOrder[];
+  reviewOpen?: boolean;
 }) {
-  const [step, setStep] = useState(0);
-  const [intent, setIntent] = useState<GuidedTradeIntent>();
-  const [currency, setCurrency] = useState("USD");
-  const [amount, setAmount] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState("");
+  const [step, setStep] = useState(initialCriteria ? steps.length - 1 : 0);
+  const [intent, setIntent] = useState<GuidedTradeIntent | undefined>(initialCriteria?.intent);
+  const [currency, setCurrency] = useState(initialCriteria?.currency ?? "USD");
+  const [amount, setAmount] = useState(initialCriteria ? String(initialCriteria.amount) : "");
+  const [paymentMethod, setPaymentMethod] = useState(initialCriteria?.paymentMethod ?? "");
   const [error, setError] = useState("");
   const headingRef = useRef<HTMLHeadingElement>(null);
   const numericAmount = Number(amount);
@@ -81,14 +85,6 @@ export function BeginnerTradeWizard({
     headingRef.current?.focus();
   }, [step]);
 
-  useEffect(() => {
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", closeOnEscape);
-    return () => document.removeEventListener("keydown", closeOnEscape);
-  }, [onClose]);
-
   function continueForward() {
     const validationError = stepError(step, { amount, currency, intent, paymentMethod });
     if (validationError) {
@@ -105,14 +101,16 @@ export function BeginnerTradeWizard({
   }
 
   return (
-    <div className="confirm-overlay guided-trade-overlay" onClick={onClose}>
-      <section
-        aria-labelledby="guided-trade-title"
-        aria-modal="true"
-        className="guided-trade-dialog"
-        onClick={(event) => event.stopPropagation()}
-        role="dialog"
-      >
+    <Dialog
+      ariaLabelledby="guided-trade-title"
+      initialFocusRef={headingRef}
+      onClose={onClose}
+      overlayClassName={reviewOpen
+        ? "confirm-overlay guided-trade-overlay guided-trade-overlay-backgrounded"
+        : "confirm-overlay guided-trade-overlay"}
+      panelClassName="guided-trade-dialog"
+      panelProps={reviewOpen ? { "aria-hidden": true, inert: true } : undefined}
+    >
         <header className="guided-trade-header">
           <div>
             <p className="app-eyebrow">Guided trade</p>
@@ -199,6 +197,8 @@ export function BeginnerTradeWizard({
                 <span>Amount</span>
                 <div>
                   <input
+                    aria-describedby={error ? "guided-trade-error" : undefined}
+                    aria-invalid={Boolean(error)}
                     autoFocus
                     inputMode="decimal"
                     min="0"
@@ -221,11 +221,14 @@ export function BeginnerTradeWizard({
               <label className="field-block guided-trade-field">
                 <span>Payment method</span>
                 <PaymentMethodPicker
+                  allowAny={false}
+                  ariaDescribedby={error ? "guided-trade-error" : undefined}
+                  ariaInvalid={Boolean(error)}
                   label="Select payment method"
                   options={allMethods}
-                  value={paymentMethod || "all"}
+                  value={paymentMethod}
                   onChange={(value) => {
-                    setPaymentMethod(value === "all" ? "" : value);
+                    setPaymentMethod(value);
                     setError("");
                   }}
                 />
@@ -265,26 +268,20 @@ export function BeginnerTradeWizard({
                       criteria={criteria}
                       featured={index === 0}
                       key={`${order.coordinatorShortAlias}:${order.id}`}
-                      onSelect={() => onSelectOffer(order)}
+                      onSelect={() => onSelectOffer(order, criteria)}
                       order={order}
                     />
                   ))}
                   {matches.length > 4 ? <small className="guided-more-matches">+{matches.length - 4} more matching offers in the orderbook</small> : null}
                 </div>
               ) : (
-                <div className="guided-no-match">
-                  <Search size={24} aria-hidden="true" />
-                  <div>
-                    <strong>Your choices are ready</strong>
-                    <span>{formatFiat(criteria.amount, criteria.currency)} · {criteria.paymentMethod}</span>
-                  </div>
-                </div>
+                null
               )}
 
               <div className="guided-create-choice">
                 <div>
-                  <strong>Create your own offer</strong>
-                  <span>Use these choices and set the remaining terms before publishing.</span>
+                  <strong>Didn't find what you were looking for?</strong>
+                  <span>Set your own terms!</span>
                 </div>
                 <Button
                   onClick={() => onCreateOffer(criteria)}
@@ -298,7 +295,7 @@ export function BeginnerTradeWizard({
             </WizardStep>
           ) : null}
 
-          {error ? <p className="guided-trade-error" role="alert">{error}</p> : null}
+          {error ? <p className="guided-trade-error" id="guided-trade-error" role="alert">{error}</p> : null}
         </div>
 
         <footer className="guided-trade-footer">
@@ -315,8 +312,7 @@ export function BeginnerTradeWizard({
             <Button onClick={onClose} type="button" variant="ghost">Back to offers</Button>
           )}
         </footer>
-      </section>
-    </div>
+    </Dialog>
   );
 }
 
