@@ -10,11 +10,16 @@ packages embed Arti and route coordinator traffic through a local SOCKS proxy.
 [**http://roboexpaotkiicp3rktwo6a5g2rlnmjub44mu7k4hrhcfxaxqmr63wyd.onion**](http://roboexpaotkiicp3rktwo6a5g2rlnmjub44mu7k4hrhcfxaxqmr63wyd.onion)
 
 <p align="center">
-  <img src="docs/assets/smooth.gif" width="80%" alt="RoboSats Exp. Demo">
+  <img src="docs/assets/smooth.gif" width="100%" alt="RoboSats Exp. private trade walkthrough">
 </p>
 
 RoboSats Exp. is alpha software. Review the release notes and verify published
 signatures before installing a binary.
+
+## User guides
+
+- [Standard Garage guide](docs/standard-garage-guide.md): create and back up a robot, find or publish an offer, and complete a trade.
+- [Pro Mode and Robot Fleet guide](docs/pro-mode-guide.md): manage several robots, reusable presets, encrypted synchronization, history, and Fleet recovery.
 
 ## Install dependencies
 

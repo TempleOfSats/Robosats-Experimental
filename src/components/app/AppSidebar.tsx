@@ -48,9 +48,9 @@ export function AppSidebar({ platform: _platform }: { platform: RoboSatsPlatform
           <button
             aria-describedby="standard-garage-disabled-reason"
             className="nav-item nav-item-disabled"
-            data-disabled-reason="Unavailable while Pro Mode is enabled"
             key={item.to}
             onClick={() => setUnavailableItem("robot")}
+            title="Unavailable while Pro Mode is enabled"
             type="button"
           >
             <item.icon size={18} />
@@ -97,8 +97,8 @@ export function AppSidebar({ platform: _platform }: { platform: RoboSatsPlatform
           <button
             aria-describedby="trade-disabled-reason"
             className="nav-item nav-item-disabled"
-            data-disabled-reason="Choose or create an offer first"
             onClick={() => setUnavailableItem("trade")}
+            title="Choose or create an offer first"
             type="button"
           >
             <Workflow size={18} />

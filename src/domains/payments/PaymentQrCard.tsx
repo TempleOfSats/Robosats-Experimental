@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { Clock3, Copy, QrCode, WalletCards } from "lucide-react";
+import { Clock3, Copy, LoaderCircle, WalletCards } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -34,6 +34,10 @@ export function PaymentQrCard({
   onCopy = writeClipboard
 }: PaymentQrCardProps) {
   const paymentUri = openWalletHref ?? value;
+  const paymentReady = Boolean(value.trim())
+    && typeof amountSats === "number"
+    && Number.isFinite(amountSats)
+    && amountSats > 0;
   const paymentExpiresAt = useMemo(
     () => resolvePaymentExpiry(concept, value, expiresAt),
     [concept, expiresAt, value]
@@ -63,62 +67,68 @@ export function PaymentQrCard({
     <Card className={`payment-card payment-card-${concept}`} aria-label={title}>
       <CardContent>
         <div className="payment-card-body">
-          <button
-            className="payment-qr-shell"
-            aria-label={openWalletHref ? `Open ${title} in wallet` : `${title} QR code`}
-            disabled={!openWalletHref}
-            onClick={() => openWalletHref && !previewMode && window.open(openWalletHref)}
-            title={openWalletHref ? previewMode ? "Wallet launch disabled in fixture mode" : "Open in Lightning wallet" : undefined}
-            type="button"
-          >
-            {value ? (
-              <>
+          {paymentReady ? (
+            <>
+              <button
+                className="payment-qr-shell"
+                aria-label={openWalletHref ? `Open ${title} in wallet` : `${title} QR code`}
+                disabled={!openWalletHref}
+                onClick={() => openWalletHref && !previewMode && window.open(openWalletHref)}
+                title={openWalletHref ? previewMode ? "Wallet launch disabled in fixture mode" : "Open in Lightning wallet" : undefined}
+                type="button"
+              >
                 <QRCodeSVG value={paymentUri} size={304} level="Q" includeMargin bgColor={qrTheme === "screen" ? "#101010" : "#ffffff"} fgColor={qrTheme === "screen" ? "#f5f5f2" : "#000000"} />
                 <span className="payment-qr-logo" aria-hidden="true">
                   <img src="/static/assets/vector/R-notext.svg" alt="" />
                 </span>
-              </>
-            ) : <QrCode size={96} />}
-          </button>
-          <div className="payment-primary">
-            {amountSats != null ? (
-              <div className="payment-amount-block">
-                <span>Amount to lock</span>
-                <strong className="payment-amount tabular amount-mono">{formatSats(amountSats)}</strong>
+              </button>
+              <div className="payment-primary">
+                <div className="payment-amount-block">
+                  <span>Amount to lock</span>
+                  <strong className="payment-amount tabular amount-mono">{formatSats(amountSats)}</strong>
+                </div>
+                {paymentExpiresAt ? (
+                  <div className="payment-expiry">
+                    <Clock3 size={16} />
+                    <PaymentCountdown expiresAt={paymentExpiresAt} />
+                  </div>
+                ) : null}
+                <div className="payment-actions">
+                  <Button onClick={() => onCopy(value)} disabled={webLnState === "paying"}>
+                    <Copy size={16} />
+                    Copy
+                  </Button>
+                  {hasWebLn ? (
+                    <Button
+                      variant="secondary"
+                      loading={webLnState === "paying"}
+                      loadingLabel="Paying with WebLN"
+                      onClick={handleWebLnPayment}
+                    >
+                      <WalletCards size={16} /> WebLN
+                    </Button>
+                  ) : null}
+                </div>
+                {webLnState === "success" ? (
+                  <p className="payment-action-status payment-action-status-success" role="status">
+                    Payment completed in your WebLN wallet.
+                  </p>
+                ) : webLnState === "error" ? (
+                  <p className="payment-action-status payment-action-status-error" role="alert">
+                    Your WebLN wallet could not complete the payment. Check it and try again.
+                  </p>
+                ) : null}
               </div>
-            ) : null}
-            {paymentExpiresAt ? (
-              <div className="payment-expiry">
-                <Clock3 size={16} />
-                <PaymentCountdown expiresAt={paymentExpiresAt} />
-              </div>
-            ) : null}
-            <div className="payment-actions">
-              <Button onClick={() => onCopy(value)} disabled={!value || webLnState === "paying"}>
-                <Copy size={16} />
-                Copy
-              </Button>
-              {hasWebLn && value ? (
-                <Button
-                  variant="secondary"
-                  loading={webLnState === "paying"}
-                  loadingLabel="Paying with WebLN"
-                  onClick={handleWebLnPayment}
-                >
-                  <WalletCards size={16} /> WebLN
-                </Button>
-              ) : null}
+            </>
+          ) : (
+            <div className="payment-preparing" role="status" aria-live="polite">
+              <span className="payment-preparing-icon" aria-hidden="true">
+                <LoaderCircle size={30} />
+              </span>
+              <strong>Preparing payment</strong>
+              <p>Waiting for the coordinator invoice and amount.</p>
             </div>
-            {webLnState === "success" ? (
-              <p className="payment-action-status payment-action-status-success" role="status">
-                Payment completed in your WebLN wallet.
-              </p>
-            ) : webLnState === "error" ? (
-              <p className="payment-action-status payment-action-status-error" role="alert">
-                Your WebLN wallet could not complete the payment. Check it and try again.
-              </p>
-            ) : null}
-          </div>
+          )}
         </div>
         {footer ? <div className="payment-card-footer">{footer}</div> : null}
       </CardContent>
