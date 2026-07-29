@@ -162,6 +162,42 @@
   align-items: center;
 }
 
+.payment-preparing {
+  min-height: min(19rem, 46svh);
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 0.7rem;
+  color: var(--muted-foreground);
+  text-align: center;
+}
+
+.payment-preparing-icon {
+  width: 3.25rem;
+  height: 3.25rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--warning-border);
+  border-radius: 999px;
+  background: var(--warning-surface);
+  color: var(--primary);
+}
+
+.payment-preparing-icon svg {
+  animation: spin 900ms linear infinite;
+}
+
+.payment-preparing strong {
+  color: var(--foreground);
+  font-size: 1.08rem;
+}
+
+.payment-preparing p {
+  max-width: 24rem;
+  margin: 0;
+  line-height: 1.5;
+}
+
 .payout-form {
   display: grid;
   gap: 0.9rem;

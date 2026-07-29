@@ -522,7 +522,11 @@
 .nav-item-disabled {
   position: relative;
   width: 100%;
+  appearance: none;
   border: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
   text-align: left;
   opacity: 0.58;
   cursor: help;
@@ -531,32 +535,6 @@
 .nav-item-disabled:hover,
 .nav-item-disabled:focus-visible {
   opacity: 0.82;
-}
-
-.nav-item-disabled::after {
-  position: absolute;
-  z-index: 130;
-  left: calc(100% + 0.5rem);
-  top: 50%;
-  width: max-content;
-  max-width: 14rem;
-  content: attr(data-disabled-reason);
-  transform: translateY(-50%);
-  border: 1px solid var(--control-border);
-  border-radius: var(--radius-sm);
-  background: var(--card);
-  color: var(--card-foreground);
-  box-shadow: var(--modal-shadow);
-  padding: 0.45rem 0.6rem;
-  font-size: var(--type-caption-size);
-  line-height: 1.35;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.nav-item-disabled:hover::after,
-.nav-item-disabled:focus-visible::after {
-  opacity: 1;
 }
 
 .nav-unavailable-dialog {
