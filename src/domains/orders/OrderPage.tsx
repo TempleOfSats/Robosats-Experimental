@@ -22,9 +22,10 @@ import { signCleartextMessage } from "@/domains/crypto/pgp";
 import { getTradeActionCommands, type TradeActionCommand } from "@/domains/orders/orderActions";
 import {
   getTradeViewState,
-  hasFailedPayoutForCurrentRobot
+  hasFailedPayoutForCurrentRobot,
+  isCompletedTradeForCurrentRobot
 } from "@/domains/orders/orderStateMachine";
-import { useOrderStore } from "@/domains/orders/orderStore";
+import { orderForLocator, useOrderStore } from "@/domains/orders/orderStore";
 import { tradePreviewOrder } from "@/domains/orders/tradePreviewFixtures";
 import { isOrderReferenceSatsApproximate, orderReferenceSats, orderReferenceSatsRange } from "@/domains/orders/orderModel";
 import type { OrderDto, SubmitOrderActionPayload } from "@/domains/orders/order.types";
@@ -56,6 +57,7 @@ import { isNativeApp } from "@/domains/transport/androidBridge";
 import { runRefreshIntent, subscribeRefreshIntents } from "@/domains/transport/refreshIntents";
 import { F2FLocationDialog } from "@/domains/location/F2FLocationDialog";
 import { hasApproximateF2FLocation, paymentMethodHasF2F } from "@/domains/location/f2fLocation";
+import { registerVisibleTrade } from "@/domains/notifications/orderFeedbackVisibility";
 
 export function OrderPage({
   embeddedLocator,
@@ -78,7 +80,8 @@ export function OrderPage({
   const proEnabled = useProPreferencesStore((state) => state.enabled);
   const hydrateGarage = useGarageStore((state) => state.hydrate);
   const releaseOrderReservation = useGarageStore((state) => state.releaseOrderReservation);
-  const { order: loadedOrder, submitting, error, loadOrder, submitAction, clearOrder } = useOrderStore();
+  const { order: storedOrder, submitting, error, loadOrder, submitAction, clearOrder } = useOrderStore();
+  const loadedOrder = orderForLocator(storedOrder, shortAlias, orderId);
   const eligibleSlots = proEnabled || embeddedLocator ? slots : selectStandardGarageSlots(slots);
   const routeSlotId = (location.state as { robotSlotId?: string } | null)?.robotSlotId;
   const routeSlot = routeSlotId
@@ -96,12 +99,17 @@ export function OrderPage({
   const [previewNotice, setPreviewNotice] = useState("");
 
   useEffect(() => {
+    if (previewOrder || orderId < 1 || shortAlias === "local") return;
+    return registerVisibleTrade(shortAlias, orderId);
+  }, [orderId, previewOrder, shortAlias]);
+
+  useEffect(() => {
     hydrateGarage();
   }, [hydrateGarage]);
 
   useEffect(() => {
     if (previewOrder) return;
-    clearOrder();
+    if (!orderForLocator(useOrderStore.getState().order, shortAlias, orderId)) clearOrder();
     previousStatus.current = undefined;
     previousWasTaker.current = false;
   }, [clearOrder, orderId, previewOrder, shortAlias]);
@@ -579,6 +587,23 @@ function ContractPanel({
         </Card>
       ) : null}
 
+      {preChatEnabled ? (
+        <PreChatDisclosure
+          auth={chatAuth}
+          baseUrl={coordinatorUrl}
+          canSend={canSubmit}
+          myNick={myNick}
+          ownCoordinatorNick={getCurrentRobotNick(order)}
+          myHashId={order.is_maker ? order.maker_hash_id : order.taker_hash_id}
+          orderId={order.id}
+          peerNick={order.is_maker ? order.taker_nick : order.maker_nick}
+          peerHashId={order.is_maker ? order.taker_hash_id : order.maker_hash_id}
+          previewMode={previewMode}
+          robot={signingRobot}
+          shortAlias={order.shortAlias}
+          slotToken={slotToken}
+        />
+      ) : null}
       <TradePaymentPanel
         canSubmit={canSubmit}
         chatAuth={chatAuth}
@@ -601,22 +626,6 @@ function ContractPanel({
         onSubmitAction={onSubmitAction}
         onSubmitPayout={onSubmitPayout}
       />
-      {preChatEnabled ? (
-        <PreChatDisclosure
-          auth={chatAuth}
-          baseUrl={coordinatorUrl}
-          canSend={canSubmit}
-          myNick={myNick}
-          myHashId={order.is_maker ? order.maker_hash_id : order.taker_hash_id}
-          orderId={order.id}
-          peerNick={order.is_maker ? order.taker_nick : order.maker_nick}
-          peerHashId={order.is_maker ? order.taker_hash_id : order.maker_hash_id}
-          previewMode={previewMode}
-          robot={signingRobot}
-          shortAlias={order.shortAlias}
-          slotToken={slotToken}
-        />
-      ) : null}
       {isChatStep ? (
         <ChatTradeActions
           actions={actions}
@@ -1102,10 +1111,12 @@ function TradePaymentPanel({
   if (view.panel === "chat") {
     return (
       <ChatStagePanel
+        key={`${order.id}:${order.is_maker ? order.maker_hash_id : order.taker_hash_id}`}
         auth={chatAuth}
         baseUrl={coordinatorUrl}
         canSend
         myNick={myNick}
+        ownCoordinatorNick={getCurrentRobotNick(order)}
         myHashId={order.is_maker ? order.maker_hash_id : order.taker_hash_id}
         orderId={order.id}
         peerNick={order.is_maker ? order.taker_nick : order.maker_nick}
@@ -1757,9 +1768,7 @@ function progressStateForIndex(index: number, activeIndex: number, order: OrderD
   const failedPayout = hasFailedPayoutForCurrentRobot(order);
   const payoutRetrying = failedPayout && !order.invoice_expired;
   const completed =
-    order.status === 14 ||
-    (order.status === 13 && order.is_seller) ||
-    (order.status === 15 && !failedPayout) ||
+    isCompletedTradeForCurrentRobot(order) ||
     ([17, 18].includes(order.status) && !disputeLost);
   if (failedPayout || disputeLost) {
     if (index === activeIndex) return payoutRetrying ? "waiting" : "danger";

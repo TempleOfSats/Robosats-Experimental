@@ -81,7 +81,7 @@ describe("getTradeViewState", () => {
     expect(getTradeViewState({ ...baseOrder, status: 15, is_buyer: false, is_seller: true }).panel).toBe("success");
   });
 
-  it("uses coordinator payout fields instead of buyer or seller role for failed routing", () => {
+  it("shows failed routing only to the buyer receiving the payout", () => {
     const buyer = { ...baseOrder, status: 15, is_buyer: true, is_seller: false, retries: 1 };
     expect(getTradeViewState({ ...buyer, invoice_expired: false }).requiredAction).toBe("wait");
     expect(getTradeViewState({ ...buyer, invoice_expired: true }).requiredAction).toBe("retry_invoice");
@@ -91,13 +91,16 @@ describe("getTradeViewState", () => {
       is_buyer: false,
       is_seller: true,
       retries: 1
-    }).panel).toBe("routing_failed");
+    }).panel).toBe("success");
     expect(getTradeViewState({
       ...baseOrder,
       status: 15,
       is_buyer: true,
       is_seller: false
-    }).panel).toBe("success");
+    })).toMatchObject({
+      panel: "routing_failed",
+      requiredAction: "wait"
+    });
   });
 
   it("reserves the public-order owner message for the maker", () => {

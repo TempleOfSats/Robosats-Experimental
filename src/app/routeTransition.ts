@@ -9,10 +9,14 @@ export type RouteTransitionDetail = {
 
 export function beginRouteTransition(path: string): void {
   if (typeof window === "undefined") return;
-  window.dispatchEvent(new CustomEvent<RouteTransitionDetail>(
-    ROUTE_TRANSITION_START_EVENT,
-    { detail: routeTransitionDetail(path) }
-  ));
+  try {
+    window.dispatchEvent(new CustomEvent<RouteTransitionDetail>(
+      ROUTE_TRANSITION_START_EVENT,
+      { detail: routeTransitionDetail(path) }
+    ));
+  } catch {
+    // Transition feedback is progressive enhancement and must never block navigation.
+  }
 }
 
 export function finishRouteTransition(path: string): void {
@@ -62,4 +66,12 @@ export function normalizeRoutePath(path: string): string {
   } catch {
     return path.split(/[?#]/, 1)[0] || "/";
   }
+}
+
+export function isMatchingRouteTransition(pendingPath: string, readyPath: string): boolean {
+  return normalizeRoutePath(pendingPath) === normalizeRoutePath(readyPath);
+}
+
+export function isStandardGarageRoute(path: string): boolean {
+  return /^\/garage(?:\/|$)/.test(normalizeRoutePath(path));
 }

@@ -568,10 +568,10 @@
 
 .image-select-option {
   appearance: none;
+  width: 100%;
   min-width: 0;
   min-height: 2.2rem;
-  display: grid;
-  grid-template-columns: 1.6rem minmax(0, 1fr);
+  display: flex;
   align-items: center;
   gap: 0.5rem;
   border: 0;
@@ -584,8 +584,9 @@
   text-align: left;
 }
 
-.image-select-option-no-icon {
-  grid-template-columns: minmax(0, 1fr);
+.image-select-option > .image-select-icon {
+  width: 1.6rem;
+  flex: 0 0 1.6rem;
 }
 
 .image-select-option:hover,
@@ -596,10 +597,16 @@
 }
 
 .image-select-option > span:last-child {
+  width: 0;
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.image-select-option-no-icon > span:last-child {
+  width: auto;
 }
 
 .filter-select {

@@ -15,13 +15,14 @@ import { createWebSocket, isNativeApp } from "@/domains/transport/androidBridge"
 import { deliverChatFeedback } from "@/domains/notifications/tradeFeedback";
 import { chatPollDelayMs, chatReconnectDelayMs } from "@/domains/chat/chatRefresh";
 import { runRefreshIntent, subscribeRefreshIntents } from "@/domains/transport/refreshIntents";
-import { hasSentPreChatMessage, visiblePreChatMessages } from "@/domains/chat/preChat";
+import { hasSentPreChatMessage, isOwnChatMessage, usablePeerPublicKey, visiblePreChatMessages } from "@/domains/chat/preChat";
 
 export function ChatStagePanel({
   auth,
   baseUrl,
   canSend,
   myNick,
+  ownCoordinatorNick,
   myHashId,
   orderId,
   peerNick,
@@ -36,6 +37,7 @@ export function ChatStagePanel({
   baseUrl?: string;
   canSend: boolean;
   myNick: string;
+  ownCoordinatorNick?: string;
   myHashId?: string;
   orderId: number;
   peerNick: string;
@@ -61,11 +63,14 @@ export function ChatStagePanel({
   const socketRef = useRef<WebSocket | undefined>(undefined);
   const knownMessageIndexesRef = useRef(new Set(messages.map((message) => message.index)));
   const historyReadyRef = useRef(previewMode);
+  const loadErrorRef = useRef("");
   const peerPubkeyRef = useRef("");
+  const decryptFailureAttemptsRef = useRef(new Map<string, number>());
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const errorId = useId();
 
   const isPreChat = variant === "pre-chat";
+  const canonicalMyNick = ownCoordinatorNick?.trim() || myNick;
   const canLoad = previewMode || Boolean(baseUrl && auth && robot?.encPrivKey && robot.pubKey && slotToken && orderId);
   const lastIndex = useMemo(() => messages.reduce((max, message) => Math.max(max, message.index), 0), [messages]);
   const preChatMessageSent = isPreChat && hasSentPreChatMessage(messages);
@@ -95,16 +100,28 @@ export function ChatStagePanel({
     if (!baseUrl || !auth || !canLoad) return undefined;
     const loadingHistory = offset === 0 && !historyReadyRef.current;
     if (loadingHistory) setHistoryStatus("loading");
-    if (reportError) setError("");
+    if (reportError) {
+      loadErrorRef.current = "";
+      setError("");
+    }
     try {
       const response = await fetchChatMessages(baseUrl, orderId, offset, auth, undefined, options);
       await applyChatResponse(response, historyReadyRef.current);
       historyReadyRef.current = true;
       if (loadingHistory) setHistoryStatus("ready");
+      const recoveredError = loadErrorRef.current;
+      if (recoveredError) {
+        loadErrorRef.current = "";
+        setError((current) => current === recoveredError ? "" : current);
+      }
       return response;
     } catch (loadError) {
       if (loadingHistory) setHistoryStatus("error");
-      if (reportError) setError(toUserMessage(loadError, "Could not load chat."));
+      if (reportError) {
+        const message = toUserMessage(loadError, "Could not load chat.");
+        loadErrorRef.current = message;
+        setError(message);
+      }
       return undefined;
     }
   }
@@ -157,14 +174,25 @@ export function ChatStagePanel({
             peerPublicKeyArmored: currentPeerPubkey
           });
       const socket = socketRef.current;
-      setDraft("");
       if (socket?.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({ type: "message", message: escapeChatPayload(outgoingMessage), nick: myNick }));
+        socket.send(JSON.stringify({ type: "message", message: escapeChatPayload(outgoingMessage), nick: canonicalMyNick }));
       } else {
         const response = await postChatMessage(baseUrl, orderId, outgoingMessage, lastIndex, auth);
         await applyChatResponse(response);
       }
+      setDraft("");
     } catch (sendError) {
+      if (isPreChat) {
+        const recovered = await loadMessages(0, false, {
+          timeoutProfile: "interactive",
+          priority: "foreground"
+        });
+        if (recovered?.messages.length) {
+          setDraft("");
+          setError("");
+          return;
+        }
+      }
       setError(toUserMessage(sendError, "Could not send chat message."));
     } finally {
       setSending(false);
@@ -173,27 +201,39 @@ export function ChatStagePanel({
 
   async function applyChatResponse(response: ChatResponse, notifyNewMessages = historyReadyRef.current) {
     setPeerConnected(response.peerConnected);
-    if (response.peerPubkey) {
-      peerPubkeyRef.current = response.peerPubkey;
-      setPeerPubkey(response.peerPubkey);
+    const responsePeerPubkey = usablePeerPublicKey(response.peerPubkey, robot?.pubKey ?? "");
+    if (responsePeerPubkey) {
+      peerPubkeyRef.current = responsePeerPubkey;
+      setPeerPubkey(responsePeerPubkey);
     }
     if (!robot?.encPrivKey || !robot.pubKey || !slotToken) return;
 
-    const nextMessages = await Promise.all(
+    const decryptedMessages = await Promise.all(
       response.messages.map((message) =>
         decryptDisplayMessage(message, {
-          myNick,
+          ownCoordinatorNick: canonicalMyNick,
           ownPrivateKeyArmored: robot.encPrivKey ?? "",
           ownPublicKeyArmored: robot.pubKey ?? "",
           passphrase: slotToken,
-          peerPublicKeyArmored: response.peerPubkey || peerPubkeyRef.current
+          peerPublicKeyArmored: responsePeerPubkey || peerPubkeyRef.current,
+          senderOnlyResponse: isPreChat
         })
       )
     );
+    const nextMessages = decryptedMessages.filter((message) => {
+      const failureKey = `${message.index}:${message.encryptedMessage}`;
+      if (!message.decryptFailed) {
+        decryptFailureAttemptsRef.current.delete(failureKey);
+        return true;
+      }
+      const attempts = (decryptFailureAttemptsRef.current.get(failureKey) ?? 0) + 1;
+      decryptFailureAttemptsRef.current.set(failureKey, attempts);
+      return attempts > 1;
+    });
 
     const visibleMessages = isPreChat ? visiblePreChatMessages(nextMessages) : nextMessages;
     const newPeerMessages = visibleMessages.filter(
-      (message) => !knownMessageIndexesRef.current.has(message.index) && !message.mine
+      (message) => !knownMessageIndexesRef.current.has(message.index) && !message.mine && !message.decryptFailed
     );
     visibleMessages.forEach((message) => knownMessageIndexesRef.current.add(message.index));
     setMessages((current) => mergeMessages(current, visibleMessages));
@@ -275,7 +315,7 @@ export function ChatStagePanel({
       socket.onopen = () => {
         attempts = 0;
         setSocketConnected(true);
-        socket.send(JSON.stringify({ type: "message", message: robot.pubKey, nick: myNick }));
+        socket.send(JSON.stringify({ type: "message", message: robot.pubKey, nick: canonicalMyNick }));
         void loadMessages(lastIndex, false);
       };
       socket.onmessage = (event) => {
@@ -301,10 +341,11 @@ export function ChatStagePanel({
         if (!message.encryptedMessage) return;
 
         if (message.encryptedMessage.startsWith("-----BEGIN PGP PUBLIC KEY BLOCK-----")) {
-          if (message.encryptedMessage !== robot.pubKey) {
-            peerPubkeyRef.current = message.encryptedMessage;
-            setPeerPubkey(message.encryptedMessage);
-            socketRef.current?.send(JSON.stringify({ type: "message", message: "-----SERVE HISTORY-----", nick: myNick }));
+          const socketPeerPubkey = usablePeerPublicKey(message.encryptedMessage, robot.pubKey ?? "");
+          if (socketPeerPubkey) {
+            peerPubkeyRef.current = socketPeerPubkey;
+            setPeerPubkey(socketPeerPubkey);
+            socketRef.current?.send(JSON.stringify({ type: "message", message: "-----SERVE HISTORY-----", nick: canonicalMyNick }));
           }
           return;
         }
@@ -326,7 +367,7 @@ export function ChatStagePanel({
       socketRef.current?.close();
       socketRef.current = undefined;
     };
-  }, [baseUrl, canLoad, connectionEpoch, myNick, orderId, previewMode, robot?.pubKey, slotToken, variant]);
+  }, [baseUrl, canLoad, canonicalMyNick, connectionEpoch, orderId, previewMode, robot?.pubKey, slotToken, variant]);
 
   return (
     <Card className="chat-panel">
@@ -559,6 +600,13 @@ function MessageBubble({
   peerNick: string;
 }) {
   const nick = message.nick || (message.mine ? myNick || "Your robot" : peerNick || "Trade peer");
+  if (message.decryptFailed) {
+    return (
+      <div className="chat-message-unavailable" role="status">
+        <span>An encrypted message could not be opened on this device.</span>
+      </div>
+    );
+  }
   return (
     <article className={message.mine ? "chat-message chat-message-mine" : "chat-message"}>
       <RobotAvatar hashId={message.mine ? myHashId : peerHashId} label={nick} size="sm" />
@@ -570,7 +618,6 @@ function MessageBubble({
           <time>{formatChatTime(message.time)}</time>
         </div>
         <p>{message.plaintext}</p>
-        {message.decryptFailed ? <small>Could not decrypt this message.</small> : null}
       </div>
     </article>
   );
@@ -579,14 +626,19 @@ function MessageBubble({
 async function decryptDisplayMessage(
   message: ChatMessage,
   keys: {
-    myNick: string;
+    ownCoordinatorNick: string;
     ownPrivateKeyArmored: string;
     ownPublicKeyArmored: string;
     passphrase: string;
     peerPublicKeyArmored?: string;
+    senderOnlyResponse?: boolean;
   }
 ): Promise<DisplayChatMessage> {
-  const mine = message.nick === keys.myNick;
+  const mine = isOwnChatMessage(
+    message.nick,
+    keys.ownCoordinatorNick,
+    keys.senderOnlyResponse
+  );
   if (message.encryptedMessage.startsWith("#")) {
     return {
       ...message,

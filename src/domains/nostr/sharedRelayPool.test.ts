@@ -7,10 +7,10 @@ import {
 } from "@/domains/nostr/sharedRelayPool";
 
 describe("shared Nostr relay pool", () => {
-  it("keeps health checks but delegates reconnects to bounded app retry policies", () => {
+  it("leaves keepalive to coordinator relays and delegates reconnects to bounded app retries", () => {
     const pool = getSharedRelayPool();
 
-    expect(pool.enablePing).toBe(true);
+    expect(pool.enablePing).toBe(false);
     expect(pool.enableReconnect).toBe(false);
     expect(pool.maxWaitForConnection).toBe(RELAY_CONNECTION_TIMEOUT_MS);
   });

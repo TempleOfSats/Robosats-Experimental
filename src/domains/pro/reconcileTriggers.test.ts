@@ -95,7 +95,7 @@ describe("reconciliation triggers", () => {
     cleanup();
   });
 
-  it("removes a terminal order immediately after its foreground action", () => {
+  it("reconciles a terminal action when no authoritative snapshot was applied", () => {
     const controller = fakeController();
     useProTradeIndexStore.getState().upsertSnapshot({
       key: "slot:lake:42",
@@ -119,8 +119,50 @@ describe("reconciliation triggers", () => {
 
     windowTarget.dispatchEvent(event);
 
-    expect(useProTradeIndexStore.getState().snapshots["slot:lake:42"]).toBeUndefined();
-    expect(controller.reconcileOrder).not.toHaveBeenCalled();
+    expect(useProTradeIndexStore.getState().snapshots["slot:lake:42"]).toBeDefined();
+    expect(controller.reconcileOrder).toHaveBeenCalledWith(
+      { slotId: "slot", shortAlias: "lake", orderId: 42 },
+      "order-action"
+    );
+    cleanup();
+  });
+
+  it("does not bypass terminal archiving for a seller action", () => {
+    const controller = fakeController();
+    useProTradeIndexStore.getState().upsertSnapshot({
+      key: "slot:lake:42",
+      locator: { slotId: "slot", shortAlias: "lake", orderId: 42 },
+      nickname: "Robot",
+      hashId: "hash",
+      order: { id: 42, status: 10, is_maker: true, is_seller: true } as never,
+      renewable: false,
+      released: false,
+      freshness: "fresh"
+    });
+    const cleanup = registerReconcileTriggers({
+      controller,
+      proEnabled: () => true,
+      reconcileCurrent: vi.fn(async () => undefined)
+    });
+    const event = new Event("robosats:order-action-complete");
+    Object.defineProperty(event, "detail", {
+      value: {
+        slotId: "slot",
+        shortAlias: "lake",
+        orderId: 42,
+        status: 13,
+        isMaker: true,
+        isSeller: true
+      }
+    });
+
+    windowTarget.dispatchEvent(event);
+
+    expect(useProTradeIndexStore.getState().snapshots["slot:lake:42"]).toBeDefined();
+    expect(controller.reconcileOrder).toHaveBeenCalledWith(
+      { slotId: "slot", shortAlias: "lake", orderId: 42 },
+      "order-action"
+    );
     cleanup();
   });
 
@@ -156,7 +198,7 @@ describe("reconciliation triggers", () => {
       locator: { slotId: "slot", shortAlias: "lake", orderId: 42 },
       nickname: "Robot",
       hashId: "hash",
-      order: { expires_at: new Date(1_500).toISOString() } as never,
+      order: { status: 1, expires_at: new Date(1_500).toISOString() } as never,
       renewable: false,
       released: false,
       freshness: "fresh"

@@ -3,6 +3,7 @@ import { useLocation } from "react-router-dom";
 import type { RoboSatsPlatform } from "@/app/platform";
 import {
   beginRouteTransition,
+  isMatchingRouteTransition,
   normalizeRoutePath,
   ROUTE_TRANSITION_READY_EVENT,
   ROUTE_TRANSITION_START_EVENT,
@@ -16,11 +17,11 @@ import { isTauriDesktop } from "@/domains/transport/tauriBridge";
 export function AppShell({ children, platform }: PropsWithChildren<{ platform: RoboSatsPlatform }>) {
   const desktop = isTauriDesktop();
   const location = useLocation();
-  const currentPath = useRef(location.pathname);
+  const currentPath = useRef(normalizeRoutePath(location.pathname));
   const [routeTransition, setRouteTransition] = useState<RouteTransitionDetail>();
 
   useEffect(() => {
-    currentPath.current = location.pathname;
+    currentPath.current = normalizeRoutePath(location.pathname);
   }, [location.pathname]);
 
   useEffect(() => {
@@ -40,7 +41,7 @@ export function AppShell({ children, platform }: PropsWithChildren<{ platform: R
       const path = (event as CustomEvent<{ path: string }>).detail?.path;
       if (!path) return;
       setRouteTransition((pending) => {
-        if (!pending) return pending;
+        if (!pending || !isMatchingRouteTransition(pending.path, path)) return pending;
         clearSafetyTimer();
         return undefined;
       });

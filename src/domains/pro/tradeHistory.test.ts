@@ -45,6 +45,16 @@ describe("Fleet trade history", () => {
     expect(entryFor(order({ status: 18, is_maker: false, is_taker: true }))).toBeUndefined();
   });
 
+  it("archives a seller when payout routing becomes the buyer's concern", () => {
+    expect(entryFor(order({
+      status: 13,
+      is_buyer: false,
+      is_seller: true,
+      is_maker: true,
+      is_taker: false
+    }))).toMatchObject({ outcome: "completed", role: "seller" });
+  });
+
   it("stores only the invoice matching the robot's settlement role", () => {
     const buyerInvoice = "lnbc1000n1buyerinvoice0123456789";
     const buyer = tradeHistoryEntryFromOrder({

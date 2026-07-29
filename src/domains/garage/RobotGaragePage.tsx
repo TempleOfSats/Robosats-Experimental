@@ -8,13 +8,10 @@ import { Card } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
 import { VisualSelect } from "@/components/ui/visualSelect";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
-import { CoordinatorDetailDialog } from "@/domains/coordinators/CoordinatorsPage";
 import { compareCoordinatorsByEstablished } from "@/domains/coordinators/coordinatorOrder";
-import { fetchCoordinatorRatings, type CoordinatorRating } from "@/domains/coordinators/coordinatorRatings";
+import type { CoordinatorRating } from "@/domains/coordinators/coordinatorRatings";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
 import { getRobotAuthForCoordinator, selectCurrentSlot, selectStandardGarageSlots, type RobotRecord, type RobotSlot, useGarageStore } from "@/domains/garage/garageStore";
-import { TelegramSetupDialog } from "@/domains/garage/TelegramSetupDialog";
-import { RobotTokenBackupDialog } from "@/domains/garage/RobotTokenBackupDialog";
 import { downloadRobotTokenBackup } from "@/domains/garage/tokenBackup";
 import { CreateRobotPanel } from "@/domains/garage/CreateRobotPanel";
 import { RobotAvatar } from "@/domains/identity/RobotAvatar";
@@ -22,19 +19,32 @@ import { deriveRobotIdentity } from "@/domains/identity/robotIdentity";
 import { ingestCoordinatorOrder } from "@/domains/orders/orderActivity";
 import { fetchOrder } from "@/domains/orders/orderApi";
 import type { OrderDto } from "@/domains/orders/order.types";
-import { BeginnerTradeWizard } from "@/domains/orderbook/BeginnerTradeWizard";
 import { currencyIdFromCode, currencyOptions } from "@/domains/orderbook/currencies";
 import type { GuidedTradeCriteria } from "@/domains/orderbook/guidedTrade";
 import { useOrderbookStore } from "@/domains/orderbook/orderbookStore";
 import type { PublicOrder } from "@/domains/orderbook/orderbook.types";
 import { CurrencyFlag, PaymentMethodIcons } from "@/domains/orderbook/OfferMeta";
-import { RewardWithdrawalPanel } from "@/domains/rewards/RewardWithdrawalPanel";
 import { formatFiat, formatSats } from "@/lib/format";
 import { toUserMessage } from "@/lib/userError";
 import { writeClipboard } from "@/lib/clipboard";
 
 const RobotKeysDialog = lazy(() =>
   import("@/domains/garage/RobotKeysDialog").then((module) => ({ default: module.RobotKeysDialog }))
+);
+const LazyBeginnerTradeWizard = lazy(() =>
+  import("@/domains/orderbook/BeginnerTradeWizard").then((module) => ({ default: module.BeginnerTradeWizard }))
+);
+const LazyCoordinatorDetailDialog = lazy(() =>
+  import("@/domains/coordinators/CoordinatorsPage").then((module) => ({ default: module.CoordinatorDetailDialog }))
+);
+const LazyRewardWithdrawalPanel = lazy(() =>
+  import("@/domains/rewards/RewardWithdrawalPanel").then((module) => ({ default: module.RewardWithdrawalPanel }))
+);
+const LazyRobotTokenBackupDialog = lazy(() =>
+  import("@/domains/garage/RobotTokenBackupDialog").then((module) => ({ default: module.RobotTokenBackupDialog }))
+);
+const LazyTelegramSetupDialog = lazy(() =>
+  import("@/domains/garage/TelegramSetupDialog").then((module) => ({ default: module.TelegramSetupDialog }))
 );
 
 export function RobotGaragePage() {
@@ -345,14 +355,24 @@ export function RobotGaragePage() {
       </div>
 
       {showGuidedTrade ? (
-        <BeginnerTradeWizard
-          coordinators={displayCoordinators}
-          loading={(guidedOrdersLoading || guidedOrdersRefreshing) && guidedOrders.length === 0}
-          onClose={() => setShowGuidedTrade(false)}
-          onCreateOffer={createGuidedOffer}
-          onSelectOffer={reviewGuidedOffer}
-          orders={guidedOrders}
-        />
+        <Suspense
+          fallback={(
+            <DeferredGarageDialog
+              message="Loading the guided trade steps..."
+              onClose={() => setShowGuidedTrade(false)}
+              title="Preparing trade finder"
+            />
+          )}
+        >
+          <LazyBeginnerTradeWizard
+            coordinators={displayCoordinators}
+            loading={(guidedOrdersLoading || guidedOrdersRefreshing) && guidedOrders.length === 0}
+            onClose={() => setShowGuidedTrade(false)}
+            onCreateOffer={createGuidedOffer}
+            onSelectOffer={reviewGuidedOffer}
+            orders={guidedOrders}
+          />
+        </Suspense>
       ) : null}
 
       {showRobotSwitcher ? (
@@ -441,11 +461,21 @@ export function RobotGaragePage() {
       ) : null}
 
       {showSettingsTokenBackup ? (
-        <RobotTokenBackupDialog
-          onClose={() => setShowSettingsTokenBackup(false)}
-          robotName={activeSlot.nickname}
-          token={activeSlot.token}
-        />
+        <Suspense
+          fallback={(
+            <DeferredGarageDialog
+              message="Loading the local backup controls..."
+              onClose={() => setShowSettingsTokenBackup(false)}
+              title="Preparing token backup"
+            />
+          )}
+        >
+          <LazyRobotTokenBackupDialog
+            onClose={() => setShowSettingsTokenBackup(false)}
+            robotName={activeSlot.nickname}
+            token={activeSlot.token}
+          />
+        </Suspense>
       ) : null}
 
       {selectedCoordinator && showRobotSettings ? (
@@ -457,6 +487,30 @@ export function RobotGaragePage() {
         />
       ) : null}
     </main>
+  );
+}
+
+function DeferredGarageDialog({
+  message,
+  onClose,
+  title
+}: {
+  message: string;
+  onClose: () => void;
+  title: string;
+}) {
+  return (
+    <Dialog
+      ariaLabel={title}
+      onClose={onClose}
+      overlayClassName="confirm-overlay app-transition-overlay"
+      panelClassName="confirm-sheet app-transition-dialog"
+    >
+      <button className="take-modal-close" onClick={onClose} type="button" aria-label={`Close ${title.toLowerCase()}`}>
+        <X size={18} />
+      </button>
+      <AppTransitionFeedback title={title} message={message} />
+    </Dialog>
   );
 }
 
@@ -726,7 +780,8 @@ export function RobotCoordinatorDialog({
 
   function openCoordinatorDetails() {
     setShowCoordinatorDetails(true);
-    void fetchCoordinatorRatings([coordinator])
+    void import("@/domains/coordinators/coordinatorRatings")
+      .then(({ fetchCoordinatorRatings }) => fetchCoordinatorRatings([coordinator]))
       .then((ratings) => setCoordinatorRating(ratings[coordinator.shortAlias] ?? { score: 0, count: 0 }))
       .catch(() => setCoordinatorRating({ score: 0, count: 0 }));
   }
@@ -796,18 +851,38 @@ export function RobotCoordinatorDialog({
       </Dialog>
 
       {showTelegramSetup && robot?.tgBotName && robot.tgToken ? (
-        <TelegramSetupDialog botName={robot.tgBotName} token={robot.tgToken} onClose={() => setShowTelegramSetup(false)} />
+        <Suspense
+          fallback={(
+            <DeferredGarageDialog
+              message="Loading the notification setup..."
+              onClose={() => setShowTelegramSetup(false)}
+              title="Preparing Telegram"
+            />
+          )}
+        >
+          <LazyTelegramSetupDialog botName={robot.tgBotName} token={robot.tgToken} onClose={() => setShowTelegramSetup(false)} />
+        </Suspense>
       ) : null}
 
       {showCoordinatorDetails ? (
-        <CoordinatorDetailDialog
-          compact
-          coordinator={coordinator}
-          lastRefreshed={lastRefreshed}
-          network={network}
-          rating={coordinatorRating}
-          onClose={() => setShowCoordinatorDetails(false)}
-        />
+        <Suspense
+          fallback={(
+            <DeferredGarageDialog
+              message={`Loading ${coordinator.longAlias}...`}
+              onClose={() => setShowCoordinatorDetails(false)}
+              title="Preparing coordinator details"
+            />
+          )}
+        >
+          <LazyCoordinatorDetailDialog
+            compact
+            coordinator={coordinator}
+            lastRefreshed={lastRefreshed}
+            network={network}
+            rating={coordinatorRating}
+            onClose={() => setShowCoordinatorDetails(false)}
+          />
+        </Suspense>
       ) : null}
 
       {showRewardWithdrawal && rewards > 0 ? (
@@ -827,14 +902,16 @@ export function RobotCoordinatorDialog({
                 <h2 id="reward-withdrawal-title">Reward withdrawal</h2>
               </div>
             </header>
-            <RewardWithdrawalPanel
-              coordinators={[coordinator]}
-              onClaimed={async () => {
-                await refreshRobots([coordinator]);
-                setShowRewardWithdrawal(false);
-              }}
-              slot={slot}
-            />
+            <Suspense fallback={<AppTransitionFeedback compact title="Preparing withdrawal" message="Loading the claim controls..." />}>
+              <LazyRewardWithdrawalPanel
+                coordinators={[coordinator]}
+                onClaimed={async () => {
+                  await refreshRobots([coordinator]);
+                  setShowRewardWithdrawal(false);
+                }}
+                slot={slot}
+              />
+            </Suspense>
         </Dialog>
       ) : null}
     </>

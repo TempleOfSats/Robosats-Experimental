@@ -6,24 +6,26 @@ import { normalizePublicOrder, type PublicOrderApi } from "@/domains/orderbook/o
 
 export async function fetchCoordinatorInfo(
   baseUrl: string,
-  options: { force?: boolean } = {}
+  options: { force?: boolean; priority?: "background" | "visible" } = {}
 ): Promise<CoordinatorInfo> {
+  const visible = options.force || options.priority === "visible";
   return apiClient.get<CoordinatorInfo>(baseUrl, apiRoutes.info, undefined, {
     bypassCircuit: options.force,
-    timeoutProfile: options.force ? "interactive" : "background",
-    priority: options.force ? "visible" : "maintenance",
+    timeoutProfile: visible ? "interactive" : "background",
+    priority: visible ? "visible" : "maintenance",
     source: options.force ? "manual" : "federation"
   });
 }
 
 export async function fetchCoordinatorLimits(
   baseUrl: string,
-  options: { force?: boolean } = {}
+  options: { force?: boolean; priority?: "background" | "visible" } = {}
 ): Promise<CoordinatorLimitList> {
+  const visible = options.force || options.priority === "visible";
   return apiClient.get<CoordinatorLimitList>(baseUrl, apiRoutes.limits, undefined, {
     bypassCircuit: options.force,
-    timeoutProfile: options.force ? "interactive" : "background",
-    priority: options.force ? "visible" : "maintenance",
+    timeoutProfile: visible ? "interactive" : "background",
+    priority: visible ? "visible" : "maintenance",
     source: options.force ? "manual" : "federation"
   });
 }

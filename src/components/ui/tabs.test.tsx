@@ -33,4 +33,21 @@ describe("Tabs", () => {
     expect(nextTabValue([...values], "two", "End")).toBe("three");
     expect(tabId("test", "two words")).toBe("test-tab-two-words");
   });
+
+  it("associates an optional visible hint with its tab", () => {
+    const html = renderToStaticMarkup(
+      <Tabs
+        ariaLabel="Example view"
+        id="hinted"
+        onChange={() => undefined}
+        options={[{ value: "fleet", label: "Fleet", hint: "Synced robot identities." }]}
+        panelId="hinted-panel"
+        value="fleet"
+      />
+    );
+
+    expect(html).toContain('aria-describedby="hinted-tab-fleet-hint"');
+    expect(html).toContain('id="hinted-tab-fleet-hint"');
+    expect(html).toContain("Synced robot identities.");
+  });
 });

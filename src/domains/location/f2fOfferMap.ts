@@ -1,5 +1,11 @@
-import { approximateF2FLocation, hasApproximateF2FLocation, paymentMethodHasF2F } from "@/domains/location/f2fLocation";
+import {
+  approximateF2FLocation,
+  hasApproximateF2FLocation,
+  selectCashF2FOffers
+} from "@/domains/location/f2fLocation";
 import type { PublicOrder } from "@/domains/orderbook/orderbook.types";
+
+export { selectCashF2FOffers } from "@/domains/location/f2fLocation";
 
 export type F2FOfferGroup = {
   key: string;
@@ -7,10 +13,6 @@ export type F2FOfferGroup = {
   longitude: number;
   orders: PublicOrder[];
 };
-
-export function selectCashF2FOffers(orders: PublicOrder[]): PublicOrder[] {
-  return orders.filter((order) => !order.is_swap && paymentMethodHasF2F(order.payment_method));
-}
 
 export function groupCashF2FOffers(orders: PublicOrder[]): F2FOfferGroup[] {
   const groups = new Map<string, F2FOfferGroup>();

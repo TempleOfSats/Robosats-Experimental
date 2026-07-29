@@ -132,7 +132,7 @@ describe("Garage synchronization runtime", () => {
       const healthyRelay = subscriptions[1].relay;
 
       subscriptions[0].params.onclose?.(["network-error"]);
-      await vi.advanceTimersByTimeAsync(4_999);
+      await vi.advanceTimersByTimeAsync(14_999);
       expect(subscriptions).toHaveLength(2);
       await vi.advanceTimersByTimeAsync(1);
       await vi.advanceTimersByTimeAsync(50);

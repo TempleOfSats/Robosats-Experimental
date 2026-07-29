@@ -60,7 +60,10 @@ export function CreateOfferRobotPicker({
                 <RobotAvatar hashId={robot.hashId} label={robot.nickname} size="md" />
                 <span className="garage-switcher-item-info">
                   <strong className="garage-switcher-item-name">{robot.nickname}</strong>
-                  <small className="garage-switcher-item-status">{optionStatus}</small>
+                  <small className={`garage-switcher-item-status${robot.previouslyUsed ? " pro-reused-robot-status" : ""}`}>
+                    {robot.previouslyUsed ? <AlertTriangle size={12} aria-hidden="true" /> : null}
+                    {robot.previouslyUsed ? "Ready · previously used identity" : optionStatus}
+                  </small>
                 </span>
                 <ChevronRight size={18} aria-hidden="true" />
               </button>
@@ -80,6 +83,11 @@ export function CreateOfferRobotPicker({
             ) : null}
           </div>
         )}
+        {robots.some((robot) => robot.previouslyUsed) ? (
+          <p className="pro-reused-robot-note">
+            Previously used robots remain available, but a fresh robot provides stronger separation between trades.
+          </p>
+        ) : null}
     </Dialog>
   );
 }

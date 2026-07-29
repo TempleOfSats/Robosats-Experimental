@@ -8,6 +8,7 @@ import {
 } from "@/domains/orders/orderActivity";
 import { tradeStatusLabel } from "@/domains/orders/orderStatus";
 import type { OrderDto } from "@/domains/orders/order.types";
+import { shouldPlayOrderFeedbackAudio } from "@/domains/notifications/orderFeedbackVisibility";
 
 type FeedbackSnapshot = Pick<
   OrderDto,
@@ -48,7 +49,9 @@ function handleObservation(observation: CoordinatorOrderObservation): void {
   const message = orderFeedbackMessage(previous, observation.order);
   if (!message) return;
   const audio = tradeAudioEventForOrderTransition(previous.status, observation.order.status);
-  if (audio) void playTradeAudio(audio).catch(() => undefined);
+  if (audio && shouldPlayOrderFeedbackAudio(observation.shortAlias, observation.order.id)) {
+    void playTradeAudio(audio).catch(() => undefined);
+  }
   void showDesktopOrderNotification(
     observation.order.id,
     observation.shortAlias,

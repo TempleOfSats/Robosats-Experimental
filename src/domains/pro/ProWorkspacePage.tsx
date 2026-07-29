@@ -3,20 +3,23 @@ import {
   BookmarkCheck,
   BriefcaseBusiness,
   CirclePlus,
+  CloudUpload,
   KeyRound,
   ListChecks,
   LogOut,
   History,
   RefreshCw,
   RotateCcw,
+  ShieldCheck,
   Store,
   X
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { AppTransitionFeedback } from "@/components/app/AppTransitionFeedback";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
+import { InfoHint } from "@/components/ui/infoHint";
 import { Tabs, tabId } from "@/components/ui/tabs";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
 import { compareCoordinatorsByEstablished } from "@/domains/coordinators/coordinatorOrder";
@@ -25,20 +28,12 @@ import {
   getRobotAuthForCoordinator,
   useGarageStore
 } from "@/domains/garage/garageStore";
-import {
-  RobotCoordinatorDialog,
-  RobotSettingsDialog
-} from "@/domains/garage/RobotGaragePage";
-import { RobotTokenBackupDialog } from "@/domains/garage/RobotTokenBackupDialog";
-import { TelegramSetupDialog } from "@/domains/garage/TelegramSetupDialog";
 import { downloadRobotTokenBackup } from "@/domains/garage/tokenBackup";
 import type { CreateOrderDraft } from "@/domains/maker/maker.types";
-import { BeginnerTradeWizard } from "@/domains/orderbook/BeginnerTradeWizard";
 import { currencyIdFromCode } from "@/domains/orderbook/currencies";
 import type { GuidedTradeCriteria } from "@/domains/orderbook/guidedTrade";
 import { useOrderbookStore } from "@/domains/orderbook/orderbookStore";
 import type { PublicOrder } from "@/domains/orderbook/orderbook.types";
-import { OrderPage } from "@/domains/orders/OrderPage";
 import { ingestCoordinatorOrder } from "@/domains/orders/orderActivity";
 import { submitOrderAction } from "@/domains/orders/orderApi";
 import { isAlreadyCancelledError } from "@/domains/orders/orderStore";
@@ -87,8 +82,30 @@ import {
   summaryHasStale,
   uniquePresetName
 } from "@/domains/pro/proWorkspacePresentation";
+import { fleetProtectionPresentation } from "@/domains/pro/proSyncPresentation";
 import { shouldRefreshRobotStatus } from "@/domains/pro/reconcilePolicy";
 import "@/domains/pro/proWorkspace.css";
+
+const MANUAL_REFRESH_FOREGROUND_MS = 8_000;
+
+const LazyBeginnerTradeWizard = lazy(() =>
+  import("@/domains/orderbook/BeginnerTradeWizard").then((module) => ({ default: module.BeginnerTradeWizard }))
+);
+const LazyOrderPage = lazy(() =>
+  import("@/domains/orders/OrderPage").then((module) => ({ default: module.OrderPage }))
+);
+const LazyRobotCoordinatorDialog = lazy(() =>
+  import("@/domains/garage/RobotGaragePage").then((module) => ({ default: module.RobotCoordinatorDialog }))
+);
+const LazyRobotSettingsDialog = lazy(() =>
+  import("@/domains/garage/RobotGaragePage").then((module) => ({ default: module.RobotSettingsDialog }))
+);
+const LazyRobotTokenBackupDialog = lazy(() =>
+  import("@/domains/garage/RobotTokenBackupDialog").then((module) => ({ default: module.RobotTokenBackupDialog }))
+);
+const LazyTelegramSetupDialog = lazy(() =>
+  import("@/domains/garage/TelegramSetupDialog").then((module) => ({ default: module.TelegramSetupDialog }))
+);
 
 const summaryItems: Array<{
   key: Exclude<ProFilter, "all">;
@@ -109,6 +126,11 @@ export function ProWorkspacePage() {
   const setFilter = useProPreferencesStore((state) => state.setLastFilter);
   const setProEnabled = useProPreferencesStore((state) => state.setEnabled);
   const vaultStatus = useGarageVaultStore((state) => state.status);
+  const vaultSyncStatus = useGarageVaultStore((state) => state.syncStatus);
+  const pendingFleetChanges = useGarageVaultStore((state) => state.envelope?.outbox.length ?? 0);
+  const synchronizedFleetRecords = useGarageVaultStore(
+    (state) => Object.keys(state.envelope?.observed ?? {}).length > 0
+  );
   const initializeVault = useGarageVaultStore((state) => state.initialize);
   const createDerivedRobot = useGarageVaultStore((state) => state.createDerivedRobot);
   const renameVaultRobot = useGarageVaultStore((state) => state.renameRobot);
@@ -190,6 +212,10 @@ export function ProWorkspacePage() {
     [filter, trades]
   );
   const counts = useMemo(() => summaryCounts(trades), [trades]);
+  const fleetProtection = useMemo(
+    () => fleetProtectionPresentation(vaultSyncStatus, pendingFleetChanges, synchronizedFleetRecords),
+    [pendingFleetChanges, synchronizedFleetRecords, vaultSyncStatus]
+  );
   const displayCoordinators = useMemo(() => coordinators
     .filter((coordinator) => coordinator.shortAlias !== "local")
     .sort(compareCoordinatorsByEstablished), [coordinators]);
@@ -567,19 +593,50 @@ export function ProWorkspacePage() {
     if (manualRefreshing) return;
     setManualRefreshing(true);
     setAnnouncement("Refreshing trade desk");
+    const reconciliation = garageReconciler.reconcileAll("manual");
     try {
-      await garageReconciler.reconcileAll("manual");
-      setAnnouncement("Trade Desk refreshed");
+      const outcome = await settleRefreshInForeground(
+        reconciliation,
+        MANUAL_REFRESH_FOREGROUND_MS
+      );
+      setAnnouncement(outcome === "complete"
+        ? "Trade Desk refreshed"
+        : outcome === "failed"
+          ? "Some trade statuses could not be refreshed"
+          : "Latest available statuses shown. Slower coordinator checks continue in the background.");
     } finally {
       setManualRefreshing(false);
     }
   }
 
+  const FleetProtectionIcon = fleetProtection.tone === "synced"
+    ? ShieldCheck
+    : CloudUpload;
+
   return (
     <main className="page page-wide pro-workspace-page">
       <header className="pro-workspace-header">
-        <div>
+        <div className="pro-workspace-heading">
           <p className="app-eyebrow">Pro Desk</p>
+          <div
+            className="pro-fleet-sync-status"
+            data-tone={fleetProtection.tone}
+          >
+            <span
+              className="pro-fleet-sync-copy"
+              role="status"
+              aria-live="polite"
+              aria-label={fleetProtection.label}
+            >
+              <FleetProtectionIcon
+                className={fleetProtection.tone === "syncing" ? "pro-fleet-sync-icon-active" : undefined}
+                size={14}
+                aria-hidden="true"
+              />
+              <strong>{fleetProtection.label}</strong>
+            </span>
+            <InfoHint title={fleetProtection.detail} />
+          </div>
         </div>
         <div className="pro-workspace-commands">
           <Button
@@ -662,9 +719,24 @@ export function ProWorkspacePage() {
             id="pro-view"
             onChange={selectView}
             options={[
-              { value: "trades", label: <><ListChecks size={16} aria-hidden="true" /> Trades</> },
-              { value: "robots", label: <><FleetGlyph size={16} /> Robot Fleet</> },
-              { value: "history", label: <><History size={16} aria-hidden="true" /> History</> }
+              {
+                value: "trades",
+                label: <><ListChecks size={16} aria-hidden="true" /> Trades</>,
+                ariaLabel: "Trades",
+                hint: "Live, public and renewable orders across your Robot Fleet."
+              },
+              {
+                value: "robots",
+                label: <><FleetGlyph size={16} /> Robot Fleet</>,
+                ariaLabel: "Robot Fleet",
+                hint: "Your RoboSats robot identities. Each robot can hold one order at a time."
+              },
+              {
+                value: "history",
+                label: <><History size={16} aria-hidden="true" /> History</>,
+                ariaLabel: "History",
+                hint: "Completed trades and collaborative cancellations synced with your Fleet."
+              }
             ]}
             panelId="pro-workspace-content"
             value={lastView}
@@ -713,14 +785,24 @@ export function ProWorkspacePage() {
       </section>
 
       {guidedTradeOpen ? (
-        <BeginnerTradeWizard
-          coordinators={displayCoordinators}
-          loading={(guidedOrdersLoading || guidedOrdersRefreshing) && guidedOrders.length === 0}
-          onClose={() => setGuidedTradeOpen(false)}
-          onCreateOffer={createGuidedOffer}
-          onSelectOffer={reviewGuidedOffer}
-          orders={guidedOrders}
-        />
+        <Suspense
+          fallback={(
+            <ProDeferredDialog
+              message="Loading the guided trade steps..."
+              onClose={() => setGuidedTradeOpen(false)}
+              title="Preparing trade finder"
+            />
+          )}
+        >
+          <LazyBeginnerTradeWizard
+            coordinators={displayCoordinators}
+            loading={(guidedOrdersLoading || guidedOrdersRefreshing) && guidedOrders.length === 0}
+            onClose={() => setGuidedTradeOpen(false)}
+            onCreateOffer={createGuidedOffer}
+            onSelectOffer={reviewGuidedOffer}
+            orders={guidedOrders}
+          />
+        </Suspense>
       ) : null}
 
       {vaultStatus === "ready" ? (
@@ -747,11 +829,13 @@ export function ProWorkspacePage() {
             <button className="take-modal-close" onClick={closeTrade} type="button" aria-label="Close trade">
               <X size={20} />
             </button>
-            <OrderPage
-              embeddedLocator={selectedTrade}
-              onEmbeddedClose={closeTrade}
-              onEmbeddedOrderChange={replaceSelectedTrade}
-            />
+            <Suspense fallback={<AppTransitionFeedback compact title="Preparing trade" message="Loading the private trade controls..." />}>
+              <LazyOrderPage
+                embeddedLocator={selectedTrade}
+                onEmbeddedClose={closeTrade}
+                onEmbeddedOrderChange={replaceSelectedTrade}
+              />
+            </Suspense>
         </Dialog>
       ) : null}
 
@@ -776,42 +860,72 @@ export function ProWorkspacePage() {
       ) : null}
 
       {settingsSlot ? (
-        <RobotSettingsDialog
-          activeToken={settingsSlot.token}
-          coordinators={displayCoordinators}
-          onClose={closeRobotSettings}
-          onCoordinatorSelect={setSettingsAlias}
-          onTokenBackup={() => setBackupSlotId(settingsSlot.tokenSHA256)}
-          onTokenChange={(token) => {
-            const slot = slots.find((item) => item.token === token);
-            if (!slot) return;
-            setCurrentToken(token);
-            setSettingsSlotId(slot.tokenSHA256);
-            setSettingsAlias(undefined);
-            setShowKeys(false);
-          }}
-          showKeys={showKeys}
-          slot={settingsSlot}
-          slots={slots}
-          toggleKeys={() => setShowKeys((open) => !open)}
-        />
+        <Suspense
+          fallback={(
+            <ProDeferredDialog
+              message="Loading local robot controls..."
+              onClose={closeRobotSettings}
+              title="Preparing robot settings"
+            />
+          )}
+        >
+          <LazyRobotSettingsDialog
+            activeToken={settingsSlot.token}
+            coordinators={displayCoordinators}
+            onClose={closeRobotSettings}
+            onCoordinatorSelect={setSettingsAlias}
+            onTokenBackup={() => setBackupSlotId(settingsSlot.tokenSHA256)}
+            onTokenChange={(token) => {
+              const slot = slots.find((item) => item.token === token);
+              if (!slot) return;
+              setCurrentToken(token);
+              setSettingsSlotId(slot.tokenSHA256);
+              setSettingsAlias(undefined);
+              setShowKeys(false);
+            }}
+            showKeys={showKeys}
+            slot={settingsSlot}
+            slots={slots}
+            toggleKeys={() => setShowKeys((open) => !open)}
+          />
+        </Suspense>
       ) : null}
 
       {settingsCoordinator && settingsSlot ? (
-        <RobotCoordinatorDialog
-          coordinator={settingsCoordinator}
-          onClose={() => setSettingsAlias(undefined)}
-          robot={settingsRobot}
-          slot={settingsSlot}
-        />
+        <Suspense
+          fallback={(
+            <ProDeferredDialog
+              message={`Loading ${settingsCoordinator.longAlias}...`}
+              onClose={() => setSettingsAlias(undefined)}
+              title="Preparing coordinator robot"
+            />
+          )}
+        >
+          <LazyRobotCoordinatorDialog
+            coordinator={settingsCoordinator}
+            onClose={() => setSettingsAlias(undefined)}
+            robot={settingsRobot}
+            slot={settingsSlot}
+          />
+        </Suspense>
       ) : null}
 
       {backupSlot ? (
-        <RobotTokenBackupDialog
-          onClose={() => setBackupSlotId(undefined)}
-          robotName={backupSlot.nickname}
-          token={backupSlot.token}
-        />
+        <Suspense
+          fallback={(
+            <ProDeferredDialog
+              message="Loading the local backup controls..."
+              onClose={() => setBackupSlotId(undefined)}
+              title="Preparing token backup"
+            />
+          )}
+        >
+          <LazyRobotTokenBackupDialog
+            onClose={() => setBackupSlotId(undefined)}
+            robotName={backupSlot.nickname}
+            token={backupSlot.token}
+          />
+        </Suspense>
       ) : null}
 
       {telegramSlot ? (
@@ -827,11 +941,21 @@ export function ProWorkspacePage() {
       ) : null}
 
       {telegramTarget ? (
-        <TelegramSetupDialog
-          botName={telegramTarget.botName}
-          token={telegramTarget.token}
-          onClose={() => setTelegramTarget(undefined)}
-        />
+        <Suspense
+          fallback={(
+            <ProDeferredDialog
+              message="Loading the notification setup..."
+              onClose={() => setTelegramTarget(undefined)}
+              title="Preparing Telegram"
+            />
+          )}
+        >
+          <LazyTelegramSetupDialog
+            botName={telegramTarget.botName}
+            token={telegramTarget.token}
+            onClose={() => setTelegramTarget(undefined)}
+          />
+        </Suspense>
       ) : null}
 
       {deleteSlot ? (
@@ -892,5 +1016,46 @@ export function ProWorkspacePage() {
         <RobotAddedNotice robot={addedRobot} onClose={() => setAddedRobot(undefined)} />
       ) : null}
     </main>
+  );
+}
+
+async function settleRefreshInForeground(
+  refresh: Promise<void>,
+  timeoutMs: number
+): Promise<"complete" | "continuing" | "failed"> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const completion = refresh.then(
+    () => "complete" as const,
+    () => "failed" as const
+  );
+  const foregroundBudget = new Promise<"continuing">((resolve) => {
+    timeout = setTimeout(() => resolve("continuing"), timeoutMs);
+  });
+  const outcome = await Promise.race([completion, foregroundBudget]);
+  if (timeout) clearTimeout(timeout);
+  return outcome;
+}
+
+function ProDeferredDialog({
+  message,
+  onClose,
+  title
+}: {
+  message: string;
+  onClose: () => void;
+  title: string;
+}) {
+  return (
+    <Dialog
+      ariaLabel={title}
+      onClose={onClose}
+      overlayClassName="confirm-overlay app-transition-overlay"
+      panelClassName="confirm-sheet app-transition-dialog"
+    >
+      <button className="take-modal-close" onClick={onClose} type="button" aria-label={`Close ${title.toLowerCase()}`}>
+        <X size={18} />
+      </button>
+      <AppTransitionFeedback title={title} message={message} />
+    </Dialog>
   );
 }

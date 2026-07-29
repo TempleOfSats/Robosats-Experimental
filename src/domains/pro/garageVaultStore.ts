@@ -62,6 +62,7 @@ import {
   type ArchiveTradeInput,
   type TradeHistoryManifest
 } from "@/domains/pro/tradeHistory";
+import { classifyOrderLifecycleForCurrentRobot } from "@/domains/orders/orderStateMachine";
 
 const DEVICE_ID_KEY = "robosats_exp_garage_device_v3";
 const ENVELOPE_KEY = "robosats_exp_garage_envelope_v3";
@@ -118,7 +119,7 @@ type GarageVaultState = {
   exportToken: () => string;
   markBackedUp: () => void;
   replacePortableSettings: (settings: PortableSettingsManifest) => void;
-  archiveTrade: (input: ArchiveTradeInput) => void;
+  archiveTrade: (input: ArchiveTradeInput) => "archived" | "deferred" | "ineligible";
   applyRemoteRecords: (records: ObservedGarageSyncRecord[]) => void;
   pendingOutbox: () => GaragePendingRecord[];
   recordOutboxAcknowledgements: (
@@ -297,15 +298,22 @@ export const useGarageVaultStore = create<GarageVaultState>((set, get) => ({
     commitEnvelope(envelope, set);
   },
   archiveTrade: (input) => {
-    if (!garageSecret || !get().envelope) return;
+    const lifecycle = classifyOrderLifecycleForCurrentRobot({
+      status: input.order.status,
+      isMaker: input.order.is_maker,
+      isSeller: input.order.is_seller
+    });
+    if (lifecycle !== "completed" && lifecycle !== "collaboratively-cancelled") return "ineligible";
+    if (!garageSecret || !get().envelope) return "deferred";
     const envelope = get().envelope!;
     const entry = tradeHistoryEntryFromOrder(input, envelope.deviceId);
-    if (!entry) return;
+    if (!entry) return "deferred";
     const history = archiveTradeHistoryEntry(envelope.history, entry, input.observedAt);
-    if (history === envelope.history) return;
+    if (history === envelope.history) return "archived";
     const archived = history.entries.find((candidate) => candidate.id === entry.id);
-    if (!archived) return;
+    if (!archived) return "deferred";
     commitEnvelope(queueRecord(updateEnvelope(envelope, { history }), tradeHistoryToSyncRecord(archived)), set);
+    return "archived";
   },
   applyRemoteRecords: (records) => {
     if (!garageSecret || !get().envelope || records.length === 0) return;

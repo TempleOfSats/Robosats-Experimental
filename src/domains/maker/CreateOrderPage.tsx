@@ -18,18 +18,18 @@ import {
   ShieldCheck,
   X
 } from "lucide-react";
-import { type CSSProperties, type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, type CSSProperties, type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { preloadAppRoute } from "@/app/routes";
-import { beginRouteTransition } from "@/app/routeTransition";
+import { AppTransitionFeedback } from "@/components/app/AppTransitionFeedback";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
 import { InfoHint } from "@/components/ui/infoHint";
 import { VisualSelect } from "@/components/ui/visualSelect";
-import { CoordinatorDetailDialog } from "@/domains/coordinators/CoordinatorsPage";
-import { fetchCoordinatorRatings, type CoordinatorRating } from "@/domains/coordinators/coordinatorRatings";
+import type { CoordinatorRating } from "@/domains/coordinators/coordinatorRatings";
+import { coordinatorNeedsRefresh, selectCoordinatorAvailability } from "@/domains/coordinators/coordinatorAvailability";
 import { federationLottery } from "@/domains/coordinators/federationLottery";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
 import { toUserMessage } from "@/lib/userError";
@@ -53,6 +53,7 @@ import { currencyIdFromCode, currencyOptions } from "@/domains/orderbook/currenc
 import { CurrencyFlag, CurrencyPicker, PaymentMethodIcons, PaymentMethodPicker } from "@/domains/orderbook/OfferMeta";
 import { normalPaymentMethodOptions, swapPaymentMethodOptions } from "@/domains/orderbook/paymentMethods";
 import { ingestCoordinatorOrder } from "@/domains/orders/orderActivity";
+import { openConfirmedOrder } from "@/domains/orders/confirmedOrderNavigation";
 import { reserveRobotOrderAction, revalidateRobotForNewOrder } from "@/domains/orders/robotOrderGuard";
 import { roleBuysBitcoin, roleIntentLabel } from "@/domains/orders/orderRole";
 import { activeOfferPresets, type OfferPreset } from "@/domains/pro/portableSettings";
@@ -69,6 +70,9 @@ import {
   paymentMethodHasF2F
 } from "@/domains/location/f2fLocation";
 
+const LazyCoordinatorDetailDialog = lazy(() =>
+  import("@/domains/coordinators/CoordinatorsPage").then((module) => ({ default: module.CoordinatorDetailDialog }))
+);
 const NORMAL_PAYMENT_METHODS = normalPaymentMethodOptions();
 const SWAP_PAYMENT_METHODS = swapPaymentMethodOptions();
 
@@ -116,7 +120,7 @@ export function CreateOrderPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const renewal = location.state as CreateOrderRouteState | null;
-  const { coordinators, refreshCoordinators } = useFederationStore();
+  const coordinators = useFederationStore((state) => state.coordinators);
   const slots = useGarageStore((state) => state.slots);
   const currentToken = useGarageStore((state) => state.currentToken);
   const setCurrentToken = useGarageStore((state) => state.setCurrentToken);
@@ -146,15 +150,14 @@ export function CreateOrderPage() {
   const [presetName, setPresetName] = useState("");
   const presetNameInput = useRef<HTMLInputElement>(null);
   const loadedPresetId = useRef("");
-  const selectableCoordinators = useMemo(() => coordinators.filter((coordinator) => coordinator.shortAlias !== "local"), [coordinators]);
+  const selectableCoordinators = useMemo(() => coordinators.filter((coordinator) => coordinator.shortAlias !== "local" && coordinator.enabled), [coordinators]);
   const offerPresets = useMemo(() => activeOfferPresets(portableManifest), [portableManifest]);
   const presetEditor = proEnabled && Boolean(renewal?.presetEditor);
   const requestedPresetId = renewal?.presetEditor?.id ?? renewal?.presetId;
 
   useEffect(() => {
     hydrateGarage();
-    void refreshCoordinators();
-  }, [hydrateGarage, refreshCoordinators]);
+  }, [hydrateGarage]);
 
   useEffect(() => {
     if (!proEnabled || renewal?.presetEditor || renewal?.robotSlotId) return;
@@ -387,16 +390,28 @@ export function CreateOrderPage() {
         setSubmitError("Coordinator did not return an order id.");
         return;
       }
-      setCurrentToken(actionSlot.token);
-      ingestCoordinatorOrder({
-        authoritative: false,
-        order: buildProvisionalMakerOrder(response.id, selectedAlias, payload, actionSlot),
+      const provisionalOrder = buildProvisionalMakerOrder(response.id, selectedAlias, payload, actionSlot);
+      if (proEnabled) setProLastView("trades");
+      openConfirmedOrder(navigate, {
+        initialOrder: provisionalOrder,
+        orderId: response.id,
         shortAlias: selectedAlias,
-        slot: actionSlot
+        slotId: actionSlot.tokenSHA256
       });
-      const orderPath = `/order/${selectedAlias}/${response.id}`;
-      beginRouteTransition(orderPath);
-      navigate(orderPath, { state: { robotSlotId: actionSlot.tokenSHA256 } });
+
+      // The successful create must open Trade even if local persistence is
+      // unavailable; the first authoritative read repairs this snapshot.
+      try {
+        setCurrentToken(actionSlot.token);
+        ingestCoordinatorOrder({
+          authoritative: false,
+          order: provisionalOrder,
+          shortAlias: selectedAlias,
+          slot: actionSlot
+        });
+      } catch {
+        // The Trade page performs the authoritative repair.
+      }
     } catch (error) {
       setSubmitError(toUserMessage(error, "Could not create order."));
     } finally {
@@ -1038,6 +1053,7 @@ function CoordinatorPicker({
   onChange: (shortAlias: string) => void;
 }) {
   const refreshCoordinator = useFederationStore((state) => state.refreshCoordinator);
+  const refreshCoordinatorLimits = useFederationStore((state) => state.refreshCoordinatorLimits);
   const attempted = useRef(new Set<string>());
   const [localRetryAlias, setLocalRetryAlias] = useState("");
   const [showDetails, setShowDetails] = useState(false);
@@ -1045,18 +1061,28 @@ function CoordinatorPicker({
   const selected = coordinators.find((coordinator) => coordinator.shortAlias === selectedShortAlias);
   const lastRefreshed = useFederationStore((state) => state.lastRefreshed);
   const network = useFederationStore((state) => state.network);
-  const shouldAutoRetry = Boolean(selected && !selected.online && !selected.loading && !attempted.current.has(selected.shortAlias));
-  const connecting = Boolean(selected?.loading || localRetryAlias === selected?.shortAlias || shouldAutoRetry || (selected && !selected.online && !selected.error));
+  const needsHealthRefresh = Boolean(selected && coordinatorNeedsVisibleRefresh(selected));
+  const needsLimitsRefresh = Boolean(selected && !selected.limits);
+  const shouldAutoRetry = Boolean(
+    selected
+    && (needsHealthRefresh || needsLimitsRefresh)
+    && !selected.loading
+    && !attempted.current.has(selected.shortAlias)
+  );
+  const checking = Boolean(selected?.loading || localRetryAlias === selected?.shortAlias || shouldAutoRetry);
+  const connecting = Boolean(checking && !selected?.online);
   const connected = Boolean(selected?.online);
   const statusClassName = connecting
     ? "maker-coordinator-status maker-coordinator-status-loading"
     : connected
       ? "maker-coordinator-status maker-coordinator-status-success"
       : "maker-coordinator-status maker-coordinator-status-warning";
-  const statusCopy = connecting
+  const statusCopy = connected && checking
+    ? `Using ${selected?.longAlias ?? "coordinator"}. Refreshing details...`
+    : connecting
     ? `Connecting to ${selected?.longAlias ?? "coordinator"}...`
     : !connected
-      ? "Coordinator unavailable."
+      ? selected?.error ? "Coordinator unavailable." : "Coordinator will be checked before use."
       : !selected?.info
         ? "Coordinator connected."
         : selected.info.swap_enabled
@@ -1064,18 +1090,24 @@ function CoordinatorPicker({
           : "Connected. Fiat trades only.";
 
   useEffect(() => {
-    if (!selected || selected.online || selected.loading || attempted.current.has(selected.shortAlias)) return;
+    if (!selected || (!needsHealthRefresh && !needsLimitsRefresh) || selected.loading || attempted.current.has(selected.shortAlias)) return;
     const alias = selected.shortAlias;
     attempted.current.add(alias);
     setLocalRetryAlias(alias);
-    void refreshCoordinator(alias).finally(() => setLocalRetryAlias((current) => current === alias ? "" : current));
-  }, [refreshCoordinator, selected]);
+    const refreshHealth = needsHealthRefresh
+      ? refreshCoordinator(alias, { priority: "visible" })
+      : Promise.resolve(true);
+    void refreshHealth
+      .then(() => refreshCoordinatorLimits(alias, { priority: "visible" }))
+      .finally(() => setLocalRetryAlias((current) => current === alias ? "" : current));
+  }, [needsHealthRefresh, needsLimitsRefresh, refreshCoordinator, refreshCoordinatorLimits, selected]);
 
   async function retrySelectedCoordinator() {
     if (!selected) return;
     setLocalRetryAlias(selected.shortAlias);
     try {
       await refreshCoordinator(selected.shortAlias, { force: true });
+      await refreshCoordinatorLimits(selected.shortAlias, { force: true, priority: "visible" });
     } finally {
       setLocalRetryAlias("");
     }
@@ -1085,7 +1117,8 @@ function CoordinatorPicker({
     if (!selected) return;
     setShowDetails(true);
     setRating({ score: 0, count: 0 });
-    void fetchCoordinatorRatings([selected])
+    void import("@/domains/coordinators/coordinatorRatings")
+      .then(({ fetchCoordinatorRatings }) => fetchCoordinatorRatings([selected]))
       .then((ratings) => setRating(ratings[selected.shortAlias] ?? { score: 0, count: 0 }))
       .catch(() => undefined);
   }
@@ -1119,7 +1152,7 @@ function CoordinatorPicker({
             ...coordinators.map((coordinator) => ({
               value: coordinator.shortAlias,
               label: coordinator.longAlias,
-              description: coordinator.loading ? "Connecting" : coordinator.online ? "Connected" : "Unavailable",
+              description: coordinatorOptionStatus(coordinator),
               icon: <img className="coordinator-avatar coordinator-avatar-lg" src={coordinator.smallAvatarUrl} alt="" />
             }))
           ]}
@@ -1128,9 +1161,9 @@ function CoordinatorPicker({
         />
       </div>
       {selected ? <div className={statusClassName} aria-live="polite">
-        {connecting ? <LoaderCircle className="maker-coordinator-spinner" size={17} /> : connected ? <CheckCircle2 size={17} /> : <AlertCircle size={17} />}
+        {checking ? <LoaderCircle className="maker-coordinator-spinner" size={17} /> : connected ? <CheckCircle2 size={17} /> : <AlertCircle size={17} />}
         <span>{statusCopy}</span>
-        {!connecting && !connected ? <button type="button" onClick={() => void retrySelectedCoordinator()}>Retry</button> : null}
+        {!checking && !connected && selected.error ? <button type="button" onClick={() => void retrySelectedCoordinator()}>Retry</button> : null}
       </div> : <div className="maker-coordinator-status maker-coordinator-status-warning"><Info size={17} /><span>Choose the coordinator that will host this offer.</span></div>}
       {selected ? (
         <div className="maker-coordinator-fees" aria-label="Coordinator fees">
@@ -1143,17 +1176,43 @@ function CoordinatorPicker({
         </div>
       ) : null}
       {showDetails && selected ? (
-        <CoordinatorDetailDialog
-          compact
-          coordinator={selected}
-          lastRefreshed={lastRefreshed}
-          network={network}
-          rating={rating}
-          onClose={() => setShowDetails(false)}
-        />
+        <Suspense
+          fallback={(
+            <Dialog
+              ariaLabel="Preparing coordinator details"
+              onClose={() => setShowDetails(false)}
+              overlayClassName="confirm-overlay app-transition-overlay"
+              panelClassName="confirm-sheet app-transition-dialog"
+            >
+              <button className="take-modal-close" onClick={() => setShowDetails(false)} type="button" aria-label="Close coordinator details">
+                <X size={18} />
+              </button>
+              <AppTransitionFeedback title="Preparing coordinator details" message={`Loading ${selected.longAlias}...`} />
+            </Dialog>
+          )}
+        >
+          <LazyCoordinatorDetailDialog
+            compact
+            coordinator={selected}
+            lastRefreshed={lastRefreshed}
+            network={network}
+            rating={rating}
+            onClose={() => setShowDetails(false)}
+          />
+        </Suspense>
       ) : null}
     </div>
   );
+}
+
+const SELECTED_COORDINATOR_REFRESH_MS = 5 * 60 * 1000;
+
+function coordinatorNeedsVisibleRefresh(coordinator: ReturnType<typeof useFederationStore.getState>["coordinators"][number]): boolean {
+  return coordinatorNeedsRefresh(coordinator, SELECTED_COORDINATOR_REFRESH_MS);
+}
+
+function coordinatorOptionStatus(coordinator: ReturnType<typeof useFederationStore.getState>["coordinators"][number]): string {
+  return selectCoordinatorAvailability(coordinator).label;
 }
 
 function LinkIcon() {

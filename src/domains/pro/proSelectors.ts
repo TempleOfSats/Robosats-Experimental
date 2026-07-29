@@ -1,5 +1,5 @@
 import type { RobotSlot } from "@/domains/garage/garageStore";
-import { getTradeViewState } from "@/domains/orders/orderStateMachine";
+import { getTradeViewState, hasActionableOrderDeadline } from "@/domains/orders/orderStateMachine";
 import type { ProTradeSnapshot } from "@/domains/pro/pro.types";
 
 export type ProTradeGroup = "needs-action" | "in-progress" | "waiting" | "renewable" | "stale";
@@ -14,6 +14,7 @@ export type ProRobotSummary = {
   needsAttentionCount: number;
   relevantOrderCount: number;
   stale: boolean;
+  previouslyUsed?: boolean;
 };
 
 const actionable = new Set([
@@ -88,12 +89,15 @@ export function summarizeProRobots(
       publicOfferCount: trades.filter((trade) => trade.order?.status === 1 && trade.order.is_maker).length,
       needsAttentionCount: trades.filter((trade) => classifyProTrade(trade) === "needs-action").length,
       relevantOrderCount: trades.filter((trade) => !trade.released).length,
-      stale: trades.some((trade) => trade.freshness === "error" || trade.freshness === "stale")
+      stale: trades.some((trade) => trade.freshness === "error" || trade.freshness === "stale"),
+      previouslyUsed: Boolean(slot.lastOrderId)
+        || Object.values(slot.robots).some((robot) => Boolean(robot.lastOrderId))
     };
   });
 }
 
 function deadline(snapshot: ProTradeSnapshot): number {
+  if (!snapshot.order || !hasActionableOrderDeadline(snapshot.order)) return Number.POSITIVE_INFINITY;
   const parsed = snapshot.order?.expires_at ? Date.parse(snapshot.order.expires_at) : Number.NaN;
   return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
 }

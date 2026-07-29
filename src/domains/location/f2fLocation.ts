@@ -1,3 +1,5 @@
+import type { PublicOrder } from "@/domains/orderbook/orderbook.types";
+
 export const CASH_F2F_METHOD = "Cash F2F";
 
 const GEOHASH_ALPHABET = "0123456789bcdefghjkmnpqrstuvwxyz";
@@ -9,6 +11,10 @@ export function paymentMethodHasF2F(paymentMethod: string): boolean {
 
 export function isCashF2FMethod(paymentMethod: string): boolean {
   return paymentMethod.trim().toLowerCase() === CASH_F2F_METHOD.toLowerCase();
+}
+
+export function selectCashF2FOffers(orders: PublicOrder[]): PublicOrder[] {
+  return orders.filter((order) => !order.is_swap && paymentMethodHasF2F(order.payment_method));
 }
 
 export function hasApproximateF2FLocation(

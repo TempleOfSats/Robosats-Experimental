@@ -127,14 +127,37 @@ describe("garage order sync", () => {
     expect(useGarageStore.getState().slots.map((item) => item.token)).toEqual(["current"]);
   });
 
-  it("persists Fleet ownership with a materialized robot", () => {
-    useGarageStore.setState({ slots: [], currentToken: undefined, hydrated: true });
-    useGarageStore.getState().addSlot({ ...makeSlot("fleet"), managedBy: "fleet" });
+  it("keeps Fleet identities in memory without duplicating their secrets into web storage", () => {
+    const standard = makeSlot("standard");
+    const fleet = { ...makeSlot("fleet"), managedBy: "fleet" as const };
+    useGarageStore.setState({ slots: [standard], currentToken: standard.token, hydrated: true });
+    useGarageStore.getState().addSlot(fleet);
 
-    useGarageStore.setState({ slots: [], currentToken: undefined, hydrated: false });
+    expect(useGarageStore.getState().slots).toHaveLength(2);
+    expect(useGarageStore.getState().currentToken).toBe(fleet.token);
+    expect(storage.get("robosats_exp_garage_slots_v1")).not.toContain(fleet.token);
+    expect(storage.get("robosats_exp_garage_slots")).not.toContain(fleet.token);
+    expect(storage.get("robosats_exp_garage_current_slot")).toBe(standard.token);
+  });
+
+  it("removes previously persisted Fleet identities while hydrating web storage", () => {
+    storage.set("robosats_exp_garage_slots_v1", JSON.stringify({
+      format: "robosats-exp-garage-slots",
+      version: 1,
+      slots: [
+        { token: "standard", nickname: "Standard", robots: {} },
+        { token: "fleet", nickname: "Fleet", managedBy: "fleet", robots: { local: { token: "fleet" } } }
+      ]
+    }));
+    storage.set("robosats_exp_garage_current_slot", "fleet");
+
     useGarageStore.getState().hydrate();
 
-    expect(useGarageStore.getState().slots[0]).toMatchObject({ token: "fleet", managedBy: "fleet" });
+    expect(useGarageStore.getState().slots).toMatchObject([{ token: "standard" }]);
+    expect(useGarageStore.getState().currentToken).toBe("standard");
+    expect(storage.get("robosats_exp_garage_slots_v1")).not.toContain('"fleet"');
+    expect(storage.get("robosats_exp_garage_slots")).not.toContain('"fleet"');
+    expect(storage.get("robosats_exp_garage_current_slot")).toBe("standard");
   });
 
   it("does not persist transient robot refresh flags", () => {
@@ -290,14 +313,32 @@ describe("garage order sync", () => {
     expect(storage.get("robosats_exp_garage_current_slot")).toBe("token");
   });
 
-  it("keeps routing status only for the robot whose payout failed", () => {
+  it("releases a seller as soon as payout routing becomes buyer-only", () => {
+    useGarageStore.setState({ slots: [makeSlot("token")], currentToken: "token", hydrated: true });
+    useGarageStore.getState().setActiveOrder("token", "lake", 89895);
+
+    useGarageStore.getState().syncOrderSnapshot({
+      token: "token",
+      shortAlias: "lake",
+      orderId: 89895,
+      status: 13,
+      isMaker: true,
+      isSeller: true
+    });
+
+    const synced = useGarageStore.getState().slots[0];
+    expect(synced.activeOrderId).toBeUndefined();
+    expect(synced.lastOrderId).toBe(89895);
+  });
+
+  it("keeps routing status for buyers and completes it for sellers without relying on optional metadata", () => {
     useGarageStore.setState({ slots: [makeSlot("token")], currentToken: "token", hydrated: true });
     useGarageStore.getState().syncOrderSnapshot({
       token: "token",
       shortAlias: "lake",
       orderId: 89895,
       status: 15,
-      hasFailedPayout: false
+      isSeller: true
     });
     expect(useGarageStore.getState().slots[0].activeOrderId).toBeUndefined();
 
@@ -306,7 +347,7 @@ describe("garage order sync", () => {
       shortAlias: "lake",
       orderId: 89896,
       status: 15,
-      hasFailedPayout: true
+      isSeller: false
     });
     expect(useGarageStore.getState().slots[0].activeOrderId).toBe(89896);
   });

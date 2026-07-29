@@ -1,6 +1,7 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import type { OrderDto } from "@/domains/orders/order.types";
+import { isCompletedTradeForCurrentRobot } from "@/domains/orders/orderStateMachine";
 
 const encoder = new TextEncoder();
 
@@ -298,8 +299,7 @@ export function validateTradeHistoryManifest(value: unknown): asserts value is T
 }
 
 function outcomeFromOrder(order: OrderDto): TradeHistoryOutcome | undefined {
-  if (order.status === 14) return "completed";
-  if (order.status === 15 && order.is_seller) return "completed";
+  if (isCompletedTradeForCurrentRobot(order)) return "completed";
   if (order.status === 12) return "collaboratively-cancelled";
   return undefined;
 }

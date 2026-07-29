@@ -36,6 +36,12 @@ beforeEach(() => {
   useProTradeIndexStore.getState().resetRuntimeCache();
   useGarageVaultStore.setState({
     status: "ready",
+    archiveTrade: vi.fn((input) =>
+      input.order.status === 12
+      || input.order.status === 14
+      || (input.order.is_seller && [13, 15].includes(input.order.status))
+        ? "archived"
+        : "ineligible"),
     manifest: upsertGarageEntry(createGarageManifest("a".repeat(32), 1), {
       id: "b".repeat(32),
       tokenId: garageTokenId(slot.token),
@@ -170,13 +176,13 @@ describe("foreground order activity", () => {
     });
   });
 
-  it("keeps status 15 active for whichever robot owns the failed payout", () => {
+  it("keeps status 15 active only for the buyer whose payout failed", () => {
     ingestCoordinatorOrder({
       order: order({
         id: 42,
         status: 15,
-        is_buyer: false,
-        is_seller: true,
+        is_buyer: true,
+        is_seller: false,
         retries: 1,
         next_retry_time: "2026-07-23T12:05:00Z"
       }),
@@ -185,6 +191,20 @@ describe("foreground order activity", () => {
     });
     expect(useProTradeIndexStore.getState().snapshots["slot-id:lake:42"]).toMatchObject({
       order: { status: 15, retries: 1 }
+    });
+
+    ingestCoordinatorOrder({
+      order: order({
+        id: 45,
+        status: 15,
+        is_buyer: true,
+        is_seller: false
+      }),
+      shortAlias: "lake",
+      slot
+    });
+    expect(useProTradeIndexStore.getState().snapshots["slot-id:lake:45"]).toMatchObject({
+      order: { status: 15 }
     });
 
     ingestCoordinatorOrder({
@@ -199,6 +219,37 @@ describe("foreground order activity", () => {
     });
     expect(useProTradeIndexStore.getState().snapshots["slot-id:lake:43"]).toBeUndefined();
   });
+
+  it("removes a completed seller trade while the buyer payout resolves", () => {
+    ingestCoordinatorOrder({
+      order: order({
+        id: 44,
+        status: 13,
+        is_buyer: false,
+        is_seller: true
+      }),
+      shortAlias: "lake",
+      slot
+    });
+
+    expect(useProTradeIndexStore.getState().snapshots["slot-id:lake:44"]).toBeUndefined();
+    expect(useGarageStore.getState().slots[0].activeOrderId).toBeUndefined();
+  });
+
+  it("retains a terminal snapshot until the encrypted history can archive it", () => {
+    useGarageVaultStore.setState({ archiveTrade: vi.fn(() => "deferred" as const) });
+
+    ingestCoordinatorOrder({
+      order: order({ id: 45, status: 14, is_buyer: true, is_seller: false }),
+      shortAlias: "lake",
+      slot
+    });
+
+    expect(useProTradeIndexStore.getState().snapshots["slot-id:lake:45"]).toMatchObject({
+      order: { id: 45, status: 14 }
+    });
+  });
+
 });
 
 function makeSlot(): RobotSlot {

@@ -1,5 +1,6 @@
 import { finalizeEvent, getPublicKey, verifyEvent, type Event } from "nostr-tools/pure";
 import type { SimplePool, SubCloser } from "nostr-tools/pool";
+import { normalizeURL } from "nostr-tools/utils";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import { recordRelayPerformance } from "@/domains/diagnostics/networkPerformance";
 import {
@@ -43,6 +44,8 @@ import {
 
 const APPLICATION_DATA_KIND = 30078;
 const BOOTSTRAP_TIMEOUT_MS = 8_000;
+const RECOVERY_RELAY_TIMEOUT_MS = 20_000;
+const RECOVERY_EMPTY_RETRY_DELAYS_MS = [1_500, 3_000] as const;
 const ROUTINE_RELAY_TIMEOUT_MS = BOOTSTRAP_TIMEOUT_MS;
 const ROUTINE_PRIMARY_RELAY_COUNT = 2;
 const ROUTINE_SECONDARY_DELAY_MS = 15_000;
@@ -73,6 +76,28 @@ type RelayPullResult = {
 
 type GarageSyncOptions = {
   forcePublish?: boolean;
+};
+
+export type GarageRelayQueryProgress = {
+  pending: number;
+  reachable: number;
+  total: number;
+  unavailable: number;
+};
+
+export type GarageRecordQueryResult = {
+  records: ObservedGarageSyncRecord[];
+  reachableRelays: string[];
+  unavailableRelays: string[];
+};
+
+export type GarageRecoveryOptions = {
+  onFirstSnapshot?: (snapshot: GarageRecoverySnapshot) => void | Promise<void>;
+  onProgress?: (progress: GarageRelayQueryProgress) => void;
+  onRecordsComplete?: (
+    records: ObservedGarageSyncRecord[],
+    result: GarageRecordQueryResult
+  ) => void | Promise<void>;
 };
 
 export class GarageSyncEngine {
@@ -549,21 +574,76 @@ export async function queryGarageRecords(
   maxWait = BOOTSTRAP_TIMEOUT_MS,
   onFirstNonempty?: (records: ObservedGarageSyncRecord[]) => void | Promise<void>
 ): Promise<ObservedGarageSyncRecord[]> {
+  return (await queryGarageRecordsDetailed(
+    pool,
+    secret,
+    relays,
+    maxWait,
+    onFirstNonempty
+  )).records;
+}
+
+export async function queryGarageRecordsDetailed(
+  pool: SimplePool,
+  secret: Uint8Array,
+  relays: string[],
+  maxWait = BOOTSTRAP_TIMEOUT_MS,
+  onFirstNonempty?: (records: ObservedGarageSyncRecord[]) => void | Promise<void>,
+  onProgress?: (progress: GarageRelayQueryProgress) => void
+): Promise<GarageRecordQueryResult> {
+  const orderedRelays = [...new Set(orderRelays(relays))];
+  const reachableRelays = new Set<string>();
+  const unavailableRelays = new Set<string>();
+  const settledRelays = new Set<string>();
   let firstApplied = false;
-  const queries = orderRelays(relays).map(async (relay) => {
-    const result = await queryAuthorRecords(pool, relay, syncAuthors(secret), maxWait);
-    const records = decodeLatestRecords(result.events, secret);
+  let firstCallbackError: unknown;
+  const reportProgress = () => onProgress?.({
+    pending: orderedRelays.length - settledRelays.size,
+    reachable: reachableRelays.size,
+    total: orderedRelays.length,
+    unavailable: unavailableRelays.size
+  });
+
+  reportProgress();
+  const queries = orderedRelays.map(async (relay): Promise<RelayPullResult> => {
+    let records: ObservedGarageSyncRecord[];
+    try {
+      const result = await queryAuthorRecords(pool, relay, syncAuthors(secret), maxWait);
+      records = decodeLatestRecords(result.events, secret);
+      if (relayConnectionStatus(pool, relay) === false) unavailableRelays.add(relay);
+      else reachableRelays.add(relay);
+    } catch (error) {
+      unavailableRelays.add(relay);
+      settledRelays.add(relay);
+      reportProgress();
+      throw error;
+    }
+    settledRelays.add(relay);
+    reportProgress();
     if (!firstApplied && records.length > 0) {
       firstApplied = true;
-      await onFirstNonempty?.(records);
+      try {
+        await onFirstNonempty?.(records);
+      } catch (error) {
+        firstCallbackError = error;
+        throw error;
+      }
     }
-    return records;
+    return { relay, records };
   });
   const results = await Promise.allSettled(queries);
-  if (!results.some((result) => result.status === "fulfilled")) {
+  if (firstCallbackError) throw firstCallbackError;
+  const records = mergeObservedRecords(results.flatMap(
+    (result) => result.status === "fulfilled" ? result.value.records : []
+  ));
+  if (reachableRelays.size === 0 && records.length === 0) {
     throw new Error("No coordinator relay is available.");
   }
-  return mergeObservedRecords(results.flatMap((result) => result.status === "fulfilled" ? result.value : []));
+  return {
+    records,
+    reachableRelays: orderedRelays.filter((relay) => reachableRelays.has(relay)),
+    unavailableRelays: orderedRelays.filter((relay) => unavailableRelays.has(relay))
+  };
 }
 
 async function queryRelayRecords(
@@ -670,24 +750,118 @@ function mergeObservedRecords(records: ObservedGarageSyncRecord[]): ObservedGara
 export async function recoverGarageSnapshot(
   secret: Uint8Array,
   coordinators: CoordinatorSummary[],
-  onFirstSnapshot?: (snapshot: GarageRecoverySnapshot) => void | Promise<void>
+  options: GarageRecoveryOptions | GarageRecoveryOptions["onFirstSnapshot"] = {}
 ): Promise<GarageRecoverySnapshot> {
+  return withRelayQueryPool((pool) =>
+    recoverGarageSnapshotWithPool(pool, secret, coordinators, options)
+  );
+}
+
+export async function recoverGarageSnapshotWithPool(
+  pool: SimplePool,
+  secret: Uint8Array,
+  coordinators: CoordinatorSummary[],
+  options: GarageRecoveryOptions | GarageRecoveryOptions["onFirstSnapshot"] = {},
+  emptyRetryDelaysMs: readonly number[] = RECOVERY_EMPTY_RETRY_DELAYS_MS
+): Promise<GarageRecoverySnapshot> {
+  const callbacks: GarageRecoveryOptions = typeof options === "function"
+    ? { onFirstSnapshot: options }
+    : options;
   const relays = garageRelayUrls(coordinators);
   if (relays.length === 0) throw new Error("No coordinator is available. Check your connection and try again.");
-  const records = await withRelayQueryPool((pool) =>
-    queryGarageRecords(
-      pool,
-      secret,
-      relays,
-      BOOTSTRAP_TIMEOUT_MS,
-      onFirstSnapshot
-        ? (firstRecords) => onFirstSnapshot(recoverySnapshotFromRecords(secret, firstRecords))
-        : undefined
-    ));
+
+  let records: ObservedGarageSyncRecord[] = [];
+  let lastQueryError: unknown;
+  const reachableRelays = new Set<string>();
+  const unavailableRelays = new Set<string>();
+
+  for (let attempt = 0; attempt <= emptyRetryDelaysMs.length; attempt += 1) {
+    if (attempt > 0) await waitForRecoveryRetry(emptyRetryDelaysMs[attempt - 1] ?? 0);
+
+    let result: GarageRecordQueryResult;
+    try {
+      result = await queryGarageRecordsDetailed(
+        pool,
+        secret,
+        relays,
+        RECOVERY_RELAY_TIMEOUT_MS,
+        undefined,
+        callbacks.onProgress
+      );
+    } catch (error) {
+      lastQueryError = error;
+      for (const relay of relays) {
+        if (relayConnectionStatus(pool, relay) === false) unavailableRelays.add(relay);
+      }
+      if (attempt < emptyRetryDelaysMs.length) continue;
+      if (reachableRelays.size === 0) throw error;
+      break;
+    }
+
+    for (const relay of result.reachableRelays) {
+      reachableRelays.add(relay);
+      unavailableRelays.delete(relay);
+    }
+    for (const relay of result.unavailableRelays) {
+      unavailableRelays.add(relay);
+    }
+    records = mergeObservedRecords([...records, ...result.records]);
+
+    if (hasGarageManifestRecord(records)) break;
+  }
+
   if (records.length === 0) {
+    if (unavailableRelays.size > 0) {
+      const reachable = reachableRelays.size;
+      const unavailable = unavailableRelays.size;
+      throw new Error(
+        `No Fleet was found on ${reachable} reachable coordinator ${reachable === 1 ? "relay" : "relays"}. `
+        + `${unavailable} ${unavailable === 1 ? "relay is" : "relays are"} unavailable, so recovery is not conclusive. `
+        + "Retry when they reconnect."
+      );
+    }
+    if (reachableRelays.size === 0 && lastQueryError) {
+      throw lastQueryError;
+    }
     throw new Error("No Fleet was found for this key. Check the key and connection, then try again.");
   }
-  return recoverySnapshotFromRecords(secret, records);
+  if (!hasGarageManifestRecord(records) && unavailableRelays.size > 0) {
+    const unavailable = unavailableRelays.size;
+    throw new Error(
+      `Only part of this Fleet was found while ${unavailable} coordinator `
+      + `${unavailable === 1 ? "relay is" : "relays are"} unavailable. `
+      + "Nothing was restored yet; retry when the connection improves."
+    );
+  }
+
+  const snapshot = recoverySnapshotFromRecords(secret, records);
+  await callbacks.onFirstSnapshot?.(snapshot);
+  const result = {
+    records,
+    reachableRelays: relays.filter((relay) => reachableRelays.has(relay)),
+    unavailableRelays: relays.filter((relay) => unavailableRelays.has(relay))
+  };
+  await callbacks.onRecordsComplete?.(records, result);
+  return snapshot;
+}
+
+function waitForRecoveryRetry(delayMs: number): Promise<void> {
+  if (delayMs <= 0) return Promise.resolve();
+  return new Promise((resolve) => globalThis.setTimeout(resolve, delayMs));
+}
+
+function hasGarageManifestRecord(records: ObservedGarageSyncRecord[]): boolean {
+  return records.some(({ record }) =>
+    record.type === "robot" || record.type === "robot-tombstone"
+  );
+}
+
+function relayConnectionStatus(pool: SimplePool, relay: string): boolean | undefined {
+  const readStatuses = (
+    pool as SimplePool & { listConnectionStatus?: () => Map<string, boolean> }
+  ).listConnectionStatus;
+  if (typeof readStatuses !== "function") return undefined;
+  return readStatuses.call(pool).get(normalizeURL(relay));
 }
 
 export function stopGarageSyncSchedule(): void {
