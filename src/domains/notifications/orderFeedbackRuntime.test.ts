@@ -21,12 +21,18 @@ import {
   stopOrderFeedbackRuntimeForTests
 } from "@/domains/notifications/orderFeedbackRuntime";
 import { resetTradeFeedbackForTests } from "@/domains/notifications/tradeFeedback";
+import {
+  registerVisibleTrade,
+  resetOrderFeedbackVisibilityForTests
+} from "@/domains/notifications/orderFeedbackVisibility";
 import { useGarageStore } from "@/domains/garage/garageStore";
+import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
 
 beforeEach(() => {
   stopOrderFeedbackRuntimeForTests();
   resetCoordinatorOrderActivityForTests();
   resetTradeFeedbackForTests();
+  resetOrderFeedbackVisibilityForTests();
   playTradeAudioMock.mockClear();
   showDesktopOrderNotificationMock.mockClear();
   vi.stubGlobal("localStorage", {
@@ -35,6 +41,7 @@ beforeEach(() => {
     removeItem: () => undefined
   });
   useGarageStore.setState({ slots: [slot], currentToken: slot.token, hydrated: true });
+  useProPreferencesStore.setState({ enabled: false });
 });
 
 describe("desktop trade feedback", () => {
@@ -71,6 +78,27 @@ describe("desktop trade feedback", () => {
     observe({ status: 2 }, false);
     expect(playTradeAudioMock).not.toHaveBeenCalled();
     expect(showDesktopOrderNotificationMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps Pro background audio quiet while retaining one desktop notification", () => {
+    useProPreferencesStore.setState({ enabled: true });
+    startOrderFeedbackRuntime();
+    observe({ status: 1, chat_last_index: 0 });
+    observe({ status: 2, chat_last_index: 0 });
+
+    expect(playTradeAudioMock).not.toHaveBeenCalled();
+    expect(showDesktopOrderNotificationMock).toHaveBeenCalledOnce();
+
+    observe({ status: 2, chat_last_index: 1 });
+    observe({ status: 2, chat_last_index: 1 });
+    expect(playTradeAudioMock).not.toHaveBeenCalled();
+    expect(showDesktopOrderNotificationMock).toHaveBeenCalledTimes(2);
+
+    const unregister = registerVisibleTrade("lake", 123);
+    observe({ status: 3, chat_last_index: 1 });
+    expect(playTradeAudioMock).toHaveBeenCalledOnce();
+    expect(showDesktopOrderNotificationMock).toHaveBeenCalledTimes(3);
+    unregister();
   });
 });
 

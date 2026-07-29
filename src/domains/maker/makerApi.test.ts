@@ -74,6 +74,39 @@ describe("makerApi", () => {
     expect(payload.description).toBeNull();
   });
 
+  it("requires an approximate location for Cash F2F and omits coordinates for other methods", () => {
+    const missingLocation = buildCreateOrderPayload({
+      ...draft,
+      paymentMethod: "Cash F2F",
+      latitude: "0",
+      longitude: "0"
+    });
+    expect(validateCreateOrderPayload(missingLocation)).toContain(
+      "Choose an approximate meeting area for Cash F2F."
+    );
+
+    const f2f = buildCreateOrderPayload({
+      ...draft,
+      paymentMethod: "Cash F2F",
+      latitude: "35.7",
+      longitude: "139.7"
+    });
+    expect(validateCreateOrderPayload(f2f)).not.toContain(
+      "Choose an approximate meeting area for Cash F2F."
+    );
+    expect(f2f.latitude).toBe(35.7);
+    expect(f2f.longitude).toBe(139.7);
+
+    const standard = buildCreateOrderPayload({
+      ...draft,
+      paymentMethod: "Revolut",
+      latitude: "35.7",
+      longitude: "139.7"
+    });
+    expect(standard.latitude).toBe(0);
+    expect(standard.longitude).toBe(0);
+  });
+
   it("recreates an expired range order with its original terms", () => {
     const payload = buildRenewOrderPayload({
       type: 1,
@@ -89,8 +122,8 @@ describe("makerApi", () => {
       public_duration: 43_200,
       escrow_duration: 7_200,
       bond_size: 4,
-      latitude: 12.5,
-      longitude: -8.4,
+      latitude: 0,
+      longitude: 0,
       description: "  renewed offer  "
     } as OrderDto);
 
@@ -108,11 +141,26 @@ describe("makerApi", () => {
       public_duration: 43_200,
       escrow_duration: 7_200,
       bond_size: 4,
-      latitude: 12.5,
-      longitude: -8.4,
+      latitude: 0,
+      longitude: 0,
       password: null,
       description: "renewed offer"
     });
+  });
+
+  it("coarsens a legacy Cash F2F location when renewing", () => {
+    const payload = buildRenewOrderPayload({
+      type: 0,
+      currency: 1,
+      amount: 100,
+      has_range: false,
+      payment_method: "Cash F2F",
+      latitude: 35.689487,
+      longitude: 139.691711
+    } as OrderDto);
+
+    expect(payload.latitude).toBe(35.7);
+    expect(payload.longitude).toBe(139.7);
   });
 
   it("preserves explicit pricing and hashes a renewed order password", () => {

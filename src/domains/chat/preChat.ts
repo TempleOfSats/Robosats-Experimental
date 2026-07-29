@@ -20,3 +20,22 @@ export function visiblePreChatMessages<T extends { mine: boolean }>(messages: T[
 export function hasSentPreChatMessage(messages: Array<{ mine: boolean }>): boolean {
   return messages.some((message) => message.mine);
 }
+
+export function isOwnChatMessage(
+  messageNick: string,
+  ownCoordinatorNick: string,
+  senderOnlyResponse = false
+): boolean {
+  if (senderOnlyResponse) return true;
+  return messageNick.trim() === ownCoordinatorNick.trim();
+}
+
+export function usablePeerPublicKey(candidate: string, ownPublicKey: string): string {
+  const normalizedCandidate = normalizeArmoredKey(candidate);
+  if (!normalizedCandidate.startsWith("-----BEGIN PGP PUBLIC KEY BLOCK-----")) return "";
+  return normalizedCandidate === normalizeArmoredKey(ownPublicKey) ? "" : candidate;
+}
+
+function normalizeArmoredKey(value: string): string {
+  return value.replace(/\r\n/g, "\n").trim();
+}

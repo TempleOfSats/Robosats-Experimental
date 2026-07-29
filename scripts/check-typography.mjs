@@ -1,18 +1,15 @@
 import { readFile } from "node:fs/promises";
+import { globSync } from "node:fs";
 
-const stylePaths = [
-  "src/styles/globals.css",
-  "src/styles/components.css",
-  "src/styles/layout.css",
-  "src/styles/typography.css"
-];
+const stylePaths = globSync("src/**/*.css");
 
-const [mainSource, fontLicense, ...styles] = await Promise.all([
+const [mainSource, fontLicense, ...styleSources] = await Promise.all([
   readFile("src/main.tsx", "utf8"),
   readFile("public/static/licenses/PublicSans-OFL.txt", "utf8"),
   ...stylePaths.map((path) => readFile(path, "utf8"))
 ]);
-const css = styles.join("\n");
+const styles = Object.fromEntries(stylePaths.map((path, index) => [path, styleSources[index]]));
+const css = styleSources.join("\n");
 const failures = [];
 
 if (!mainSource.includes('@fontsource-variable/public-sans/wght.css')) {
@@ -53,7 +50,7 @@ for (const match of css.matchAll(/letter-spacing\s*:\s*([^;]+);/g)) {
   }
 }
 
-const amountRule = styles[1].match(/\.amount-mono\s*\{([^}]+)\}/)?.[1] ?? "";
+const amountRule = styles["src/styles/components.css"].match(/\.amount-mono\s*\{([^}]+)\}/)?.[1] ?? "";
 if (/font-mono/.test(amountRule)) {
   failures.push("Financial amounts must use tabular Public Sans, not monospace.");
 }
@@ -65,7 +62,7 @@ for (const token of [
   "--type-caption-size: 0.75rem",
   "--type-machine-size: 0.8125rem"
 ]) {
-  if (!styles[0].includes(token)) failures.push(`Missing required type token: ${token}`);
+  if (!styles["src/styles/globals.css"].includes(token)) failures.push(`Missing required type token: ${token}`);
 }
 
 if (failures.length > 0) {

@@ -5,6 +5,9 @@ import {
   type CoordinatorOrderObservation
 } from "@/domains/orders/orderActivity";
 import type { OrderDto } from "@/domains/orders/order.types";
+import {
+  isTerminalOrderForCurrentRobot
+} from "@/domains/orders/orderStateMachine";
 import { selectProGarageSlots, useGarageVaultStore } from "@/domains/pro/garageVaultStore";
 import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
 import { proTradeKey, type ProTradeLocator, type ProTradeSnapshot } from "@/domains/pro/pro.types";
@@ -27,9 +30,10 @@ export function startProOrderActivityBridge(): () => void {
 
   const unsubscribeActivity = subscribeCoordinatorOrderActivity(consume, { replay: true });
   const unsubscribeVault = useGarageVaultStore.subscribe((state, previous) => {
-    const becameReady = state.status === "ready" && previous.status !== "ready";
-    const manifestChanged = state.status === "ready" && state.manifest?.revision !== previous.manifest?.revision;
-    if (becameReady || manifestChanged) replayCoordinatorOrderActivity(consume);
+    const envelopeBecameAvailable = Boolean(state.envelope && !previous.envelope);
+    const fleetChanged = Boolean(state.envelope)
+      && state.manifest?.revision !== previous.manifest?.revision;
+    if (envelopeBecameAvailable || fleetChanged) replayCoordinatorOrderActivity(consume);
   });
   return () => {
     unsubscribeActivity();
@@ -69,7 +73,8 @@ export function applyProOrderSnapshot({
       shortAlias,
       orderId: order.id,
       status: order.status,
-      isMaker: order.is_maker
+      isMaker: order.is_maker,
+      isSeller: order.is_seller
     });
   }
   const currentSlot = useGarageStore.getState().slots.find((candidate) => candidate.tokenSHA256 === slot.tokenSHA256) ?? slot;
@@ -87,9 +92,25 @@ export function applyProOrderSnapshot({
   }
 
   const renewable = order.status === 5 && order.is_maker;
-  if (!renewable && isTerminalForProDesk(order.status, order.is_maker)) {
-    tradeIndex.removeTrade(locator);
-    return "removed";
+  const settlement = settlementForSnapshot(order, previous);
+  if (!renewable && isTerminalForProDesk(
+    order.status,
+    order.is_maker,
+    order.is_seller
+  )) {
+    const archiveResult = useGarageVaultStore.getState().archiveTrade({
+      slotId: slot.tokenSHA256,
+      robotName: currentSlot.nickname,
+      robotHashId: currentSlot.hashId,
+      coordinatorShortAlias: shortAlias,
+      order,
+      ...settlement,
+      observedAt
+    });
+    if (archiveResult !== "deferred") {
+      tradeIndex.removeTrade(locator);
+      return "removed";
+    }
   }
 
   const key = proTradeKey(locator);
@@ -105,6 +126,7 @@ export function applyProOrderSnapshot({
     renewable,
     released: false,
     freshness: authoritative ? "fresh" : "refreshing",
+    ...settlement,
     updatedAt: observedAt,
     changedAt: changed ? observedAt : previous.changedAt,
     errorCode: undefined
@@ -114,8 +136,32 @@ export function applyProOrderSnapshot({
   return "upserted";
 }
 
-export function isTerminalForProDesk(status: number, isMaker: boolean): boolean {
-  return [4, 12, 14, 17, 18].includes(status) || (status === 5 && !isMaker);
+export function recordProSettlementInvoice(
+  locator: ProTradeLocator,
+  purpose: "payout-received" | "escrow-paid",
+  value: string
+): boolean {
+  const invoice = cleanSettlementInvoice(value);
+  const tradeIndex = useProTradeIndexStore.getState();
+  const snapshot = tradeIndex.snapshots[proTradeKey(locator)];
+  const roleMatches = snapshot?.order
+    && ((snapshot.order.is_buyer && purpose === "payout-received")
+      || (snapshot.order.is_seller && purpose === "escrow-paid"));
+  if (!invoice || !snapshot || !roleMatches) return false;
+  tradeIndex.upsertSnapshot({
+    ...snapshot,
+    settlementInvoice: invoice,
+    settlementInvoicePurpose: purpose
+  });
+  return true;
+}
+
+function isTerminalForProDesk(
+  status: number,
+  isMaker: boolean,
+  isSeller?: boolean
+): boolean {
+  return isTerminalOrderForCurrentRobot({ status, isMaker, isSeller });
 }
 
 function orderChanged(previous: OrderDto, current: OrderDto): boolean {
@@ -125,4 +171,36 @@ function orderChanged(previous: OrderDto, current: OrderDto): boolean {
     || previous.min_amount !== current.min_amount
     || previous.max_amount !== current.max_amount
     || previous.payment_method !== current.payment_method;
+}
+
+function settlementForSnapshot(
+  order: OrderDto,
+  previous: ProTradeSnapshot | undefined
+): Pick<ProTradeSnapshot, "settlementInvoice" | "settlementInvoicePurpose"> {
+  const paidEscrowInvoice = order.is_seller && order.escrow_locked
+    ? cleanSettlementInvoice(order.escrow_invoice)
+    : undefined;
+  if (paidEscrowInvoice) {
+    return {
+      settlementInvoice: paidEscrowInvoice,
+      settlementInvoicePurpose: "escrow-paid"
+    };
+  }
+  if (previous?.settlementInvoice && previous.settlementInvoicePurpose) {
+    return {
+      settlementInvoice: previous.settlementInvoice,
+      settlementInvoicePurpose: previous.settlementInvoicePurpose
+    };
+  }
+  return {};
+}
+
+function cleanSettlementInvoice(value: string | undefined): string | undefined {
+  const invoice = value?.trim();
+  return invoice
+    && invoice.length >= 20
+    && invoice.length <= 4_096
+    && /^ln[a-z0-9]+$/i.test(invoice)
+    ? invoice
+    : undefined;
 }

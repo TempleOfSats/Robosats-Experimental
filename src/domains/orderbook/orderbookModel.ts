@@ -9,6 +9,8 @@ export function normalizePublicOrder(order: PublicOrderApi): PublicOrder {
   const currencyCode = toOptionalString(order.currencyCode) || currencyCodeFromId(currency);
   const bondSizePercent = toOptionalNumber(order.bond_size_percent ?? order.bond_size);
   const satoshisNow = toOptionalNumber(order.satoshis_now);
+  const latitude = toOptionalNumber(order.latitude);
+  const longitude = toOptionalNumber(order.longitude);
   const paymentMethod = toStringValue(order.payment_method);
   const description = toOptionalString(order.description)?.trim();
   const isSwap =
@@ -39,6 +41,8 @@ export function normalizePublicOrder(order: PublicOrderApi): PublicOrder {
     maker_hash_id: toStringValue(order.maker_hash_id),
     bond_size_sats: toNumber(order.bond_size_sats),
     ...(bondSizePercent != null ? { bond_size_percent: bondSizePercent } : {}),
+    ...(latitude != null ? { latitude } : {}),
+    ...(longitude != null ? { longitude } : {}),
     coordinatorShortAlias: toStringValue(order.coordinatorShortAlias)
   };
 }

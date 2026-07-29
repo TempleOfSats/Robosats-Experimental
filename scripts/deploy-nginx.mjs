@@ -18,7 +18,11 @@ execFileSync("sudo", ["rm", "-rf", nextDir, previousDir], { stdio: "inherit" });
 execFileSync("sudo", ["install", "-d", "-m", "0755", nextDir], { stdio: "inherit" });
 if (existsSync(resolve(targetDir, "assets"))) {
   execFileSync("sudo", ["cp", "-a", resolve(targetDir, "assets"), resolve(nextDir, "assets")], { stdio: "inherit" });
-  retainCurrentAssetGeneration(targetDir, resolve(nextDir, "assets"));
+  retainCurrentGeneration(targetDir, resolve(nextDir, "assets"), "assets");
+}
+if (existsSync(resolve(targetDir, "static"))) {
+  execFileSync("sudo", ["cp", "-a", resolve(targetDir, "static"), resolve(nextDir, "static")], { stdio: "inherit" });
+  retainCurrentGeneration(targetDir, resolve(nextDir, "static"), "static");
 }
 execFileSync("sudo", ["cp", "-a", `${distDir}/.`, nextDir], { stdio: "inherit" });
 execFileSync("sudo", ["chmod", "-R", "a+rX", nextDir], { stdio: "inherit" });
@@ -31,16 +35,19 @@ execFileSync("sudo", ["nginx", "-t"], { stdio: "inherit" });
 execFileSync("sudo", ["nginx", "-s", "reload"], { stdio: "inherit" });
 console.log(`Deployed production frontend to ${targetDir}`);
 
-function retainCurrentAssetGeneration(currentRoot, copiedAssets) {
+function retainCurrentGeneration(currentRoot, copiedRoot, kind) {
   const indexPath = resolve(currentRoot, "index.html");
   if (!existsSync(indexPath)) return;
 
-  const match = readFileSync(indexPath, "utf8").match(/["']\/assets\/([^/"']+)\/robosats-exp\./);
+  const pattern = kind === "assets"
+    ? /["']\/assets\/([^/"']+)\/robosats-exp\./
+    : /["']\/static\/([0-9a-f]{16})\//;
+  const match = readFileSync(indexPath, "utf8").match(pattern);
   if (!match) return;
 
   const currentGeneration = match[1];
-  for (const entry of readdirSync(copiedAssets)) {
-    const path = resolve(copiedAssets, entry);
+  for (const entry of readdirSync(copiedRoot)) {
+    const path = resolve(copiedRoot, entry);
     if (entry === currentGeneration && statSync(path).isDirectory()) continue;
     execFileSync("sudo", ["rm", "-rf", path], { stdio: "inherit" });
   }

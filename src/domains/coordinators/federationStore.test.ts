@@ -1,11 +1,23 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const { fetchCoordinatorInfoMock, fetchCoordinatorLimitsMock } = vi.hoisted(() => ({
+  fetchCoordinatorInfoMock: vi.fn(),
+  fetchCoordinatorLimitsMock: vi.fn()
+}));
+
+vi.mock("@/domains/coordinators/coordinatorApi", () => ({
+  fetchCoordinatorInfo: fetchCoordinatorInfoMock,
+  fetchCoordinatorLimits: fetchCoordinatorLimitsMock
+}));
+
 import {
   buildCoordinatorSummary,
   FEDERATION_CACHE_MAX_AGE_MS,
-  FEDERATION_REFRESH_MIN_INTERVAL_MS
+  FEDERATION_REFRESH_MIN_INTERVAL_MS,
+  useFederationStore
 } from "@/domains/coordinators/federationStore";
 import { defaultFederation } from "@/domains/coordinators/defaultFederation";
-import type { CoordinatorDefinition } from "@/domains/coordinators/coordinator.types";
+import type { CoordinatorDefinition, CoordinatorInfo, CoordinatorLimitList } from "@/domains/coordinators/coordinator.types";
 
 const coordinator: CoordinatorDefinition = {
   shortAlias: "lake",
@@ -45,6 +57,11 @@ const coordinator: CoordinatorDefinition = {
   }
 };
 
+beforeEach(() => {
+  fetchCoordinatorInfoMock.mockReset();
+  fetchCoordinatorLimitsMock.mockReset();
+});
+
 describe("buildCoordinatorSummary", () => {
   it("contains only the current built-in federation", () => {
     expect(defaultFederation.map((item) => item.shortAlias)).not.toContain("freedomsats");
@@ -82,5 +99,111 @@ describe("buildCoordinatorSummary", () => {
     expect(summary.mainnet?.onion).toBe("http://lake.onion");
     expect(summary.testnet?.clearnet).toBe("https://test.unsafe.thebiglake.org");
     expect(summary.badgeIcons.map((badge) => badge.active)).toEqual([true, true, true, true]);
+  });
+
+  it("uses the lightweight info endpoint for health and preserves cached limits", async () => {
+    const summary = buildCoordinatorSummary(coordinator, {
+      network: "mainnet",
+      origin: "onion",
+      selfhostedClient: false
+    });
+    const limits = {
+      "1": { code: "USD", min_amount: 10, max_amount: 1_000 }
+    } as unknown as CoordinatorLimitList;
+    const info = {
+      maker_fee: 0.002,
+      taker_fee: 0.002,
+      swap_enabled: false,
+      notice_severity: "none",
+      notice_message: ""
+    } as CoordinatorInfo;
+    fetchCoordinatorInfoMock.mockResolvedValue(info);
+    useFederationStore.setState({
+      connection: "nostr",
+      coordinators: [{ ...summary, limits }],
+      lastRefreshed: undefined,
+      network: "mainnet",
+      origin: "onion",
+      refreshing: false,
+      selfhostedClient: false
+    });
+
+    const refresh = useFederationStore.getState().refreshCoordinator("lake", { priority: "visible" });
+
+    await vi.waitFor(() => expect(useFederationStore.getState().coordinators[0]?.online).toBe(true));
+    expect(useFederationStore.getState().coordinators[0]).toMatchObject({
+      info,
+      loading: false,
+      online: true
+    });
+    expect(useFederationStore.getState().coordinators[0]?.lastCheckedAt).toEqual(expect.any(Number));
+    expect(fetchCoordinatorInfoMock).toHaveBeenCalledWith("http://lake.onion", {
+      force: false,
+      priority: "visible"
+    });
+    await refresh;
+    expect(fetchCoordinatorLimitsMock).not.toHaveBeenCalled();
+    expect(useFederationStore.getState().coordinators[0]?.limits).toBe(limits);
+  });
+
+  it("loads trading limits only when a selected flow asks for them", async () => {
+    const summary = buildCoordinatorSummary(coordinator, {
+      network: "mainnet",
+      origin: "onion",
+      selfhostedClient: false
+    });
+    const limits = {
+      "1": { code: "USD", min_amount: 10, max_amount: 1_000 }
+    } as unknown as CoordinatorLimitList;
+    fetchCoordinatorLimitsMock.mockResolvedValue(limits);
+    useFederationStore.setState({
+      connection: "nostr",
+      coordinators: [{ ...summary, online: true, lastCheckedAt: Date.now() }],
+      lastRefreshed: Date.now(),
+      network: "mainnet",
+      origin: "onion",
+      refreshing: false,
+      selfhostedClient: false
+    });
+
+    await expect(useFederationStore.getState().refreshCoordinatorLimits("lake", {
+      priority: "visible"
+    })).resolves.toBe(true);
+
+    expect(fetchCoordinatorLimitsMock).toHaveBeenCalledWith("http://lake.onion", {
+      force: undefined,
+      priority: "visible"
+    });
+    expect(useFederationStore.getState().coordinators[0]?.limits).toBe(limits);
+    expect(useFederationStore.getState().coordinators[0]?.online).toBe(true);
+  });
+
+  it("does not preserve an availability result beyond the cache lifetime", async () => {
+    const summary = buildCoordinatorSummary(coordinator, {
+      network: "mainnet",
+      origin: "onion",
+      selfhostedClient: false
+    });
+    fetchCoordinatorInfoMock.mockRejectedValue(new Error("offline"));
+    useFederationStore.setState({
+      connection: "nostr",
+      coordinators: [{
+        ...summary,
+        online: true,
+        lastCheckedAt: Date.now() - FEDERATION_CACHE_MAX_AGE_MS - 1
+      }],
+      lastRefreshed: undefined,
+      network: "mainnet",
+      origin: "onion",
+      refreshing: false,
+      selfhostedClient: false
+    });
+
+    await useFederationStore.getState().refreshCoordinator("lake", {
+      force: true,
+      priority: "visible"
+    });
+
+    expect(useFederationStore.getState().coordinators[0]?.online).toBe(false);
   });
 });

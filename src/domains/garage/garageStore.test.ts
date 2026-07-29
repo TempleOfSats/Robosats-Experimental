@@ -88,10 +88,14 @@ describe("garage selectors", () => {
 
 describe("garage order sync", () => {
   it("hydrates stored robots before adding a new one", () => {
-    storage.set("robosats_exp_garage_slots", JSON.stringify([
-      { token: "alpha", nickname: "Alpha", robots: {} },
-      { token: "beta", nickname: "Beta", robots: {} }
-    ]));
+    storage.set("robosats_exp_garage_slots_v1", JSON.stringify({
+      format: "robosats-exp-garage-slots",
+      version: 1,
+      slots: [
+        { token: "alpha", nickname: "Alpha", robots: {} },
+        { token: "beta", nickname: "Beta", robots: {} }
+      ]
+    }));
 
     useGarageStore.getState().addSlot(makeSlot("gamma"));
 
@@ -105,36 +109,37 @@ describe("garage order sync", () => {
         { token: "gamma" }
       ]
     });
-    expect(JSON.parse(storage.get("robosats_exp_garage_slots") ?? "[]")).toMatchObject([
-      { token: "alpha" },
-      { token: "beta" },
-      { token: "gamma" }
-    ]);
   });
 
-  it("hydrates the versioned Garage payload before the compatibility payload", () => {
+  it("keeps Fleet identities in memory without duplicating their secrets into web storage", () => {
+    const standard = makeSlot("standard");
+    const fleet = { ...makeSlot("fleet"), managedBy: "fleet" as const };
+    useGarageStore.setState({ slots: [standard], currentToken: standard.token, hydrated: true });
+    useGarageStore.getState().addSlot(fleet);
+
+    expect(useGarageStore.getState().slots).toHaveLength(2);
+    expect(useGarageStore.getState().currentToken).toBe(fleet.token);
+    expect(storage.get("robosats_exp_garage_slots_v1")).not.toContain(fleet.token);
+    expect(storage.get("robosats_exp_garage_current_slot")).toBe(standard.token);
+  });
+
+  it("removes previously persisted Fleet identities while hydrating web storage", () => {
     storage.set("robosats_exp_garage_slots_v1", JSON.stringify({
       format: "robosats-exp-garage-slots",
       version: 1,
-      slots: [{ token: "current", nickname: "Current", robots: {} }]
+      slots: [
+        { token: "standard", nickname: "Standard", robots: {} },
+        { token: "fleet", nickname: "Fleet", managedBy: "fleet", robots: { local: { token: "fleet" } } }
+      ]
     }));
-    storage.set("robosats_exp_garage_slots", JSON.stringify([
-      { token: "legacy", nickname: "Legacy", robots: {} }
-    ]));
+    storage.set("robosats_exp_garage_current_slot", "fleet");
 
     useGarageStore.getState().hydrate();
 
-    expect(useGarageStore.getState().slots.map((item) => item.token)).toEqual(["current"]);
-  });
-
-  it("persists Fleet ownership with a materialized robot", () => {
-    useGarageStore.setState({ slots: [], currentToken: undefined, hydrated: true });
-    useGarageStore.getState().addSlot({ ...makeSlot("fleet"), managedBy: "fleet" });
-
-    useGarageStore.setState({ slots: [], currentToken: undefined, hydrated: false });
-    useGarageStore.getState().hydrate();
-
-    expect(useGarageStore.getState().slots[0]).toMatchObject({ token: "fleet", managedBy: "fleet" });
+    expect(useGarageStore.getState().slots).toMatchObject([{ token: "standard" }]);
+    expect(useGarageStore.getState().currentToken).toBe("standard");
+    expect(storage.get("robosats_exp_garage_slots_v1")).not.toContain('"fleet"');
+    expect(storage.get("robosats_exp_garage_current_slot")).toBe("standard");
   });
 
   it("does not persist transient robot refresh flags", () => {
@@ -290,6 +295,45 @@ describe("garage order sync", () => {
     expect(storage.get("robosats_exp_garage_current_slot")).toBe("token");
   });
 
+  it("releases a seller as soon as payout routing becomes buyer-only", () => {
+    useGarageStore.setState({ slots: [makeSlot("token")], currentToken: "token", hydrated: true });
+    useGarageStore.getState().setActiveOrder("token", "lake", 89895);
+
+    useGarageStore.getState().syncOrderSnapshot({
+      token: "token",
+      shortAlias: "lake",
+      orderId: 89895,
+      status: 13,
+      isMaker: true,
+      isSeller: true
+    });
+
+    const synced = useGarageStore.getState().slots[0];
+    expect(synced.activeOrderId).toBeUndefined();
+    expect(synced.lastOrderId).toBe(89895);
+  });
+
+  it("keeps routing status for buyers and completes it for sellers without relying on optional metadata", () => {
+    useGarageStore.setState({ slots: [makeSlot("token")], currentToken: "token", hydrated: true });
+    useGarageStore.getState().syncOrderSnapshot({
+      token: "token",
+      shortAlias: "lake",
+      orderId: 89895,
+      status: 15,
+      isSeller: true
+    });
+    expect(useGarageStore.getState().slots[0].activeOrderId).toBeUndefined();
+
+    useGarageStore.getState().syncOrderSnapshot({
+      token: "token",
+      shortAlias: "lake",
+      orderId: 89896,
+      status: 15,
+      isSeller: false
+    });
+    expect(useGarageStore.getState().slots[0].activeOrderId).toBe(89896);
+  });
+
   it("keeps an expired maker order active so it can be renewed", () => {
     useGarageStore.setState({ slots: [makeSlot("token")], currentToken: "token", hydrated: true });
 
@@ -331,7 +375,7 @@ describe("garage order sync", () => {
     useGarageStore.getState().setStealthInvoices("token", "lake", false);
 
     expect(useGarageStore.getState().slots[0].robots.lake.stealthInvoices).toBe(false);
-    expect(storage.get("robosats_exp_garage_slots")).toContain('"stealthInvoices":false');
+    expect(storage.get("robosats_exp_garage_slots_v1")).toContain('"stealthInvoices":false');
   });
 
   it("keeps the locally active order when a robot refresh fails", async () => {
@@ -406,6 +450,93 @@ describe("garage order sync", () => {
     });
   }, 30000);
 
+  it("shares a robot refresh across foreground and background callers", async () => {
+    useGarageStore.setState({ slots: [slotWithCoordinatorKeys()], currentToken: "token", hydrated: true });
+    let resolveRobot: ((snapshot: ReturnType<typeof robotSnapshot>) => void) | undefined;
+    fetchRobotMock.mockReturnValue(new Promise((resolve) => {
+      resolveRobot = resolve;
+    }));
+
+    const background = useGarageStore.getState().refreshRobotSlot("token", [coordinator], {
+      priority: "background"
+    });
+    await vi.waitFor(() => expect(fetchRobotMock).toHaveBeenCalledOnce());
+    const foreground = useGarageStore.getState().refreshRobotSlot("token", [coordinator], {
+      priority: "foreground"
+    });
+    resolveRobot?.(robotSnapshot());
+    await Promise.all([background, foreground]);
+
+    expect(fetchRobotMock).toHaveBeenCalledOnce();
+  }, 30000);
+
+  it("reuses a recent successful robot result for background reconciliation", async () => {
+    const checkedAt = Date.now() - 10_000;
+    const freshSlot = slotWithCoordinatorKeys({ activeOrderId: 91234, lastOrderId: 91234 });
+    freshSlot.robots.lake.lastCheckedAt = checkedAt;
+    useGarageStore.setState({ slots: [freshSlot], currentToken: "token", hydrated: true });
+    const observer = vi.fn();
+
+    const result = await useGarageStore.getState().refreshRobotSlot("token", [coordinator], {
+      maxAgeMs: 300_000,
+      onCoordinatorResult: observer,
+      priority: "background"
+    });
+
+    expect(fetchRobotMock).not.toHaveBeenCalled();
+    expect(result.coordinators).toEqual([expect.objectContaining({
+      shortAlias: "lake",
+      cached: true,
+      activeOrderId: 91234,
+      lastOrderId: 91234
+    })]);
+    expect(observer).toHaveBeenCalledOnce();
+    expect(useGarageStore.getState().slots[0].loading).toBeFalsy();
+  });
+
+  it("bypasses robot freshness when no maximum age is requested", async () => {
+    const freshSlot = slotWithCoordinatorKeys();
+    freshSlot.robots.lake.lastCheckedAt = Date.now();
+    useGarageStore.setState({ slots: [freshSlot], currentToken: "token", hydrated: true });
+    fetchRobotMock.mockResolvedValue(robotSnapshot());
+
+    await useGarageStore.getState().refreshRobotSlot("token", [coordinator], {
+      priority: "foreground"
+    });
+
+    expect(fetchRobotMock).toHaveBeenCalledOnce();
+  });
+
+  it("does not let a foreground refresh join a partial cached background run", async () => {
+    const temple = {
+      ...coordinator,
+      shortAlias: "temple",
+      longAlias: "Temple",
+      url: "https://temple.example"
+    };
+    const freshSlot = slotWithCoordinatorKeys();
+    freshSlot.robots.lake.lastCheckedAt = Date.now();
+    useGarageStore.setState({ slots: [freshSlot], currentToken: "token", hydrated: true });
+    const resolvers: Array<(value: ReturnType<typeof robotSnapshot>) => void> = [];
+    fetchRobotMock.mockImplementation(() => new Promise((resolve) => resolvers.push(resolve)));
+
+    const background = useGarageStore.getState().refreshRobotSlot(
+      "token",
+      [coordinator, temple],
+      { maxAgeMs: 300_000, priority: "background" }
+    );
+    await vi.waitFor(() => expect(fetchRobotMock).toHaveBeenCalledTimes(1));
+
+    const foreground = useGarageStore.getState().refreshRobotSlot(
+      "token",
+      [coordinator, temple],
+      { priority: "foreground" }
+    );
+    await vi.waitFor(() => expect(fetchRobotMock).toHaveBeenCalledTimes(3));
+    resolvers.forEach((resolve) => resolve(robotSnapshot()));
+    await Promise.all([background, foreground]);
+  });
+
   it("applies a preferred coordinator before slower refreshes settle", async () => {
     const temple = {
       ...coordinator,
@@ -432,6 +563,41 @@ describe("garage order sync", () => {
     resolveTemple?.(robotSnapshot());
     await refresh;
     expect(useGarageStore.getState().slots[0].loading).toBe(false);
+  }, 30000);
+
+  it("notifies observers as each coordinator settles", async () => {
+    const temple = {
+      ...coordinator,
+      shortAlias: "temple",
+      longAlias: "Temple",
+      url: "https://temple.example"
+    };
+    useGarageStore.setState({ slots: [slotWithCoordinatorKeys()], currentToken: "token", hydrated: true });
+    let resolveLake: ((value: ReturnType<typeof robotSnapshot>) => void) | undefined;
+    let resolveTemple: ((value: ReturnType<typeof robotSnapshot>) => void) | undefined;
+    fetchRobotMock.mockImplementation((url: string) => new Promise((resolve) => {
+      if (url.includes("temple")) resolveTemple = resolve;
+      else resolveLake = resolve;
+    }));
+    const observer = vi.fn();
+
+    const refresh = useGarageStore.getState().refreshRobotSlot("token", [temple, coordinator], {
+      onCoordinatorResult: observer,
+      preferredAliases: ["lake"]
+    });
+    await vi.waitFor(() => expect(fetchRobotMock).toHaveBeenCalledTimes(2));
+    resolveLake?.(robotSnapshot({ activeOrderId: 91234, lastOrderId: 91234 }));
+
+    await vi.waitFor(() => expect(observer).toHaveBeenCalledWith(expect.objectContaining({
+      shortAlias: "lake",
+      activeOrderId: 91234,
+      transportFailed: false
+    })));
+    expect(observer).toHaveBeenCalledTimes(1);
+
+    resolveTemple?.(robotSnapshot());
+    await refresh;
+    expect(observer).toHaveBeenCalledTimes(2);
   }, 30000);
 
   it("does not resurrect a released reservation from a stale robot snapshot", async () => {

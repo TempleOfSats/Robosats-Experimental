@@ -1,0 +1,158 @@
+[
+  {
+    "city": {
+      "n": "Lugano",
+      "c": "Switzerland",
+      "a": "CH",
+      "r": "Ticino",
+      "y": 46.0038,
+      "x": 8.9512,
+      "p": 63000
+    },
+    "project": "Lugano Plan B",
+    "source": "https://www.lugano.ch/en/la-mia-citta/la-citta-si-racconta/progetti/plan-b.html"
+  },
+  {
+    "city": {
+      "n": "Arnhem",
+      "c": "Netherlands",
+      "a": "NL",
+      "r": "Gelderland",
+      "y": 52.0057,
+      "x": 5.8762,
+      "p": 167000
+    },
+    "project": "Arnhem Bitcoinstad",
+    "source": "https://www.arnhembitcoinstad.nl/"
+  },
+  {
+    "city": {
+      "n": "Rovereto",
+      "c": "Italy",
+      "a": "IT",
+      "r": "Trentino-Alto Adige",
+      "y": 45.8865,
+      "x": 11.0452,
+      "p": 40000
+    },
+    "project": "Bitcoin Valley",
+    "source": "https://bitcoinvalley.eu/it/home-it/"
+  },
+  {
+    "city": {
+      "n": "El Zonte",
+      "c": "El Salvador",
+      "a": "SV",
+      "r": "La Libertad",
+      "y": 13.4978,
+      "x": -89.4407,
+      "p": 3000
+    },
+    "project": "Bitcoin Beach",
+    "source": "https://www.bitcoinbeach.com/"
+  },
+  {
+    "city": {
+      "n": "Punta Mango",
+      "c": "El Salvador",
+      "a": "SV",
+      "r": "Usulutan",
+      "y": 13.1673,
+      "x": -88.1891,
+      "p": 500
+    },
+    "project": "Bitcoin Beach",
+    "source": "https://www.bitcoinbeach.com/"
+  },
+  {
+    "city": {
+      "n": "Uvita",
+      "c": "Costa Rica",
+      "a": "CR",
+      "r": "Puntarenas",
+      "y": 9.1731,
+      "x": -83.7364,
+      "p": 3500
+    },
+    "project": "Bitcoin Jungle",
+    "source": "https://www.bitcoinjungle.app/visit-us"
+  },
+  {
+    "city": {
+      "n": "Dominical",
+      "c": "Costa Rica",
+      "a": "CR",
+      "r": "Puntarenas",
+      "y": 9.2536,
+      "x": -83.8627,
+      "p": 500
+    },
+    "project": "Bitcoin Jungle",
+    "source": "https://www.bitcoinjungle.app/visit-us"
+  },
+  {
+    "city": {
+      "n": "Mossel Bay",
+      "c": "South Africa",
+      "a": "ZA",
+      "r": "Western Cape",
+      "y": -34.1832,
+      "x": 22.1536,
+      "p": 140000
+    },
+    "project": "Bitcoin Ekasi",
+    "source": "https://bitcoinekasi.com/"
+  },
+  {
+    "city": {
+      "n": "Boracay",
+      "c": "Philippines",
+      "a": "PH",
+      "r": "Aklan",
+      "y": 11.9694,
+      "x": 121.9227,
+      "p": 37000
+    },
+    "project": "Bitcoin Island",
+    "source": "https://bitcoinislandproject.com/"
+  },
+  {
+    "city": {
+      "n": "Panajachel",
+      "c": "Guatemala",
+      "a": "GT",
+      "r": "Solola",
+      "y": 14.7422,
+      "x": -91.156,
+      "p": 16000
+    },
+    "project": "Bitcoin Lake",
+    "source": "https://bitcoinconfederation.org/hub/bitcoin-lake-guatemala/"
+  },
+  {
+    "city": {
+      "n": "Vila de Jericoacoara",
+      "c": "Brazil",
+      "a": "BR",
+      "r": "Ceara",
+      "y": -2.7952,
+      "x": -40.5152,
+      "p": 3000
+    },
+    "project": "Praia Bitcoin Jericoacoara",
+    "source": "https://bitcoinbeachbr.org/"
+  },
+  {
+    "city": {
+      "n": "Roatan",
+      "c": "Honduras",
+      "a": "HN",
+      "r": "Bay Islands",
+      "y": 16.3713,
+      "x": -86.4607,
+      "p": 110000
+    },
+    "project": "Prospera Bitcoin District",
+    "source": "https://www.prospera.co/en/solutions/crypto"
+  }
+]

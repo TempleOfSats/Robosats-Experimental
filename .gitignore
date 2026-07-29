@@ -6,6 +6,17 @@ dist/
 *.log
 coverage/
 artifacts/
+
+# Local handover, audit, and planning notes are not release documentation.
+/.dev-handover.md
+/HANDOVER.md
+/DESIGN_THEME_AUDIT.md
+/smoothness.md
+/nostr.md
+/*_PLAN.md
+/*_TODO.md
+/design-research/
+
 .env
 .env.*
 !.env.example

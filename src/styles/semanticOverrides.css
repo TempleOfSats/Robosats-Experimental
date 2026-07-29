@@ -1,0 +1,236 @@
+/* Shared cross-domain surfaces */
+.app-header {
+  background: var(--layer-navigation);
+}
+
+.secondary-link-button,
+.wizard-step,
+.wizard-panel,
+.garage-balance-row,
+.garage-utility-btn,
+.garage-switcher-item,
+.coordinator-select-menu {
+  background: var(--surface-subtle);
+}
+
+.path-card:hover,
+.action-tile:hover,
+.garage-utility-btn:hover,
+.garage-switcher-item:hover {
+  border-color: var(--border-strong);
+  background: var(--control-hover-background);
+}
+
+.path-card-primary,
+.action-tile-primary,
+.wizard-step.active,
+.garage-switcher-item.active,
+.coordinator-select-option-active {
+  border-color: var(--selection-indicator);
+  background: var(--selection-background);
+}
+
+.garage-robot-avatar-shell {
+  background: var(--surface-subtle);
+}
+
+.garage-robot-status a:hover,
+.garage-robot-status button:hover,
+.garage-robot-status a:focus-visible,
+.garage-robot-status button:focus-visible,
+.coordinator-contact-icons a:hover,
+.coordinator-contact-icons a:focus-visible,
+.coordinator-dialog-detail-link,
+.coordinator-technical-list a,
+.garage-dialog-command,
+.robot-keys-dialog > header svg,
+.robot-key-value button:hover,
+.robot-key-value button:focus-visible,
+.telegram-setup-dialog header {
+  color: var(--info-foreground);
+}
+
+.coordinator-directory-table,
+.coordinator-directory-header {
+  background: var(--surface);
+}
+
+.coordinator-rating-stars,
+.coordinator-dialog-rating .coordinator-rating-stars {
+  color: var(--warning);
+}
+
+.coordinator-star-empty,
+.coordinator-status-cell,
+.coordinator-live-status,
+.coordinator-unrated,
+.coordinator-metric small,
+.coordinator-data-disclosure > summary small,
+.coordinator-disclosure-chevron,
+.coordinator-policy-list p,
+.coordinator-technical-list dt,
+.coordinator-data-unavailable > svg,
+.coordinator-data-unavailable span {
+  color: var(--text-supporting);
+}
+
+.coordinator-directory-row-online .coordinator-status-cell {
+  color: var(--success);
+}
+
+.coordinator-enabled-cell svg {
+  color: var(--buy-foreground);
+  background: var(--info);
+}
+
+.coordinator-enabled-cell-muted svg {
+  color: var(--text-supporting);
+  background: var(--surface-raised);
+}
+
+.coordinator-dialog,
+.garage-robot-dialog,
+.garage-settings-panel,
+.robot-keys-dialog,
+.telegram-setup-dialog {
+  border-color: var(--border-default);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-lg);
+}
+
+.coordinator-dialog-header p,
+.coordinator-dialog-detail-row p,
+.garage-dialog-row,
+.garage-dialog-toggle,
+.robot-key-tabs button[aria-selected="true"],
+.robot-key-panel > p,
+.robot-key-field > span:first-child,
+.telegram-setup-dialog h2,
+.telegram-setup-dialog p {
+  color: var(--text-primary);
+}
+
+.coordinator-dialog-detail-row small,
+.garage-dialog-row small,
+.robot-key-tabs button,
+.garage-dialog-command:disabled {
+  color: var(--text-secondary);
+}
+
+.coordinator-notice {
+  border-left-color: var(--info-border);
+  background: var(--info-surface);
+}
+
+.coordinator-notice p {
+  color: var(--info-foreground);
+}
+
+.coordinator-notice-warning {
+  border-left-color: var(--warning-border);
+  background: var(--warning-surface);
+}
+
+.coordinator-notice-warning p {
+  color: var(--warning-foreground);
+}
+
+.coordinator-notice-error {
+  border-left-color: var(--danger-border);
+  background: var(--danger-surface);
+}
+
+.coordinator-notice-error p {
+  color: var(--danger-foreground);
+}
+
+.coordinator-notice-success {
+  border-left-color: var(--success-border);
+  background: var(--success-surface);
+}
+
+.coordinator-notice-success p {
+  color: var(--success-foreground);
+}
+
+.garage-token-reveal,
+.robot-key-value,
+.garage-known-list {
+  background: var(--input-surface);
+}
+
+.garage-token-reveal code,
+.robot-key-value input,
+.robot-key-value textarea {
+  color: var(--info-foreground);
+}
+
+.toggle-switch {
+  border: 1px solid var(--border-strong);
+  background: var(--surface-subtle);
+}
+
+.toggle-switch::after {
+  background: var(--text-secondary);
+}
+
+[aria-checked="true"] .toggle-switch,
+.toggle-switch-on {
+  border-color: var(--info-border);
+  background: var(--info-surface);
+}
+
+[aria-checked="true"] .toggle-switch::after,
+.toggle-switch-on::after {
+  background: var(--info);
+}
+
+.field-note {
+  color: var(--success-foreground);
+}
+
+.validation-list {
+  color: var(--danger-foreground);
+}
+
+.confirm-icon-shell {
+  color: var(--warning-foreground);
+  border-color: var(--warning-border);
+  background: var(--warning-surface);
+}
+
+.input-shell:focus-within,
+.field-block input:focus-visible,
+.field-block select:focus-visible,
+.field-block textarea:focus-visible,
+.chat-composer textarea:focus-visible,
+.payment-qr-shell:focus-visible,
+.coordinator-directory-row:focus-visible,
+.garage-known-row:focus-visible,
+.coordinator-select-button:focus-visible {
+  border-color: var(--focus-ring);
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px var(--focus-inner);
+}
+
+.coordinator-select-open .coordinator-select-button,
+.maker-clock-selector[open] .maker-clock-summary {
+  border-color: var(--focus-ring);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .payout-bolt,
+  .payout-bolt-glow,
+  .payout-route-eye {
+    animation: none;
+  }
+
+  .maker-coordinator-spinner,
+  .coordinator-status-spinner,
+  .app-transition-mark::before,
+  .ui-spinner {
+    animation-duration: 1ms !important;
+  }
+}

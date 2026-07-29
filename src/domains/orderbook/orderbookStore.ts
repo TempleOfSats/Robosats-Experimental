@@ -177,38 +177,50 @@ async function runOrderbookRefresh(
     // especially across Tor circuit changes. Always try every enabled book;
     // a stale offline badge must not hide a reachable coordinator's offers.
     const targets = coordinators.filter((coordinator) => coordinator.enabled);
-    const results = await Promise.allSettled(
+    const enabledAliases = new Set(targets.map((coordinator) => coordinator.shortAlias));
+    const results = await Promise.all(
       targets.map(async (coordinator) => {
-        const orders = await fetchCoordinatorBook(coordinator.url);
-        return orders.map((order) => ({
-          ...order,
-          coordinatorShortAlias: coordinator.shortAlias
-        }));
+        try {
+          const orders = await fetchCoordinatorBook(coordinator.url);
+          const coordinatorOrders = orders.map((order) => ({
+            ...order,
+            coordinatorShortAlias: coordinator.shortAlias
+          }));
+          if (sequence === refreshSequence) {
+            if (firstPartialMs === undefined) firstPartialMs = performance.now() - startedAt;
+            applyApiCoordinatorBook(
+              set,
+              coordinator.shortAlias,
+              coordinatorOrders,
+              enabledAliases,
+              connection,
+              network,
+              origin
+            );
+          }
+          return { coordinator, orders: coordinatorOrders };
+        } catch (error) {
+          return { coordinator, error };
+        }
       })
     );
 
     if (sequence !== refreshSequence) return;
-    const successfulBooks = results.flatMap((result, index) => result.status === "fulfilled"
-      ? [{ coordinator: targets[index], orders: result.value }]
-      : []);
+    const successfulBooks = results.filter(
+      (result): result is { coordinator: CoordinatorSummary; orders: PublicOrder[] } =>
+        "orders" in result
+    );
     if (successfulBooks.length === 0) {
-      const failure = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
-      throw failure?.reason ?? new Error("No coordinator orderbook could be loaded");
+      const failure = results.find((result) => "error" in result);
+      throw failure?.error ?? new Error("No coordinator orderbook could be loaded");
     }
-    const enabledAliases = new Set(coordinators.filter((coordinator) => coordinator.enabled).map((coordinator) => coordinator.shortAlias));
-    const successfulAliases = new Set(successfulBooks.map(({ coordinator }) => coordinator.shortAlias));
-    const retainedOrders = get().orders.filter((order) =>
-      enabledAliases.has(order.coordinatorShortAlias) && !successfulAliases.has(order.coordinatorShortAlias)
-    );
-    const orders = mergeOrders(
-      retainedOrders,
-      successfulBooks.flatMap(({ orders: coordinatorOrders }) => coordinatorOrders)
-    );
+    const orders = get().orders.filter((order) => enabledAliases.has(order.coordinatorShortAlias));
     writeOrderbookCache(connection, network, origin, orders);
     logOrderbookTiming({
       connection,
       cachedPaintMs,
       finalMs: performance.now() - startedAt,
+      firstPartialMs,
       orderCount: orders.length
     });
     set({
@@ -231,6 +243,32 @@ async function runOrderbookRefresh(
       error: toUserMessage(error, "Could not load public offers.")
     }));
   }
+}
+
+function applyApiCoordinatorBook(
+  set: (partial: Partial<OrderbookState> | ((state: OrderbookState) => Partial<OrderbookState>)) => void,
+  shortAlias: string,
+  orders: PublicOrder[],
+  enabledAliases: Set<string>,
+  connection: CoordinatorConnection,
+  network: Network,
+  origin: Origin
+): void {
+  set((state) => ({
+    orders: mergeOrders(
+      state.orders.filter((order) =>
+        enabledAliases.has(order.coordinatorShortAlias)
+        && order.coordinatorShortAlias !== shortAlias
+      ),
+      orders
+    ),
+    loading: false,
+    refreshing: true,
+    error: undefined,
+    sourceConnection: connection,
+    sourceNetwork: network,
+    sourceOrigin: origin
+  }));
 }
 
 function applyOrderbookSnapshot(

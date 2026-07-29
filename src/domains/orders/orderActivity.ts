@@ -43,7 +43,8 @@ export function ingestCoordinatorOrder({
     shortAlias,
     orderId: resolvedOrderId,
     status: normalizedOrder.status,
-    isMaker: normalizedOrder.is_maker
+    isMaker: normalizedOrder.is_maker,
+    isSeller: normalizedOrder.is_seller
   });
 
   const observation: CoordinatorOrderObservation = {

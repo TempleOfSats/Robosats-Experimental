@@ -21,19 +21,20 @@ export function recordProRobotRefreshResult(
 
   const tradeIndex = useProTradeIndexStore.getState();
   const previous = tradeIndex.syncBySlot[result.slotId];
-  const attemptedCoordinators = result.coordinators.length;
-  const failedCoordinators = result.coordinators.filter((coordinator) => coordinator.error).length;
+  const attempted = result.coordinators.filter((coordinator) => !coordinator.cached);
+  if (attempted.length === 0 && result.coordinators.length > 0) return;
+  const attemptedCoordinators = attempted.length;
+  const failedCoordinators = attempted.filter((coordinator) => coordinator.error).length;
   const successfulCoordinators = attemptedCoordinators - failedCoordinators;
 
   tradeIndex.setSlotSync({
+    ...previous,
     slotId: result.slotId,
     epoch: previous?.epoch ?? 0,
     inFlight: previous?.inFlight ?? false,
     attemptedCoordinators,
-    locallyReadyAt: previous?.locallyReadyAt,
     lastAttemptAt: completedAt,
     lastSuccessAt: successfulCoordinators > 0 ? completedAt : previous?.lastSuccessAt,
-    nextEligibleAt: previous?.nextEligibleAt,
     error: refreshError(attemptedCoordinators, successfulCoordinators, failedCoordinators)
   });
 }

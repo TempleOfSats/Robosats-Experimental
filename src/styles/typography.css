@@ -22,6 +22,7 @@
 .page-trade .page-heading h2,
 .maker-page .page-heading h2,
 .page-settings .page-heading h2,
+.statistics-page .page-heading h2,
 .trade-completion-hero h2,
 .coordinator-table-heading h2 {
   font-size: var(--type-h2-size);
@@ -137,7 +138,6 @@
 }
 
 .offer-amount-line strong,
-.offer-bond-cell strong,
 .offer-premium,
 .coordinator-directory-name strong,
 .summary-list dd,
@@ -154,7 +154,6 @@
 
 .offer-amount-line span,
 .offer-method-line,
-.offer-bond-cell small,
 .coordinator-rating-cell small,
 .coordinator-dialog-rating span {
   font-size: var(--type-caption-size);
@@ -163,7 +162,6 @@
 }
 
 .offer-premium,
-.offer-bond-cell,
 .offer-expiry,
 .payment-countdown,
 .maker-clock-summary strong,
@@ -177,14 +175,6 @@
 .coordinator-live-status {
   font-family: var(--font-sans);
   font-variant-numeric: tabular-nums lining-nums;
-}
-
-.offer-table-header > :nth-child(3),
-.offer-table-header > :nth-child(4),
-.offer-premium,
-.offer-bond-cell {
-  justify-content: flex-end;
-  text-align: right;
 }
 
 .payment-amount,

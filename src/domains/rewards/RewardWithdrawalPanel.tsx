@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { WalletCards } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Field } from "@/components/ui/field";
 import { VisualSelect } from "@/components/ui/visualSelect";
 import { toUserMessage } from "@/lib/userError";
 import { Card, CardContent } from "@/components/ui/card";
@@ -125,18 +126,16 @@ export function RewardWithdrawalPanel({
             <p className="muted-copy">Coordinator: {rewardRobot?.shortAlias}</p>
           )}
 
-          <label className="field-block">
-            Lightning invoice
+          <Field error={error || undefined} label="Lightning invoice" required>
             <textarea
               onChange={(event) => setInvoice(event.target.value)}
               placeholder="lnbc..."
               rows={4}
               value={invoice}
             />
-          </label>
+          </Field>
 
-          {error ? <p className="field-error">{error}</p> : null}
-          {success ? <p className="field-note">{success}</p> : null}
+          {success ? <p className="field-note" role="status">{success}</p> : null}
 
           <Button className="full-width" disabled={!invoiceReady || submitting} loading={submitting} type="submit">
             <WalletCards size={16} />

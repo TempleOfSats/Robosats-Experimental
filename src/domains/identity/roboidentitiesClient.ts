@@ -6,7 +6,9 @@ import {
 const avatarCache = new Map<string, string>();
 const avatarPromiseCache = new Map<string, Promise<string>>();
 const nameCache = new Map<string, string>();
-const AVATAR_STORAGE_PREFIX = "robosats_avatar_v3:";
+const AVATAR_CACHE_NAME = "robosats-exp-avatar-cache-v3";
+const AVATAR_CACHE_PATH = "https://robosats.invalid/avatar-cache/v3/";
+const AVATAR_CACHE_LIMIT = 32;
 
 export function generateRoboname(hashId: string): string {
   if (!hashId) return "Robot";
@@ -23,7 +25,7 @@ export async function generateRobohash(hashId: string, size: "small" | "large"):
   const cached = avatarCache.get(cacheKey);
   if (cached) return cached;
 
-  const persisted = readPersistedAvatar(cacheKey);
+  const persisted = await readPersistedAvatar(cacheKey);
   if (persisted) {
     avatarCache.set(cacheKey, persisted);
     return persisted;
@@ -36,7 +38,7 @@ export async function generateRobohash(hashId: string, size: "small" | "large"):
   const promise = generateBrowserRobohash(hashId, pixels)
     .then((image) => {
       avatarCache.set(cacheKey, image);
-      persistAvatar(cacheKey, image);
+      void persistAvatar(cacheKey, image);
       return image;
     })
     .finally(() => {
@@ -66,21 +68,34 @@ export async function prepareRobotIdentity(hashId: string): Promise<{ avatar: st
   };
 }
 
-function readPersistedAvatar(cacheKey: string): string | undefined {
-  if (typeof window === "undefined") return undefined;
+async function readPersistedAvatar(cacheKey: string): Promise<string | undefined> {
+  if (typeof caches === "undefined") return undefined;
   try {
-    const value = window.localStorage.getItem(`${AVATAR_STORAGE_PREFIX}${cacheKey}`);
-    return /^data:image\/(?:png|svg\+xml);base64,/.test(value ?? "") ? value ?? undefined : undefined;
+    const cache = await caches.open(AVATAR_CACHE_NAME);
+    const response = await cache.match(avatarCacheRequest(cacheKey));
+    const value = await response?.text();
+    return /^data:image\/(?:png|svg\+xml);base64,/.test(value ?? "") ? value : undefined;
   } catch {
     return undefined;
   }
 }
 
-function persistAvatar(cacheKey: string, image: string): void {
-  if (typeof window === "undefined") return;
+async function persistAvatar(cacheKey: string, image: string): Promise<void> {
+  if (typeof caches === "undefined") return;
   try {
-    window.localStorage.setItem(`${AVATAR_STORAGE_PREFIX}${cacheKey}`, image);
+    const cache = await caches.open(AVATAR_CACHE_NAME);
+    const request = avatarCacheRequest(cacheKey);
+    await cache.delete(request);
+    await cache.put(request, new Response(image, {
+      headers: { "Content-Type": "text/plain;charset=UTF-8" }
+    }));
+    const keys = await cache.keys();
+    await Promise.all(keys.slice(0, Math.max(0, keys.length - AVATAR_CACHE_LIMIT)).map((key) => cache.delete(key)));
   } catch {
     // Avatar caching is a progressive enhancement; quota failures are harmless.
   }
+}
+
+function avatarCacheRequest(cacheKey: string): Request {
+  return new Request(`${AVATAR_CACHE_PATH}${encodeURIComponent(cacheKey)}`);
 }

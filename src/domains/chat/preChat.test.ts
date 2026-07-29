@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   coordinatorSupportsPreChat,
   hasSentPreChatMessage,
+  isOwnChatMessage,
   shouldOfferPreChat,
+  usablePeerPublicKey,
   visiblePreChatMessages
 } from "@/domains/chat/preChat";
 
@@ -32,5 +34,20 @@ describe("pre-chat capability", () => {
   it("detects whether this robot already used its one early message", () => {
     expect(hasSentPreChatMessage([{ mine: false }])).toBe(false);
     expect(hasSentPreChatMessage([{ mine: false }, { mine: true }])).toBe(true);
+  });
+
+  it("treats sender-filtered pre-chat history as mine despite a local display-name difference", () => {
+    expect(isOwnChatMessage("CoordinatorRobot", "Fleet display name", true)).toBe(true);
+    expect(isOwnChatMessage("CoordinatorRobot", "Fleet display name", false)).toBe(false);
+    expect(isOwnChatMessage("CoordinatorRobot", "CoordinatorRobot", false)).toBe(true);
+  });
+
+  it("accepts only a peer public key that differs from this robot's key", () => {
+    const ownKey = "-----BEGIN PGP PUBLIC KEY BLOCK-----\nown\n-----END PGP PUBLIC KEY BLOCK-----";
+    const peerKey = "-----BEGIN PGP PUBLIC KEY BLOCK-----\npeer\n-----END PGP PUBLIC KEY BLOCK-----";
+
+    expect(usablePeerPublicKey(peerKey, ownKey)).toBe(peerKey);
+    expect(usablePeerPublicKey(`${ownKey}\n`, ownKey)).toBe("");
+    expect(usablePeerPublicKey("not a key", ownKey)).toBe("");
   });
 });

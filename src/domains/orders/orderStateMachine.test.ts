@@ -81,10 +81,26 @@ describe("getTradeViewState", () => {
     expect(getTradeViewState({ ...baseOrder, status: 15, is_buyer: false, is_seller: true }).panel).toBe("success");
   });
 
-  it("requests a replacement invoice only when the failed invoice expired", () => {
-    const buyer = { ...baseOrder, status: 15, is_buyer: true, is_seller: false };
+  it("shows failed routing only to the buyer receiving the payout", () => {
+    const buyer = { ...baseOrder, status: 15, is_buyer: true, is_seller: false, retries: 1 };
     expect(getTradeViewState({ ...buyer, invoice_expired: false }).requiredAction).toBe("wait");
     expect(getTradeViewState({ ...buyer, invoice_expired: true }).requiredAction).toBe("retry_invoice");
+    expect(getTradeViewState({
+      ...baseOrder,
+      status: 15,
+      is_buyer: false,
+      is_seller: true,
+      retries: 1
+    }).panel).toBe("success");
+    expect(getTradeViewState({
+      ...baseOrder,
+      status: 15,
+      is_buyer: true,
+      is_seller: false
+    })).toMatchObject({
+      panel: "routing_failed",
+      requiredAction: "wait"
+    });
   });
 
   it("reserves the public-order owner message for the maker", () => {

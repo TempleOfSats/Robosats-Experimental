@@ -18,7 +18,7 @@ vi.mock("@/domains/orders/orderApi", () => ({
 }));
 
 import { useGarageStore } from "@/domains/garage/garageStore";
-import { orderLoadRequestOptions, useOrderStore } from "@/domains/orders/orderStore";
+import { orderForLocator, orderLoadRequestOptions, useOrderStore } from "@/domains/orders/orderStore";
 
 beforeEach(() => {
   const storage = new Map<string, string>();
@@ -105,6 +105,36 @@ describe("order load request profiles", () => {
       priority: "maintenance",
       source: "order-refresh"
     });
+  });
+});
+
+describe("confirmed-order handoff", () => {
+  it("only exposes an order to its matching coordinator route", () => {
+    const order = { id: 123, shortAlias: "lake" } as OrderDto;
+
+    expect(orderForLocator(order, "lake", 123)).toBe(order);
+    expect(orderForLocator(order, "alice", 123)).toBeUndefined();
+    expect(orderForLocator(order, "lake", 456)).toBeUndefined();
+  });
+
+  it("does not let an older in-flight read overwrite a confirmed order", async () => {
+    let resolveOldOrder!: (order: OrderDto) => void;
+    fetchOrderMock.mockImplementation(() => new Promise<OrderDto>((resolve) => {
+      resolveOldOrder = resolve;
+    }));
+    const oldRequest = useOrderStore.getState().loadOrder({ coordinator, orderId: 123, slot });
+    const confirmedOrder = {
+      id: 456,
+      shortAlias: coordinator.shortAlias,
+      status: 0,
+      is_maker: true
+    } as OrderDto;
+
+    useOrderStore.getState().primeOrder(confirmedOrder);
+    resolveOldOrder({ id: 123, status: 1, is_maker: true } as OrderDto);
+    await oldRequest;
+
+    expect(useOrderStore.getState().order).toBe(confirmedOrder);
   });
 });
 

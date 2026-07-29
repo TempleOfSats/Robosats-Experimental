@@ -9,6 +9,7 @@ type ButtonProps = PropsWithChildren<
     variant?: ButtonVariant;
     size?: ButtonSize;
     loading?: boolean;
+    loadingLabel?: string;
   }
 >;
 
@@ -16,7 +17,7 @@ const variantClass: Record<ButtonVariant, string> = {
   primary: "bg-primary text-primary shadow-primary",
   secondary: "bg-muted text-foreground",
   ghost: "bg-transparent text-muted",
-  destructive: "bg-destructive text-foreground",
+  destructive: "bg-destructive",
   outline: "bg-transparent text-foreground border"
 };
 
@@ -33,17 +34,21 @@ export function Button({
   variant = "primary",
   size = "md",
   loading = false,
+  loadingLabel = "Working",
   disabled,
   ...props
 }: ButtonProps) {
   return (
     <button
+      aria-busy={loading || undefined}
       className={cn("ui-button", variantClass[variant], sizeClass[size], className)}
+      data-loading={loading || undefined}
       disabled={disabled || loading}
       {...props}
     >
       {loading ? <span className="ui-spinner" aria-hidden /> : null}
       {children}
+      {loading ? <span className="sr-only" role="status">{loadingLabel}</span> : null}
     </button>
   );
 }

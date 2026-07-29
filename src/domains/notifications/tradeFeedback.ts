@@ -1,5 +1,6 @@
 import { playTradeAudio } from "@/domains/audio/audioController";
 import { showDesktopOrderNotification } from "@/domains/notifications/desktopNotifications";
+import { shouldPlayOrderFeedbackAudio } from "@/domains/notifications/orderFeedbackVisibility";
 
 const MAX_CHAT_TRACKERS = 64;
 const lastNotifiedChatIndex = new Map<string, number>();
@@ -27,7 +28,9 @@ export function deliverChatFeedback({
     lastNotifiedChatIndex.delete(oldest);
   }
 
-  void playTradeAudio("chat-open").catch(() => undefined);
+  if (shouldPlayOrderFeedbackAudio(shortAlias, orderId)) {
+    void playTradeAudio("chat-open").catch(() => undefined);
+  }
   void showDesktopOrderNotification(
     orderId,
     shortAlias,

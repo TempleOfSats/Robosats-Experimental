@@ -5,6 +5,7 @@ import {
 } from "@/domains/garage/robotAvailability";
 import {
   classifyProTrade,
+  isResumableOrRenewableOffer,
   type ProRobotSummary
 } from "@/domains/pro/proSelectors";
 import type {
@@ -12,16 +13,17 @@ import type {
   SlotSyncState
 } from "@/domains/pro/pro.types";
 
-export type ProRobotLifecycleStatus =
+type ProRobotLifecycleStatus =
   | "ready"
   | "checking"
   | "waiting"
   | "unavailable"
   | "starting"
+  | "renewable"
   | "ongoing"
   | "needs-attention";
 
-export type ProRobotVerification =
+type ProRobotVerification =
   | "local"
   | "coordinator"
   | "checking"
@@ -60,6 +62,16 @@ export function deriveProRobotLifecycle(
   }
   if (needsAttention) {
     return lifecycle("needs-attention", verification(sync), "Needs attention", "warning", availability, sync, true);
+  }
+  if (trades.some(isResumableOrRenewableOffer)) {
+    return lifecycle("renewable", verification(sync), "Renewable trade", "default", availability, sync, true);
+  }
+  const unresolvedOrder = trades.find((snapshot) => !snapshot.order);
+  if (unresolvedOrder && trades.every((snapshot) => !snapshot.order)) {
+    if (unresolvedOrder.freshness === "refreshing") {
+      return lifecycle("checking", "checking", "Checking last order", "muted", availability, sync);
+    }
+    return lifecycle("unavailable", "unavailable", "Order status unavailable", "muted", availability, sync);
   }
   if (!availability.available || trades.length > 0) {
     return lifecycle("ongoing", verification(sync), "Ongoing trade", "default", availability, sync, true);

@@ -98,21 +98,101 @@ describe("order change hints", () => {
 
     expect(buildHintTargets([slot], [coordinatorSummary()])).toEqual([]);
   });
+
+  it("backs off a closed relay subscription and resets after EOSE", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const harness = runtimeHarness(robotSlot(), coordinatorSummary(), false);
+
+    try {
+      harness.runtime.start();
+      expect(harness.subscriptions).toHaveLength(1);
+
+      harness.subscriptions[0].onclose?.();
+      await vi.advanceTimersByTimeAsync(14_999);
+      expect(harness.subscriptions).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(harness.subscriptions).toHaveLength(2);
+
+      harness.subscriptions[1].onclose?.();
+      await vi.advanceTimersByTimeAsync(44_999);
+      expect(harness.subscriptions).toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(harness.subscriptions).toHaveLength(3);
+
+      harness.subscriptions[2].oneose?.();
+      harness.subscriptions[2].onclose?.();
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(harness.subscriptions).toHaveLength(4);
+    } finally {
+      harness.runtime.stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps healthy coordinator subscriptions while retrying one failed relay", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const slot = robotSlot();
+    const secondSecret = new Uint8Array(32).fill(8);
+    const secondCoordinator = {
+      ...coordinatorSummary(),
+      shortAlias: "temple",
+      url: "http://temple.onion",
+      nostrHexPubkey: getPublicKey(secondSecret)
+    };
+    slot.managedBy = "fleet";
+    slot.robots.temple = {
+      ...slot.robots.lake,
+      shortAlias: "temple"
+    };
+    const harness = runtimeHarness(slot, [coordinatorSummary(), secondCoordinator], true);
+
+    try {
+      harness.runtime.start();
+      expect(harness.subscriptions).toHaveLength(2);
+
+      harness.subscriptions[0].onclose?.();
+      await vi.advanceTimersByTimeAsync(15_000);
+
+      expect(harness.subscriptions).toHaveLength(3);
+    } finally {
+      harness.runtime.stop();
+      vi.useRealTimers();
+    }
+  });
 });
 
-function runtimeHarness(slot: RobotSlot, coordinator: CoordinatorSummary, proEnabled: boolean) {
+function runtimeHarness(
+  slot: RobotSlot,
+  coordinator: CoordinatorSummary | CoordinatorSummary[],
+  proEnabled: boolean
+) {
+  const coordinators = Array.isArray(coordinator) ? coordinator : [coordinator];
   const subscriptions: Array<{
     relays: string[];
     filter: Filter;
     onevent?: (event: Event) => void;
+    oneose?: () => void;
+    onclose?: () => void;
   }> = [];
   const pool = {
     subscribeMany(
       relays: string[],
       filter: Filter,
-      params: { onevent?: (event: Event) => void }
+      params: {
+        onevent?: (event: Event) => void;
+        oneose?: () => void;
+        onclose?: () => void;
+      }
     ) {
-      subscriptions.push({ relays, filter, onevent: params.onevent });
+      subscriptions.push({
+        relays,
+        filter,
+        onevent: params.onevent,
+        oneose: params.oneose,
+        onclose: params.onclose
+      });
       return { close: vi.fn(async () => []) };
     }
   };
@@ -126,7 +206,7 @@ function runtimeHarness(slot: RobotSlot, coordinator: CoordinatorSummary, proEna
     now: () => NOW,
     canConnect: () => true,
     garageState: () => ({ slots: [slot], currentToken: slot.token }),
-    federationState: () => ({ coordinators: [coordinator] }),
+    federationState: () => ({ coordinators }),
     proEnabled: () => proEnabled,
     subscribeGarage: subscribe,
     subscribeFederation: subscribe,
