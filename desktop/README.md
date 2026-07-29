@@ -39,7 +39,10 @@ npm run build:desktop:macos
 Outputs are copied to `desktop/release/`. GitHub Actions builds each target on
 its native runner. Linux packages use the host Wayland runtime so the webview
 matches the installed graphics stack. The Windows installer includes the
-Evergreen WebView2 offline installer. Windows Rust binaries statically link the
-Microsoft C runtime, so a separate Visual C++ Redistributable installation is
-not required. Windows packaging inspects both the Tauri executable and Arti
-sidecar and fails if a dynamic Microsoft C runtime dependency is introduced.
+Evergreen WebView2 bootstrapper. Windows Rust binaries statically link the
+redistributable Visual C++ runtime, so a separate Visual C++ Redistributable
+installation is not required. Windows packaging inspects both the Tauri
+executable and Arti sidecar and fails if a `VCRUNTIME`, `MSVCP`, `CONCRT`, or
+similar redistributable DLL dependency is introduced. Universal CRT API-set
+imports are allowed because UCRT is an operating-system component on the
+supported Windows 10 and Windows 11 targets.
