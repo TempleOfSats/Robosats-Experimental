@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   AlertCircle,
+  AlertTriangle,
   ArrowDownLeft,
   ArrowRight,
   ArrowUpDown,
@@ -38,17 +39,18 @@ import { getRobotOrderAvailability } from "@/domains/garage/robotAvailability";
 import { reserveRobotOrderAction, revalidateRobotForNewOrder } from "@/domains/orders/robotOrderGuard";
 import { downloadRobotTokenBackup } from "@/domains/garage/tokenBackup";
 import { ingestCoordinatorOrder } from "@/domains/orders/orderActivity";
+import { openConfirmedOrder } from "@/domains/orders/confirmedOrderNavigation";
 import { writeClipboard } from "@/lib/clipboard";
-import { fetchOrder, submitOrderAction } from "@/domains/orders/orderApi";
+import { fetchOrder, isCompleteOrderActionResponse, submitOrderAction } from "@/domains/orders/orderApi";
 import { roleBuysBitcoin, roleIntentLabel } from "@/domains/orders/orderRole";
 import type { OrderDto } from "@/domains/orders/order.types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
+import { AppTransitionFeedback } from "@/components/app/AppTransitionFeedback";
 import { InfoHint } from "@/components/ui/infoHint";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CurrencyFlag, CurrencyPicker, IntentPicker, PaymentMethodIcons, PaymentMethodPicker, type IntentPickerOption } from "@/domains/orderbook/OfferMeta";
-import { BeginnerTradeWizard } from "@/domains/orderbook/BeginnerTradeWizard";
 import type { GuidedTradeCriteria } from "@/domains/orderbook/guidedTrade";
 import { isSwapPaymentMethod, matchedPaymentMethods, paymentIconSrc, paymentMethodOptions } from "@/domains/orderbook/paymentMethods";
 import { CreateOfferRobotPicker } from "@/domains/pro/ProWorkspaceDialogs";
@@ -60,8 +62,11 @@ import { selectProGarageSlots, useGarageVaultStore } from "@/domains/pro/garageV
 import { bondDisplayValue, expiryRingValue, formatExpiryTitle, knownSatsValue, orderSatsPreview } from "@/domains/orderbook/offerDisplay";
 import { formatFiat, formatSats } from "@/lib/format";
 import { toUserMessage } from "@/lib/userError";
-import { selectCashF2FOffers } from "@/domains/location/f2fOfferMap";
-import { hasApproximateF2FLocation, paymentMethodHasF2F } from "@/domains/location/f2fLocation";
+import {
+  hasApproximateF2FLocation,
+  paymentMethodHasF2F,
+  selectCashF2FOffers
+} from "@/domains/location/f2fLocation";
 
 type SortColumn = "amount" | "premium" | "expiry";
 type SortDirection = "asc" | "desc";
@@ -94,6 +99,9 @@ const LazyF2FOffersMapDialog = lazy(loadF2FOffersMapDialog);
 const LazyF2FLocationDialog = lazy(() =>
   import("@/domains/location/F2FLocationDialog").then((module) => ({ default: module.F2FLocationDialog }))
 );
+const LazyBeginnerTradeWizard = lazy(() =>
+  import("@/domains/orderbook/BeginnerTradeWizard").then((module) => ({ default: module.BeginnerTradeWizard }))
+);
 
 export function OffersPage() {
   const location = useLocation();
@@ -106,12 +114,14 @@ export function OffersPage() {
     () => (location.state as OffersLocationState | null)?.directOfferLaunch
   );
   const { connection, coordinators, origin, refreshCoordinators } = useFederationStore();
+  const refreshCoordinatorLimits = useFederationStore((state) => state.refreshCoordinatorLimits);
   const { orders, loading, refreshing, error, refreshOrderbook, applyLiveOrders } = useOrderbookStore();
   const hydrateGarage = useGarageStore((state) => state.hydrate);
   const garageSlots = useGarageStore((state) => state.slots);
   const currentToken = useGarageStore((state) => state.currentToken);
   const setCurrentToken = useGarageStore((state) => state.setCurrentToken);
   const proEnabled = useProPreferencesStore((state) => state.enabled);
+  const setProLastView = useProPreferencesStore((state) => state.setLastView);
   const fleetManifest = useGarageVaultStore((state) => state.manifest);
   const tradeSnapshots = useProTradeIndexStore((state) => state.snapshots);
   const [intentFilter, setIntentFilter] = useState<IntentFilter>("any");
@@ -384,6 +394,11 @@ export function OffersPage() {
   }, [selectedCoordinator?.shortAlias, selectedCoordinator?.url, selectedOrder?.id, takeModalOpen, takeSlot?.token]);
 
   useEffect(() => {
+    if (!takeModalOpen || !selectedCoordinator || selectedCoordinator.limits) return;
+    void refreshCoordinatorLimits(selectedCoordinator.shortAlias, { priority: "visible" });
+  }, [refreshCoordinatorLimits, selectedCoordinator, takeModalOpen]);
+
+  useEffect(() => {
     if (!takeIntentPending || !orderDetailsResolved || privateOrderLoading) return;
     setTakeIntentPending(false);
     if (selectedDescription) setDescriptionConfirmOpen(true);
@@ -528,16 +543,31 @@ export function OffersPage() {
         return;
       }
       const orderId = order.id || selectedOrder.id;
-      setCurrentToken(actionSlot.token);
-      ingestCoordinatorOrder({
-        order,
+      const confirmedOrder = {
+        ...order,
+        id: orderId,
+        shortAlias: selectedCoordinator.shortAlias
+      };
+      if (proEnabled) setProLastView("trades");
+      openConfirmedOrder(navigate, {
+        initialOrder: isCompleteOrderActionResponse(order) ? confirmedOrder : undefined,
         orderId,
         shortAlias: selectedCoordinator.shortAlias,
-        slot: actionSlot
+        slotId: actionSlot.tokenSHA256
       });
-      const orderPath = `/order/${selectedCoordinator.shortAlias}/${orderId}`;
-      beginRouteTransition(orderPath);
-      navigate(orderPath, { state: { robotSlotId: actionSlot.tokenSHA256 } });
+
+      // Local indexing is repairable from the authoritative Trade-page read and
+      // must not strand a coordinator-confirmed take on the orderbook.
+      try {
+        setCurrentToken(actionSlot.token);
+        ingestCoordinatorOrder({
+          order: confirmedOrder,
+          shortAlias: selectedCoordinator.shortAlias,
+          slot: actionSlot
+        });
+      } catch {
+        // The Trade page performs the authoritative repair.
+      }
     } catch (error) {
       setTakeError(toUserMessage(error, "Could not take this offer."));
       if (proEnabled) setTakeSlotId(undefined);
@@ -779,16 +809,18 @@ export function OffersPage() {
       </section>
 
       {guidedTradeOpen ? (
-        <BeginnerTradeWizard
-          coordinators={coordinators}
-          initialCriteria={guidedLaunch?.criteria}
-          loading={(loading || refreshing) && orders.length === 0}
-          onClose={closeGuidedTrade}
-          onCreateOffer={createGuidedOffer}
-          onSelectOffer={(order, criteria) => openTakeModal(order, criteria.amount)}
-          orders={orders}
-          reviewOpen={takeModalOpen}
-        />
+        <Suspense fallback={<GuidedTradeLoadingDialog onClose={closeGuidedTrade} />}>
+          <LazyBeginnerTradeWizard
+            coordinators={coordinators}
+            initialCriteria={guidedLaunch?.criteria}
+            loading={(loading || refreshing) && orders.length === 0}
+            onClose={closeGuidedTrade}
+            onCreateOffer={createGuidedOffer}
+            onSelectOffer={(order, criteria) => openTakeModal(order, criteria.amount)}
+            orders={orders}
+            reviewOpen={takeModalOpen}
+          />
+        </Suspense>
       ) : null}
 
       {f2fOffersMapOpen ? (
@@ -851,6 +883,8 @@ export function OffersPage() {
 
       {confirmTakeOpen && takeSlot ? (
         <TokenBackupDialog
+          previouslyUsed={Boolean(takeSlot.lastOrderId)
+            || Object.values(takeSlot.robots).some((robot) => Boolean(robot.lastOrderId))}
           robotName={takeSlot.nickname}
           token={takeSlot.token}
           taking={taking}
@@ -940,6 +974,22 @@ function F2FOffersMapLoadingDialog({ onClose }: { onClose: () => void }) {
       <span className="ui-spinner" aria-hidden="true" />
       <strong>Loading Cash F2F map…</strong>
       <Button onClick={onClose} size="sm" type="button" variant="ghost">Cancel</Button>
+    </Dialog>
+  );
+}
+
+function GuidedTradeLoadingDialog({ onClose }: { onClose: () => void }) {
+  return (
+    <Dialog
+      ariaLabel="Preparing trade finder"
+      onClose={onClose}
+      overlayClassName="confirm-overlay app-transition-overlay"
+      panelClassName="confirm-sheet app-transition-dialog"
+    >
+      <button className="take-modal-close" onClick={onClose} type="button" aria-label="Close trade finder">
+        <X size={18} />
+      </button>
+      <AppTransitionFeedback title="Preparing trade finder" message="Loading the guided trade steps..." />
     </Dialog>
   );
 }
@@ -1199,12 +1249,14 @@ function OrderDescriptionDialog({
 function TokenBackupDialog({
   onBack,
   onDone,
+  previouslyUsed,
   robotName,
   taking,
   token
 }: {
   onBack: () => void;
   onDone: () => void;
+  previouslyUsed: boolean;
   robotName: string;
   taking: boolean;
   token: string;
@@ -1255,6 +1307,12 @@ function TokenBackupDialog({
             </Button>
           </div>
         </div>
+        {previouslyUsed ? (
+          <div className="token-reuse-note" role="note">
+            <AlertTriangle size={16} aria-hidden="true" />
+            <span>This is the same robot identity used for an earlier order. Continue with it, or go back and choose a fresh robot for stronger privacy separation.</span>
+          </div>
+        ) : null}
         <div className="confirm-actions">
           <Button variant="secondary" disabled={taking} onClick={onBack}>Go back</Button>
           <Button loading={taking} onClick={onDone}>Done</Button>

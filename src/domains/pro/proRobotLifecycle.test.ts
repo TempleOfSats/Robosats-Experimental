@@ -90,6 +90,66 @@ describe("PRO robot lifecycle", () => {
       canOpenTrade: true
     });
   });
+
+  it("identifies paused and renewable offers in the robot status", () => {
+    const slot = robotSlot();
+
+    expect(deriveProRobotLifecycle(slot, {
+      paused: snapshot(slot, { status: 2, is_maker: true })
+    })).toMatchObject({
+      status: "renewable",
+      statusLabel: "Renewable trade",
+      canStartOrder: false,
+      canRemove: false,
+      canOpenTrade: true
+    });
+    expect(deriveProRobotLifecycle(slot, {
+      expired: {
+        ...snapshot(slot, { status: 5, is_maker: true }),
+        renewable: true
+      }
+    })).toMatchObject({
+      status: "renewable",
+      statusLabel: "Renewable trade",
+      canOpenTrade: true
+    });
+  });
+
+  it("does not call a robot ready while its restored last order is unresolved", () => {
+    const slot = robotSlot();
+    const locator = {
+      slotId: slot.tokenSHA256,
+      shortAlias: "lake",
+      orderId: 42
+    };
+    const pending: ProTradeSnapshot = {
+      key: `${slot.tokenSHA256}:lake:42`,
+      locator,
+      nickname: slot.nickname,
+      hashId: slot.hashId,
+      lastOrderId: 42,
+      renewable: false,
+      released: false,
+      freshness: "refreshing"
+    };
+
+    expect(deriveProRobotLifecycle(slot, { pending })).toMatchObject({
+      status: "checking",
+      statusLabel: "Checking last order",
+      canStartOrder: false,
+      canRemove: false,
+      canOpenTrade: false
+    });
+    expect(deriveProRobotLifecycle(slot, {
+      pending: { ...pending, freshness: "error", errorCode: "order-unavailable" }
+    })).toMatchObject({
+      status: "unavailable",
+      statusLabel: "Order status unavailable",
+      canStartOrder: false,
+      canRemove: false,
+      canOpenTrade: false
+    });
+  });
 });
 
 function robotSlot(): RobotSlot {

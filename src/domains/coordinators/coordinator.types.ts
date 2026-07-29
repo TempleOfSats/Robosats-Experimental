@@ -116,6 +116,7 @@ export interface CoordinatorSummary {
   badgeIcons: CoordinatorBadgeIcon[];
   enabled: boolean;
   online: boolean;
+  lastCheckedAt?: number;
   loading?: boolean;
   error?: string;
   info?: CoordinatorInfo;

@@ -38,7 +38,10 @@ export default defineConfig(({ command }) => {
     },
     plugins: [
       react(),
-      ...(command === "build" ? [versionStaticAssets(staticRevision)] : [])
+      ...(command === "build" ? [
+        versionStaticAssets(staticRevision),
+        deferApplicationStyles()
+      ] : [])
     ],
     resolve: {
       alias: [
@@ -134,6 +137,22 @@ function versionStaticAssets(revision: string) {
       const versionedPath = resolve(distStaticPath, revision);
       renameSync(unversionedPath, versionedPath);
       rewriteStaticTextFiles(versionedPath, versionedPrefix);
+    }
+  };
+}
+
+function deferApplicationStyles() {
+  return {
+    name: "robosats-defer-application-styles",
+    transformIndexHtml: {
+      order: "post" as const,
+      handler(html: string) {
+        return html.replace(/<link\b([^>]*\brel="stylesheet"[^>]*)>/g, (tag, attributes: string) => {
+          if (!/\bhref="\/assets\/[^"]+\/robosats-exp\.index\.[^"]+\.css"/.test(attributes)) return tag;
+          const deferredAttributes = attributes.replace(/\s*\brel="stylesheet"/, "");
+          return `<link rel="preload" as="style" data-robosats-app-style${deferredAttributes}>`;
+        });
+      }
     }
   };
 }

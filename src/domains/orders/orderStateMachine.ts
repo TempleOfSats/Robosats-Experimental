@@ -2,20 +2,69 @@ import type { OrderDto, TradeStepMessage, TradeViewState } from "@/domains/order
 
 type ViewOverrides = Omit<TradeViewState, "status" | "message"> & { message: TradeStepMessage };
 
+export type CurrentRobotOrderLifecycle =
+  | "active"
+  | "renewable"
+  | "completed"
+  | "collaboratively-cancelled"
+  | "terminal";
+
 export function getTradeViewState(order: OrderDto): TradeViewState {
   const view = viewForOrder(order);
   return { status: order.status, ...view };
 }
 
 export function hasFailedPayoutForCurrentRobot(
-  order: Pick<OrderDto, "status" | "retries" | "next_retry_time" | "failure_reason" | "invoice_expired">
+  order: Pick<OrderDto, "status" | "is_buyer">
 ): boolean {
-  return order.status === 15 && (
-    order.retries !== undefined
-    || order.next_retry_time !== undefined
-    || order.failure_reason !== undefined
-    || order.invoice_expired !== undefined
-  );
+  return order.status === 15 && order.is_buyer;
+}
+
+export function classifyOrderLifecycleForCurrentRobot({
+  isMaker,
+  isSeller,
+  status
+}: {
+  isMaker?: boolean;
+  isSeller?: boolean;
+  status: number;
+}): CurrentRobotOrderLifecycle {
+  if (status === 5 && Boolean(isMaker)) return "renewable";
+  if (status === 12) return "collaboratively-cancelled";
+  if (status === 14 || (Boolean(isSeller) && (status === 13 || status === 15))) {
+    return "completed";
+  }
+  if ([4, 17, 18].includes(status) || (status === 5 && !isMaker)) return "terminal";
+  return "active";
+}
+
+export function isTerminalOrderForCurrentRobot({
+  isMaker,
+  isSeller,
+  status
+}: {
+  isMaker?: boolean;
+  isSeller?: boolean;
+  status: number;
+}): boolean {
+  const lifecycle = classifyOrderLifecycleForCurrentRobot({ status, isMaker, isSeller });
+  return lifecycle === "completed"
+    || lifecycle === "collaboratively-cancelled"
+    || lifecycle === "terminal";
+}
+
+export function isCompletedTradeForCurrentRobot(
+  order: Pick<OrderDto, "status" | "is_seller"> & { is_maker?: boolean }
+): boolean {
+  return classifyOrderLifecycleForCurrentRobot({
+    status: order.status,
+    isMaker: order.is_maker,
+    isSeller: order.is_seller
+  }) === "completed";
+}
+
+export function hasActionableOrderDeadline(order: Pick<OrderDto, "status">): boolean {
+  return order.status >= 0 && order.status <= 11;
 }
 
 function viewForOrder(order: OrderDto): ViewOverrides {
@@ -78,10 +127,10 @@ function viewForOrder(order: OrderDto): ViewOverrides {
     case 14:
       return successView("Trade finished");
     case 15:
-      return hasFailedPayoutForCurrentRobot(order)
-        ? view("Lightning routing failed", "warning", order.invoice_expired ? "retry_invoice" : "wait", "unlocked", "routing_failed",
-            "The payout could not be routed", routingFailureBody(order), order.invoice_expired ? "Submit a fresh invoice to retry the payout." : "The coordinator retries automatically unless a replacement invoice is required.")
-        : successView("Trade finished");
+      return order.is_seller
+        ? successView("Trade finished")
+        : view("Lightning routing failed", "warning", order.invoice_expired ? "retry_invoice" : "wait", "unlocked", "routing_failed",
+            "The payout could not be routed", routingFailureBody(order), order.invoice_expired ? "Submit a fresh invoice to retry the payout." : "The coordinator retries automatically unless a replacement invoice is required.");
     case 16:
       return view("We have both statements", "warning", "wait", "settled", "dispute_resolution",
         "Waiting for the coordinator's resolution", "The coordinator is reviewing both participants' statements and evidence.", "No further action is required unless the coordinator contacts you.");

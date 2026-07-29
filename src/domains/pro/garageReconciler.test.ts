@@ -6,12 +6,14 @@ import type {
   RobotSlot
 } from "@/domains/garage/garageStore";
 import { useGarageStore } from "@/domains/garage/garageStore";
+import { getRobotOrderAvailability } from "@/domains/garage/robotAvailability";
 import type { OrderDto } from "@/domains/orders/order.types";
 import {
   GarageReconciler,
   markProOrderActionFinished,
   markProOrderActionStarted
 } from "@/domains/pro/garageReconciler";
+import { useGarageVaultStore } from "@/domains/pro/garageVaultStore";
 import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
 import type { ProTradeLocator, ProTradeSnapshot } from "@/domains/pro/pro.types";
 
@@ -57,6 +59,114 @@ describe("GarageReconciler", () => {
     expect(snapshot).toMatchObject({ nickname: "Beta", freshness: "fresh", activeOrderId: 91234 });
     expect(JSON.stringify(snapshot)).not.toContain('"token"');
     expect(useGarageStore.getState().currentToken).toBe("alpha");
+  });
+
+  it("backfills an unarchived terminal trade from the locally retained last order id", async () => {
+    const completedBeta = {
+      ...beta,
+      lastOrderId: 91234,
+      robots: {
+        lake: { ...beta.robots.lake, lastOrderId: 91234 }
+      }
+    };
+    useGarageStore.setState({ slots: [alpha, completedBeta], currentToken: "alpha", hydrated: true });
+    const archiveTrade = vi.fn(() => "archived" as const);
+    useGarageVaultStore.setState({ archiveTrade });
+    const fetchOrder = vi.fn(async () => order({
+      id: 91234,
+      status: 14,
+      is_buyer: true,
+      is_seller: false
+    }));
+    const reconciler = makeReconciler({
+      refreshRobotSlot: async () => ({
+        slotId: "slot-beta",
+        coordinators: [{ shortAlias: "lake", found: true }]
+      }),
+      fetchOrder
+    });
+
+    await reconciler.reconcileSlot("slot-beta", "manual");
+
+    expect(fetchOrder).toHaveBeenCalledWith(
+      coordinator,
+      91234,
+      expect.objectContaining({ tokenSHA256: "slot-beta" }),
+      "manual"
+    );
+    expect(archiveTrade).toHaveBeenCalledWith(expect.objectContaining({
+      slotId: "slot-beta",
+      coordinatorShortAlias: "lake",
+      order: expect.objectContaining({ id: 91234, status: 14 })
+    }));
+    expect(useProTradeIndexStore.getState().snapshots["slot-beta:lake:91234"]).toBeUndefined();
+  });
+
+  it("reserves a restored robot while resolving its last order and restores an expired maker as renewable", async () => {
+    let resolveOrder: ((value: OrderDto) => void) | undefined;
+    const fetchOrder = vi.fn(() => new Promise<OrderDto>((resolve) => {
+      resolveOrder = resolve;
+    }));
+    const reconciler = makeReconciler({
+      refreshRobotSlot: async () => ({
+        slotId: "slot-beta",
+        coordinators: [{ shortAlias: "lake", found: true, lastOrderId: 91234 }]
+      }),
+      fetchOrder
+    });
+
+    const refresh = reconciler.reconcileSlot("slot-beta", "fleet-ready");
+    await vi.waitFor(() => expect(fetchOrder).toHaveBeenCalledOnce());
+
+    const pending = useProTradeIndexStore.getState().snapshots["slot-beta:lake:91234"];
+    expect(pending).toMatchObject({
+      freshness: "refreshing",
+      lastOrderId: 91234
+    });
+    expect(pending?.order).toBeUndefined();
+    expect(getRobotOrderAvailability(
+      beta,
+      useProTradeIndexStore.getState().snapshots
+    ).available).toBe(false);
+
+    resolveOrder?.(order({
+      id: 91234,
+      status: 5,
+      is_maker: true,
+      is_taker: false
+    }));
+    await refresh;
+
+    expect(useProTradeIndexStore.getState().snapshots["slot-beta:lake:91234"]).toMatchObject({
+      freshness: "fresh",
+      renewable: true,
+      order: { id: 91234, status: 5 }
+    });
+    expect(useGarageStore.getState().slots.find((slot) => slot.tokenSHA256 === "slot-beta")?.robots.lake)
+      .toMatchObject({ activeOrderId: 91234, lastOrderId: 91234, renewableOrderId: 91234 });
+  });
+
+  it("keeps a restored robot reserved when its reported last order cannot be read", async () => {
+    const reconciler = makeReconciler({
+      refreshRobotSlot: async () => ({
+        slotId: "slot-beta",
+        coordinators: [{ shortAlias: "lake", found: true, lastOrderId: 91234 }]
+      }),
+      fetchOrder: async () => {
+        throw new Error("offline");
+      }
+    });
+
+    await reconciler.reconcileSlot("slot-beta", "fleet-ready");
+
+    const snapshots = useProTradeIndexStore.getState().snapshots;
+    expect(snapshots["slot-beta:lake:91234"]).toMatchObject({
+      freshness: "error",
+      errorCode: "order-unavailable",
+      lastOrderId: 91234
+    });
+    expect(snapshots["slot-beta:lake:91234"]?.order).toBeUndefined();
+    expect(getRobotOrderAvailability(beta, snapshots).available).toBe(false);
   });
 
   it("coalesces concurrent reads of the same Fleet order", async () => {
@@ -175,7 +285,7 @@ describe("GarageReconciler", () => {
       maxAgeMs: undefined,
       onCoordinatorResult: expect.any(Function),
       preferredAliases: [],
-      priority: "background",
+      priority: "foreground",
       source: "fleet-reconcile"
     });
   });
@@ -339,7 +449,6 @@ describe("GarageReconciler", () => {
         order: { id: 91234 }
       });
     });
-
     resolveBatch?.({
       slotId: "slot-beta",
       coordinators: [

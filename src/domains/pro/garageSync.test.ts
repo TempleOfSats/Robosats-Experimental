@@ -5,16 +5,20 @@ import {
   buildGarageRecordEvent,
   decodeGarageRecordEvent,
   garageRelayUrls,
-  queryGarageRecords
+  queryGarageRecords,
+  queryGarageRecordsDetailed,
+  recoverGarageSnapshotWithPool
 } from "@/domains/pro/garageSync";
 import { deriveGarageDomainKey } from "@/domains/pro/garageCrypto";
-import { deriveGarageRobotToken, garageTokenId } from "@/domains/pro/garageVault";
+import { activeGarageEntries, deriveGarageRobotToken, garageTokenId } from "@/domains/pro/garageVault";
 import {
+  preferencesToSyncRecord,
   syncRecordAddress,
   tradeHistoryToSyncRecord,
   validateGarageSyncRecord,
   type GarageRobotRecord
 } from "@/domains/pro/garageSyncRecords";
+import { createPortableSettingsManifest } from "@/domains/pro/portableSettings";
 import { tradeHistoryEntryFromOrder } from "@/domains/pro/tradeHistory";
 import type { OrderDto } from "@/domains/orders/order.types";
 
@@ -118,6 +122,119 @@ describe("Garage NIP-78 records", () => {
     expect(querySync.mock.calls.map((call) => call[1])).toContainEqual(expect.objectContaining({ until: 9 }));
   });
 
+  it("materializes the first relay before slower recovery relays finish", async () => {
+    const event = buildGarageRecordEvent(secret, robotRecord(), 10);
+    let releaseSlowRelay!: (events: typeof event[]) => void;
+    const slowRelay = new Promise<typeof event[]>((resolve) => {
+      releaseSlowRelay = resolve;
+    });
+    const querySync = vi.fn(async (relays: string[]) => {
+      if (relays[0]?.includes("slow")) return slowRelay;
+      return [event];
+    });
+    const onFirstNonempty = vi.fn();
+    const progress: number[] = [];
+    const recovery = queryGarageRecordsDetailed(
+      { querySync } as unknown as SimplePool,
+      secret,
+      ["wss://fast.example", "wss://slow.example"],
+      8_000,
+      onFirstNonempty,
+      (state) => progress.push(state.pending)
+    );
+    let finished = false;
+    void recovery.then(() => { finished = true; });
+
+    await vi.waitFor(() => expect(onFirstNonempty).toHaveBeenCalledTimes(1));
+    expect(finished).toBe(false);
+
+    releaseSlowRelay([]);
+    const result = await recovery;
+    expect(result.records).toHaveLength(1);
+    expect(result.reachableRelays).toHaveLength(2);
+    expect(progress).toContain(1);
+    expect(progress.at(-1)).toBe(0);
+  });
+
+  it("reports unavailable relays separately from reachable empty relays", async () => {
+    const querySync = vi.fn(async () => []);
+    const result = await queryGarageRecordsDetailed(
+      {
+        querySync,
+        listConnectionStatus: () => new Map([
+          ["wss://online.example/", true],
+          ["wss://offline.example/", false]
+        ])
+      } as unknown as SimplePool,
+      secret,
+      ["wss://online.example", "wss://offline.example"]
+    );
+
+    expect(result.records).toEqual([]);
+    expect(result.reachableRelays).toEqual(["wss://online.example"]);
+    expect(result.unavailableRelays).toEqual(["wss://offline.example"]);
+  });
+
+  it("retries an inconclusive recovery and does not materialize settings without the robot manifest", async () => {
+    const settingsEvent = buildGarageRecordEvent(
+      secret,
+      preferencesToSyncRecord(createPortableSettingsManifest(deviceId, { theme: "dark" }, 1)),
+      10
+    );
+    const robotEvent = buildGarageRecordEvent(secret, robotRecord(), 11);
+    const querySync = vi.fn(async () => querySync.mock.calls.length === 1
+      ? [settingsEvent]
+      : [robotEvent]);
+    const onFirstSnapshot = vi.fn();
+    const onRecordsComplete = vi.fn();
+
+    const snapshot = await recoverGarageSnapshotWithPool(
+      { querySync } as unknown as SimplePool,
+      secret,
+      [coordinator("https://relay.example")],
+      { onFirstSnapshot, onRecordsComplete },
+      [0]
+    );
+
+    expect(querySync).toHaveBeenCalledTimes(2);
+    expect(activeGarageEntries(snapshot.garage)).toHaveLength(1);
+    expect(onFirstSnapshot).toHaveBeenCalledOnce();
+    expect(activeGarageEntries(onFirstSnapshot.mock.calls[0]?.[0].garage)).toHaveLength(1);
+    expect(onRecordsComplete).toHaveBeenCalledOnce();
+    expect(onRecordsComplete.mock.calls[0]?.[0]).toHaveLength(2);
+  });
+
+  it("does not accept a settings-only partial Fleet while a relay is unavailable", async () => {
+    const settingsEvent = buildGarageRecordEvent(
+      secret,
+      preferencesToSyncRecord(createPortableSettingsManifest(deviceId, { theme: "dark" }, 1)),
+      10
+    );
+    const querySync = vi.fn(async (relays: string[]) =>
+      relays[0]?.includes("online") ? [settingsEvent] : []
+    );
+    const onFirstSnapshot = vi.fn();
+
+    await expect(recoverGarageSnapshotWithPool(
+      {
+        querySync,
+        listConnectionStatus: () => new Map([
+          ["wss://online.example/relay", true],
+          ["wss://offline.example/relay", false]
+        ])
+      } as unknown as SimplePool,
+      secret,
+      [
+        coordinator("https://online.example"),
+        coordinator("https://offline.example")
+      ],
+      { onFirstSnapshot },
+      [0]
+    )).rejects.toThrow("Only part of this Fleet was found");
+
+    expect(onFirstSnapshot).not.toHaveBeenCalled();
+  });
+
   it("uses enabled coordinator relays and excludes local or disabled coordinators", () => {
     expect(garageRelayUrls([
       { shortAlias: "local", longAlias: "Local", url: "http://localhost", enabled: true, online: true, color: "", avatarUrl: "", smallAvatarUrl: "", badgeIcons: [] },
@@ -126,6 +243,20 @@ describe("Garage NIP-78 records", () => {
     ])).toEqual(["wss://example.com/relay/"]);
   });
 });
+
+function coordinator(url: string) {
+  return {
+    shortAlias: "test",
+    longAlias: "Test",
+    url,
+    enabled: true,
+    online: true,
+    color: "",
+    avatarUrl: "",
+    smallAvatarUrl: "",
+    badgeIcons: []
+  };
+}
 
 function completedOrder(): OrderDto {
   return {

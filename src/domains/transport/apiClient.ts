@@ -42,9 +42,7 @@ export interface ApiClient {
 }
 
 export function buildAuthHeaders(auth?: Auth): HeadersInit {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json"
-  };
+  const headers: Record<string, string> = {};
 
   if (auth && auth.keys === undefined) {
     headers.Authorization = `Token ${auth.tokenSHA256}`;
@@ -53,6 +51,13 @@ export function buildAuthHeaders(auth?: Auth): HeadersInit {
   }
 
   return headers;
+}
+
+export function buildJsonHeaders(auth?: Auth): HeadersInit {
+  return {
+    ...buildAuthHeaders(auth),
+    "Content-Type": "application/json"
+  };
 }
 
 export const apiRoutes = {

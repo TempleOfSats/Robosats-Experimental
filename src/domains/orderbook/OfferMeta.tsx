@@ -2,6 +2,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { ArrowDownLeft, ArrowUpRight, ChevronDown, CircleDollarSign, Globe2, Repeat2 } from "lucide-react";
 import { matchedPaymentMethods, paymentIconSrc, type PaymentMethodOption } from "@/domains/orderbook/paymentMethods";
+import { isNativeApp } from "@/domains/transport/androidBridge";
 
 export type IntentPickerOption = {
   label: string;
@@ -537,7 +538,16 @@ function optionClassName(icon: ReactNode, active: boolean): string {
 
 function PaymentMethodImage({ icon, name, size }: { icon: string; name: string; size: number }) {
   const style = { "--payment-icon-size": `${size}px` } as CSSProperties;
-  return <img alt={name} className="payment-method-icon" loading="lazy" src={paymentIconSrc(icon)} style={style} />;
+  return (
+    <img
+      alt={name}
+      className="payment-method-icon"
+      decoding="async"
+      loading={isNativeApp() ? "eager" : "lazy"}
+      src={paymentIconSrc(icon)}
+      style={style}
+    />
+  );
 }
 
 function IntentIcon({ tone, size }: { tone: IntentPickerOption["tone"]; size: number }) {

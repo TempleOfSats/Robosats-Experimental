@@ -7,7 +7,9 @@ import {
 export const RELAY_CONNECTION_TIMEOUT_MS = 120_000;
 
 const sharedRelayPool = new SimplePool({
-  enablePing: true,
+  // Coordinator relays already send WebSocket pings. nostr-tools' browser
+  // fallback uses a short-lived Nostr REQ that can close healthy Tor sockets.
+  enablePing: false,
   enableReconnect: false
 });
 sharedRelayPool.maxWaitForConnection = RELAY_CONNECTION_TIMEOUT_MS;

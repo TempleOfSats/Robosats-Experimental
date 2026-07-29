@@ -1,4 +1,4 @@
-export const RELAY_RETRY_DELAYS_MS = [5_000, 15_000, 45_000, 120_000, 300_000] as const;
+export const RELAY_RETRY_DELAYS_MS = [15_000, 45_000, 120_000, 300_000] as const;
 
 const RETRY_JITTER_RATIO = 0.2;
 

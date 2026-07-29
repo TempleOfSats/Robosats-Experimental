@@ -109,20 +109,20 @@ describe("order change hints", () => {
       expect(harness.subscriptions).toHaveLength(1);
 
       harness.subscriptions[0].onclose?.();
-      await vi.advanceTimersByTimeAsync(4_999);
+      await vi.advanceTimersByTimeAsync(14_999);
       expect(harness.subscriptions).toHaveLength(1);
       await vi.advanceTimersByTimeAsync(1);
       expect(harness.subscriptions).toHaveLength(2);
 
       harness.subscriptions[1].onclose?.();
-      await vi.advanceTimersByTimeAsync(14_999);
+      await vi.advanceTimersByTimeAsync(44_999);
       expect(harness.subscriptions).toHaveLength(2);
       await vi.advanceTimersByTimeAsync(1);
       expect(harness.subscriptions).toHaveLength(3);
 
       harness.subscriptions[2].oneose?.();
       harness.subscriptions[2].onclose?.();
-      await vi.advanceTimersByTimeAsync(5_000);
+      await vi.advanceTimersByTimeAsync(15_000);
       expect(harness.subscriptions).toHaveLength(4);
     } finally {
       harness.runtime.stop();
@@ -153,7 +153,7 @@ describe("order change hints", () => {
       expect(harness.subscriptions).toHaveLength(2);
 
       harness.subscriptions[0].onclose?.();
-      await vi.advanceTimersByTimeAsync(5_000);
+      await vi.advanceTimersByTimeAsync(15_000);
 
       expect(harness.subscriptions).toHaveLength(3);
     } finally {

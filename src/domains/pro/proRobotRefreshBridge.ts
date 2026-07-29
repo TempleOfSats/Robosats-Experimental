@@ -28,14 +28,13 @@ export function recordProRobotRefreshResult(
   const successfulCoordinators = attemptedCoordinators - failedCoordinators;
 
   tradeIndex.setSlotSync({
+    ...previous,
     slotId: result.slotId,
     epoch: previous?.epoch ?? 0,
     inFlight: previous?.inFlight ?? false,
     attemptedCoordinators,
-    locallyReadyAt: previous?.locallyReadyAt,
     lastAttemptAt: completedAt,
     lastSuccessAt: successfulCoordinators > 0 ? completedAt : previous?.lastSuccessAt,
-    nextEligibleAt: previous?.nextEligibleAt,
     error: refreshError(attemptedCoordinators, successfulCoordinators, failedCoordinators)
   });
 }

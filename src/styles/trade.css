@@ -639,6 +639,19 @@
   flex-direction: row-reverse;
 }
 
+.chat-message-unavailable {
+  width: fit-content;
+  max-width: min(100%, 28rem);
+  margin: 0.2rem auto;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  padding: 0.55rem 0.75rem;
+  color: var(--muted-foreground);
+  background: color-mix(in srgb, var(--muted) 55%, transparent);
+  font-size: 0.78rem;
+  text-align: center;
+}
+
 .chat-message > .robot-avatar {
   flex: 0 0 auto;
 }

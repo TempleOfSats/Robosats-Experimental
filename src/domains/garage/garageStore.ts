@@ -8,8 +8,10 @@ import {
   type RefreshRobotSlotResult
 } from "@/domains/garage/robotRefreshEvents";
 import type { Auth, RequestPriority, RequestSource } from "@/domains/transport/apiClient";
+import { isNativeApp } from "@/domains/transport/androidBridge";
 import { systemClient } from "@/domains/transport/systemClient";
 import { toUserMessage } from "@/lib/userError";
+import { isTerminalOrderForCurrentRobot } from "@/domains/orders/orderStateMachine";
 
 export type {
   RefreshRobotCoordinatorResult,
@@ -62,7 +64,7 @@ export type GarageState = {
     orderId: number;
     status: number;
     isMaker?: boolean;
-    hasFailedPayout?: boolean;
+    isSeller?: boolean;
   }) => void;
   updateSlotIdentityDetails: (
     token: string,
@@ -135,8 +137,14 @@ export const useGarageStore: UseBoundStore<StoreApi<GarageState>> = create<Garag
     const rawSlots = systemClient.getItem(GARAGE_SLOTS_KEY)
       ?? systemClient.getItem(LEGACY_GARAGE_SLOTS_KEY);
     const currentToken = systemClient.getItem(GARAGE_CURRENT_SLOT_KEY) ?? undefined;
-    const slots = parseStoredSlots(rawSlots);
-    const nextCurrentToken = currentToken ?? slots[0]?.token;
+    const parsedSlots = parseStoredSlots(rawSlots);
+    const slots = slotsForPersistentStorage(parsedSlots);
+    const nextCurrentToken = currentToken && slots.some((slot) => slot.token === currentToken)
+      ? currentToken
+      : slots[0]?.token;
+    if (slots.length !== parsedSlots.length || currentToken !== nextCurrentToken) {
+      persistSlots(slots, nextCurrentToken);
+    }
     set({
       slots,
       currentToken: nextCurrentToken,
@@ -146,7 +154,7 @@ export const useGarageStore: UseBoundStore<StoreApi<GarageState>> = create<Garag
   currentSlot: () => selectCurrentSlot(get().slots, get().currentToken),
   setCurrentToken: (token) =>
     set((state) => {
-      systemClient.setItem(GARAGE_CURRENT_SLOT_KEY, token);
+      persistCurrentToken(state.slots, token);
       return { ...state, currentToken: token };
     }),
   addSlot: (slot) => {
@@ -257,10 +265,10 @@ export const useGarageStore: UseBoundStore<StoreApi<GarageState>> = create<Garag
       persistSlots(slots, state.currentToken ?? token);
       return { ...state, slots };
     }),
-  syncOrderSnapshot: ({ token, shortAlias, orderId, status, isMaker, hasFailedPayout }) =>
+  syncOrderSnapshot: ({ token, shortAlias, orderId, status, isMaker, isSeller }) =>
     set((state) => {
       const renewable = status === 5 && Boolean(isMaker);
-      const terminal = isTerminalOrderStatus(status, hasFailedPayout) && !renewable;
+      const terminal = isTerminalOrderForCurrentRobot({ status, isMaker, isSeller }) && !renewable;
       const slots = state.slots.map((slot) => {
         if (slot.token !== token) return slot;
         const existingRobot = slot.robots[shortAlias] ?? Object.values(slot.robots)[0];
@@ -734,8 +742,9 @@ function parseStoredSlots(rawSlots: string | null): RobotSlot[] {
   }
 }
 
-function persistSlots(slots: RobotSlot[], currentToken: string): void {
-  const stored: StoredRobotSlot[] = slots.map((slot) => ({
+function persistSlots(slots: RobotSlot[], currentToken?: string): void {
+  const persistedSlots = slotsForPersistentStorage(slots);
+  const stored: StoredRobotSlot[] = persistedSlots.map((slot) => ({
       token: slot.token,
       nickname: slot.nickname,
       managedBy: slot.managedBy,
@@ -755,7 +764,24 @@ function persistSlots(slots: RobotSlot[], currentToken: string): void {
   };
   systemClient.setItem(GARAGE_SLOTS_KEY, JSON.stringify(versioned));
   systemClient.setItem(LEGACY_GARAGE_SLOTS_KEY, JSON.stringify(stored));
-  systemClient.setItem(GARAGE_CURRENT_SLOT_KEY, currentToken);
+  persistCurrentToken(persistedSlots, currentToken);
+}
+
+function slotsForPersistentStorage(slots: RobotSlot[]): RobotSlot[] {
+  return isNativeApp() ? slots : selectStandardGarageSlots(slots);
+}
+
+function persistCurrentToken(slots: RobotSlot[], currentToken?: string): void {
+  const persistedSlots = slotsForPersistentStorage(slots);
+  const requested = persistedSlots.find((slot) => slot.token === currentToken)?.token;
+  const previous = systemClient.getItem(GARAGE_CURRENT_SLOT_KEY);
+  const retained = persistedSlots.find((slot) => slot.token === previous)?.token;
+  const persistentToken = requested ?? retained ?? persistedSlots[0]?.token;
+  if (persistentToken) {
+    systemClient.setItem(GARAGE_CURRENT_SLOT_KEY, persistentToken);
+  } else {
+    systemClient.deleteItem(GARAGE_CURRENT_SLOT_KEY);
+  }
 }
 
 function storedSlotRecords(value: unknown): unknown[] {
@@ -890,8 +916,4 @@ function summarizeSlot(slot: RobotSlot, options: { preserveOrderIds?: boolean } 
     earnedRewards,
     availableRewards: rewardRobot?.shortAlias
   };
-}
-
-function isTerminalOrderStatus(status: number, hasFailedPayout?: boolean): boolean {
-  return [4, 5, 12, 14, 17, 18].includes(status) || (status === 15 && hasFailedPayout === false);
 }

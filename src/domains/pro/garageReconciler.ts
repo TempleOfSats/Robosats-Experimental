@@ -225,12 +225,14 @@ export class GarageReconciler implements GarageReconcileController {
       );
       const immediateCoordinatorTasks: Promise<void>[] = [];
       const observedAliases = new Set<string>();
+      const interactive = isInteractiveOrderRead(reason);
       const result = await this.dependencies.refreshRobotSlot(slot.token, coordinators, {
-        priority: reason === "manual" || reason === "order-action" ? "foreground" : "background",
+        priority: interactive ? "foreground" : "background",
         source: "fleet-reconcile",
         preferredAliases: preferredCoordinatorAliases(slot),
         maxAgeMs: reason === "interval" ? PRO_RECONCILE_POLICY.statusFreshMs : undefined,
         onCoordinatorResult: (robot) => {
+          if (observedAliases.has(robot.shortAlias)) return;
           observedAliases.add(robot.shortAlias);
           this.recordCoordinatorResult(coordinators, robot);
           immediateCoordinatorTasks.push(
@@ -246,6 +248,7 @@ export class GarageReconciler implements GarageReconcileController {
           result.coordinators.filter((robot) => !observedAliases.has(robot.shortAlias)),
           PRO_RECONCILE_POLICY.maxOrderRequests,
           async (robot) => {
+            observedAliases.add(robot.shortAlias);
             this.recordCoordinatorResult(coordinators, robot);
             await this.reconcileCoordinator(slot, robot, reason, epoch, directlyRefreshed);
           }
@@ -292,7 +295,7 @@ export class GarageReconciler implements GarageReconcileController {
   ): Promise<void> {
     const coordinator = this.dependencies.getCoordinators().find((item) => item.shortAlias === robot.shortAlias);
     if (!coordinator?.url) return;
-    const orderIds = uniqueOrderIds(robot);
+    const orderIds = unarchivedOrderIds(slot, robot);
 
     if (robot.error) {
       markCoordinatorSnapshotsFailed(slot.tokenSHA256, robot.shortAlias, "coordinator-unavailable");
@@ -362,12 +365,20 @@ export class GarageReconciler implements GarageReconcileController {
     epoch: number
   ): Promise<void> {
     const key = proTradeKey(locator);
-    const previous = useProTradeIndexStore.getState().snapshots[key];
-    const actionGeneration = actionSequences.get(key) ?? 0;
+    let previous = useProTradeIndexStore.getState().snapshots[key];
+    const pendingSnapshot = previous ? undefined : pendingOrderSnapshot(slot, locator, robot, this.dependencies.now());
+    if (pendingSnapshot) {
+      useProTradeIndexStore.getState().upsertSnapshot(pendingSnapshot);
+      previous = pendingSnapshot;
+    }
+    const actionGeneration = beginTrackedOrderRefresh(key);
 
     try {
       const order = await this.readOrder(slot, coordinator, locator, reason, epoch, actionGeneration);
-      if (epoch !== this.epoch || actionGeneration !== (actionSequences.get(key) ?? 0)) return;
+      if (epoch !== this.epoch || actionGeneration !== (actionSequences.get(key) ?? 0)) {
+        removePendingOrderSnapshot(pendingSnapshot);
+        return;
+      }
 
       const observedOrder = ingestCoordinatorOrder({
         order: { ...order, shortAlias: locator.shortAlias },
@@ -385,7 +396,10 @@ export class GarageReconciler implements GarageReconcileController {
         slot
       });
     } catch (error) {
-      if (epoch !== this.epoch || actionGeneration !== (actionSequences.get(key) ?? 0)) return;
+      if (epoch !== this.epoch || actionGeneration !== (actionSequences.get(key) ?? 0)) {
+        removePendingOrderSnapshot(pendingSnapshot);
+        return;
+      }
       if (isAlreadyCancelledError(error)) {
         if (previous?.order) {
           ingestCoordinatorOrder({
@@ -414,11 +428,14 @@ export class GarageReconciler implements GarageReconcileController {
         const current = useProTradeIndexStore.getState().snapshots[key] ?? previous;
         useProTradeIndexStore.getState().upsertSnapshot({
           ...current,
+          freshness: current.order ? current.freshness : "error",
           errorCode: current.errorCode === "coordinator-unavailable"
             ? current.errorCode
             : "order-unavailable"
         });
       }
+    } finally {
+      finishTrackedOrderRefresh(key);
     }
   }
 
@@ -444,15 +461,63 @@ export class GarageReconciler implements GarageReconcileController {
 
 }
 
+function pendingOrderSnapshot(
+  slot: RobotSlot,
+  locator: ProTradeLocator,
+  robot: RefreshRobotCoordinatorResult | undefined,
+  observedAt: number
+): ProTradeSnapshot {
+  return {
+    key: proTradeKey(locator),
+    locator,
+    nickname: slot.nickname,
+    hashId: slot.hashId,
+    activeOrderId: robot?.activeOrderId,
+    lastOrderId: robot?.lastOrderId ?? locator.orderId,
+    renewable: robot?.renewableOrderId === locator.orderId,
+    released: false,
+    freshness: "refreshing",
+    updatedAt: observedAt
+  };
+}
+
+function removePendingOrderSnapshot(snapshot: ProTradeSnapshot | undefined): void {
+  if (!snapshot) return;
+  if (useProTradeIndexStore.getState().snapshots[snapshot.key] !== snapshot) return;
+  useProTradeIndexStore.getState().removeTrade(snapshot.locator);
+}
+
 const actionSequences = new Map<string, number>();
+const activeOrderRefreshes = new Map<string, number>();
 
 export function markProOrderActionStarted(locator: ProTradeLocator): void {
-  const key = proTradeKey(locator);
-  actionSequences.set(key, (actionSequences.get(key) ?? 0) + 1);
+  advanceActionSequence(proTradeKey(locator));
 }
 
 export function markProOrderActionFinished(locator: ProTradeLocator): void {
-  const key = proTradeKey(locator);
+  advanceActionSequence(proTradeKey(locator));
+}
+
+function beginTrackedOrderRefresh(key: string): number {
+  activeOrderRefreshes.set(key, (activeOrderRefreshes.get(key) ?? 0) + 1);
+  return actionSequences.get(key) ?? 0;
+}
+
+function finishTrackedOrderRefresh(key: string): void {
+  const remaining = (activeOrderRefreshes.get(key) ?? 1) - 1;
+  if (remaining > 0) {
+    activeOrderRefreshes.set(key, remaining);
+    return;
+  }
+  activeOrderRefreshes.delete(key);
+  actionSequences.delete(key);
+}
+
+function advanceActionSequence(key: string): void {
+  if (!activeOrderRefreshes.has(key)) {
+    actionSequences.delete(key);
+    return;
+  }
   actionSequences.set(key, (actionSequences.get(key) ?? 0) + 1);
 }
 
@@ -468,7 +533,7 @@ export const garageReconciler = new GarageReconciler({
   fetchOrder: async (coordinator, orderId, slot, reason) => {
     const auth = getRobotAuthForCoordinator(slot, coordinator.shortAlias);
     if (!auth) throw new Error("robot-auth-unavailable");
-    const foreground = canBypassCoordinatorBackoff(reason);
+    const foreground = isInteractiveOrderRead(reason);
     return {
       ...(await fetchOrder(coordinator.url, orderId, auth, {
         timeoutProfile: foreground ? "interactive" : "background",
@@ -552,6 +617,22 @@ function uniqueOrderIds(robot: RefreshRobotCoordinatorResult): number[] {
   ].filter((value): value is number => Boolean(value && value !== robot.releasedOrderId)))];
 }
 
+function unarchivedOrderIds(slot: RobotSlot, robot: RefreshRobotCoordinatorResult): number[] {
+  const local = slot.robots[robot.shortAlias];
+  const orderIds = [...new Set([
+    ...uniqueOrderIds(robot),
+    local?.activeOrderId,
+    local?.renewableOrderId,
+    local?.lastOrderId
+  ].filter((value): value is number => Boolean(value && value !== robot.releasedOrderId)))];
+  const history = useGarageVaultStore.getState().history?.entries ?? [];
+  return orderIds.filter((orderId) => !history.some((entry) =>
+    entry.slotId === slot.tokenSHA256
+      && entry.coordinatorShortAlias === robot.shortAlias
+      && entry.orderId === orderId
+  ));
+}
+
 function nextDelayForSlot(slot: RobotSlot, snapshots: Record<string, ProTradeSnapshot>): number {
   const slotSnapshots = Object.values(snapshots).filter((snapshot) =>
     snapshot.locator.slotId === slot.tokenSHA256 && !snapshot.released
@@ -594,6 +675,10 @@ function isRecentHint(hint: OrderHint, now: number): boolean {
 
 function canBypassCoordinatorBackoff(reason: ReconcileReason): boolean {
   return reason === "manual" || reason === "order-action" || reason === "nostr-hint";
+}
+
+function isInteractiveOrderRead(reason: ReconcileReason): boolean {
+  return reason === "startup" || reason === "fleet-ready" || canBypassCoordinatorBackoff(reason);
 }
 
 function earliestCoordinatorRetry(

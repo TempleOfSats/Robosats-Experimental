@@ -4,7 +4,6 @@ import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.type
 import { getRobotAuthForCoordinator, type RobotSlot, useGarageStore } from "@/domains/garage/garageStore";
 import { ingestCoordinatorOrder } from "@/domains/orders/orderActivity";
 import { fetchOrder, isCompleteOrderActionResponse, submitOrderAction } from "@/domains/orders/orderApi";
-import { hasFailedPayoutForCurrentRobot } from "@/domains/orders/orderStateMachine";
 import type { OrderDto, SubmitOrderActionPayload } from "@/domains/orders/order.types";
 import type { ApiRequestOptions } from "@/domains/transport/apiClient";
 import { hasRoboSatsApiErrorCode } from "@/domains/transport/apiError";
@@ -17,6 +16,7 @@ type OrderState = {
   refreshing: boolean;
   submitting: boolean;
   error?: string;
+  primeOrder: (order: OrderDto) => void;
   loadOrder: (params: LoadOrderParams) => Promise<void>;
   submitAction: (params: SubmitActionParams) => Promise<void>;
   clearOrder: () => void;
@@ -46,6 +46,16 @@ export const useOrderStore = create<OrderState>((set, get) => ({
   loading: false,
   refreshing: false,
   submitting: false,
+  primeOrder: (order) => {
+    requestSequence += 1;
+    set({
+      order,
+      loading: false,
+      refreshing: false,
+      submitting: false,
+      error: undefined
+    });
+  },
   loadOrder: async ({ coordinator, orderId, reason = "initial", slot }) => {
     if (get().submitting) return;
     const auth = getRobotAuthForCoordinator(slot, coordinator.shortAlias);
@@ -144,7 +154,7 @@ export const useOrderStore = create<OrderState>((set, get) => ({
           ? {
               status: completedOrder.status,
               isMaker: completedOrder.is_maker,
-              hasFailedPayout: hasFailedPayoutForCurrentRobot(completedOrder),
+              isSeller: completedOrder.is_seller,
               snapshotApplied: true
             }
           : undefined
@@ -156,6 +166,14 @@ export const useOrderStore = create<OrderState>((set, get) => ({
     set({ order: undefined, error: undefined, loading: false, refreshing: false, submitting: false });
   }
 }));
+
+export function orderForLocator(
+  order: OrderDto | undefined,
+  shortAlias: string,
+  orderId: number
+): OrderDto | undefined {
+  return order?.id === orderId && order.shortAlias === shortAlias ? order : undefined;
+}
 
 export function orderLoadRequestOptions(reason: OrderLoadReason): ApiRequestOptions {
   if (reason === "poll") {
@@ -205,7 +223,7 @@ function dispatchOrderActionEvent(
   slot: RobotSlot | undefined,
   shortAlias: string,
   orderId: number,
-  result?: { status: number; isMaker: boolean; hasFailedPayout: boolean; snapshotApplied: boolean }
+  result?: { status: number; isMaker: boolean; isSeller: boolean; snapshotApplied: boolean }
 ): void {
   if (!slot || typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent(name, {

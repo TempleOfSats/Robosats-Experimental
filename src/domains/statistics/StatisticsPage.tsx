@@ -42,6 +42,7 @@ import {
   liquidityDepth,
   liquidityMarkets,
   liquidityTotal,
+  missingLiquidityLimitAliases,
   weightedLiquidityPremium,
   type LiquidityDepthPoint,
   type LiquidityEntry
@@ -68,6 +69,7 @@ export function StatisticsPage() {
   const connection = useFederationStore((state) => state.connection);
   const network = useFederationStore((state) => state.network);
   const origin = useFederationStore((state) => state.origin);
+  const refreshCoordinatorLimits = useFederationStore((state) => state.refreshCoordinatorLimits);
   const orderbookOrders = useOrderbookStore((state) => state.orders);
   const orderbookLoading = useOrderbookStore((state) => state.loading);
   const orderbookRefreshing = useOrderbookStore((state) => state.refreshing);
@@ -88,11 +90,16 @@ export function StatisticsPage() {
   const [ticks, setTicks] = useState<MarketTick[]>([]);
   const [completedLoad, setCompletedLoad] = useState<LoadState>(emptyLoadState);
   const [activityLoad, setActivityLoad] = useState<LoadState>(emptyLoadState);
+  const [liquidityLimitLoad, setLiquidityLimitLoad] = useState<LoadState>(emptyLoadState);
   const [completedRequested, setCompletedRequested] = useState(false);
   const [activityRequested, setActivityRequested] = useState(false);
   const [activityPage, setActivityPage] = useState(1);
   const completedGeneration = useRef(0);
   const activityGeneration = useRef(0);
+  const liquidityLimitAttempts = useRef<{ aliases: Set<string>; scope: string }>({
+    aliases: new Set(),
+    scope: ""
+  });
   const tickRange = useMemo(() => {
     const end = new Date();
     const start = new Date(end);
@@ -151,6 +158,7 @@ export function StatisticsPage() {
     setCompletedLoad(emptyLoadState());
     setActivityRequested(false);
     setActivityLoad(emptyLoadState());
+    setLiquidityLimitLoad(emptyLoadState());
   }, [targetKey]);
 
   useEffect(() => {
@@ -198,6 +206,59 @@ export function StatisticsPage() {
     () => new Map(coordinators.map((coordinator) => [coordinator.shortAlias, coordinator])),
     [coordinators]
   );
+  const missingLiquidityLimits = useMemo(
+    () => missingLiquidityLimitAliases(orderbookOrders, coordinators),
+    [coordinators, orderbookOrders]
+  );
+  const missingLiquidityLimitKey = missingLiquidityLimits.join("|");
+  const liquidityLimitScope = `${connection}:${network}:${origin}:${targetKey}`;
+  const loadLiquidityLimits = useCallback(async (aliases: string[], force = false) => {
+    if (aliases.length === 0) return;
+    const requestScope = liquidityLimitScope;
+    setLiquidityLimitLoad((current) => beginCoordinatorLoads(current, aliases));
+
+    await Promise.allSettled(aliases.map(async (alias) => {
+      const refreshed = await refreshCoordinatorLimits(alias, {
+        force,
+        priority: "visible"
+      });
+      if (liquidityLimitAttempts.current.scope !== requestScope) return;
+      setLiquidityLimitLoad((current) => settleCoordinator(
+        current,
+        alias,
+        refreshed ? undefined : new Error("Coordinator price limits are unavailable")
+      ));
+    }));
+  }, [liquidityLimitScope, refreshCoordinatorLimits]);
+
+  useEffect(() => {
+    const attempts = liquidityLimitAttempts.current;
+    if (attempts.scope !== liquidityLimitScope) {
+      attempts.scope = liquidityLimitScope;
+      attempts.aliases.clear();
+    }
+    if (view !== "liquidity") return;
+    const aliases = missingLiquidityLimits.filter((alias) => !attempts.aliases.has(alias));
+    if (aliases.length === 0) return;
+    aliases.forEach((alias) => attempts.aliases.add(alias));
+    void loadLiquidityLimits(aliases);
+  }, [
+    liquidityLimitScope,
+    loadLiquidityLimits,
+    missingLiquidityLimitKey,
+    missingLiquidityLimits,
+    view
+  ]);
+
+  const refreshLiquidity = useCallback(async () => {
+    await loadLiquidity(true);
+    const currentOrders = useOrderbookStore.getState().orders;
+    const currentCoordinators = useFederationStore.getState().coordinators;
+    const aliases = missingLiquidityLimitAliases(currentOrders, currentCoordinators);
+    aliases.forEach((alias) => liquidityLimitAttempts.current.aliases.add(alias));
+    await loadLiquidityLimits(aliases, true);
+  }, [loadLiquidity, loadLiquidityLimits]);
+
   const liquidityEntries = useMemo(() => orderbookOrders.flatMap((order): LiquidityOrderEntry[] => {
     const currencyCode = order.currencyCode ?? currencyCodeFromId(order.currency);
     const coordinator = coordinatorByAlias.get(order.coordinatorShortAlias);
@@ -225,7 +286,7 @@ export function StatisticsPage() {
   }, [currency]);
 
   const statisticsRefreshing = view === "liquidity"
-    ? orderbookLoading || orderbookRefreshing
+    ? orderbookLoading || orderbookRefreshing || liquidityLimitLoad.pending.length > 0
     : activeLoad(view, completedLoad, activityLoad).pending.length > 0;
 
   return (
@@ -243,7 +304,7 @@ export function StatisticsPage() {
             aria-label="Refresh statistics"
             loading={statisticsRefreshing}
             loadingLabel="Refreshing statistics"
-            onClick={() => void (view === "completed" ? loadCompleted(true) : view === "activity" ? loadActivity(true) : loadLiquidity(true))}
+            onClick={() => void (view === "completed" ? loadCompleted(true) : view === "activity" ? loadActivity(true) : refreshLiquidity())}
             size="icon"
             title="Refresh statistics"
             type="button"
@@ -299,17 +360,19 @@ export function StatisticsPage() {
           />
         ) : (
           <LiquidityPanel
+            calculating={liquidityLimitLoad.pending.length > 0}
             currency={liquidityCurrency}
             currencyOptions={liquidityCurrencyOptions}
             entries={filteredLiquidity}
             error={orderbookError}
-            loading={orderbookLoading && liquidityEntries.length === 0}
+            incomplete={missingLiquidityLimits.length > 0}
+            loading={(orderbookLoading || liquidityLimitLoad.pending.length > 0) && liquidityEntries.length === 0}
             markets={liquidityMarkets(liquidityEntries)}
             onCurrencyChange={setLiquidityCurrency}
             onRangeChange={setLiquidityRange}
             onSelectOrder={(order) => navigate("/offers", { state: { directOfferLaunch: { reviewOrder: order } } })}
             range={liquidityRange}
-            refreshing={orderbookRefreshing}
+            refreshing={orderbookRefreshing || liquidityLimitLoad.pending.length > 0}
           />
         )}
       </section>
@@ -519,10 +582,12 @@ function MarketComparisonCard({
 }
 
 function LiquidityPanel({
+  calculating,
   currency,
   currencyOptions,
   entries,
   error,
+  incomplete,
   loading,
   markets,
   onCurrencyChange,
@@ -531,10 +596,12 @@ function LiquidityPanel({
   range,
   refreshing
 }: {
+  calculating: boolean;
   currency: string;
   currencyOptions: Array<{ value: string; label: string; icon?: ReactNode }>;
   entries: LiquidityOrderEntry[];
   error?: string;
+  incomplete: boolean;
   loading: boolean;
   markets: ReturnType<typeof liquidityMarkets>;
   onCurrencyChange: (currency: string) => void;
@@ -555,7 +622,17 @@ function LiquidityPanel({
     <div className="statistics-stack">
       <div className={`statistics-live-status${error ? " statistics-live-status-error" : ""}`} role="status" aria-live="polite">
         <span className="statistics-live-dot" aria-hidden="true" />
-        <span>{loading ? "Loading current public offers..." : error ? "Showing available cached liquidity" : "Current public orderbook liquidity"}</span>
+        <span>
+          {loading
+            ? calculating
+              ? "Calculating BTC liquidity from current offers..."
+              : "Loading current public offers..."
+            : error
+              ? "Showing available cached liquidity"
+              : incomplete
+                ? "Showing liquidity with available coordinator prices"
+                : "Current public orderbook liquidity"}
+        </span>
         {refreshing && !loading ? <span className="statistics-live-refreshing"><span className="ui-spinner" aria-hidden="true" /> Updating</span> : null}
       </div>
       <div className="statistics-metrics" aria-label="Current liquidity summary">
@@ -589,13 +666,14 @@ function LiquidityPanel({
         <CardContent>
           <LiquidityDepthChart
             entries={entries}
+            incomplete={incomplete}
             loading={loading}
             onSelectPremium={setSelectedPremium}
             points={depth}
           />
         </CardContent>
       </Card>
-      <LiquidityMarkets markets={markets} selectedCurrency={currency} />
+      <LiquidityMarkets incomplete={incomplete} markets={markets} selectedCurrency={currency} />
       {selectedPremium !== undefined && selectedEntries.length > 0 ? (
         <LiquidityOrdersDialog
           entries={selectedEntries}
@@ -613,11 +691,13 @@ function LiquidityPanel({
 
 function LiquidityDepthChart({
   entries,
+  incomplete,
   loading,
   onSelectPremium,
   points
 }: {
   entries: LiquidityOrderEntry[];
+  incomplete: boolean;
   loading: boolean;
   onSelectPremium: (premium: number) => void;
   points: LiquidityDepthPoint[];
@@ -659,7 +739,17 @@ function LiquidityDepthChart({
   const yTicks = Array.from({ length: 5 }, (_, index) => (maximumBtc * index) / 4);
 
   if (loading) return <div className="statistics-depth-empty" role="status"><span className="ui-spinner" aria-hidden="true" /><strong>Loading live liquidity</strong><span>Reading current offers from the orderbook...</span></div>;
-  if (points.length === 0) return <div className="statistics-depth-empty"><Layers3 size={24} /><strong>No liquidity in this range</strong><span>Choose another market or widen the premium range.</span></div>;
+  if (points.length === 0) return (
+    <div className="statistics-depth-empty">
+      <Layers3 size={24} />
+      <strong>{incomplete ? "Some liquidity could not be priced" : "No liquidity in this range"}</strong>
+      <span>
+        {incomplete
+          ? "Retry when the unavailable coordinator reconnects."
+          : "Choose another market or widen the premium range."}
+      </span>
+    </div>
+  );
 
   return (
     <div className="statistics-depth-chart">
@@ -800,14 +890,27 @@ function LiquidityOrdersDialog({
   );
 }
 
-function LiquidityMarkets({ markets, selectedCurrency }: { markets: ReturnType<typeof liquidityMarkets>; selectedCurrency: string }) {
+function LiquidityMarkets({
+  incomplete,
+  markets,
+  selectedCurrency
+}: {
+  incomplete: boolean;
+  markets: ReturnType<typeof liquidityMarkets>;
+  selectedCurrency: string;
+}) {
   const visible = (selectedCurrency === "all" ? markets : markets.filter((market) => market.currency === selectedCurrency)).slice(0, 10);
   const maximum = Math.max(0, ...visible.map((market) => market.buyBtc + market.sellBtc));
   return (
     <Card className="statistics-comparison-card">
       <CardHeader className="statistics-card-header"><div><CardTitle>Liquidity by market</CardTitle><p>Current public offer depth split by the taker action.</p></div></CardHeader>
       <CardContent>
-        {visible.length === 0 ? <div className="statistics-table-empty"><Layers3 size={22} /><strong>No public liquidity</strong></div> : (
+        {visible.length === 0 ? (
+          <div className="statistics-table-empty">
+            <Layers3 size={22} />
+            <strong>{incomplete ? "Coordinator prices unavailable" : "No public liquidity"}</strong>
+          </div>
+        ) : (
           <div className="statistics-liquidity-markets" role="list" aria-label="Current liquidity by market">
             {visible.map((market) => {
               const total = market.buyBtc + market.sellBtc;
@@ -1011,6 +1114,17 @@ function settleCoordinator(current: LoadState, alias: string, error?: unknown): 
     errors: error
       ? { ...current.errors, [alias]: error instanceof Error ? error.message : "Coordinator unavailable" }
       : current.errors
+  };
+}
+
+function beginCoordinatorLoads(current: LoadState, aliases: string[]): LoadState {
+  const loading = new Set(aliases);
+  return {
+    pending: [...new Set([...current.pending, ...aliases])],
+    responded: current.responded.filter((alias) => !loading.has(alias)),
+    errors: Object.fromEntries(
+      Object.entries(current.errors).filter(([alias]) => !loading.has(alias))
+    )
   };
 }
 

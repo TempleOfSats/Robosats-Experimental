@@ -1,5 +1,5 @@
 import type { ApiClient, ApiRequestOptions, Auth, RequestPriority, TimeoutProfile } from "@/domains/transport/apiClient";
-import { buildAuthHeaders } from "@/domains/transport/apiClient";
+import { buildAuthHeaders, buildJsonHeaders } from "@/domains/transport/apiClient";
 import { recordNetworkPerformance, type NetworkOutcome } from "@/domains/diagnostics/networkPerformance";
 import { transportRequest } from "@/domains/transport/androidBridge";
 import { RoboSatsApiError } from "@/domains/transport/apiError";
@@ -23,7 +23,7 @@ class ApiWebClient implements ApiClient {
   async post<T>(baseUrl: string, path: string, body: object, auth?: Auth, options?: ApiRequestOptions): Promise<T> {
     return request<T>(baseUrl, path, {
       method: "POST",
-      headers: buildAuthHeaders(auth),
+      headers: buildJsonHeaders(auth),
       body: JSON.stringify(body)
     }, options);
   }
@@ -31,7 +31,7 @@ class ApiWebClient implements ApiClient {
   async put<T>(baseUrl: string, path: string, body: object, auth?: Auth, options?: ApiRequestOptions): Promise<T> {
     return request<T>(baseUrl, path, {
       method: "PUT",
-      headers: buildAuthHeaders(auth),
+      headers: buildJsonHeaders(auth),
       body: JSON.stringify(body)
     }, options);
   }

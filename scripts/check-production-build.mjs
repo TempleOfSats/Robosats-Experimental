@@ -17,6 +17,12 @@ if (!/["']\/assets\/[^/"']+\/robosats-exp\.[^"']+\.js["']/.test(indexHtml)) {
 if (/rel=["']modulepreload["']/.test(indexHtml)) {
   throw new Error("Production HTML must not eagerly preload route and cryptography chunks.");
 }
+if (!/<link\b(?=[^>]*\brel=["']preload["'])(?=[^>]*\bas=["']style["'])(?=[^>]*\bdata-robosats-app-style\b)[^>]*>/.test(indexHtml)) {
+  throw new Error("Production application styles must preload behind the inline loading screen.");
+}
+if (/<link\b(?=[^>]*\brel=["']stylesheet["'])(?=[^>]*robosats-exp\.index\.)[^>]*>/.test(indexHtml)) {
+  throw new Error("Production application styles must not block the inline loading screen.");
+}
 if (!staticMatch) {
   throw new Error("Production static assets must use a content-hashed namespace.");
 }
@@ -67,7 +73,7 @@ for (const path of files) {
     if (forbiddenContent.test(content)) {
       throw new Error(`Development-only route emitted in production build: ${path}`);
     }
-    if (/\/static\/(?![0-9a-f]{16}\/)/.test(content)) {
+    if (/["'`]\/static(?:["'`]|\/(?![0-9a-f]{16}\/))/.test(content)) {
       throw new Error(`Unversioned static asset URL emitted in production build: ${path}`);
     }
   }

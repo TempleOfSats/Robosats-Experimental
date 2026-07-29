@@ -364,6 +364,11 @@
   transform: translate(-50%, 0);
 }
 
+.info-hint-popover-open {
+  opacity: 1;
+  visibility: visible;
+}
+
 @media (hover: hover) {
   .info-hint:hover .info-hint-popover {
     opacity: 1;
@@ -374,12 +379,17 @@
 
 .info-hint-popover.info-hint-popover-tap {
   position: fixed;
+  z-index: 1000;
   right: auto;
   bottom: auto;
   width: max-content;
   max-width: min(17rem, calc(100vw - 1.5rem));
   transform: none;
   transition: opacity 120ms ease, visibility 120ms ease;
+}
+
+.info-hint-popover-tap.info-hint-popover-open {
+  transform: none;
 }
 
 .info-hint > button[aria-expanded="true"] + .info-hint-popover-tap {

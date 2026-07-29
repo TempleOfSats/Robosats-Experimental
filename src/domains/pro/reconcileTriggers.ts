@@ -3,11 +3,11 @@ import {
   markProOrderActionStarted,
   type GarageReconcileController
 } from "@/domains/pro/garageReconciler";
-import { isTerminalForProDesk } from "@/domains/pro/proOrderActivity";
 import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
 import type { OrderHint, ProTradeLocator, ReconcileReason } from "@/domains/pro/pro.types";
 import { subscribeRefreshIntents, type RefreshReason } from "@/domains/transport/refreshIntents";
 import { desktopBackgroundNotificationsEnabled } from "@/domains/transport/tauriBridge";
+import { hasActionableOrderDeadline } from "@/domains/orders/orderStateMachine";
 
 type ReconcileTriggerOptions = {
   controller: GarageReconcileController;
@@ -46,13 +46,16 @@ export function registerReconcileTriggers(options: ReconcileTriggerOptions): () 
     const result = validOrderActionResult((event as CustomEvent<unknown>).detail);
     if (!result) return;
     markProOrderActionFinished(result);
-    if (result.status !== undefined && result.isMaker !== undefined
-      && isTerminalForProDesk(result.status, result.isMaker, result.hasFailedPayout)) {
-      useProTradeIndexStore.getState().removeTrade(result);
-      return;
-    }
+    // A complete foreground response has already passed through the order
+    // activity bridge, which archives terminal trades before removing them.
+    // Never independently remove the row here: doing so could discard the
+    // only recoverable terminal snapshot when an action response was partial.
     if (result.snapshotApplied) return;
-    void options.controller.reconcileOrder(result, "order-action").catch(() => undefined);
+    void options.controller.reconcileOrder({
+      slotId: result.slotId,
+      shortAlias: result.shortAlias,
+      orderId: result.orderId
+    }, "order-action").catch(() => undefined);
   };
 
   const stopLifecycle = subscribeRefreshIntents(onLifecycle);
@@ -97,7 +100,10 @@ export function registerExpiryReconcileTrigger(
     const currentTime = now();
     const next = Object.values(useProTradeIndexStore.getState().snapshots)
       .map((snapshot) => ({ snapshot, deadline: Date.parse(snapshot.order?.expires_at ?? "") }))
-      .filter(({ snapshot, deadline }) => snapshot.freshness !== "refreshing" && Number.isFinite(deadline) && deadline > currentTime)
+      .filter(({ snapshot, deadline }) => snapshot.freshness !== "refreshing"
+        && Boolean(snapshot.order && hasActionableOrderDeadline(snapshot.order))
+        && Number.isFinite(deadline)
+        && deadline > currentTime)
       .sort((left, right) => left.deadline - right.deadline)[0];
     if (!next) return;
     timer = window.setTimeout(() => {
@@ -139,7 +145,7 @@ function validLocator(value: unknown): ProTradeLocator | undefined {
 function validOrderActionResult(value: unknown): (ProTradeLocator & {
   status?: number;
   isMaker?: boolean;
-  hasFailedPayout?: boolean;
+  isSeller?: boolean;
   snapshotApplied?: boolean;
 }) | undefined {
   const locator = validLocator(value);
@@ -147,18 +153,18 @@ function validOrderActionResult(value: unknown): (ProTradeLocator & {
   const result = value as {
     status?: unknown;
     isMaker?: unknown;
-    hasFailedPayout?: unknown;
+    isSeller?: unknown;
     snapshotApplied?: unknown;
   };
   if (result.status !== undefined && !Number.isInteger(result.status)) return undefined;
   if (result.isMaker !== undefined && typeof result.isMaker !== "boolean") return undefined;
-  if (result.hasFailedPayout !== undefined && typeof result.hasFailedPayout !== "boolean") return undefined;
+  if (result.isSeller !== undefined && typeof result.isSeller !== "boolean") return undefined;
   if (result.snapshotApplied !== undefined && typeof result.snapshotApplied !== "boolean") return undefined;
   return {
     ...locator,
     status: result.status as number | undefined,
     isMaker: result.isMaker as boolean | undefined,
-    hasFailedPayout: result.hasFailedPayout as boolean | undefined,
+    isSeller: result.isSeller as boolean | undefined,
     snapshotApplied: result.snapshotApplied as boolean | undefined
   };
 }

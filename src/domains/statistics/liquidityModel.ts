@@ -1,3 +1,7 @@
+import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
+import { orderSatsPreview } from "@/domains/orderbook/offerDisplay";
+import type { PublicOrder } from "@/domains/orderbook/orderbook.types";
+
 export type LiquiditySide = "buy" | "sell";
 
 export type LiquidityEntry = {
@@ -19,6 +23,28 @@ export type LiquidityMarket = {
   offers: number;
   sellBtc: number;
 };
+
+type LiquidityCoordinator = Pick<CoordinatorSummary, "enabled" | "limits" | "shortAlias" | "url">;
+
+export function missingLiquidityLimitAliases(
+  orders: PublicOrder[],
+  coordinators: LiquidityCoordinator[]
+): string[] {
+  const coordinatorByAlias = new Map(coordinators.map((coordinator) => [
+    coordinator.shortAlias,
+    coordinator
+  ]));
+  const aliases = new Set<string>();
+
+  for (const order of orders) {
+    const coordinator = coordinatorByAlias.get(order.coordinatorShortAlias);
+    if (!coordinator?.enabled || !coordinator.url) continue;
+    if (orderSatsPreview(order, coordinator.limits)) continue;
+    aliases.add(coordinator.shortAlias);
+  }
+
+  return [...aliases].sort();
+}
 
 export function liquidityDepth(entries: LiquidityEntry[], range?: number): LiquidityDepthPoint[] {
   const visible = range === undefined

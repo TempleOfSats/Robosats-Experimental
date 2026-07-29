@@ -1,6 +1,6 @@
 import { currencyCodeFromId } from "@/domains/orderbook/currencies";
 import { matchedPaymentMethods } from "@/domains/orderbook/paymentMethods";
-import { getTradeViewState } from "@/domains/orders/orderStateMachine";
+import { getTradeViewState, hasActionableOrderDeadline } from "@/domains/orders/orderStateMachine";
 import { roleIntentLabel, type TradeRole } from "@/domains/orders/orderRole";
 import type { ProTradeSnapshot } from "@/domains/pro/pro.types";
 import { classifyProTrade, type ProTradeGroup } from "@/domains/pro/proSelectors";
@@ -24,11 +24,12 @@ export function toProTradePresentation(snapshot: ProTradeSnapshot): ProTradePres
   const group = classifyProTrade(snapshot);
   const order = snapshot.order;
   if (!order) {
+    const refreshing = snapshot.freshness === "refreshing";
     return {
       group,
-      statusLabel: snapshot.freshness === "error" ? "Refresh failed" : "Trade unavailable",
+      statusLabel: refreshing ? "Checking order" : "Order status unavailable",
       statusTone: "muted",
-      statusIcon: WifiOff,
+      statusIcon: refreshing ? RefreshCw : WifiOff,
       directionLabel: "Trade",
       amountLabel: "Amount unavailable",
       methodLabel: "Method unavailable",
@@ -47,7 +48,7 @@ export function toProTradePresentation(snapshot: ProTradeSnapshot): ProTradePres
     directionLabel: roleIntentLabel(order.type, order.currency === 1000, role),
     amountLabel: formatOrderAmount(order),
     methodLabel: formatPaymentMethods(order.payment_method),
-    deadline: Number.isFinite(deadline) ? deadline : undefined,
+    deadline: hasActionableOrderDeadline(order) && Number.isFinite(deadline) ? deadline : undefined,
     actionable: group === "needs-action"
   };
 }

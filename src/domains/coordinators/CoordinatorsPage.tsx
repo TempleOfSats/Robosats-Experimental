@@ -38,6 +38,7 @@ import type {
   Network as BitcoinNetwork
 } from "@/domains/coordinators/coordinator.types";
 import { compareCoordinatorsByEstablished } from "@/domains/coordinators/coordinatorOrder";
+import { selectCoordinatorAvailability } from "@/domains/coordinators/coordinatorAvailability";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
 import { fetchCoordinatorRatings, type CoordinatorRating } from "@/domains/coordinators/coordinatorRatings";
 import { formatSats, truncateMiddle } from "@/lib/format";
@@ -63,10 +64,8 @@ export function CoordinatorsPage() {
   const selectedCoordinator = displayCoordinators.find((coordinator) => coordinator.shortAlias === selectedAlias);
 
   useEffect(() => {
-    const nonLocalCoordinators = coordinators.filter((coordinator) => coordinator.shortAlias !== "local");
-    if (nonLocalCoordinators.some((coordinator) => coordinator.loading || coordinator.online)) return;
     void refreshCoordinators();
-  }, [coordinators, refreshCoordinators]);
+  }, [refreshCoordinators]);
 
   useEffect(() => {
     void fetchCoordinatorRatings(coordinators).then(setRatings).catch(() => undefined);
@@ -144,8 +143,8 @@ export function CoordinatorsPage() {
               <span className="coordinator-rating-cell" role="cell">
                 {rating.count > 0 ? <><RatingStars rating={rating.score} /><small>({rating.count})</small></> : <small>Not rated</small>}
               </span>
-              <span className="coordinator-status-cell" role="cell">
-                {coordinator.loading ? <RefreshCw aria-hidden="true" className="coordinator-status-spinner" size={19} /> : <Link2 aria-hidden="true" size={20} />}
+              <span className="coordinator-status-cell" role="cell" title={coordinatorStatusTitle(coordinator)}>
+                {coordinator.loading && !coordinator.online ? <RefreshCw aria-hidden="true" className="coordinator-status-spinner" size={19} /> : <Link2 aria-hidden="true" size={20} />}
                 <span className="sr-only">{coordinatorStatusTitle(coordinator)}</span>
               </span>
               <label className={coordinator.enabled ? "coordinator-enabled-cell" : "coordinator-enabled-cell coordinator-enabled-cell-muted"} role="cell">
@@ -369,8 +368,11 @@ function TechnicalRow({ children, label, value }: { children?: ReactNode; label:
 }
 
 function CoordinatorStatus({ coordinator, lastRefreshed }: { coordinator: CoordinatorSummary; lastRefreshed?: number }) {
-  const state = coordinator.loading ? "Checking" : coordinator.online ? "Online" : "Unavailable";
-  return <span className={`coordinator-live-status coordinator-live-status-${state.toLowerCase()}`}><span />{state}{lastRefreshed && !coordinator.loading ? ` - ${formatTimestamp(lastRefreshed)}` : ""}</span>;
+  const availability = selectCoordinatorAvailability(coordinator);
+  const state = availability.label;
+  const stateClass = coordinator.online ? "online" : coordinator.loading ? "checking" : "unavailable";
+  const timestamp = coordinator.lastCheckedAt ?? (coordinator.online || coordinator.error ? lastRefreshed : undefined);
+  return <span className={`coordinator-live-status coordinator-live-status-${stateClass}`}><span />{state}{timestamp && !coordinator.loading ? ` - ${formatTimestamp(timestamp)}` : ""}</span>;
 }
 
 function ContactIcons({ contact }: { contact?: CoordinatorContact }) {
@@ -405,8 +407,11 @@ function ratingFor(coordinator: CoordinatorSummary, ratings: Record<string, Coor
 }
 
 function coordinatorStatusTitle(coordinator: CoordinatorSummary): string {
+  if (coordinator.loading && coordinator.online) return "Coordinator API previously reachable; checking now";
   if (coordinator.loading) return "Checking coordinator API";
+  if (coordinator.online && coordinator.error) return "Coordinator API was recently reachable";
   if (coordinator.online) return "Coordinator API reachable";
+  if (!coordinator.error) return "Coordinator API not checked yet";
   return coordinator.error ? toUserMessage(coordinator.error, "Coordinator unavailable.") : "Coordinator API unavailable";
 }
 

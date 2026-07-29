@@ -1,3 +1,4 @@
+import { CircleHelp } from "lucide-react";
 import type { KeyboardEvent, ReactNode } from "react";
 import { cn } from "@/lib/cn";
 
@@ -5,6 +6,7 @@ export type TabOption<Value extends string> = {
   value: Value;
   label: ReactNode;
   ariaLabel?: string;
+  hint?: string;
 };
 
 type TabsProps<Value extends string> = {
@@ -40,6 +42,7 @@ export function Tabs<Value extends string>({
         <button
           aria-controls={panelId}
           aria-label={option.ariaLabel}
+          aria-describedby={option.hint ? `${tabId(id, option.value)}-hint` : undefined}
           aria-selected={value === option.value}
           id={tabId(id, option.value)}
           key={option.value}
@@ -50,6 +53,18 @@ export function Tabs<Value extends string>({
           type="button"
         >
           {option.label}
+          {option.hint ? (
+            <span className="ui-tab-hint">
+              <CircleHelp aria-hidden="true" size={13} />
+              <span
+                className="ui-tab-hint-popover"
+                id={`${tabId(id, option.value)}-hint`}
+                role="tooltip"
+              >
+                {option.hint}
+              </span>
+            </span>
+          ) : null}
         </button>
       ))}
     </div>

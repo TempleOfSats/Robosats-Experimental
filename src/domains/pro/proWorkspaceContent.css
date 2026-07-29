@@ -62,6 +62,15 @@
   font-weight: 600;
 }
 
+.pro-trade-header-no-actions {
+  grid-template-columns:
+    minmax(10.5rem, 1.15fr)
+    minmax(13rem, 1.55fr)
+    minmax(9rem, 1fr)
+    minmax(10rem, 1.2fr)
+    minmax(6rem, 0.65fr);
+}
+
 .pro-trade-row {
   width: 100%;
   min-height: 4rem;
@@ -69,6 +78,10 @@
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: stretch;
   border-bottom: 1px solid var(--border-subtle);
+}
+
+.pro-trade-row-no-actions {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .pro-trade-row-open {
@@ -102,24 +115,6 @@
 
 .pro-trade-action-button {
   flex: 0 0 auto;
-}
-
-.pro-trade-open-icon {
-  width: 2rem;
-  height: 2rem;
-  display: grid;
-  place-items: center;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-supporting);
-  cursor: pointer;
-}
-
-.pro-trade-open-icon:hover,
-.pro-trade-open-icon:focus-visible {
-  background: var(--control-hover-background);
-  color: var(--foreground);
 }
 
 .pro-trade-robot,
@@ -484,6 +479,22 @@
 .pro-create-robot-option:hover > svg,
 .pro-create-robot-option:focus-visible > svg {
   color: var(--primary);
+}
+
+.pro-reused-robot-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--warning-foreground);
+}
+
+.pro-reused-robot-note {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--border);
+  color: var(--text-supporting);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
 }
 
 .pro-create-robot-empty {

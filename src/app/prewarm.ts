@@ -4,6 +4,7 @@ import {
   preloadQuickAccessRoutes
 } from "@/app/routes";
 import {
+  isStandardGarageRoute,
   ROUTE_TRANSITION_READY_EVENT,
   ROUTE_TRANSITION_START_EVENT
 } from "@/app/routeTransition";
@@ -38,17 +39,28 @@ type IdleWindow = {
 export function scheduleAppPrewarm(): () => void {
   const stopOrderChangeHints = startOrderChangeHintRuntime();
   let foregroundRefresh: Promise<void> | undefined;
-  const refreshAfterLifecycle = (reason: RefreshReason) => {
-    if (reason === "tor-ready") {
-      prewarmData();
-      return;
-    }
-    if (foregroundRefresh || (visibleTradeRoute() && document.visibilityState === "visible")) return;
+  const refreshForegroundRobot = () => {
+    if (foregroundRefresh) return;
     foregroundRefresh = refreshSelectedStandardRobotStatus()
       .catch(() => undefined)
       .finally(() => { foregroundRefresh = undefined; });
   };
+  const refreshAfterLifecycle = (reason: RefreshReason) => {
+    if (reason === "tor-ready") {
+      prewarmData();
+      if (isStandardGarageRoute(window.location.pathname)) refreshForegroundRobot();
+      return;
+    }
+    if (foregroundRefresh || (visibleTradeRoute() && document.visibilityState === "visible")) return;
+    refreshForegroundRobot();
+  };
   const stopLifecycle = subscribeRefreshIntents(refreshAfterLifecycle);
+  const refreshGarageRoute = (event: Event) => {
+    const path = (event as CustomEvent<{ path?: string }>).detail?.path ?? window.location.pathname;
+    if (isStandardGarageRoute(path)) refreshForegroundRobot();
+  };
+  window.addEventListener(ROUTE_TRANSITION_READY_EVENT, refreshGarageRoute);
+  if (isStandardGarageRoute(window.location.pathname)) refreshForegroundRobot();
 
   const cleanups = [
     scheduleIdle(prewarmData, 500, 3000),
@@ -69,6 +81,7 @@ export function scheduleAppPrewarm(): () => void {
   return () => {
     stopOrderChangeHints();
     stopLifecycle();
+    window.removeEventListener(ROUTE_TRANSITION_READY_EVENT, refreshGarageRoute);
     cleanups.forEach((cleanup) => cleanup());
   };
 }

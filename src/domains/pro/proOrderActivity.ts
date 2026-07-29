@@ -5,7 +5,9 @@ import {
   type CoordinatorOrderObservation
 } from "@/domains/orders/orderActivity";
 import type { OrderDto } from "@/domains/orders/order.types";
-import { hasFailedPayoutForCurrentRobot } from "@/domains/orders/orderStateMachine";
+import {
+  isTerminalOrderForCurrentRobot
+} from "@/domains/orders/orderStateMachine";
 import { selectProGarageSlots, useGarageVaultStore } from "@/domains/pro/garageVaultStore";
 import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
 import { proTradeKey, type ProTradeLocator, type ProTradeSnapshot } from "@/domains/pro/pro.types";
@@ -28,9 +30,10 @@ export function startProOrderActivityBridge(): () => void {
 
   const unsubscribeActivity = subscribeCoordinatorOrderActivity(consume, { replay: true });
   const unsubscribeVault = useGarageVaultStore.subscribe((state, previous) => {
-    const becameReady = state.status === "ready" && previous.status !== "ready";
-    const manifestChanged = state.status === "ready" && state.manifest?.revision !== previous.manifest?.revision;
-    if (becameReady || manifestChanged) replayCoordinatorOrderActivity(consume);
+    const envelopeBecameAvailable = Boolean(state.envelope && !previous.envelope);
+    const fleetChanged = Boolean(state.envelope)
+      && state.manifest?.revision !== previous.manifest?.revision;
+    if (envelopeBecameAvailable || fleetChanged) replayCoordinatorOrderActivity(consume);
   });
   return () => {
     unsubscribeActivity();
@@ -71,7 +74,7 @@ export function applyProOrderSnapshot({
       orderId: order.id,
       status: order.status,
       isMaker: order.is_maker,
-      hasFailedPayout: hasFailedPayoutForCurrentRobot(order)
+      isSeller: order.is_seller
     });
   }
   const currentSlot = useGarageStore.getState().slots.find((candidate) => candidate.tokenSHA256 === slot.tokenSHA256) ?? slot;
@@ -93,9 +96,9 @@ export function applyProOrderSnapshot({
   if (!renewable && isTerminalForProDesk(
     order.status,
     order.is_maker,
-    hasFailedPayoutForCurrentRobot(order)
+    order.is_seller
   )) {
-    useGarageVaultStore.getState().archiveTrade({
+    const archiveResult = useGarageVaultStore.getState().archiveTrade({
       slotId: slot.tokenSHA256,
       robotName: currentSlot.nickname,
       robotHashId: currentSlot.hashId,
@@ -104,8 +107,10 @@ export function applyProOrderSnapshot({
       ...settlement,
       observedAt
     });
-    tradeIndex.removeTrade(locator);
-    return "removed";
+    if (archiveResult !== "deferred") {
+      tradeIndex.removeTrade(locator);
+      return "removed";
+    }
   }
 
   const key = proTradeKey(locator);
@@ -154,11 +159,9 @@ export function recordProSettlementInvoice(
 export function isTerminalForProDesk(
   status: number,
   isMaker: boolean,
-  hasFailedPayout?: boolean
+  isSeller?: boolean
 ): boolean {
-  return [4, 12, 14, 17, 18].includes(status)
-    || (status === 5 && !isMaker)
-    || (status === 15 && hasFailedPayout === false);
+  return isTerminalOrderForCurrentRobot({ status, isMaker, isSeller });
 }
 
 function orderChanged(previous: OrderDto, current: OrderDto): boolean {

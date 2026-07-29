@@ -33,10 +33,12 @@ import {
   fetchNostrOrderbook,
   nostrEventToPublicOrder,
   nostrEventsToPublicOrders,
+  relayFallbackTiming,
   resetNostrOrderbookSession,
   selectNostrRelays,
   subscribeNostrOrderbook
 } from "@/domains/orderbook/nostrOrderbook";
+import { noteRelayEose, resetRelayHealthForTests } from "@/domains/nostr/relayHealth";
 import { resetLiveRelaySubscriptionsForTests } from "@/domains/nostr/sharedRelayPool";
 
 const coordinator = {
@@ -56,6 +58,7 @@ describe("nostr orderbook", () => {
   beforeEach(() => {
     resetNostrOrderbookSession();
     resetLiveRelaySubscriptionsForTests();
+    resetRelayHealthForTests();
     poolState.subscriptions.length = 0;
   });
 
@@ -206,13 +209,13 @@ describe("nostr orderbook", () => {
       expect(poolState.subscriptions).toHaveLength(1);
 
       poolState.subscriptions[0].params.onclose?.();
-      await vi.advanceTimersByTimeAsync(4_999);
+      await vi.advanceTimersByTimeAsync(14_999);
       expect(poolState.subscriptions).toHaveLength(1);
       await vi.advanceTimersByTimeAsync(1);
       expect(poolState.subscriptions).toHaveLength(2);
 
       poolState.subscriptions[1].params.onclose?.();
-      await vi.advanceTimersByTimeAsync(14_999);
+      await vi.advanceTimersByTimeAsync(44_999);
       expect(poolState.subscriptions).toHaveLength(2);
       await vi.advanceTimersByTimeAsync(1);
       expect(poolState.subscriptions).toHaveLength(3);
@@ -324,13 +327,57 @@ describe("nostr orderbook", () => {
       poolState.subscriptions[1].params.oneose?.();
       await expect(promise).resolves.toHaveLength(1);
 
-      await vi.advanceTimersByTimeAsync(1_799);
+      await vi.advanceTimersByTimeAsync(14_999);
       expect(poolState.subscriptions).toHaveLength(2);
       await vi.advanceTimersByTimeAsync(1);
       expect(poolState.subscriptions).toHaveLength(3);
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("tries one safety relay when the first relay emits data but never completes", async () => {
+    vi.useFakeTimers();
+    poolState.subscriptions.length = 0;
+    const secondCoordinator = {
+      ...coordinator,
+      shortAlias: "safety",
+      url: "https://safety.example",
+      nostrHexPubkey: "safety-coordinator-pubkey"
+    } satisfies CoordinatorSummary;
+
+    try {
+      const promise = fetchNostrOrderbook([coordinator, secondCoordinator], "mainnet", {
+        maxWaitMs: 45_000
+      });
+      expect(poolState.subscriptions).toHaveLength(1);
+
+      poolState.subscriptions[0].params.onevent?.(event({ tags: baseTags({ status: "pending" }) }));
+      await vi.advanceTimersByTimeAsync(14_999);
+      expect(poolState.subscriptions).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(poolState.subscriptions).toHaveLength(2);
+
+      poolState.subscriptions[1].params.oneose?.();
+      await vi.waitFor(() => expect(poolState.subscriptions).toHaveLength(3));
+      poolState.subscriptions[2].params.oneose?.();
+      await expect(promise).resolves.toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("adapts speculative relay fanout to observed Tor latency", () => {
+    expect(relayFallbackTiming("ws://unknown.onion/relay/")).toEqual({
+      primaryMs: 15_000,
+      secondaryMs: 30_000
+    });
+
+    noteRelayEose("ws://known.onion/relay/", 20_000);
+    expect(relayFallbackTiming("ws://known.onion/relay/")).toEqual({
+      primaryMs: 30_000,
+      secondaryMs: 45_000
+    });
   });
 
   it("does not crash the page while coordinator relay metadata is still loading", () => {

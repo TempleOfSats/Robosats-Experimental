@@ -1,6 +1,5 @@
 import {
   CalendarClock,
-  ChevronRight,
   CircleCheck,
   CirclePlus,
   Clock3,
@@ -59,15 +58,17 @@ export function TradeList({
     return <TradeEmptyState onCreate={onCreate} onFindTrade={onFindTrade} />;
   }
 
+  const showQuickActions = snapshots.some(hasTradeQuickActions);
+
   return (
     <div className="pro-trade-list" aria-label="Trades">
-      <div className="pro-trade-header" aria-hidden="true">
+      <div className={showQuickActions ? "pro-trade-header" : "pro-trade-header pro-trade-header-no-actions"} aria-hidden="true">
         <span>Robot</span>
         <span>Order</span>
         <span>Coordinator</span>
         <span>Status</span>
         <span>Deadline</span>
-        <span>Actions</span>
+        {showQuickActions ? <span>Actions</span> : null}
       </div>
       {snapshots.map((snapshot, index) => {
         const presentation = toProTradePresentation(snapshot);
@@ -75,13 +76,11 @@ export function TradeList({
         const coordinator = coordinators.find((item) => item.shortAlias === snapshot.locator.shortAlias);
         const previous = snapshots[index - 1];
         const showGroup = !previous || toProTradePresentation(previous).group !== presentation.group;
-        const hasQuickActions = Boolean(
-          snapshot.order?.is_maker && (snapshot.order.status === 1 || snapshot.order.status === 2)
-        );
+        const hasQuickActions = hasTradeQuickActions(snapshot);
         return (
           <Fragment key={snapshot.key}>
             {showGroup ? <div className="pro-trade-group">{groupLabel(presentation.group)}</div> : null}
-            <div className={hasQuickActions ? "pro-trade-row pro-trade-row-quick-actions" : "pro-trade-row"}>
+            <div className={`pro-trade-row${hasQuickActions ? " pro-trade-row-quick-actions" : ""}${showQuickActions ? "" : " pro-trade-row-no-actions"}`}>
               <button
                 className="pro-trade-row-open"
                 type="button"
@@ -108,7 +107,7 @@ export function TradeList({
                   {presentation.deadline ? formatExpiryCountdown(snapshot.order?.expires_at) : "-"}
                 </span>
               </button>
-              <span className="pro-trade-actions">
+              {showQuickActions ? <span className="pro-trade-actions">
                 {snapshot.order?.status === 1 && snapshot.order.is_maker ? (
                   <>
                     <Button
@@ -136,25 +135,20 @@ export function TradeList({
                     </Button>
                   </>
                 ) : snapshot.order?.status === 2 && snapshot.order.is_maker ? (
-                  <>
-                    <Button
-                      aria-label={`Resume order ${snapshot.locator.orderId}`}
-                      className="pro-trade-action-button"
-                      disabled={Boolean(quickActionKey)}
-                      loading={quickActionKey === `${snapshot.key}:resume`}
-                      onClick={() => onResume(snapshot)}
-                      size="sm"
-                      title="Return this offer to the public order book"
-                      variant="outline"
-                    >
-                      <Play size={14} /> <span className="pro-trade-action-label">Resume</span>
-                    </Button>
-                    <OpenTradeButton onClick={() => onOpen(snapshot.locator)} orderId={snapshot.locator.orderId} />
-                  </>
-                ) : (
-                  <OpenTradeButton onClick={() => onOpen(snapshot.locator)} orderId={snapshot.locator.orderId} />
-                )}
-              </span>
+                  <Button
+                    aria-label={`Resume order ${snapshot.locator.orderId}`}
+                    className="pro-trade-action-button"
+                    disabled={Boolean(quickActionKey)}
+                    loading={quickActionKey === `${snapshot.key}:resume`}
+                    onClick={() => onResume(snapshot)}
+                    size="sm"
+                    title="Return this offer to the public order book"
+                    variant="outline"
+                  >
+                    <Play size={14} /> <span className="pro-trade-action-label">Resume</span>
+                  </Button>
+                ) : null}
+              </span> : null}
             </div>
           </Fragment>
         );
@@ -221,7 +215,7 @@ export function RobotList({
                       className="pro-robot-trade-status"
                       type="button"
                       onClick={() => onOpenTrade(summary.slotId)}
-                      aria-label={`Open ${summary.nickname}'s ongoing trade`}
+                      aria-label={`Open ${summary.nickname}'s ${lifecycle.statusLabel.toLowerCase()}`}
                     >
                       <Badge tone={lifecycle.statusTone}>{lifecycle.statusLabel}</Badge>
                     </button>
@@ -433,12 +427,8 @@ function TradeEmptyState({
   );
 }
 
-function OpenTradeButton({ onClick, orderId }: { onClick: () => void; orderId: number }) {
-  return (
-    <button className="pro-trade-open-icon" type="button" aria-label={`Open order ${orderId}`} onClick={onClick}>
-      <ChevronRight size={18} />
-    </button>
-  );
+function hasTradeQuickActions(snapshot: ProTradeSnapshot): boolean {
+  return Boolean(snapshot.order?.is_maker && (snapshot.order.status === 1 || snapshot.order.status === 2));
 }
 
 function historyOutcome(outcome: TradeHistoryOutcome): {

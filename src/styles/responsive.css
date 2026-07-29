@@ -618,39 +618,6 @@
     grid-template-columns: 1fr;
   }
 
-  .maker-method-field .image-select-combo,
-  .maker-method-field .image-select-combo-no-icon {
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 0.35rem;
-    padding: 0 0.2rem 0 0.8rem;
-  }
-
-  .maker-method-field .image-select-icon {
-    display: none;
-  }
-
-  .maker-method-field .image-select-input::placeholder {
-    color: var(--muted-foreground);
-  }
-
-  .maker-method-field .image-select-browse {
-    width: auto;
-    min-height: 2.75rem;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    border-left: 1px solid var(--border);
-    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-    padding: 0 0.65rem;
-    color: var(--foreground);
-  }
-
-  .maker-method-field .image-select-browse-label {
-    display: inline;
-    font-size: 0.82rem;
-    font-weight: 600;
-  }
-
   .settings-stack .setting-row,
   .settings-link-row {
     flex-direction: column;
@@ -716,6 +683,13 @@
     min-height: 2.35rem;
     gap: 0.25rem;
     padding-inline: 0.4rem;
+  }
+
+  .maker-method-field .image-select-combo,
+  .maker-method-field .image-select-combo-no-icon {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0;
+    padding: 0;
   }
 
   .image-select-button:not(.image-select-button-no-icon),

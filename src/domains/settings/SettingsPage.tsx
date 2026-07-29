@@ -86,6 +86,7 @@ export function SettingsPage() {
   const [selectedRobotCoordinator, setSelectedRobotCoordinator] = useState<string>();
   const [showFleetRecovery, setShowFleetRecovery] = useState(false);
   const [showFleetKey, setShowFleetKey] = useState(false);
+  const [preparingPro, setPreparingPro] = useState(false);
   const robotCoordinator = displayCoordinators.find((coordinator) => coordinator.shortAlias === selectedRobotCoordinator);
   const coordinatorRobot = robotCoordinator && activeSlot ? activeSlot.robots[robotCoordinator.shortAlias] : undefined;
   const proEnabled = useProPreferencesStore((state) => state.enabled);
@@ -105,6 +106,19 @@ export function SettingsPage() {
   useEffect(() => {
     if (proEnabled) void initializeGarageVault();
   }, [initializeGarageVault, proEnabled]);
+
+  async function enableProMode() {
+    setPreparingPro(true);
+    setProEnabled(true);
+    if (!proSetupSeen) markProSetupSeen();
+    await Promise.allSettled([
+      initializeGarageVault(),
+      import("@/domains/pro/GarageSetupDialog"),
+      import("@/domains/pro/GarageRecoveryDialog"),
+      import("@/domains/pro/ProWorkspacePage")
+    ]);
+    setPreparingPro(false);
+  }
 
   useEffect(() => {
     const refreshUiPreferences = (event: Event) => {
@@ -223,15 +237,12 @@ export function SettingsPage() {
                 aria-label="Pro Mode"
                 onClick={() => {
                   if (proEnabled) {
+                    setPreparingPro(false);
                     setShowFleetRecovery(false);
                     setProEnabled(false);
                     return;
                   }
-                  void import("@/domains/pro/GarageSetupDialog").catch(() => undefined);
-                  void import("@/domains/pro/GarageRecoveryDialog").catch(() => undefined);
-                  void import("@/domains/pro/ProWorkspacePage").catch(() => undefined);
-                  setProEnabled(true);
-                  if (!proSetupSeen) markProSetupSeen();
+                  void enableProMode();
                 }}
               >
                 <span className={`toggle-switch ${proEnabled ? "toggle-switch-on" : ""}`} aria-hidden="true" />
@@ -241,7 +252,10 @@ export function SettingsPage() {
 
           <div className="settings-control-divider" />
 
-          {proEnabled && !showFleetRecovery && (garageVaultStatus === "unconfigured" || garageVaultStatus === "needs-backup") ? (
+          {proEnabled
+          && !preparingPro
+          && !showFleetRecovery
+          && (garageVaultStatus === "unconfigured" || garageVaultStatus === "needs-backup") ? (
             <Suspense
               fallback={
                 <AppTransitionDialog
@@ -432,10 +446,10 @@ export function SettingsPage() {
           </CardContent>
         </Card>
       </div>
-      {proEnabled && (garageVaultStatus === "idle" || garageVaultStatus === "loading") ? (
+      {proEnabled && (preparingPro || garageVaultStatus === "idle" || garageVaultStatus === "loading") ? (
         <AppTransitionDialog
           title="Preparing Pro Fleet"
-          message="Restoring your private Fleet settings..."
+          message="Opening your private Robot Fleet..."
         />
       ) : null}
       {showFleetRecovery ? (

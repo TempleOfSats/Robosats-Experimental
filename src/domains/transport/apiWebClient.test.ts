@@ -19,6 +19,44 @@ beforeEach(() => {
 });
 
 describe("ApiWebClient GET coalescing", () => {
+  it("keeps public GET requests CORS-safelisted", async () => {
+    transportRequestMock.mockResolvedValue({
+      status: 200,
+      headers: { "content-type": "application/json" },
+      body: '{"online":true}'
+    });
+
+    await apiClient.get("http://coordinator.onion", "/api/info/");
+
+    expect(transportRequestMock).toHaveBeenCalledWith(
+      "http://coordinator.onion/api/info/",
+      { method: "GET", headers: {} },
+      90_000,
+      expect.any(AbortSignal)
+    );
+  });
+
+  it("sets the JSON content type for requests with JSON bodies", async () => {
+    transportRequestMock.mockResolvedValue({
+      status: 200,
+      headers: { "content-type": "application/json" },
+      body: '{"created":true}'
+    });
+
+    await apiClient.post("http://coordinator.onion", "/api/make/", { amount: 100 });
+
+    expect(transportRequestMock).toHaveBeenCalledWith(
+      "http://coordinator.onion/api/make/",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: '{"amount":100}'
+      },
+      90_000,
+      expect.any(AbortSignal)
+    );
+  });
+
   it("shares one transport request across background and interactive callers", async () => {
     let resolveTransport: ((value: {
       status: number;

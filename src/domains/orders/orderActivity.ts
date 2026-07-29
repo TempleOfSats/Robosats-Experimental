@@ -1,7 +1,6 @@
 import type { RobotSlot } from "@/domains/garage/garageStore";
 import { useGarageStore } from "@/domains/garage/garageStore";
 import type { OrderDto } from "@/domains/orders/order.types";
-import { hasFailedPayoutForCurrentRobot } from "@/domains/orders/orderStateMachine";
 
 const MAX_OBSERVED_ORDERS = 32;
 
@@ -45,7 +44,7 @@ export function ingestCoordinatorOrder({
     orderId: resolvedOrderId,
     status: normalizedOrder.status,
     isMaker: normalizedOrder.is_maker,
-    hasFailedPayout: hasFailedPayoutForCurrentRobot(normalizedOrder)
+    isSeller: normalizedOrder.is_seller
   });
 
   const observation: CoordinatorOrderObservation = {
