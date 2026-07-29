@@ -84,6 +84,42 @@ describe("orderApi", () => {
     expect(isCompleteOrderActionResponse(response)).toBe(false);
   });
 
+  it("does not treat a terminal acknowledgement without participant roles as a complete snapshot", async () => {
+    const client = {
+      get: vi.fn(),
+      post: vi.fn().mockResolvedValue({ id: 123, status: 14, is_maker: true }),
+      put: vi.fn(),
+      delete: vi.fn()
+    } satisfies ApiClient;
+    const response = await submitOrderAction("https://coordinator", 123, { action: "confirm" }, auth, client);
+    expect(isCompleteOrderActionResponse(response)).toBe(false);
+  });
+
+  it("accepts a complete action snapshot without an additional GET", async () => {
+    const client = {
+      get: vi.fn(),
+      post: vi.fn().mockResolvedValue({
+        id: 123,
+        status: 14,
+        type: 0,
+        amount: 100,
+        currency: 1,
+        payment_method: "SEPA",
+        premium: 1,
+        satoshis: 100_000,
+        is_maker: true,
+        is_taker: false,
+        is_buyer: true,
+        is_seller: false,
+        expires_at: "2026-07-28T12:00:00Z"
+      }),
+      put: vi.fn(),
+      delete: vi.fn()
+    } satisfies ApiClient;
+    const response = await submitOrderAction("https://coordinator", 123, { action: "confirm" }, auth, client);
+    expect(isCompleteOrderActionResponse(response)).toBe(true);
+  });
+
   it("removes undefined fields but keeps explicit zero values", () => {
     expect(compactPayload({ action: "cancel", cancel_status: 0, invoice: undefined })).toEqual({
       action: "cancel",

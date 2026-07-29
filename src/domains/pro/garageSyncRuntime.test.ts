@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Event } from "nostr-tools/pure";
 import { SimplePool } from "nostr-tools/pool";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
+import { resetLiveRelaySubscriptionsForTests } from "@/domains/nostr/sharedRelayPool";
 import { garageSecretStore } from "@/domains/pro/garageSecretStore";
 import { buildGarageRecordEvent, decodeGarageRecordEvent, garageSyncEngine } from "@/domains/pro/garageSync";
 import { activeGarageEntries, decodeGarageToken, deriveGarageRobotToken, garageTokenId } from "@/domains/pro/garageVault";
@@ -22,13 +23,15 @@ describe("Garage synchronization runtime", () => {
       setItem: (key: string, value: string) => storage.set(key, value),
       removeItem: (key: string) => storage.delete(key)
     });
-    vi.spyOn(SimplePool.prototype, "subscribeMany").mockReturnValue({ close: () => undefined });
+    resetLiveRelaySubscriptionsForTests();
+    vi.spyOn(SimplePool.prototype, "subscribeMap").mockReturnValue({ close: () => undefined });
     await garageSecretStore.remove();
     resetGarageVaultRuntimeForTests();
   });
 
   afterEach(() => {
     garageSyncEngine.stop();
+    resetLiveRelaySubscriptionsForTests();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -100,6 +103,46 @@ describe("Garage synchronization runtime", () => {
     ])).resolves.toEqual(expect.any(Number));
     expect(SimplePool.prototype.publish).toHaveBeenCalled();
     resolveSlow([]);
+  });
+
+  it("keeps two live relay subscriptions and backs off only the failed relay", async () => {
+    await useGarageVaultStore.getState().setup();
+    useGarageVaultStore.getState().markBackedUp();
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const subscriptions: Array<{
+      relay: string;
+      params: { oneose?: () => void; onclose?: (reasons: string[]) => void };
+    }> = [];
+    vi.spyOn(SimplePool.prototype, "subscribeMap").mockImplementation((requests, params) => {
+      subscriptions.push({ relay: requests[0].url, params });
+      return { close: vi.fn() };
+    });
+    const coordinators = [
+      coordinator("alpha", "https://alpha.example"),
+      coordinator("bravo", "https://bravo.example"),
+      coordinator("charlie", "https://charlie.example")
+    ];
+
+    try {
+      garageSyncEngine.start(() => coordinators, false);
+      await vi.advanceTimersByTimeAsync(50);
+      expect(subscriptions).toHaveLength(2);
+      const failedRelay = subscriptions[0].relay;
+      const healthyRelay = subscriptions[1].relay;
+
+      subscriptions[0].params.onclose?.(["network-error"]);
+      await vi.advanceTimersByTimeAsync(14_999);
+      expect(subscriptions).toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(1);
+      await vi.advanceTimersByTimeAsync(50);
+
+      expect(subscriptions.filter(({ relay }) => relay === failedRelay)).toHaveLength(2);
+      expect(subscriptions.filter(({ relay }) => relay === healthyRelay)).toHaveLength(1);
+    } finally {
+      garageSyncEngine.stop();
+      vi.useRealTimers();
+    }
   });
 
   it("persists one relay acknowledgement until a second relay accepts", async () => {

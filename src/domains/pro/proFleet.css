@@ -173,4 +173,9 @@
   color: var(--success-foreground);
 }
 
-
+.pro-garage-setup-overlay {
+  isolation: isolate;
+  background: var(--overlay-scrim-strong);
+  -webkit-backdrop-filter: blur(12px) brightness(0.35);
+  backdrop-filter: blur(12px) brightness(0.35);
+}

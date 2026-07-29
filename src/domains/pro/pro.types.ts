@@ -9,7 +9,7 @@ export type ProTradeLocator = {
   orderId: number;
 };
 
-export type SnapshotFreshness = "fresh" | "stale" | "refreshing" | "error";
+type SnapshotFreshness = "fresh" | "stale" | "refreshing" | "error";
 
 export type ProTradeSnapshot = {
   key: ProTradeKey;
@@ -22,6 +22,8 @@ export type ProTradeSnapshot = {
   renewable: boolean;
   released: boolean;
   freshness: SnapshotFreshness;
+  settlementInvoice?: string;
+  settlementInvoicePurpose?: "payout-received" | "escrow-paid";
   updatedAt?: number;
   changedAt?: number;
   errorCode?: string;

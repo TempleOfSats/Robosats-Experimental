@@ -1,4 +1,4 @@
-export type OrderDirection = 0 | 1;
+type OrderDirection = 0 | 1;
 
 export interface CreateOrderPayload {
   type: OrderDirection;

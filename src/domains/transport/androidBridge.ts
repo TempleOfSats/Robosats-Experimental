@@ -103,7 +103,10 @@ export function nativeHttpRequest(
     }, timeoutMs);
     const abort = () => {
       bridge.cancelHttpRequest?.(requestId);
-      finishReject(new DOMException("Request cancelled", "AbortError"));
+      const reason = signal?.reason;
+      finishReject(reason instanceof Error
+        ? reason
+        : new DOMException(typeof reason === "string" ? reason : "Request cancelled", "AbortError"));
     };
     const detachAbort = signal
       ? () => signal.removeEventListener("abort", abort)
@@ -153,6 +156,11 @@ export async function transportRequest(
     };
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
+      if (signal?.aborted) {
+        const reason = signal.reason;
+        if (reason instanceof Error) throw reason;
+        throw new DOMException(typeof reason === "string" ? reason : "Request cancelled", "AbortError");
+      }
       throw new Error(`Request timeout after ${timeoutMs}ms`);
     }
     throw error;
@@ -268,10 +276,6 @@ export function nativeAppBridge(): RoboSatsNativeBridge | undefined {
   if (typeof window === "undefined") return undefined;
   return window.AndroidAppRobosats ?? window.IOSAppRobosats;
 }
-
-export const getAndroidNotificationState = getNativeNotificationState;
-export const setAndroidNotificationsEnabled = setNativeNotificationsEnabled;
-export const getAndroidTorDiagnostics = getNativeTorDiagnostics;
 
 if (typeof window !== "undefined") {
   window.__robosatsNativeTransport = {
