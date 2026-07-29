@@ -10,6 +10,7 @@ export const PRO_RECONCILE_POLICY = {
   idleMinMs: 180_000,
   idleMaxMs: 300_000,
   fullDiscoveryMinMs: 1_800_000,
+  automaticBurstGuardMs: 15_000,
   statusFreshMs: 300_000,
   statusStaleMs: 900_000
 } as const;
@@ -44,7 +45,8 @@ export async function mapWithConcurrency<T, R>(
 ): Promise<R[]> {
   if (items.length === 0) return [];
   const width = Math.max(1, Math.floor(concurrency));
-  const results = new Array<R>(items.length);
+  const results: R[] = [];
+  results.length = items.length;
   let cursor = 0;
 
   async function worker(): Promise<void> {

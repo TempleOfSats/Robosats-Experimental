@@ -1,13 +1,21 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { ALargeSmall, BellRing, BookOpen, ChevronRight, ExternalLink, Info, KeyRound, Link2, Palette, PanelsTopLeft, RadioTower, RefreshCw, Users, WalletCards, X } from "lucide-react";
+import { ALargeSmall, BarChart3, BellRing, BookOpen, ChevronRight, ExternalLink, Info, KeyRound, Link2, Palette, PanelsTopLeft, RadioTower, RefreshCw, Users, WalletCards, X } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { AppTransitionDialog } from "@/components/app/AppTransitionFeedback";
 import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
 import { RobotIcon } from "@/components/ui/robotIcon";
 import { Card, CardContent } from "@/components/ui/card";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
 import { selectCurrentSlot, selectStandardGarageSlots, useGarageStore } from "@/domains/garage/garageStore";
-import { readUiPreferences, saveUiPreferences } from "@/domains/settings/uiPreferences";
+import {
+  FONT_SCALE_STEP,
+  MAX_FONT_SCALE,
+  MIN_FONT_SCALE,
+  describeFontScale,
+  readUiPreferences,
+  saveUiPreferences
+} from "@/domains/settings/uiPreferences";
 import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
 import { syncAllProDataNow } from "@/domains/pro/proRuntime";
 import { useGarageVaultStore } from "@/domains/pro/garageVaultStore";
@@ -78,6 +86,7 @@ export function SettingsPage() {
   const [selectedRobotCoordinator, setSelectedRobotCoordinator] = useState<string>();
   const [showFleetRecovery, setShowFleetRecovery] = useState(false);
   const [showFleetKey, setShowFleetKey] = useState(false);
+  const [preparingPro, setPreparingPro] = useState(false);
   const robotCoordinator = displayCoordinators.find((coordinator) => coordinator.shortAlias === selectedRobotCoordinator);
   const coordinatorRobot = robotCoordinator && activeSlot ? activeSlot.robots[robotCoordinator.shortAlias] : undefined;
   const proEnabled = useProPreferencesStore((state) => state.enabled);
@@ -98,8 +107,24 @@ export function SettingsPage() {
     if (proEnabled) void initializeGarageVault();
   }, [initializeGarageVault, proEnabled]);
 
+  async function enableProMode() {
+    setPreparingPro(true);
+    setProEnabled(true);
+    if (!proSetupSeen) markProSetupSeen();
+    await Promise.allSettled([
+      initializeGarageVault(),
+      import("@/domains/pro/GarageSetupDialog"),
+      import("@/domains/pro/GarageRecoveryDialog"),
+      import("@/domains/pro/ProWorkspacePage")
+    ]);
+    setPreparingPro(false);
+  }
+
   useEffect(() => {
-    const refreshUiPreferences = () => setUi(readUiPreferences());
+    const refreshUiPreferences = (event: Event) => {
+      const next = event instanceof CustomEvent ? event.detail as ReturnType<typeof readUiPreferences> | undefined : undefined;
+      setUi(next ?? readUiPreferences());
+    };
     window.addEventListener("robosats-ui-preferences", refreshUiPreferences);
     return () => window.removeEventListener("robosats-ui-preferences", refreshUiPreferences);
   }, []);
@@ -158,7 +183,7 @@ export function SettingsPage() {
                 aria-checked={Boolean(notificationState?.enabled && notificationState.permissionGranted)}
                 aria-label={`Enable ${desktopRuntime ? "desktop" : "Android"} notifications`}
                 onClick={() => {
-                  const enabled = !Boolean(notificationState?.enabled && notificationState.permissionGranted);
+                  const enabled = !(notificationState?.enabled && notificationState.permissionGranted);
                   setNotificationState((current) => current ? { ...current, enabled } : current);
                   if (desktopRuntime) {
                     void setDesktopNotificationsEnabled(enabled).catch(() => {
@@ -212,15 +237,12 @@ export function SettingsPage() {
                 aria-label="Pro Mode"
                 onClick={() => {
                   if (proEnabled) {
+                    setPreparingPro(false);
                     setShowFleetRecovery(false);
                     setProEnabled(false);
                     return;
                   }
-                  void import("@/domains/pro/GarageSetupDialog").catch(() => undefined);
-                  void import("@/domains/pro/GarageRecoveryDialog").catch(() => undefined);
-                  void import("@/domains/pro/ProWorkspacePage").catch(() => undefined);
-                  setProEnabled(true);
-                  if (!proSetupSeen) markProSetupSeen();
+                  void enableProMode();
                 }}
               >
                 <span className={`toggle-switch ${proEnabled ? "toggle-switch-on" : ""}`} aria-hidden="true" />
@@ -230,7 +252,10 @@ export function SettingsPage() {
 
           <div className="settings-control-divider" />
 
-          {proEnabled && !showFleetRecovery && (garageVaultStatus === "unconfigured" || garageVaultStatus === "needs-backup") ? (
+          {proEnabled
+          && !preparingPro
+          && !showFleetRecovery
+          && (garageVaultStatus === "unconfigured" || garageVaultStatus === "needs-backup") ? (
             <Suspense
               fallback={
                 <AppTransitionDialog
@@ -299,15 +324,16 @@ export function SettingsPage() {
               <span className="settings-control-label">Text size</span>
               <input
                 type="range"
-                min="0.9"
-                max="1.1"
-                step="0.05"
+                min={MIN_FONT_SCALE}
+                max={MAX_FONT_SCALE}
+                step={FONT_SCALE_STEP}
                 value={ui.fontScale}
                 aria-label="Text size"
+                aria-valuetext={`${Math.round(ui.fontScale * 100)} percent, ${describeFontScale(ui.fontScale)}`}
                 onChange={(event) => updateUi({ fontScale: Number(event.target.value) })}
               />
               <span className="settings-scale-labels" aria-hidden="true">
-                <span>XS</span><span>S</span><span>M</span><span>L</span><span>XL</span>
+                <span>90%</span><span>95%</span><span>100%</span><span>105%</span><span>110%</span><span>115%</span>
               </span>
             </span>
           </label>
@@ -396,6 +422,11 @@ export function SettingsPage() {
                   <div><dt>Coordinators</dt><dd>{coordinators.filter((item) => item.enabled).length} enabled</dd></div>
                 </dl>
               </details>
+              <Link className="settings-resource-row" to="/statistics">
+                <BarChart3 size={18} />
+                <span><strong>Statistics</strong><small>Live liquidity and federation market activity</small></span>
+                <ChevronRight size={15} />
+              </Link>
               <details className="settings-resource-disclosure">
                 <summary className="settings-resource-row">
                   <RobotIcon size={18} />
@@ -415,10 +446,10 @@ export function SettingsPage() {
           </CardContent>
         </Card>
       </div>
-      {proEnabled && (garageVaultStatus === "idle" || garageVaultStatus === "loading") ? (
+      {proEnabled && (preparingPro || garageVaultStatus === "idle" || garageVaultStatus === "loading") ? (
         <AppTransitionDialog
           title="Preparing Pro Fleet"
-          message="Restoring your private Fleet settings..."
+          message="Opening your private Robot Fleet..."
         />
       ) : null}
       {showFleetRecovery ? (
@@ -440,12 +471,19 @@ export function SettingsPage() {
         </Suspense>
       ) : null}
       {showFleetKey && garageVaultStatus === "ready" ? (
-        <Suspense fallback={null}><FleetKeyDialog onClose={() => setShowFleetKey(false)} /></Suspense>
+        <Suspense fallback={<AppTransitionDialog title="Preparing Fleet backup" message="Opening your private Fleet key..." />}>
+          <FleetKeyDialog onClose={() => setShowFleetKey(false)} />
+        </Suspense>
       ) : null}
 
       {showTorDetails ? (
-        <div className="confirm-overlay" role="dialog" aria-modal="true" aria-labelledby="tor-details-title" onClick={() => setShowTorDetails(false)}>
-          <section className="confirm-sheet settings-tor-dialog" onClick={(event) => event.stopPropagation()}>
+        <Dialog
+          ariaLabelledby="tor-details-title"
+          dismissOnBackdrop
+          onClose={() => setShowTorDetails(false)}
+          overlayClassName="confirm-overlay"
+          panelClassName="confirm-sheet settings-tor-dialog"
+        >
             <header className="settings-tor-dialog-header">
               <span className="settings-onion-mark settings-onion-mark-large"><OnionIcon /></span>
               <span>
@@ -468,7 +506,7 @@ export function SettingsPage() {
               <div><dt>Routing</dt><dd>{torDiagnostics?.routing ?? "Native Tor transport"}</dd></div>
               <div><dt>App</dt><dd>RoboSats Exp. {torDiagnostics?.appVersion ?? ""}</dd></div>
             </dl>
-            {torDiagnostics?.error ? <p className="field-error">{torDiagnostics.error}</p> : null}
+            {torDiagnostics?.error ? <p className="field-error" role="alert">{torDiagnostics.error}</p> : null}
             <Button
               variant="secondary"
               className="full-width"
@@ -484,12 +522,11 @@ export function SettingsPage() {
             >
               {desktopRuntime && torDiagnostics?.state === "failed" ? "Retry connection" : "Check connection"}
             </Button>
-          </section>
-        </div>
+        </Dialog>
       ) : null}
 
       {showRobotSettings && activeSlot ? (
-        <Suspense fallback={null}>
+        <Suspense fallback={<AppTransitionDialog title="Preparing robot settings" message="Opening this robot's private controls..." />}>
           <GarageRobotSettingsDialog
             activeToken={activeSlot.token}
             coordinators={displayCoordinators}
@@ -511,7 +548,7 @@ export function SettingsPage() {
       ) : null}
 
       {showRobotTokenBackup && activeSlot ? (
-        <Suspense fallback={null}>
+        <Suspense fallback={<AppTransitionDialog title="Preparing token backup" message="Opening this robot's recovery token..." />}>
           <GarageRobotTokenBackupDialog
             onClose={() => setShowRobotTokenBackup(false)}
             robotName={activeSlot.nickname}
@@ -521,7 +558,7 @@ export function SettingsPage() {
       ) : null}
 
       {showRobotSettings && robotCoordinator && activeSlot ? (
-        <Suspense fallback={null}>
+        <Suspense fallback={<AppTransitionDialog title="Preparing coordinator details" message="Loading this robot's coordinator state..." />}>
           <GarageRobotCoordinatorDialog
             coordinator={robotCoordinator}
             robot={coordinatorRobot}

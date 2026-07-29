@@ -252,6 +252,11 @@ function isCachePayload(value: unknown): value is ProTradeCachePayload {
 function isCachedSnapshot(value: unknown): value is CachedSnapshot {
   if (!isRecord(value) || !isRecord(value.locator)) return false;
   const locator = value.locator;
+  const settlementValid = validCachedSettlement(
+    value.settlementInvoice,
+    value.settlementInvoicePurpose,
+    value.order
+  );
   return isString(locator.slotId)
     && isString(locator.shortAlias)
     && isPositiveInteger(locator.orderId)
@@ -263,6 +268,7 @@ function isCachedSnapshot(value: unknown): value is CachedSnapshot {
     && optionalPositiveInteger(value.lastOrderId)
     && optionalFiniteNumber(value.updatedAt)
     && optionalFiniteNumber(value.changedAt)
+    && settlementValid
     && (value.order === undefined || isCachedOrder(value.order));
 }
 
@@ -345,4 +351,24 @@ function optionalBoolean(value: unknown): boolean {
 
 function optionalString(value: unknown): boolean {
   return value === undefined || isString(value);
+}
+
+function validCachedSettlement(
+  invoice: unknown,
+  purpose: unknown,
+  order: unknown
+): boolean {
+  if (invoice === undefined || purpose === undefined) {
+    return invoice === undefined && purpose === undefined;
+  }
+  if (typeof invoice !== "string"
+    || invoice.length < 20
+    || invoice.length > 4_096
+    || !/^ln[a-z0-9]+$/i.test(invoice)
+    || (purpose !== "payout-received" && purpose !== "escrow-paid")) {
+    return false;
+  }
+  if (!isRecord(order)) return false;
+  return (purpose === "payout-received" && order.is_buyer === true)
+    || (purpose === "escrow-paid" && order.is_seller === true);
 }

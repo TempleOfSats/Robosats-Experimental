@@ -29,13 +29,14 @@ describe("RobotKeysDialog", () => {
     expect(credentials.passphrase).toBe(identity.token);
   });
 
-  it("renders the current verification sections and copy actions", () => {
+  it("renders the selected verification panel and exposes the other tab", () => {
     const html = renderToStaticMarkup(<RobotKeysDialog slot={slot} onClose={() => undefined} />);
     expect(html).toContain("Don&#x27;t trust, verify");
     expect(html).toContain("Nostr");
     expect(html).toContain("OpenPGP");
-    expect(html).toContain("Your encrypted private key");
     expect(html).toContain("Copy Your private key");
     expect(html).toContain("Export keys");
+    expect(html).toContain('role="tabpanel"');
+    expect(html).not.toContain("Your encrypted private key");
   });
 });

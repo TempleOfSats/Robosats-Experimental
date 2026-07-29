@@ -73,6 +73,36 @@ describe("orderbook store reliability", () => {
     );
     expect(useOrderbookStore.getState().orders).not.toContain(staleLakeOrder);
   });
+
+  it("publishes a healthy coordinator book before an offline request settles", async () => {
+    const lake = coordinator("lake", "https://lake.example");
+    const temple = coordinator("temple", "https://temple.example");
+    const freshLakeOrder = order(3, "lake");
+    let rejectTemple: ((reason?: unknown) => void) | undefined;
+    fetchCoordinatorBook.mockImplementation((url: string) => {
+      if (url === lake.url) return Promise.resolve([freshLakeOrder]);
+      return new Promise((_resolve, reject) => {
+        rejectTemple = reject;
+      });
+    });
+
+    const refresh = useOrderbookStore.getState().refreshOrderbook([lake, temple], {
+      connection: "api",
+      force: true,
+      network: "mainnet",
+      origin: "onion"
+    });
+
+    await vi.waitFor(() => expect(useOrderbookStore.getState().orders).toEqual([freshLakeOrder]));
+    expect(useOrderbookStore.getState().loading).toBe(false);
+    expect(useOrderbookStore.getState().refreshing).toBe(true);
+
+    rejectTemple?.(new Error("offline"));
+    await refresh;
+
+    expect(useOrderbookStore.getState().orders).toEqual([freshLakeOrder]);
+    expect(useOrderbookStore.getState().refreshing).toBe(false);
+  });
 });
 
 function coordinator(shortAlias: string, url: string): CoordinatorSummary {

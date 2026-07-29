@@ -57,6 +57,17 @@ describe("PRO preferences", () => {
     });
   });
 
+  it("reloads the History tab as a local preference", () => {
+    storage.set(PRO_PREFERENCES_KEY, JSON.stringify({
+      enabled: true,
+      setupSeen: true,
+      lastView: "history",
+      lastFilter: "all"
+    }));
+    useProPreferencesStore.getState().reload();
+    expect(useProPreferencesStore.getState().lastView).toBe("history");
+  });
+
   it("preserves the selected desk view across disable and re-enable", () => {
     useProPreferencesStore.getState().setEnabled(true);
     useProPreferencesStore.getState().setLastView("robots");

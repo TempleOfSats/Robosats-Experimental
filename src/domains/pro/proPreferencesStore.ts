@@ -3,7 +3,7 @@ import { systemClient } from "@/domains/transport/systemClient";
 
 export const PRO_PREFERENCES_KEY = "robosats_exp_pro_preferences_v1";
 
-export type ProView = "trades" | "robots";
+export type ProView = "trades" | "history" | "robots";
 export type ProFilter = "all" | "needs-action" | "active" | "public" | "renewable";
 
 export type ProPreferences = {
@@ -44,7 +44,7 @@ export function parseProPreferences(raw: string | null): ProPreferences {
     return {
       enabled: parsed.enabled === true,
       setupSeen: parsed.setupSeen === true,
-      lastView: parsed.lastView === "robots" ? "robots" : "trades",
+      lastView: parsed.lastView === "robots" || parsed.lastView === "history" ? parsed.lastView : "trades",
       lastFilter: isProFilter(parsed.lastFilter) ? parsed.lastFilter : "all"
     };
   } catch {
