@@ -1,4 +1,5 @@
 import { cn } from "@/lib/cn";
+import { Dialog } from "@/components/ui/dialog";
 
 type AppTransitionFeedbackProps = {
   title: string;
@@ -33,15 +34,14 @@ export function AppTransitionDialog({
   message
 }: Omit<AppTransitionFeedbackProps, "compact">) {
   return (
-    <div
-      className="confirm-overlay app-transition-overlay"
-      role="dialog"
-      aria-modal="true"
-      aria-label={title}
+    <Dialog
+      ariaLabel={title}
+      closeOnEscape={false}
+      onClose={() => undefined}
+      overlayClassName="confirm-overlay app-transition-overlay"
+      panelClassName="confirm-sheet app-transition-dialog"
     >
-      <section className="confirm-sheet app-transition-dialog">
-        <AppTransitionFeedback title={title} message={message} />
-      </section>
-    </div>
+      <AppTransitionFeedback title={title} message={message} />
+    </Dialog>
   );
 }

@@ -1,4 +1,13 @@
-import { preloadAllAppRoutes, preloadPrimaryTradeRoutes } from "@/app/routes";
+import {
+  preloadAllAppRoutes,
+  preloadPrimaryTradeRoutes,
+  preloadQuickAccessRoutes
+} from "@/app/routes";
+import {
+  isStandardGarageRoute,
+  ROUTE_TRANSITION_READY_EVENT,
+  ROUTE_TRANSITION_START_EVENT
+} from "@/app/routeTransition";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
 import {
@@ -16,6 +25,7 @@ import { useOrderbookStore } from "@/domains/orderbook/orderbookStore";
 import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
 import { getNativeTorDiagnostics, isNativeApp } from "@/domains/transport/androidBridge";
 import { subscribeRefreshIntents, type RefreshReason } from "@/domains/transport/refreshIntents";
+import { coordinatorRequestScheduler } from "@/domains/transport/requestScheduler";
 import {
   desktopBackgroundNotificationsEnabled,
   isTauriDesktop
@@ -29,30 +39,49 @@ type IdleWindow = {
 export function scheduleAppPrewarm(): () => void {
   const stopOrderChangeHints = startOrderChangeHintRuntime();
   let foregroundRefresh: Promise<void> | undefined;
-  const refreshAfterLifecycle = (reason: RefreshReason) => {
-    if (reason === "tor-ready") {
-      prewarmData();
-      return;
-    }
-    if (foregroundRefresh || (visibleTradeRoute() && document.visibilityState === "visible")) return;
+  const refreshForegroundRobot = () => {
+    if (foregroundRefresh) return;
     foregroundRefresh = refreshSelectedStandardRobotStatus()
       .catch(() => undefined)
       .finally(() => { foregroundRefresh = undefined; });
   };
+  const refreshAfterLifecycle = (reason: RefreshReason) => {
+    if (reason === "tor-ready") {
+      prewarmData();
+      if (isStandardGarageRoute(window.location.pathname)) refreshForegroundRobot();
+      return;
+    }
+    if (foregroundRefresh || (visibleTradeRoute() && document.visibilityState === "visible")) return;
+    refreshForegroundRobot();
+  };
   const stopLifecycle = subscribeRefreshIntents(refreshAfterLifecycle);
+  const refreshGarageRoute = (event: Event) => {
+    const path = (event as CustomEvent<{ path?: string }>).detail?.path ?? window.location.pathname;
+    if (isStandardGarageRoute(path)) refreshForegroundRobot();
+  };
+  window.addEventListener(ROUTE_TRANSITION_READY_EVENT, refreshGarageRoute);
+  if (isStandardGarageRoute(window.location.pathname)) refreshForegroundRobot();
 
   const cleanups = [
     scheduleIdle(prewarmData, 500, 3000),
-    scheduleIdle(preloadPrimaryTradeRoutes, 1800, 6000),
-    scheduleIdle(preloadAllAppRoutes, 4500, 12000),
+    scheduleQuietIdle(preloadQuickAccessRoutes, 900, 7000),
     scheduleIdle(prewarmVisualAssets, 7000, 16000),
     scheduleIdle(prewarmAudioAssets, 45000, 60000),
     scheduleDesktopNotificationRefresh()
   ];
+  // Native and desktop packages read chunks locally, so warming the remaining
+  // routes cannot consume Tor bandwidth.
+  if (isNativeApp() || isTauriDesktop()) {
+    cleanups.push(
+      scheduleIdle(preloadPrimaryTradeRoutes, 1800, 6000),
+      scheduleIdle(preloadAllAppRoutes, 4500, 12000)
+    );
+  }
 
   return () => {
     stopOrderChangeHints();
     stopLifecycle();
+    window.removeEventListener(ROUTE_TRANSITION_READY_EVENT, refreshGarageRoute);
     cleanups.forEach((cleanup) => cleanup());
   };
 }
@@ -121,41 +150,79 @@ async function refreshSelectedStandardRobot(
   const garage = useGarageStore.getState();
   const standardSlot = selectCurrentSlot(selectStandardGarageSlots(garage.slots), garage.currentToken);
   if (standardSlot) {
+    const immediateOrderRefreshes: Promise<void>[] = [];
+    const observedAliases = new Set<string>();
     const result = await garage.refreshRobotSlot(standardSlot.token, coordinators, {
       preferredAliases: preferredAliases(standardSlot),
       priority,
-      source: "prewarm"
+      source: "prewarm",
+      maxAgeMs: priority === "background" ? 300_000 : 60_000,
+      onCoordinatorResult: (robot) => {
+        observedAliases.add(robot.shortAlias);
+        const refreshedSlot = useGarageStore.getState().slots.find(
+          (slot) => slot.token === standardSlot.token
+        );
+        if (refreshedSlot) {
+          immediateOrderRefreshes.push(
+            refreshStandardCoordinatorOrders(refreshedSlot, robot, coordinators, priority)
+          );
+        }
+      }
     });
     const refreshedSlot = useGarageStore.getState().slots.find((slot) => slot.token === standardSlot.token);
-    if (refreshedSlot) await refreshStandardOrders(refreshedSlot, result, coordinators);
+    await Promise.all([
+      ...immediateOrderRefreshes,
+      refreshedSlot
+        ? refreshStandardOrders(
+            refreshedSlot,
+            {
+              ...result,
+              coordinators: result.coordinators.filter(
+                (robot) => !observedAliases.has(robot.shortAlias)
+              )
+            },
+            coordinators,
+            priority
+          )
+        : Promise.resolve()
+    ]);
   }
 }
 
 async function refreshStandardOrders(
   slot: RobotSlot,
   result: RefreshRobotSlotResult,
-  coordinators: CoordinatorSummary[]
+  coordinators: CoordinatorSummary[],
+  priority: "background" | "visible"
 ): Promise<void> {
-  const coordinatorsByAlias = new Map(coordinators.map((coordinator) => [coordinator.shortAlias, coordinator]));
-  await Promise.all(result.coordinators.flatMap((robot) => {
-    if (robot.error) return [];
-    const coordinator = coordinatorsByAlias.get(robot.shortAlias);
-    const auth = getRobotAuthForCoordinator(slot, robot.shortAlias);
-    if (!coordinator?.url || !auth) return [];
-    const orderIds = [...new Set([robot.activeOrderId, robot.renewableOrderId])]
-      .filter((orderId): orderId is number => Number.isSafeInteger(orderId) && Number(orderId) > 0);
-    return orderIds.map(async (orderId) => {
-      try {
-        const order = await fetchOrder(coordinator.url, orderId, auth, {
-          timeoutProfile: "background",
-          priority: "background",
-          source: "prewarm"
-        });
-        ingestCoordinatorOrder({ order, shortAlias: robot.shortAlias, slot });
-      } catch {
-        return;
-      }
-    });
+  await Promise.all(result.coordinators.map((robot) =>
+    refreshStandardCoordinatorOrders(slot, robot, coordinators, priority)
+  ));
+}
+
+async function refreshStandardCoordinatorOrders(
+  slot: RobotSlot,
+  robot: RefreshRobotSlotResult["coordinators"][number],
+  coordinators: CoordinatorSummary[],
+  priority: "background" | "visible"
+): Promise<void> {
+  if (robot.error) return;
+  const coordinator = coordinators.find((item) => item.shortAlias === robot.shortAlias);
+  const auth = getRobotAuthForCoordinator(slot, robot.shortAlias);
+  if (!coordinator?.url || !auth) return;
+  const orderIds = [...new Set([robot.activeOrderId, robot.renewableOrderId])]
+    .filter((orderId): orderId is number => Number.isSafeInteger(orderId) && Number(orderId) > 0);
+  await Promise.all(orderIds.map(async (orderId) => {
+    try {
+      const order = await fetchOrder(coordinator.url, orderId, auth, {
+        timeoutProfile: priority === "visible" ? "interactive" : "background",
+        priority,
+        source: "prewarm"
+      });
+      ingestCoordinatorOrder({ order, shortAlias: robot.shortAlias, slot });
+    } catch {
+      return;
+    }
   }));
 }
 
@@ -200,6 +267,68 @@ function scheduleIdle(callback: () => void, delayMs: number, timeout: number): (
       idleWindow.cancelIdleCallback?.(idleId);
     }
   };
+}
+
+function scheduleQuietIdle(callback: () => void, delayMs: number, timeout: number): () => void {
+  if (typeof window === "undefined") return () => undefined;
+
+  let cancelled = false;
+  let completed = false;
+  let routeTransitionPending = false;
+  let retryTimer: number | undefined;
+  let cancelIdle: () => void = () => undefined;
+
+  const scheduleAttempt = (delay: number) => {
+    if (cancelled || completed) return;
+    if (retryTimer !== undefined) {
+      window.clearTimeout(retryTimer);
+      retryTimer = undefined;
+    }
+    cancelIdle();
+    cancelIdle = scheduleIdle(attempt, delay, timeout);
+  };
+  const attempt = () => {
+    if (cancelled) return;
+    // Visibility and route-transition events will reschedule without polling.
+    if (document.visibilityState !== "visible" || routeTransitionPending) return;
+    if (coordinatorRequestScheduler.hasUserPriorityWork() || inputPending()) {
+      retryTimer = window.setTimeout(() => scheduleAttempt(0), 750);
+      return;
+    }
+    completed = true;
+    callback();
+  };
+  const pause = () => {
+    routeTransitionPending = true;
+  };
+  const resume = () => {
+    routeTransitionPending = false;
+    if (!completed && document.visibilityState === "visible") scheduleAttempt(250);
+  };
+  const handleVisibility = () => {
+    if (!completed && document.visibilityState === "visible") scheduleAttempt(250);
+  };
+
+  window.addEventListener(ROUTE_TRANSITION_START_EVENT, pause);
+  window.addEventListener(ROUTE_TRANSITION_READY_EVENT, resume);
+  document.addEventListener("visibilitychange", handleVisibility);
+  scheduleAttempt(delayMs);
+
+  return () => {
+    cancelled = true;
+    cancelIdle();
+    if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+    window.removeEventListener(ROUTE_TRANSITION_START_EVENT, pause);
+    window.removeEventListener(ROUTE_TRANSITION_READY_EVENT, resume);
+    document.removeEventListener("visibilitychange", handleVisibility);
+  };
+}
+
+function inputPending(): boolean {
+  const scheduling = (navigator as Navigator & {
+    scheduling?: { isInputPending?: () => boolean };
+  }).scheduling;
+  return scheduling?.isInputPending?.() ?? false;
 }
 
 function currentHostUrl(): string | undefined {

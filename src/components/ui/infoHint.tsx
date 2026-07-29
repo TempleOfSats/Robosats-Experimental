@@ -1,4 +1,5 @@
 import { HelpCircle } from "lucide-react";
+import { createPortal } from "react-dom";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 
 export function InfoHint({ title }: { title: string }) {
@@ -80,11 +81,22 @@ export function InfoHint({ title }: { title: string }) {
       setTapAnchored(false);
       return;
     }
-    const tapped = typeof matchMedia === "function" && matchMedia("(hover: none), (pointer: coarse)").matches;
-    setTapAnchored(tapped);
+    setTapAnchored(true);
     setTapPosition(undefined);
     setOpen(true);
   }
+
+  const popover = (
+    <span
+      className={`info-hint-popover${tapAnchored ? " info-hint-popover-tap" : ""}${open ? " info-hint-popover-open" : ""}`}
+      id={tooltipId}
+      ref={popoverRef}
+      role="tooltip"
+      style={tapPosition ? { left: tapPosition.left, top: tapPosition.top } : undefined}
+    >
+      {title}
+    </span>
+  );
 
   return (
     <span className="info-hint" ref={rootRef}>
@@ -98,15 +110,9 @@ export function InfoHint({ title }: { title: string }) {
       >
         <HelpCircle size={14} />
       </button>
-      <span
-        className={`info-hint-popover${tapAnchored ? " info-hint-popover-tap" : ""}`}
-        id={tooltipId}
-        ref={popoverRef}
-        role="tooltip"
-        style={tapPosition ? { left: tapPosition.left, top: tapPosition.top } : undefined}
-      >
-        {title}
-      </span>
+      {tapAnchored && open && typeof document !== "undefined"
+        ? createPortal(popover, document.body)
+        : popover}
     </span>
   );
 }

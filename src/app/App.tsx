@@ -17,17 +17,25 @@ export function App() {
 
     let cleanup: (() => void) | undefined;
     let cancelled = false;
-    // Keep prewarm off the initial render path.
-    const timer = window.setTimeout(() => {
-      void import("@/app/prewarm").then(({ scheduleAppPrewarm }) => {
-        if (cancelled) return;
-        cleanup = scheduleAppPrewarm();
-      });
-    }, 500);
+    let timer: number | undefined;
+    const schedule = () => {
+      if (timer !== undefined || cleanup) return;
+      // Wait until the first lazy route is mounted. On an onion origin,
+      // preloading before this point competes with the page the user opened.
+      timer = window.setTimeout(() => {
+        void import("@/app/prewarm").then(({ scheduleAppPrewarm }) => {
+          if (cancelled) return;
+          cleanup = scheduleAppPrewarm();
+        });
+      }, 250);
+    };
+    window.addEventListener("robosats:app-ready", schedule, { once: true });
+    if (document.documentElement.dataset.robosatsAppReady === "true") schedule();
 
     return () => {
       cancelled = true;
-      window.clearTimeout(timer);
+      window.removeEventListener("robosats:app-ready", schedule);
+      if (timer !== undefined) window.clearTimeout(timer);
       cleanup?.();
     };
   }, [tradeLabContext]);
@@ -49,7 +57,7 @@ export function App() {
     <Router>
       <DesktopNotificationRouter />
       {tradeLabContext && new URLSearchParams(window.location.search).get("tradeLab") === "1" ? (
-        <div id="main-content" className="app-content trade-lab-standalone-preview"><AppRoutes /></div>
+        <main id="main-content" className="app-content trade-lab-standalone-preview" tabIndex={-1}><AppRoutes /></main>
       ) : (
         <AppShell platform={platform}>
           <AppRoutes />

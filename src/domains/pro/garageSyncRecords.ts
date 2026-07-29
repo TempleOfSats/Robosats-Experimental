@@ -9,6 +9,8 @@ import {
   type GarageRobotEntry
 } from "@/domains/pro/garageVault";
 import { validatePortableSettings, type OfferPreset, type PortableSettingsManifest } from "@/domains/pro/portableSettings";
+import { validateTradeHistoryEntry, type TradeHistoryEntry } from "@/domains/pro/tradeHistory";
+import type { UiTheme } from "@/domains/settings/uiPreferences";
 
 const encoder = new TextEncoder();
 
@@ -51,7 +53,12 @@ export type GaragePresetTombstone = RecordBase & {
 
 export type GaragePreferencesRecord = RecordBase & {
   type: "preferences";
-  theme: "dark" | "light";
+  theme: UiTheme;
+};
+
+export type GarageTradeHistoryRecord = RecordBase & {
+  type: "trade-history";
+  value: Omit<TradeHistoryEntry, "id" | "revision" | "deviceId" | "updatedAt">;
 };
 
 export type GarageSyncRecord =
@@ -59,7 +66,8 @@ export type GarageSyncRecord =
   | GarageRobotTombstone
   | GaragePresetRecord
   | GaragePresetTombstone
-  | GaragePreferencesRecord;
+  | GaragePreferencesRecord
+  | GarageTradeHistoryRecord;
 
 export type ObservedGarageSyncRecord = {
   record: GarageSyncRecord;
@@ -169,7 +177,31 @@ export function preferencesToSyncRecord(settings: PortableSettingsManifest): Gar
   };
 }
 
+export function tradeHistoryToSyncRecord(entry: TradeHistoryEntry): GarageTradeHistoryRecord {
+  const { id: _id, revision, deviceId, updatedAt, ...value } = entry;
+  return {
+    type: "trade-history",
+    version: 1,
+    id: entry.id,
+    revision,
+    writerDeviceId: deviceId,
+    updatedAt,
+    value
+  };
+}
+
+export function syncRecordToTradeHistory(record: GarageTradeHistoryRecord): TradeHistoryEntry {
+  return {
+    ...record.value,
+    id: record.id,
+    revision: record.revision,
+    deviceId: record.writerDeviceId,
+    updatedAt: record.updatedAt
+  };
+}
+
 export function syncRecordDomain(record: GarageSyncRecord): GarageKeyDomain {
+  if (record.type === "trade-history") return "history-sync";
   return record.type === "robot" || record.type === "robot-tombstone" ? "garage-sync" : "settings-sync";
 }
 
@@ -207,7 +239,8 @@ export function validateGarageSyncRecord(value: unknown): asserts value is Garag
     ...(record.type === "robot" ? ["tokenId", "nickname"] : []),
     ...(record.type === "robot-tombstone" ? ["tokenId"] : []),
     ...(record.type === "preset" ? ["value"] : []),
-    ...(record.type === "preferences" ? ["theme"] : [])
+    ...(record.type === "preferences" ? ["theme"] : []),
+    ...(record.type === "trade-history" ? ["value"] : [])
   ]);
   if (Object.keys(record).some((key) => !fields.has(key))) throw new Error("Synchronized record has unknown fields.");
   const opaqueId = record.type === "preferences" ? record.id === "preferences" : /^[0-9a-f]{32}$/.test(record.id);
@@ -223,7 +256,18 @@ export function validateGarageSyncRecord(value: unknown): asserts value is Garag
     if (!record.value || typeof record.value !== "object") throw new Error("Invalid synchronized preset.");
     validatePresetRecord(record as GaragePresetRecord);
   } else if (record.type === "preferences") {
-    if (record.theme !== "dark" && record.theme !== "light") throw new Error("Invalid synchronized theme.");
+    if (record.theme !== "dark" && record.theme !== "light") {
+      throw new Error("Invalid synchronized theme.");
+    }
+  } else if (record.type === "trade-history") {
+    if (!record.value || typeof record.value !== "object") throw new Error("Invalid synchronized trade history.");
+    validateTradeHistoryEntry({
+      ...record.value,
+      id: record.id,
+      revision: record.revision,
+      deviceId: record.writerDeviceId,
+      updatedAt: record.updatedAt
+    });
   } else if (record.type !== "preset-tombstone") {
     throw new Error("Unsupported synchronized record.");
   }

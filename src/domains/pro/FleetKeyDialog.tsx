@@ -1,6 +1,7 @@
 import { Check, Copy, Download, KeyRound, X } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
 import { downloadFleetKeyBackup } from "@/domains/pro/fleetKeyBackup";
 import { useGarageVaultStore } from "@/domains/pro/garageVaultStore";
 import { writeClipboard } from "@/lib/clipboard";
@@ -23,8 +24,12 @@ export function FleetKeyDialog({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div className="confirm-overlay" role="dialog" aria-modal="true" aria-labelledby="fleet-key-title" onClick={onClose}>
-      <section className="confirm-sheet pro-fleet-key-sheet" onClick={(event) => event.stopPropagation()}>
+    <Dialog
+      ariaLabelledby="fleet-key-title"
+      onClose={onClose}
+      overlayClassName="confirm-overlay"
+      panelClassName="confirm-sheet pro-fleet-key-sheet"
+    >
         <header className="garage-switcher-header">
           <div className="pro-fleet-key-heading">
             <h3 id="fleet-key-title">Back up Fleet key</h3>
@@ -48,7 +53,6 @@ export function FleetKeyDialog({ onClose }: { onClose: () => void }) {
           </div>
         </div>
         {error ? <p className="form-error" role="alert">{error}</p> : null}
-      </section>
-    </div>
+    </Dialog>
   );
 }

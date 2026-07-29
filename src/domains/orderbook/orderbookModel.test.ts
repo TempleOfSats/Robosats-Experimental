@@ -23,6 +23,8 @@ describe("normalizePublicOrder", () => {
         maker_nick: "HelpfulVeranda735",
         maker_hash_id: "abc",
         bond_size_sats: "4500",
+        latitude: "35.7",
+        longitude: "139.7",
         coordinatorShortAlias: "local"
       })
     ).toEqual({
@@ -44,6 +46,8 @@ describe("normalizePublicOrder", () => {
       maker_nick: "HelpfulVeranda735",
       maker_hash_id: "abc",
       bond_size_sats: 4500,
+      latitude: 35.7,
+      longitude: 139.7,
       coordinatorShortAlias: "local"
     });
   });

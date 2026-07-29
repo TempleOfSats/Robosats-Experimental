@@ -12,7 +12,7 @@ const ROBOT_TOKEN_LENGTH = 36;
 const DERIVATION_SALT = new TextEncoder().encode("robosats-exp:garage:v1");
 
 export const GARAGE_LIMITS = {
-  activeRobots: 16,
+  activeRobots: 6,
   devices: 32,
   plaintextBytes: 40 * 1024,
   presets: 128,

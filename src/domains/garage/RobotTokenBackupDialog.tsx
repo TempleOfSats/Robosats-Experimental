@@ -1,7 +1,9 @@
 import { Check, Copy, Download } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
 import { downloadRobotTokenBackup } from "@/domains/garage/tokenBackup";
+import { writeClipboard } from "@/lib/clipboard";
 
 export function RobotTokenBackupDialog({
   onClose,
@@ -15,14 +17,22 @@ export function RobotTokenBackupDialog({
   const [copied, setCopied] = useState(false);
 
   async function copyToken() {
-    await navigator.clipboard?.writeText(token);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1400);
+    try {
+      await writeClipboard(token);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1400);
+    } catch {
+      setCopied(false);
+    }
   }
 
   return (
-    <div className="confirm-overlay token-backup-overlay" role="dialog" aria-modal="true" aria-labelledby="token-backup-title" onClick={onClose}>
-      <section className="confirm-sheet token-backup-sheet" onClick={(event) => event.stopPropagation()}>
+    <Dialog
+      ariaLabelledby="token-backup-title"
+      onClose={onClose}
+      overlayClassName="confirm-overlay token-backup-overlay"
+      panelClassName="confirm-sheet token-backup-sheet"
+    >
         <div>
           <h3 id="token-backup-title">Store your robot token</h3>
           <p className="muted-copy">This token is the only way to recover this robot on another device.</p>
@@ -50,7 +60,6 @@ export function RobotTokenBackupDialog({
         <div className="confirm-actions">
           <Button onClick={onClose}>Done</Button>
         </div>
-      </section>
-    </div>
+    </Dialog>
   );
 }

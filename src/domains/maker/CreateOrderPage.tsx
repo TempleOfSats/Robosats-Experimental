@@ -9,22 +9,27 @@ import {
   Landmark,
   LoaderCircle,
   Lock,
+  MapPin,
   Info,
   PlusCircle,
   ReceiptText,
   Repeat2,
   Save,
-  ShieldCheck
+  ShieldCheck,
+  X
 } from "lucide-react";
-import { type CSSProperties, type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, type CSSProperties, type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import { preloadAppRoute } from "@/app/routes";
+import { AppTransitionFeedback } from "@/components/app/AppTransitionFeedback";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Dialog } from "@/components/ui/dialog";
 import { InfoHint } from "@/components/ui/infoHint";
 import { VisualSelect } from "@/components/ui/visualSelect";
-import { CoordinatorDetailDialog } from "@/domains/coordinators/CoordinatorsPage";
-import { fetchCoordinatorRatings, type CoordinatorRating } from "@/domains/coordinators/coordinatorRatings";
+import type { CoordinatorRating } from "@/domains/coordinators/coordinatorRatings";
+import { coordinatorNeedsRefresh, selectCoordinatorAvailability } from "@/domains/coordinators/coordinatorAvailability";
 import { federationLottery } from "@/domains/coordinators/federationLottery";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
 import { toUserMessage } from "@/lib/userError";
@@ -48,6 +53,7 @@ import { currencyIdFromCode, currencyOptions } from "@/domains/orderbook/currenc
 import { CurrencyFlag, CurrencyPicker, PaymentMethodIcons, PaymentMethodPicker } from "@/domains/orderbook/OfferMeta";
 import { normalPaymentMethodOptions, swapPaymentMethodOptions } from "@/domains/orderbook/paymentMethods";
 import { ingestCoordinatorOrder } from "@/domains/orders/orderActivity";
+import { openConfirmedOrder } from "@/domains/orders/confirmedOrderNavigation";
 import { reserveRobotOrderAction, revalidateRobotForNewOrder } from "@/domains/orders/robotOrderGuard";
 import { roleBuysBitcoin, roleIntentLabel } from "@/domains/orders/orderRole";
 import { activeOfferPresets, type OfferPreset } from "@/domains/pro/portableSettings";
@@ -56,7 +62,17 @@ import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
 import { deriveProRobotLifecycle } from "@/domains/pro/proRobotLifecycle";
 import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
 import { formatFiat } from "@/lib/format";
+import { F2FLocationDialog } from "@/domains/location/F2FLocationDialog";
+import {
+  CASH_F2F_METHOD,
+  hasApproximateF2FLocation,
+  isCashF2FMethod,
+  paymentMethodHasF2F
+} from "@/domains/location/f2fLocation";
 
+const LazyCoordinatorDetailDialog = lazy(() =>
+  import("@/domains/coordinators/CoordinatorsPage").then((module) => ({ default: module.CoordinatorDetailDialog }))
+);
 const NORMAL_PAYMENT_METHODS = normalPaymentMethodOptions();
 const SWAP_PAYMENT_METHODS = swapPaymentMethodOptions();
 
@@ -71,6 +87,7 @@ const wizardSteps = [
 
 type CreateOrderRouteState = {
   renewDraft?: CreateOrderDraft;
+  prefillDraft?: Pick<CreateOrderDraft, "amount" | "currency" | "paymentMethod" | "type">;
   shortAlias?: string;
   creatingOfferAs?: { hashId: string; nickname: string };
   presetId?: string;
@@ -103,9 +120,10 @@ export function CreateOrderPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const renewal = location.state as CreateOrderRouteState | null;
-  const { coordinators, refreshCoordinators } = useFederationStore();
+  const coordinators = useFederationStore((state) => state.coordinators);
   const slots = useGarageStore((state) => state.slots);
   const currentToken = useGarageStore((state) => state.currentToken);
+  const setCurrentToken = useGarageStore((state) => state.setCurrentToken);
   const hydrateGarage = useGarageStore((state) => state.hydrate);
   const proEnabled = useProPreferencesStore((state) => state.enabled);
   const tradeSnapshots = useProTradeIndexStore((state) => state.snapshots);
@@ -119,9 +137,12 @@ export function CreateOrderPage() {
   const setProLastView = useProPreferencesStore((state) => state.setLastView);
   const portableManifest = usePortableSettingsStore((state) => state.manifest);
   const savePreset = usePortableSettingsStore((state) => state.savePreset);
-  const [draft, setDraft] = useState<CreateOrderDraft>(() => renewal?.renewDraft ?? initialDraft);
+  const [draft, setDraft] = useState<CreateOrderDraft>(() => renewal?.renewDraft ?? {
+    ...initialDraft,
+    ...renewal?.prefillDraft
+  });
   const [selectedShortAlias, setSelectedShortAlias] = useState(() => renewal?.shortAlias ?? "");
-  const [currentStep, setCurrentStep] = useState(0);
+  const [currentStep, setCurrentStep] = useState(() => renewal?.prefillDraft ? wizardSteps.length - 1 : 0);
   const [reviewReady, setReviewReady] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
@@ -129,15 +150,14 @@ export function CreateOrderPage() {
   const [presetName, setPresetName] = useState("");
   const presetNameInput = useRef<HTMLInputElement>(null);
   const loadedPresetId = useRef("");
-  const selectableCoordinators = useMemo(() => coordinators.filter((coordinator) => coordinator.shortAlias !== "local"), [coordinators]);
+  const selectableCoordinators = useMemo(() => coordinators.filter((coordinator) => coordinator.shortAlias !== "local" && coordinator.enabled), [coordinators]);
   const offerPresets = useMemo(() => activeOfferPresets(portableManifest), [portableManifest]);
   const presetEditor = proEnabled && Boolean(renewal?.presetEditor);
   const requestedPresetId = renewal?.presetEditor?.id ?? renewal?.presetId;
 
   useEffect(() => {
     hydrateGarage();
-    void refreshCoordinators();
-  }, [hydrateGarage, refreshCoordinators]);
+  }, [hydrateGarage]);
 
   useEffect(() => {
     if (!proEnabled || renewal?.presetEditor || renewal?.robotSlotId) return;
@@ -350,6 +370,7 @@ export function CreateOrderPage() {
 
     setSubmitting(true);
     setSubmitError("");
+    preloadAppRoute("/order");
 
     try {
       const actionSlot = await revalidateRobotForNewOrder({
@@ -369,13 +390,28 @@ export function CreateOrderPage() {
         setSubmitError("Coordinator did not return an order id.");
         return;
       }
-      ingestCoordinatorOrder({
-        authoritative: false,
-        order: buildProvisionalMakerOrder(response.id, selectedAlias, payload, actionSlot),
+      const provisionalOrder = buildProvisionalMakerOrder(response.id, selectedAlias, payload, actionSlot);
+      if (proEnabled) setProLastView("trades");
+      openConfirmedOrder(navigate, {
+        initialOrder: provisionalOrder,
+        orderId: response.id,
         shortAlias: selectedAlias,
-        slot: actionSlot
+        slotId: actionSlot.tokenSHA256
       });
-      navigate(`/order/${selectedAlias}/${response.id}`);
+
+      // The successful create must open Trade even if local persistence is
+      // unavailable; the first authoritative read repairs this snapshot.
+      try {
+        setCurrentToken(actionSlot.token);
+        ingestCoordinatorOrder({
+          authoritative: false,
+          order: provisionalOrder,
+          shortAlias: selectedAlias,
+          slot: actionSlot
+        });
+      } catch {
+        // The Trade page performs the authoritative repair.
+      }
     } catch (error) {
       setSubmitError(toUserMessage(error, "Could not create order."));
     } finally {
@@ -560,19 +596,34 @@ function OfferPresetPanel({
   return (
     <section className="maker-preset-panel" aria-label="Offer presets">
       <div className="maker-preset-main">
-        <Bookmark size={17} aria-hidden="true" />
-        <select
-          aria-label="Offer preset"
-          value={selectedId}
-          onChange={(event) => {
-            const next = presets.find((preset) => preset.id === event.target.value);
-            setSelectedId(event.target.value);
-            if (next) onApply(next);
-          }}
-        >
-          <option value="">{presets.length ? "Choose preset" : "No saved presets"}</option>
-          {presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
-        </select>
+        <div className="maker-preset-control">
+          <span className="maker-preset-label">
+            <Bookmark size={16} aria-hidden="true" />
+            <span>Offer preset</span>
+            <InfoHint title="A preset saves reusable offer terms so you can fill this form faster. You still choose the coordinator for each new offer." />
+          </span>
+          <VisualSelect
+            ariaLabel="Offer preset"
+            className="maker-preset-select"
+            disabled={presets.length === 0}
+            options={[
+              {
+                value: "",
+                label: presets.length ? "Choose preset" : "No saved presets"
+              },
+              ...presets.map((preset) => ({
+                value: preset.id,
+                label: preset.name
+              }))
+            ]}
+            value={selectedId}
+            onChange={(value) => {
+              const next = presets.find((preset) => preset.id === value);
+              setSelectedId(value);
+              if (next) onApply(next);
+            }}
+          />
+        </div>
         <div className="maker-preset-actions">
           <Button type="button" size="sm" variant="outline" onClick={() => setSaving((current) => !current)}><Save size={16} /> Save preset</Button>
           <Button type="button" size="sm" variant="ghost" onClick={onManage}>Manage</Button>
@@ -631,14 +682,14 @@ function SideStep({
           <Button
             type="button"
             variant={!draft.isSwap ? "primary" : "outline"}
-            onClick={() => updateDraft({ isSwap: false, currency: 1, paymentMethod: "" })}
+            onClick={() => updateDraft({ isSwap: false, currency: 1, paymentMethod: "", latitude: "0", longitude: "0" })}
           >
             Fiat Trade
           </Button>
           <Button
             type="button"
             variant={draft.isSwap ? "primary" : "outline"}
-            onClick={() => updateDraft({ isSwap: true, currency: BTC_CURRENCY_ID, paymentMethod: "" })}
+            onClick={() => updateDraft({ isSwap: true, currency: BTC_CURRENCY_ID, paymentMethod: "", latitude: "0", longitude: "0" })}
           >
             Bitcoin Swap
           </Button>
@@ -665,11 +716,18 @@ function AmountStep({
 }) {
   const paymentMethods = draft.isSwap ? SWAP_PAYMENT_METHODS : NORMAL_PAYMENT_METHODS;
   const selectedMethods = paymentMethodList(draft.paymentMethod);
+  const hasSelectedF2FLocation = hasApproximateF2FLocation(draft.latitude, draft.longitude);
   const [methodQuery, setMethodQuery] = useState("");
+  const [showF2FMap, setShowF2FMap] = useState(false);
 
   function addPaymentMethod(method: string) {
     const cleanMethod = method.trim();
     if (!cleanMethod) return;
+    if (!draft.isSwap && isCashF2FMethod(cleanMethod)) {
+      setMethodQuery("");
+      setShowF2FMap(true);
+      return;
+    }
     const nextMethods = selectedMethods.some((selected) => selected.toLowerCase() === cleanMethod.toLowerCase())
       ? selectedMethods
       : [...selectedMethods, cleanMethod];
@@ -678,7 +736,22 @@ function AmountStep({
   }
 
   function removePaymentMethod(method: string) {
-    updateDraft({ paymentMethod: paymentMethodText(selectedMethods.filter((selected) => selected !== method)) });
+    updateDraft({
+      paymentMethod: paymentMethodText(selectedMethods.filter((selected) => selected !== method)),
+      ...(isCashF2FMethod(method) ? { latitude: "0", longitude: "0" } : {})
+    });
+  }
+
+  function confirmF2FLocation([latitude, longitude]: [number, number]) {
+    const nextMethods = selectedMethods.some(isCashF2FMethod)
+      ? selectedMethods
+      : [...selectedMethods, CASH_F2F_METHOD];
+    updateDraft({
+      paymentMethod: paymentMethodText(nextMethods),
+      latitude: String(latitude),
+      longitude: String(longitude)
+    });
+    setShowF2FMap(false);
   }
 
   return (
@@ -766,7 +839,29 @@ function AmountStep({
         </div>
         {selectedMethods.length > 0 ? (
           <div className="chip-set maker-selected-methods" aria-label="Selected payment methods">
-            {selectedMethods.map((method) => (
+            {selectedMethods.map((method) => isCashF2FMethod(method) ? (
+              <span className="maker-f2f-chip" key={method}>
+                <button
+                  aria-label="Edit approximate Cash F2F meeting area"
+                  className="maker-f2f-chip-main"
+                  onClick={() => setShowF2FMap(true)}
+                  type="button"
+                >
+                  <PaymentMethodIcons text={method} size={17} />
+                  <span>{method}</span>
+                  <small>{hasSelectedF2FLocation ? "Area selected" : "Choose area"}</small>
+                  <MapPin size={14} aria-hidden="true" />
+                </button>
+                <button
+                  aria-label="Remove Cash F2F payment method"
+                  className="maker-f2f-chip-remove"
+                  onClick={() => removePaymentMethod(method)}
+                  type="button"
+                >
+                  <X size={14} />
+                </button>
+              </span>
+            ) : (
               <button className="chip-button chip-button-active" type="button" key={method} onClick={() => removePaymentMethod(method)}>
                 <PaymentMethodIcons text={method} size={17} />
                 <span>{method}</span>
@@ -775,6 +870,15 @@ function AmountStep({
           </div>
         ) : null}
       </div>
+
+      {showF2FMap ? (
+        <F2FLocationDialog
+          latitude={draft.latitude}
+          longitude={draft.longitude}
+          onClose={() => setShowF2FMap(false)}
+          onConfirm={confirmF2FLocation}
+        />
+      ) : null}
 
       <div className="maker-grid">
         <label className="field-block">
@@ -866,6 +970,10 @@ function ReviewStep({
   presetMode?: boolean;
   validationErrors: string[];
 }) {
+  const [showF2FMap, setShowF2FMap] = useState(false);
+  const showF2FLocation = paymentMethodHasF2F(draft.paymentMethod)
+    && hasApproximateF2FLocation(draft.latitude, draft.longitude);
+
   return (
     <div className="maker-step-panel">
       {!presetMode ? <div className="maker-review-identity">
@@ -895,6 +1003,18 @@ function ReviewStep({
           {draft.hasRange ? `${draft.minAmount} - ${draft.maxAmount} ${currency}` : formatFiat(Number(draft.amount), currency)}
         </strong>
         <span>{draft.paymentMethod || (draft.isSwap ? "Swap destination not set" : "Payment method not set")}</span>
+        {showF2FLocation ? (
+          <Button
+            className="maker-review-f2f-map"
+            onClick={() => setShowF2FMap(true)}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            <MapPin size={15} />
+            View approximate area
+          </Button>
+        ) : null}
       </div>
 
       <dl className="maker-review-grid">
@@ -911,6 +1031,14 @@ function ReviewStep({
           ))}
         </div>
       ) : null}
+      {showF2FMap ? (
+        <F2FLocationDialog
+          latitude={draft.latitude}
+          longitude={draft.longitude}
+          onClose={() => setShowF2FMap(false)}
+          readOnly
+        />
+      ) : null}
     </div>
   );
 }
@@ -925,6 +1053,7 @@ function CoordinatorPicker({
   onChange: (shortAlias: string) => void;
 }) {
   const refreshCoordinator = useFederationStore((state) => state.refreshCoordinator);
+  const refreshCoordinatorLimits = useFederationStore((state) => state.refreshCoordinatorLimits);
   const attempted = useRef(new Set<string>());
   const [localRetryAlias, setLocalRetryAlias] = useState("");
   const [showDetails, setShowDetails] = useState(false);
@@ -932,18 +1061,28 @@ function CoordinatorPicker({
   const selected = coordinators.find((coordinator) => coordinator.shortAlias === selectedShortAlias);
   const lastRefreshed = useFederationStore((state) => state.lastRefreshed);
   const network = useFederationStore((state) => state.network);
-  const shouldAutoRetry = Boolean(selected && !selected.online && !selected.loading && !attempted.current.has(selected.shortAlias));
-  const connecting = Boolean(selected?.loading || localRetryAlias === selected?.shortAlias || shouldAutoRetry || (selected && !selected.online && !selected.error));
+  const needsHealthRefresh = Boolean(selected && coordinatorNeedsVisibleRefresh(selected));
+  const needsLimitsRefresh = Boolean(selected && !selected.limits);
+  const shouldAutoRetry = Boolean(
+    selected
+    && (needsHealthRefresh || needsLimitsRefresh)
+    && !selected.loading
+    && !attempted.current.has(selected.shortAlias)
+  );
+  const checking = Boolean(selected?.loading || localRetryAlias === selected?.shortAlias || shouldAutoRetry);
+  const connecting = Boolean(checking && !selected?.online);
   const connected = Boolean(selected?.online);
   const statusClassName = connecting
     ? "maker-coordinator-status maker-coordinator-status-loading"
     : connected
       ? "maker-coordinator-status maker-coordinator-status-success"
       : "maker-coordinator-status maker-coordinator-status-warning";
-  const statusCopy = connecting
+  const statusCopy = connected && checking
+    ? `Using ${selected?.longAlias ?? "coordinator"}. Refreshing details...`
+    : connecting
     ? `Connecting to ${selected?.longAlias ?? "coordinator"}...`
     : !connected
-      ? "Coordinator unavailable."
+      ? selected?.error ? "Coordinator unavailable." : "Coordinator will be checked before use."
       : !selected?.info
         ? "Coordinator connected."
         : selected.info.swap_enabled
@@ -951,18 +1090,24 @@ function CoordinatorPicker({
           : "Connected. Fiat trades only.";
 
   useEffect(() => {
-    if (!selected || selected.online || selected.loading || attempted.current.has(selected.shortAlias)) return;
+    if (!selected || (!needsHealthRefresh && !needsLimitsRefresh) || selected.loading || attempted.current.has(selected.shortAlias)) return;
     const alias = selected.shortAlias;
     attempted.current.add(alias);
     setLocalRetryAlias(alias);
-    void refreshCoordinator(alias).finally(() => setLocalRetryAlias((current) => current === alias ? "" : current));
-  }, [refreshCoordinator, selected]);
+    const refreshHealth = needsHealthRefresh
+      ? refreshCoordinator(alias, { priority: "visible" })
+      : Promise.resolve(true);
+    void refreshHealth
+      .then(() => refreshCoordinatorLimits(alias, { priority: "visible" }))
+      .finally(() => setLocalRetryAlias((current) => current === alias ? "" : current));
+  }, [needsHealthRefresh, needsLimitsRefresh, refreshCoordinator, refreshCoordinatorLimits, selected]);
 
   async function retrySelectedCoordinator() {
     if (!selected) return;
     setLocalRetryAlias(selected.shortAlias);
     try {
       await refreshCoordinator(selected.shortAlias, { force: true });
+      await refreshCoordinatorLimits(selected.shortAlias, { force: true, priority: "visible" });
     } finally {
       setLocalRetryAlias("");
     }
@@ -972,7 +1117,8 @@ function CoordinatorPicker({
     if (!selected) return;
     setShowDetails(true);
     setRating({ score: 0, count: 0 });
-    void fetchCoordinatorRatings([selected])
+    void import("@/domains/coordinators/coordinatorRatings")
+      .then(({ fetchCoordinatorRatings }) => fetchCoordinatorRatings([selected]))
       .then((ratings) => setRating(ratings[selected.shortAlias] ?? { score: 0, count: 0 }))
       .catch(() => undefined);
   }
@@ -1006,7 +1152,7 @@ function CoordinatorPicker({
             ...coordinators.map((coordinator) => ({
               value: coordinator.shortAlias,
               label: coordinator.longAlias,
-              description: coordinator.loading ? "Connecting" : coordinator.online ? "Connected" : "Unavailable",
+              description: coordinatorOptionStatus(coordinator),
               icon: <img className="coordinator-avatar coordinator-avatar-lg" src={coordinator.smallAvatarUrl} alt="" />
             }))
           ]}
@@ -1015,9 +1161,9 @@ function CoordinatorPicker({
         />
       </div>
       {selected ? <div className={statusClassName} aria-live="polite">
-        {connecting ? <LoaderCircle className="maker-coordinator-spinner" size={17} /> : connected ? <CheckCircle2 size={17} /> : <AlertCircle size={17} />}
+        {checking ? <LoaderCircle className="maker-coordinator-spinner" size={17} /> : connected ? <CheckCircle2 size={17} /> : <AlertCircle size={17} />}
         <span>{statusCopy}</span>
-        {!connecting && !connected ? <button type="button" onClick={() => void retrySelectedCoordinator()}>Retry</button> : null}
+        {!checking && !connected && selected.error ? <button type="button" onClick={() => void retrySelectedCoordinator()}>Retry</button> : null}
       </div> : <div className="maker-coordinator-status maker-coordinator-status-warning"><Info size={17} /><span>Choose the coordinator that will host this offer.</span></div>}
       {selected ? (
         <div className="maker-coordinator-fees" aria-label="Coordinator fees">
@@ -1030,17 +1176,43 @@ function CoordinatorPicker({
         </div>
       ) : null}
       {showDetails && selected ? (
-        <CoordinatorDetailDialog
-          compact
-          coordinator={selected}
-          lastRefreshed={lastRefreshed}
-          network={network}
-          rating={rating}
-          onClose={() => setShowDetails(false)}
-        />
+        <Suspense
+          fallback={(
+            <Dialog
+              ariaLabel="Preparing coordinator details"
+              onClose={() => setShowDetails(false)}
+              overlayClassName="confirm-overlay app-transition-overlay"
+              panelClassName="confirm-sheet app-transition-dialog"
+            >
+              <button className="take-modal-close" onClick={() => setShowDetails(false)} type="button" aria-label="Close coordinator details">
+                <X size={18} />
+              </button>
+              <AppTransitionFeedback title="Preparing coordinator details" message={`Loading ${selected.longAlias}...`} />
+            </Dialog>
+          )}
+        >
+          <LazyCoordinatorDetailDialog
+            compact
+            coordinator={selected}
+            lastRefreshed={lastRefreshed}
+            network={network}
+            rating={rating}
+            onClose={() => setShowDetails(false)}
+          />
+        </Suspense>
       ) : null}
     </div>
   );
+}
+
+const SELECTED_COORDINATOR_REFRESH_MS = 5 * 60 * 1000;
+
+function coordinatorNeedsVisibleRefresh(coordinator: ReturnType<typeof useFederationStore.getState>["coordinators"][number]): boolean {
+  return coordinatorNeedsRefresh(coordinator, SELECTED_COORDINATOR_REFRESH_MS);
+}
+
+function coordinatorOptionStatus(coordinator: ReturnType<typeof useFederationStore.getState>["coordinators"][number]): string {
+  return selectCoordinatorAvailability(coordinator).label;
 }
 
 function LinkIcon() {
@@ -1105,8 +1277,13 @@ function TimeClockField({
           <strong>{formatClockDuration(seconds)}</strong>
       </button>
       {open ? (
-        <div className="maker-time-dialog-overlay" onClick={() => setOpen(false)}>
-          <section className="maker-time-dialog" role="dialog" aria-modal="true" aria-label={label} onClick={(event) => event.stopPropagation()}>
+        <Dialog
+          ariaLabel={label}
+          dismissOnBackdrop
+          onClose={() => setOpen(false)}
+          overlayClassName="maker-time-dialog-overlay"
+          panelClassName="maker-time-dialog"
+        >
             <header>
               <span className="maker-time-dialog-heading">
                 <span className="app-eyebrow">{label}</span>
@@ -1180,8 +1357,7 @@ function TimeClockField({
               <Button type="button" variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
               <Button type="button" onClick={() => { onChange(String(draftSeconds)); setOpen(false); }}>OK</Button>
             </div>
-          </section>
-        </div>
+        </Dialog>
       ) : null}
       <div className="maker-clock-presets">
         {durationPresets(minSeconds, maxSeconds, presetSeconds).map((option) => (

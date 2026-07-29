@@ -22,9 +22,11 @@ export type RequestSource =
   | "orderbook-fallback"
   | "fleet-reconcile"
   | "prewarm"
+  | "statistics"
   | "manual";
 
 export interface ApiRequestOptions {
+  bypassCircuit?: boolean;
   timeoutProfile?: TimeoutProfile;
   timeoutMs?: number;
   priority?: RequestPriority;
@@ -40,9 +42,7 @@ export interface ApiClient {
 }
 
 export function buildAuthHeaders(auth?: Auth): HeadersInit {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json"
-  };
+  const headers: Record<string, string> = {};
 
   if (auth && auth.keys === undefined) {
     headers.Authorization = `Token ${auth.tokenSHA256}`;
@@ -51,6 +51,13 @@ export function buildAuthHeaders(auth?: Auth): HeadersInit {
   }
 
   return headers;
+}
+
+export function buildJsonHeaders(auth?: Auth): HeadersInit {
+  return {
+    ...buildAuthHeaders(auth),
+    "Content-Type": "application/json"
+  };
 }
 
 export const apiRoutes = {
@@ -64,5 +71,7 @@ export const apiRoutes = {
   chatPost: "/api/chat/",
   reward: "/api/reward/",
   stealth: "/api/stealth/",
-  review: "/api/review/"
+  review: "/api/review/",
+  historical: "/api/historical/",
+  ticks: (start: string, end: string) => `/api/ticks/?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`
 } as const;

@@ -1,11 +1,13 @@
 export type RefreshRobotCoordinatorResult = {
   shortAlias: string;
+  cached?: boolean;
   found?: boolean;
   activeOrderId?: number;
   lastOrderId?: number;
   renewableOrderId?: number;
   releasedOrderId?: number;
   error?: string;
+  transportFailed?: boolean;
 };
 
 export type RefreshRobotSlotResult = {

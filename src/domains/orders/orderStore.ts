@@ -6,6 +6,7 @@ import { ingestCoordinatorOrder } from "@/domains/orders/orderActivity";
 import { fetchOrder, isCompleteOrderActionResponse, submitOrderAction } from "@/domains/orders/orderApi";
 import type { OrderDto, SubmitOrderActionPayload } from "@/domains/orders/order.types";
 import type { ApiRequestOptions } from "@/domains/transport/apiClient";
+import { hasRoboSatsApiErrorCode } from "@/domains/transport/apiError";
 
 let requestSequence = 0;
 
@@ -15,6 +16,7 @@ type OrderState = {
   refreshing: boolean;
   submitting: boolean;
   error?: string;
+  primeOrder: (order: OrderDto) => void;
   loadOrder: (params: LoadOrderParams) => Promise<void>;
   submitAction: (params: SubmitActionParams) => Promise<void>;
   clearOrder: () => void;
@@ -44,6 +46,16 @@ export const useOrderStore = create<OrderState>((set, get) => ({
   loading: false,
   refreshing: false,
   submitting: false,
+  primeOrder: (order) => {
+    requestSequence += 1;
+    set({
+      order,
+      loading: false,
+      refreshing: false,
+      submitting: false,
+      error: undefined
+    });
+  },
   loadOrder: async ({ coordinator, orderId, reason = "initial", slot }) => {
     if (get().submitting) return;
     const auth = getRobotAuthForCoordinator(slot, coordinator.shortAlias);
@@ -139,7 +151,12 @@ export const useOrderStore = create<OrderState>((set, get) => ({
         coordinator.shortAlias,
         orderId,
         completedOrder
-          ? { status: completedOrder.status, isMaker: completedOrder.is_maker, snapshotApplied: true }
+          ? {
+              status: completedOrder.status,
+              isMaker: completedOrder.is_maker,
+              isSeller: completedOrder.is_seller,
+              snapshotApplied: true
+            }
           : undefined
       );
     }
@@ -149,6 +166,14 @@ export const useOrderStore = create<OrderState>((set, get) => ({
     set({ order: undefined, error: undefined, loading: false, refreshing: false, submitting: false });
   }
 }));
+
+export function orderForLocator(
+  order: OrderDto | undefined,
+  shortAlias: string,
+  orderId: number
+): OrderDto | undefined {
+  return order?.id === orderId && order.shortAlias === shortAlias ? order : undefined;
+}
 
 export function orderLoadRequestOptions(reason: OrderLoadReason): ApiRequestOptions {
   if (reason === "poll") {
@@ -161,6 +186,7 @@ export function orderLoadRequestOptions(reason: OrderLoadReason): ApiRequestOpti
 }
 
 export function isAlreadyCancelledError(error: unknown): boolean {
+  if (hasRoboSatsApiErrorCode(error, 1043)) return true;
   if (!(error instanceof Error)) return false;
   return /(?:error_code["']?\s*:\s*1043|this order has been cancelled)/i.test(error.message);
 }
@@ -197,7 +223,7 @@ function dispatchOrderActionEvent(
   slot: RobotSlot | undefined,
   shortAlias: string,
   orderId: number,
-  result?: { status: number; isMaker: boolean; snapshotApplied: boolean }
+  result?: { status: number; isMaker: boolean; isSeller: boolean; snapshotApplied: boolean }
 ): void {
   if (!slot || typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent(name, {

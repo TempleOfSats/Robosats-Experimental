@@ -8,6 +8,7 @@ import {
   shouldReturnExpiredTakeToOffers
 } from "@/domains/orders/OrderPage";
 import { isAlreadyCancelledError, isTransientOrderLoadError } from "@/domains/orders/orderStore";
+import { RoboSatsApiError } from "@/domains/transport/apiError";
 
 describe("orderRefreshDelayMs", () => {
   it("keeps time-sensitive bond and escrow stages responsive", () => {
@@ -87,6 +88,11 @@ describe("shouldOpenOrderDetailsByDefault", () => {
 describe("isAlreadyCancelledError", () => {
   it("accepts coordinator error 1043 as terminal cancellation", () => {
     expect(isAlreadyCancelledError(new Error('RoboSats API 400: {"error_code":1043,"bad_request":"This order has been cancelled"}'))).toBe(true);
+    expect(isAlreadyCancelledError(new RoboSatsApiError(
+      400,
+      { error_code: 1043, bad_request: "Localized coordinator response" },
+      "Request failed"
+    ))).toBe(true);
   });
 
   it("does not swallow unrelated coordinator errors", () => {
