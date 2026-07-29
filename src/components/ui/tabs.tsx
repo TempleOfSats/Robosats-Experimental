@@ -2,7 +2,7 @@ import { CircleHelp } from "lucide-react";
 import type { KeyboardEvent, ReactNode } from "react";
 import { cn } from "@/lib/cn";
 
-export type TabOption<Value extends string> = {
+type TabOption<Value extends string> = {
   value: Value;
   label: ReactNode;
   ariaLabel?: string;

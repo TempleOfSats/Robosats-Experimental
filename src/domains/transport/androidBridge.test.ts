@@ -142,14 +142,14 @@ describe("Native transport bridge", () => {
     });
 
     const {
-      getAndroidNotificationState,
-      getAndroidTorDiagnostics,
-      setAndroidNotificationsEnabled
+      getNativeNotificationState,
+      getNativeTorDiagnostics,
+      setNativeNotificationsEnabled
     } = await import("./androidBridge");
 
-    expect(getAndroidNotificationState()?.enabled).toBe(true);
-    expect(getAndroidTorDiagnostics()?.socksPort).toBe(17392);
-    setAndroidNotificationsEnabled(false);
+    expect(getNativeNotificationState()?.enabled).toBe(true);
+    expect(getNativeTorDiagnostics()?.socksPort).toBe(17392);
+    setNativeNotificationsEnabled(false);
     expect(setNotificationsEnabled).toHaveBeenCalledWith(false);
   });
 

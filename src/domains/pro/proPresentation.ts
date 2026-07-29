@@ -18,7 +18,7 @@ export type ProTradePresentation = {
   actionable: boolean;
 };
 
-export type ProStatusTone = "default" | "success" | "warning" | "danger" | "muted";
+type ProStatusTone = "default" | "success" | "warning" | "danger" | "muted";
 
 export function toProTradePresentation(snapshot: ProTradeSnapshot): ProTradePresentation {
   const group = classifyProTrade(snapshot);

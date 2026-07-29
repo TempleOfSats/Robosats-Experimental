@@ -9,7 +9,7 @@ export type ProTradeLocator = {
   orderId: number;
 };
 
-export type SnapshotFreshness = "fresh" | "stale" | "refreshing" | "error";
+type SnapshotFreshness = "fresh" | "stale" | "refreshing" | "error";
 
 export type ProTradeSnapshot = {
   key: ProTradeKey;

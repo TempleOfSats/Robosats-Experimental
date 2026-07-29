@@ -156,7 +156,7 @@ export function recordProSettlementInvoice(
   return true;
 }
 
-export function isTerminalForProDesk(
+function isTerminalForProDesk(
   status: number,
   isMaker: boolean,
   isSeller?: boolean

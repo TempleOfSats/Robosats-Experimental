@@ -409,8 +409,6 @@ export function F2FOffersMapDialog({
   );
 }
 
-export default F2FOffersMapDialog;
-
 function isTakerBuying(order: PublicOrder): boolean {
   return roleBuysBitcoin(order.type, "taker");
 }

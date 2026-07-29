@@ -35,7 +35,7 @@ excluded because they are not useful F2F meeting locations.
 After regenerating the Natural Earth city index, restore the curated locations:
 
 ```sh
-node scripts/merge-f2f-bitcoin-cities.mjs
+npm run generate:f2f-cities
 ```
 
 The curated additions cover established local initiatives that are absent from

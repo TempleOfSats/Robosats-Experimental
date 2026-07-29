@@ -68,7 +68,7 @@ function feedbackSnapshot(order: OrderDto): FeedbackSnapshot {
   };
 }
 
-export function orderFeedbackMessage(previous: FeedbackSnapshot, order: OrderDto): string | undefined {
+function orderFeedbackMessage(previous: FeedbackSnapshot, order: OrderDto): string | undefined {
   if (!previous.pending_cancel && order.pending_cancel) {
     return "Your peer requested collaborative cancellation";
   }

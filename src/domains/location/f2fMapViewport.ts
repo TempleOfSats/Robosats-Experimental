@@ -1,7 +1,7 @@
 export type MapPosition = [number, number];
 
 export const MAP_MIN_LATITUDE = -60;
-export const MAP_MAX_LATITUDE = 90;
+const MAP_MAX_LATITUDE = 90;
 export const MAP_LATITUDE_SPAN = MAP_MAX_LATITUDE - MAP_MIN_LATITUDE;
 export const MAP_DEFAULT_CENTER: MapPosition = [
   (MAP_MIN_LATITUDE + MAP_MAX_LATITUDE) / 2,

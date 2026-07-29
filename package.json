@@ -35,6 +35,8 @@
     "check:theme-colors": "node scripts/check-theme-colors.mjs",
     "check:typography": "node scripts/check-typography.mjs",
     "check:release-signing": "bash scripts/sign-release-assets.test.sh",
+    "generate:f2f-cities": "node scripts/merge-f2f-bitcoin-cities.mjs",
+    "generate:robot-identities": "node scripts/generate-browser-robot-identities.mjs",
     "release:metadata": "node scripts/release-metadata.mjs",
     "audit:dependencies": "node scripts/audit-dependencies.mjs",
     "audit:journeys": "node scripts/audit-production-journeys.mjs",

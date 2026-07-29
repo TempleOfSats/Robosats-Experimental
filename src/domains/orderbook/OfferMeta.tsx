@@ -91,7 +91,7 @@ const flagCodeByCurrency: Record<string, string> = {
   UZS: "UZ"
 };
 
-export function BitcoinMark({ size = 20 }: { size?: number }) {
+function BitcoinMark({ size = 20 }: { size?: number }) {
   return (
     <svg
       aria-hidden="true"

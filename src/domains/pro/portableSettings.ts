@@ -1,7 +1,7 @@
 import { createGarageEntryId } from "@/domains/pro/garageVault";
 import type { UiTheme } from "@/domains/settings/uiPreferences";
 
-export const PORTABLE_SETTINGS_LIMITS = {
+const PORTABLE_SETTINGS_LIMITS = {
   devices: 32,
   methodsPerPreset: 16,
   plaintextBytes: 40 * 1024,
@@ -11,7 +11,7 @@ export const PORTABLE_SETTINGS_LIMITS = {
   passwordLength: 128
 } as const;
 
-export type PortableValue<T> = {
+type PortableValue<T> = {
   value: T;
   revision: number;
   deviceId: string;
