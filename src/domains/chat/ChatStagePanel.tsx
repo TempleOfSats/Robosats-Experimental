@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { sha256 } from "js-sha256";
 import { ChevronDown, Download, MessageSquare, Send } from "lucide-react";
 import { escapeChatPayload, fetchChatMessages, normalizeChatMessage, postChatMessage } from "@/domains/chat/chatApi";
@@ -6,7 +6,7 @@ import { decryptChatMessage, encryptChatMessage } from "@/domains/chat/chatCrypt
 import { messageContainsRobotToken } from "@/domains/chat/chatSafety";
 import type { ChatMessage, ChatResponse, DisplayChatMessage } from "@/domains/chat/chat.types";
 import type { RobotRecord } from "@/domains/garage/garageStore";
-import type { Auth } from "@/domains/transport/apiClient";
+import type { ApiRequestOptions, Auth } from "@/domains/transport/apiClient";
 import { Button } from "@/components/ui/button";
 import { toUserMessage } from "@/lib/userError";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,13 +15,14 @@ import { createWebSocket, isNativeApp } from "@/domains/transport/androidBridge"
 import { deliverChatFeedback } from "@/domains/notifications/tradeFeedback";
 import { chatPollDelayMs, chatReconnectDelayMs } from "@/domains/chat/chatRefresh";
 import { runRefreshIntent, subscribeRefreshIntents } from "@/domains/transport/refreshIntents";
-import { hasSentPreChatMessage, visiblePreChatMessages } from "@/domains/chat/preChat";
+import { hasSentPreChatMessage, isOwnChatMessage, usablePeerPublicKey, visiblePreChatMessages } from "@/domains/chat/preChat";
 
 export function ChatStagePanel({
   auth,
   baseUrl,
   canSend,
   myNick,
+  ownCoordinatorNick,
   myHashId,
   orderId,
   peerNick,
@@ -36,6 +37,7 @@ export function ChatStagePanel({
   baseUrl?: string;
   canSend: boolean;
   myNick: string;
+  ownCoordinatorNick?: string;
   myHashId?: string;
   orderId: number;
   peerNick: string;
@@ -53,14 +55,22 @@ export function ChatStagePanel({
   const [peerPubkey, setPeerPubkey] = useState("");
   const [sending, setSending] = useState(false);
   const [socketConnected, setSocketConnected] = useState(previewMode);
+  const [historyStatus, setHistoryStatus] = useState<"idle" | "loading" | "ready" | "error">(
+    previewMode ? "ready" : "idle"
+  );
+  const [messageAnnouncement, setMessageAnnouncement] = useState("");
   const [connectionEpoch, setConnectionEpoch] = useState(0);
   const socketRef = useRef<WebSocket | undefined>(undefined);
   const knownMessageIndexesRef = useRef(new Set(messages.map((message) => message.index)));
   const historyReadyRef = useRef(previewMode);
+  const loadErrorRef = useRef("");
   const peerPubkeyRef = useRef("");
+  const decryptFailureAttemptsRef = useRef(new Map<string, number>());
   const messagesRef = useRef<HTMLDivElement | null>(null);
+  const errorId = useId();
 
   const isPreChat = variant === "pre-chat";
+  const canonicalMyNick = ownCoordinatorNick?.trim() || myNick;
   const canLoad = previewMode || Boolean(baseUrl && auth && robot?.encPrivKey && robot.pubKey && slotToken && orderId);
   const lastIndex = useMemo(() => messages.reduce((max, message) => Math.max(max, message.index), 0), [messages]);
   const preChatMessageSent = isPreChat && hasSentPreChatMessage(messages);
@@ -82,15 +92,37 @@ export function ChatStagePanel({
     if (element) element.scrollTop = element.scrollHeight;
   }, [messages.length]);
 
-  async function loadMessages(offset = lastIndex, reportError = true) {
-    if (!baseUrl || !auth || !canLoad) return;
-    if (reportError) setError("");
+  async function loadMessages(
+    offset = lastIndex,
+    reportError = true,
+    options: ApiRequestOptions = {}
+  ): Promise<ChatResponse | undefined> {
+    if (!baseUrl || !auth || !canLoad) return undefined;
+    const loadingHistory = offset === 0 && !historyReadyRef.current;
+    if (loadingHistory) setHistoryStatus("loading");
+    if (reportError) {
+      loadErrorRef.current = "";
+      setError("");
+    }
     try {
-      const response = await fetchChatMessages(baseUrl, orderId, offset, auth);
+      const response = await fetchChatMessages(baseUrl, orderId, offset, auth, undefined, options);
       await applyChatResponse(response, historyReadyRef.current);
       historyReadyRef.current = true;
+      if (loadingHistory) setHistoryStatus("ready");
+      const recoveredError = loadErrorRef.current;
+      if (recoveredError) {
+        loadErrorRef.current = "";
+        setError((current) => current === recoveredError ? "" : current);
+      }
+      return response;
     } catch (loadError) {
-      if (reportError) setError(toUserMessage(loadError, "Could not load chat."));
+      if (loadingHistory) setHistoryStatus("error");
+      if (reportError) {
+        const message = toUserMessage(loadError, "Could not load chat.");
+        loadErrorRef.current = message;
+        setError(message);
+      }
+      return undefined;
     }
   }
 
@@ -124,8 +156,9 @@ export function ChatStagePanel({
       return;
     }
     const sendsPlaintextCommand = variant === "trade" && text.startsWith("#");
-    if (!sendsPlaintextCommand && !peerPubkey) {
-      setError("Peer public key is not available yet. Refresh chat first.");
+    const currentPeerPubkey = peerPubkeyRef.current;
+    if (!sendsPlaintextCommand && !currentPeerPubkey) {
+      setError("Preparing your peer's encryption key. The message can be sent as soon as it is ready.");
       return;
     }
 
@@ -138,17 +171,28 @@ export function ChatStagePanel({
             ownPrivateKeyArmored: robot.encPrivKey,
             ownPublicKeyArmored: robot.pubKey,
             passphrase: slotToken,
-            peerPublicKeyArmored: peerPubkey
+            peerPublicKeyArmored: currentPeerPubkey
           });
       const socket = socketRef.current;
-      setDraft("");
       if (socket?.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({ type: "message", message: escapeChatPayload(outgoingMessage), nick: myNick }));
+        socket.send(JSON.stringify({ type: "message", message: escapeChatPayload(outgoingMessage), nick: canonicalMyNick }));
       } else {
         const response = await postChatMessage(baseUrl, orderId, outgoingMessage, lastIndex, auth);
         await applyChatResponse(response);
       }
+      setDraft("");
     } catch (sendError) {
+      if (isPreChat) {
+        const recovered = await loadMessages(0, false, {
+          timeoutProfile: "interactive",
+          priority: "foreground"
+        });
+        if (recovered?.messages.length) {
+          setDraft("");
+          setError("");
+          return;
+        }
+      }
       setError(toUserMessage(sendError, "Could not send chat message."));
     } finally {
       setSending(false);
@@ -157,30 +201,46 @@ export function ChatStagePanel({
 
   async function applyChatResponse(response: ChatResponse, notifyNewMessages = historyReadyRef.current) {
     setPeerConnected(response.peerConnected);
-    if (response.peerPubkey) {
-      peerPubkeyRef.current = response.peerPubkey;
-      setPeerPubkey(response.peerPubkey);
+    const responsePeerPubkey = usablePeerPublicKey(response.peerPubkey, robot?.pubKey ?? "");
+    if (responsePeerPubkey) {
+      peerPubkeyRef.current = responsePeerPubkey;
+      setPeerPubkey(responsePeerPubkey);
     }
     if (!robot?.encPrivKey || !robot.pubKey || !slotToken) return;
 
-    const nextMessages = await Promise.all(
+    const decryptedMessages = await Promise.all(
       response.messages.map((message) =>
         decryptDisplayMessage(message, {
-          myNick,
+          ownCoordinatorNick: canonicalMyNick,
           ownPrivateKeyArmored: robot.encPrivKey ?? "",
           ownPublicKeyArmored: robot.pubKey ?? "",
           passphrase: slotToken,
-          peerPublicKeyArmored: response.peerPubkey || peerPubkeyRef.current
+          peerPublicKeyArmored: responsePeerPubkey || peerPubkeyRef.current,
+          senderOnlyResponse: isPreChat
         })
       )
     );
+    const nextMessages = decryptedMessages.filter((message) => {
+      const failureKey = `${message.index}:${message.encryptedMessage}`;
+      if (!message.decryptFailed) {
+        decryptFailureAttemptsRef.current.delete(failureKey);
+        return true;
+      }
+      const attempts = (decryptFailureAttemptsRef.current.get(failureKey) ?? 0) + 1;
+      decryptFailureAttemptsRef.current.set(failureKey, attempts);
+      return attempts > 1;
+    });
 
     const visibleMessages = isPreChat ? visiblePreChatMessages(nextMessages) : nextMessages;
     const newPeerMessages = visibleMessages.filter(
-      (message) => !knownMessageIndexesRef.current.has(message.index) && !message.mine
+      (message) => !knownMessageIndexesRef.current.has(message.index) && !message.mine && !message.decryptFailed
     );
     visibleMessages.forEach((message) => knownMessageIndexesRef.current.add(message.index));
     setMessages((current) => mergeMessages(current, visibleMessages));
+    if (notifyNewMessages && newPeerMessages.length > 0) {
+      const latest = newPeerMessages.at(-1);
+      setMessageAnnouncement(`New message from ${latest?.nick || peerNick}: ${latest?.plaintext || ""}`);
+    }
     if (!isPreChat && notifyNewMessages && shortAlias && newPeerMessages.length > 0) {
       deliverChatFeedback({
         lastIndex: Math.max(...newPeerMessages.map((message) => message.index)),
@@ -192,8 +252,33 @@ export function ChatStagePanel({
   }
 
   useEffect(() => {
-    if (!canLoad || previewMode) return;
-    void loadMessages(0);
+    if (!canLoad || previewMode || isPreChat) return;
+    void loadMessages(0, true, { timeoutProfile: "interactive", priority: "foreground" });
+  }, [canLoad, connectionEpoch, isPreChat, orderId, previewMode]);
+
+  useEffect(() => {
+    if (!canLoad || previewMode || !isPreChat) return;
+    let disposed = false;
+    let retryTimer: number | undefined;
+
+    const reconcilePreChat = async (attempt: number) => {
+      const response = await loadMessages(
+        0,
+        attempt === 0,
+        attempt === 0
+          ? { timeoutProfile: "interactive", priority: "foreground" }
+          : { timeoutProfile: "background", priority: "visible" }
+      );
+      if (disposed || response?.peerPubkey) return;
+      const delay = Math.min(12_000, 1_500 * 2 ** Math.min(attempt, 3));
+      retryTimer = window.setTimeout(() => void reconcilePreChat(attempt + 1), delay);
+    };
+
+    void reconcilePreChat(0);
+    return () => {
+      disposed = true;
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+    };
   }, [canLoad, connectionEpoch, isPreChat, orderId, previewMode]);
 
   useEffect(() => {
@@ -230,7 +315,7 @@ export function ChatStagePanel({
       socket.onopen = () => {
         attempts = 0;
         setSocketConnected(true);
-        socket.send(JSON.stringify({ type: "message", message: robot.pubKey, nick: myNick }));
+        socket.send(JSON.stringify({ type: "message", message: robot.pubKey, nick: canonicalMyNick }));
         void loadMessages(lastIndex, false);
       };
       socket.onmessage = (event) => {
@@ -256,10 +341,11 @@ export function ChatStagePanel({
         if (!message.encryptedMessage) return;
 
         if (message.encryptedMessage.startsWith("-----BEGIN PGP PUBLIC KEY BLOCK-----")) {
-          if (message.encryptedMessage !== robot.pubKey) {
-            peerPubkeyRef.current = message.encryptedMessage;
-            setPeerPubkey(message.encryptedMessage);
-            socketRef.current?.send(JSON.stringify({ type: "message", message: "-----SERVE HISTORY-----", nick: myNick }));
+          const socketPeerPubkey = usablePeerPublicKey(message.encryptedMessage, robot.pubKey ?? "");
+          if (socketPeerPubkey) {
+            peerPubkeyRef.current = socketPeerPubkey;
+            setPeerPubkey(socketPeerPubkey);
+            socketRef.current?.send(JSON.stringify({ type: "message", message: "-----SERVE HISTORY-----", nick: canonicalMyNick }));
           }
           return;
         }
@@ -281,7 +367,7 @@ export function ChatStagePanel({
       socketRef.current?.close();
       socketRef.current = undefined;
     };
-  }, [baseUrl, canLoad, connectionEpoch, myNick, orderId, previewMode, robot?.pubKey, slotToken, variant]);
+  }, [baseUrl, canLoad, canonicalMyNick, connectionEpoch, orderId, previewMode, robot?.pubKey, slotToken, variant]);
 
   return (
     <Card className="chat-panel">
@@ -295,18 +381,32 @@ export function ChatStagePanel({
           ) : null}
         </div>
         <div className="chat-participants" aria-label="Trade participants">
-          <div className="chat-participant chat-participant-you">
+          <div
+            aria-label={`Your robot: ${myNick || "Your robot"}`}
+            className="chat-participant chat-participant-you"
+            tabIndex={0}
+          >
             <RobotAvatar hashId={myHashId} label={myNick || "Your robot"} size="sm" />
-            <span><strong>{myNick || "Your robot"}</strong></span>
+            <span>
+              <strong title={myNick || "Your robot"}>{myNick || "Your robot"}</strong>
+              <small>You</small>
+            </span>
           </div>
           <span className="chat-participant-divider" aria-hidden>trading with</span>
-          <div className="chat-participant chat-participant-peer">
+          <div
+            aria-label={`Trade peer: ${peerNick || "Trade peer"}`}
+            className="chat-participant chat-participant-peer"
+            tabIndex={0}
+          >
             <RobotAvatar hashId={peerHashId} label={peerNick || "Trade peer"} size="sm" />
             <span>
-              <strong>{peerNick || "Trade peer"}</strong>
-              <span className={peerConnected ? "chat-presence chat-presence-online" : "chat-presence"}>
-                {peerConnected ? "Online" : socketConnected ? "Away" : "Offline"}
-              </span>
+              <strong title={peerNick || "Trade peer"}>{peerNick || "Trade peer"}</strong>
+              <small>Peer</small>
+              {!isPreChat ? (
+                <span className={peerConnected ? "chat-presence chat-presence-online" : "chat-presence"}>
+                  {peerConnected ? "Online" : socketConnected ? "Away" : "Offline"}
+                </span>
+              ) : null}
             </span>
           </div>
         </div>
@@ -316,8 +416,15 @@ export function ChatStagePanel({
           <p className="muted-copy">Load this live order with your robot keys to decrypt chat.</p>
         ) : (
           <div className="chat-stack">
-            <div className="chat-messages" ref={messagesRef} role="log" aria-live="polite">
-              {messages.length === 0 ? (
+            <span aria-live="polite" className="sr-only" role="status">{messageAnnouncement}</span>
+            <div aria-label="Trade chat history" className="chat-messages" ref={messagesRef} role="log">
+              {messages.length === 0 && historyStatus === "loading" ? (
+                <div className="chat-loading" role="status">
+                  <span className="ui-spinner" aria-hidden="true" />
+                  <span>{isPreChat ? "Loading early message..." : "Loading chat..."}</span>
+                </div>
+              ) : null}
+              {messages.length === 0 && historyStatus === "ready" ? (
                 <p className="chat-empty">
                   {isPreChat ? "No early message sent." : "No chat messages yet."}
                 </p>
@@ -342,6 +449,9 @@ export function ChatStagePanel({
               }}
             >
               <textarea
+                aria-describedby={error ? errorId : undefined}
+                aria-invalid={Boolean(error)}
+                aria-label={isPreChat ? "Early message to your peer" : "Message to your trade peer"}
                 disabled={!canSend || sending || preChatMessageSent}
                 onChange={(event) => setDraft(event.target.value)}
                 placeholder={
@@ -359,10 +469,16 @@ export function ChatStagePanel({
               <Button
                 aria-label={sending ? "Sending message" : "Send message"}
                 className="chat-send-button"
-                disabled={!canSend || !draft.trim() || preChatMessageSent}
+                disabled={!canSend || !draft.trim() || preChatMessageSent || (isPreChat && !peerPubkey)}
                 loading={sending}
                 size="icon"
-                title={draft.trim() ? "Send message" : "Type a message first"}
+                title={
+                  isPreChat && !peerPubkey
+                    ? "Preparing encrypted message"
+                    : draft.trim()
+                      ? "Send message"
+                      : "Type a message first"
+                }
                 type="submit"
                 variant="outline"
               >
@@ -375,8 +491,13 @@ export function ChatStagePanel({
               <p className="pre-chat-saved" role="status">
                 Message saved. Your peer will see it when trade chat opens.
               </p>
+            ) : isPreChat && !peerPubkey ? (
+              <p className="pre-chat-key-status" role="status">
+                <span className="ui-spinner" aria-hidden="true" />
+                Preparing encrypted messaging...
+              </p>
             ) : null}
-            {error ? <p className="field-error">{error}</p> : null}
+            {error ? <p className="field-error" id={errorId} role="alert">{error}</p> : null}
           </div>
         )}
       </CardContent>
@@ -431,7 +552,11 @@ export function PreChatDisclosure(props: Omit<Parameters<typeof ChatStagePanel>[
         </span>
         <ChevronDown className="pre-chat-summary-chevron" size={18} aria-hidden="true" />
       </summary>
-      {open ? <ChatStagePanel {...props} variant="pre-chat" /> : null}
+      <ChatStagePanel
+        key={`${props.orderId}:${props.peerHashId || props.peerNick}`}
+        {...props}
+        variant="pre-chat"
+      />
     </details>
   );
 }
@@ -475,6 +600,13 @@ function MessageBubble({
   peerNick: string;
 }) {
   const nick = message.nick || (message.mine ? myNick || "Your robot" : peerNick || "Trade peer");
+  if (message.decryptFailed) {
+    return (
+      <div className="chat-message-unavailable" role="status">
+        <span>An encrypted message could not be opened on this device.</span>
+      </div>
+    );
+  }
   return (
     <article className={message.mine ? "chat-message chat-message-mine" : "chat-message"}>
       <RobotAvatar hashId={message.mine ? myHashId : peerHashId} label={nick} size="sm" />
@@ -486,7 +618,6 @@ function MessageBubble({
           <time>{formatChatTime(message.time)}</time>
         </div>
         <p>{message.plaintext}</p>
-        {message.decryptFailed ? <small>Could not decrypt this message.</small> : null}
       </div>
     </article>
   );
@@ -495,18 +626,24 @@ function MessageBubble({
 async function decryptDisplayMessage(
   message: ChatMessage,
   keys: {
-    myNick: string;
+    ownCoordinatorNick: string;
     ownPrivateKeyArmored: string;
     ownPublicKeyArmored: string;
     passphrase: string;
     peerPublicKeyArmored?: string;
+    senderOnlyResponse?: boolean;
   }
 ): Promise<DisplayChatMessage> {
+  const mine = isOwnChatMessage(
+    message.nick,
+    keys.ownCoordinatorNick,
+    keys.senderOnlyResponse
+  );
   if (message.encryptedMessage.startsWith("#")) {
     return {
       ...message,
       decryptFailed: false,
-      mine: message.nick === keys.myNick,
+      mine,
       plaintext: message.encryptedMessage
     };
   }
@@ -517,19 +654,19 @@ async function decryptDisplayMessage(
       ownPrivateKeyArmored: keys.ownPrivateKeyArmored,
       ownPublicKeyArmored: keys.ownPublicKeyArmored,
       passphrase: keys.passphrase,
-      peerPublicKeyArmored: keys.peerPublicKeyArmored
+      peerPublicKeyArmored: mine ? undefined : keys.peerPublicKeyArmored
     });
     return {
       ...message,
       decryptFailed: false,
-      mine: message.nick === keys.myNick,
+      mine,
       plaintext
     };
   } catch {
     return {
       ...message,
       decryptFailed: true,
-      mine: message.nick === keys.myNick,
+      mine,
       plaintext: "Encrypted message could not be decrypted."
     };
   }

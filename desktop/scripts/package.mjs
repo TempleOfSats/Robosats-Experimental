@@ -39,6 +39,7 @@ await run(process.execPath, [
   "--bundles",
   bundles[requested]
 ], buildEnvironment);
+if (requested === "windows") await verifyWindowsCrtLinkage();
 if (requested === "linux") await repackLinuxAppImage();
 await collectArtifacts(requested);
 
@@ -73,6 +74,17 @@ function run(command, args, env, workingDirectory = root) {
       else reject(new Error(`${command} exited with code ${code ?? "unknown"}`));
     });
   });
+}
+
+async function verifyWindowsCrtLinkage() {
+  await run("powershell.exe", [
+    "-NoProfile",
+    "-NonInteractive",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    path.join(root, "desktop", "scripts", "check-windows-crt-linkage.ps1")
+  ], process.env);
 }
 
 async function repackLinuxAppImage() {

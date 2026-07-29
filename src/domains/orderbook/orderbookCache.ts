@@ -30,18 +30,13 @@ function readCache(
   now: number
 ): CachedOrderbook | null {
   try {
-    const nativeRaw = systemClient.getItem(ORDERBOOK_CACHE_KEY);
-    const raw = nativeRaw ?? readLegacyCache();
+    const raw = systemClient.getItem(ORDERBOOK_CACHE_KEY);
     if (!raw) return null;
 
     const cached = JSON.parse(raw) as Partial<CachedOrderbook>;
     if (cached.connection !== connection || cached.network !== network || cached.origin !== origin) return null;
     if (!Array.isArray(cached.orders) || typeof cached.savedAt !== "number") return null;
     if (!Number.isFinite(cached.savedAt) || now - cached.savedAt > maxAgeMs) return null;
-
-    if (nativeRaw === null) {
-      systemClient.setItem(ORDERBOOK_CACHE_KEY, raw);
-    }
 
     return cached as CachedOrderbook;
   } catch {
@@ -71,16 +66,7 @@ export function isFreshOrderbookCache(savedAt: number, now = Date.now()): boolea
 export function clearOrderbookCache(): void {
   try {
     systemClient.deleteItem(ORDERBOOK_CACHE_KEY);
-    globalThis.localStorage?.removeItem(ORDERBOOK_CACHE_KEY);
   } catch {
     // Best-effort cleanup.
-  }
-}
-
-function readLegacyCache(): string | null {
-  try {
-    return globalThis.localStorage?.getItem(ORDERBOOK_CACHE_KEY) ?? null;
-  } catch {
-    return null;
   }
 }

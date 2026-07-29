@@ -27,6 +27,7 @@ describe("PaymentQrCard", () => {
         concept="escrow"
         title="Escrow"
         value="lnbc1escrow"
+        amountSats={42_000}
         expiresAt={expiresAt}
         footer={<button type="button">Cancel order</button>}
       />
@@ -36,5 +37,20 @@ describe("PaymentQrCard", () => {
     expect(html).toContain("payment-countdown");
     expect(html).not.toContain("Expires at");
     expect(html).toContain("Cancel order");
+  });
+
+  it("shows a stable loading state until both invoice and amount are ready", () => {
+    const html = renderToStaticMarkup(
+      <PaymentQrCard
+        concept="escrow"
+        title="Escrow"
+        value=""
+        amountSats={0}
+      />
+    );
+
+    expect(html).toContain("Preparing payment");
+    expect(html).not.toContain("0 sats");
+    expect(html).not.toContain("payment-qr-shell");
   });
 });

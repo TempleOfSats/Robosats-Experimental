@@ -42,6 +42,14 @@ describe("takeOffer", () => {
     expect(defaultTakeAmount({ ...baseOrder, has_range: true, min_amount: 25, max_amount: 125 })).toBe("");
   });
 
+  it("uses an in-range guided amount for range orders", () => {
+    const order = { ...baseOrder, has_range: true, min_amount: 25, max_amount: 125 };
+
+    expect(defaultTakeAmount(order, 100)).toBe("100");
+    expect(defaultTakeAmount(order, 10)).toBe("");
+    expect(defaultTakeAmount(order, 150)).toBe("");
+  });
+
   it("validates range order boundaries", () => {
     const order = { ...baseOrder, has_range: true, min_amount: 50, max_amount: 150 };
     expect(validateTakeOffer(order, "49")).toEqual(["Amount must be between 50 and 150."]);

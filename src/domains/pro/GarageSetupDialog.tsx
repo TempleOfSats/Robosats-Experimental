@@ -2,6 +2,7 @@ import { Check, Copy, Download, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { AppTransitionFeedback } from "@/components/app/AppTransitionFeedback";
 import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
 import { downloadFleetKeyBackup } from "@/domains/pro/fleetKeyBackup";
 import { useGarageVaultStore } from "@/domains/pro/garageVaultStore";
 import { writeClipboard } from "@/lib/clipboard";
@@ -76,7 +77,7 @@ export function GarageSetupDialog({ onComplete, onRestore, onUseStandardGarage }
             <span className="pro-garage-setup-icon"><ShieldCheck size={22} /></span>
             <div>
               <p className="app-eyebrow">Pro Fleet</p>
-              <h3 id="pro-garage-setup-title">Set up your Fleet</h3>
+              <h3 id="pro-garage-setup-title">Set up your Robot Fleet</h3>
             </div>
           </header>
           {!fleetKey ? (
@@ -120,7 +121,17 @@ export function GarageSetupDialog({ onComplete, onRestore, onUseStandardGarage }
     </section>
   );
 
-  return <div className="confirm-overlay pro-garage-setup-overlay" role="dialog" aria-modal="true" aria-labelledby="pro-garage-setup-title">{content}</div>;
+  return (
+    <Dialog
+      ariaLabelledby="pro-garage-setup-title"
+      closeOnEscape={false}
+      onClose={() => undefined}
+      overlayClassName="confirm-overlay pro-garage-setup-overlay"
+      panelClassName="pro-garage-setup-dialog"
+    >
+      {content}
+    </Dialog>
+  );
 }
 
 function waitForFeedbackPaint(): Promise<void> {

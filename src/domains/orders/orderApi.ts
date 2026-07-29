@@ -46,6 +46,19 @@ export function compactPayload(payload: SubmitOrderActionPayload): SubmitOrderAc
 }
 
 function hasCompleteActionSnapshot(data: OrderApiResponse): boolean {
-  return data.status !== undefined && data.status !== null
-    && data.is_maker !== undefined && data.is_maker !== null;
+  const required: Array<keyof OrderDto> = [
+    "status",
+    "type",
+    "amount",
+    "currency",
+    "payment_method",
+    "premium",
+    "satoshis",
+    "is_maker",
+    "is_taker",
+    "is_buyer",
+    "is_seller",
+    "expires_at"
+  ];
+  return required.every((field) => data[field] !== undefined);
 }

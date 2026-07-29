@@ -4,19 +4,29 @@ import type { CoordinatorInfo, CoordinatorLimitList } from "@/domains/coordinato
 import type { PublicOrder } from "@/domains/orderbook/orderbook.types";
 import { normalizePublicOrder, type PublicOrderApi } from "@/domains/orderbook/orderbookModel";
 
-export async function fetchCoordinatorInfo(baseUrl: string): Promise<CoordinatorInfo> {
+export async function fetchCoordinatorInfo(
+  baseUrl: string,
+  options: { force?: boolean; priority?: "background" | "visible" } = {}
+): Promise<CoordinatorInfo> {
+  const visible = options.force || options.priority === "visible";
   return apiClient.get<CoordinatorInfo>(baseUrl, apiRoutes.info, undefined, {
-    timeoutProfile: "background",
-    priority: "maintenance",
-    source: "federation"
+    bypassCircuit: options.force,
+    timeoutProfile: visible ? "interactive" : "background",
+    priority: visible ? "visible" : "maintenance",
+    source: options.force ? "manual" : "federation"
   });
 }
 
-export async function fetchCoordinatorLimits(baseUrl: string): Promise<CoordinatorLimitList> {
+export async function fetchCoordinatorLimits(
+  baseUrl: string,
+  options: { force?: boolean; priority?: "background" | "visible" } = {}
+): Promise<CoordinatorLimitList> {
+  const visible = options.force || options.priority === "visible";
   return apiClient.get<CoordinatorLimitList>(baseUrl, apiRoutes.limits, undefined, {
-    timeoutProfile: "background",
-    priority: "maintenance",
-    source: "federation"
+    bypassCircuit: options.force,
+    timeoutProfile: visible ? "interactive" : "background",
+    priority: visible ? "visible" : "maintenance",
+    source: options.force ? "manual" : "federation"
   });
 }
 

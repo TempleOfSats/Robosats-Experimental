@@ -75,6 +75,24 @@ describe("Native transport bridge", () => {
     vi.useRealTimers();
   });
 
+  it("preserves an external cancellation reason", async () => {
+    const cancelHttpRequest = vi.fn();
+    vi.stubGlobal("window", {
+      AndroidAppRobosats: {
+        httpRequest: vi.fn(),
+        cancelHttpRequest
+      }
+    });
+    const controller = new AbortController();
+    const { nativeHttpRequest } = await import("./androidBridge");
+    const request = nativeHttpRequest("http://coordinator.onion/api/", {}, 90_000, controller.signal);
+
+    controller.abort(new Error("Tor request timeout after 20000ms"));
+
+    await expect(request).rejects.toThrow("Tor request timeout after 20000ms");
+    expect(cancelHttpRequest).toHaveBeenCalledOnce();
+  });
+
   it("discards sends after close like a browser WebSocket", async () => {
     const bridgeWindow = {
       AndroidAppRobosats: {
@@ -124,14 +142,14 @@ describe("Native transport bridge", () => {
     });
 
     const {
-      getAndroidNotificationState,
-      getAndroidTorDiagnostics,
-      setAndroidNotificationsEnabled
+      getNativeNotificationState,
+      getNativeTorDiagnostics,
+      setNativeNotificationsEnabled
     } = await import("./androidBridge");
 
-    expect(getAndroidNotificationState()?.enabled).toBe(true);
-    expect(getAndroidTorDiagnostics()?.socksPort).toBe(17392);
-    setAndroidNotificationsEnabled(false);
+    expect(getNativeNotificationState()?.enabled).toBe(true);
+    expect(getNativeTorDiagnostics()?.socksPort).toBe(17392);
+    setNativeNotificationsEnabled(false);
     expect(setNotificationsEnabled).toHaveBeenCalledWith(false);
   });
 

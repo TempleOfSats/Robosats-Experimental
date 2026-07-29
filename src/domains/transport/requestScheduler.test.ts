@@ -29,7 +29,7 @@ describe("CoordinatorRequestScheduler", () => {
       async () => { started.push("action"); return "done"; }
     );
 
-    await vi.waitFor(() => expect(started).toEqual(["a", "b", "action"]));
+    await vi.waitFor(() => expect(started).toEqual(["action", "a", "b"]));
     await expect(action.promise).resolves.toBe("done");
     releases[0].resolve();
     await vi.waitFor(() => expect(started).toContain("c"));
@@ -61,6 +61,126 @@ describe("CoordinatorRequestScheduler", () => {
     expect(maximum).toBe(2);
   });
 
+  it("spreads a batch across origins before admitting a second request for one origin", async () => {
+    const scheduler = new CoordinatorRequestScheduler();
+    const release = deferred<void>();
+    const started: string[] = [];
+    const origins = ["first", "first", "second", "second", "third", "third", "fourth"];
+    const tasks = origins.map((origin, index) => scheduler.schedule(
+      { ...request(`${origin}-${index}`, "visible"), origin: `http://${origin}.onion` },
+      async () => {
+        started.push(`${origin}-${index}`);
+        await release.promise;
+      }
+    ));
+
+    await vi.waitFor(() => expect(started).toHaveLength(4));
+    expect(new Set(started.map((value) => value.split("-")[0]))).toEqual(
+      new Set(["first", "second", "third", "fourth"])
+    );
+    release.resolve();
+    await Promise.all(tasks.map((task) => task.promise));
+  });
+
+  it("reports only user-priority work as blocking opportunistic warm-up", async () => {
+    const scheduler = new CoordinatorRequestScheduler();
+    const backgroundRelease = deferred<void>();
+    const visibleRelease = deferred<void>();
+    const background = scheduler.schedule(
+      request("background", "background"),
+      async () => backgroundRelease.promise
+    );
+
+    await vi.waitFor(() => expect(scheduler.hasUserPriorityWork()).toBe(false));
+
+    const visible = scheduler.schedule(
+      request("visible", "visible"),
+      async () => visibleRelease.promise
+    );
+    await vi.waitFor(() => expect(scheduler.hasUserPriorityWork()).toBe(true));
+
+    visibleRelease.resolve();
+    await visible.promise;
+    await vi.waitFor(() => expect(scheduler.hasUserPriorityWork()).toBe(false));
+
+    backgroundRelease.resolve();
+    await background.promise;
+  });
+
+  it("defers background work after repeated origin failures but permits visible recovery", async () => {
+    const scheduler = new CoordinatorRequestScheduler();
+    const origin = "http://offline.onion";
+    scheduler.noteOriginFailure(origin);
+    scheduler.noteOriginFailure(origin);
+
+    const backgroundExecute = vi.fn(async () => "background");
+    const background = scheduler.schedule(
+      { ...request("background", "background"), origin },
+      backgroundExecute
+    );
+    const visibleExecute = vi.fn(async () => "visible");
+    const visible = scheduler.schedule(
+      { ...request("visible", "visible"), origin },
+      visibleExecute
+    );
+
+    await expect(background.promise).rejects.toMatchObject({
+      name: "CoordinatorRequestDeferredError"
+    });
+    await expect(visible.promise).resolves.toBe("visible");
+    expect(backgroundExecute).not.toHaveBeenCalled();
+    expect(visibleExecute).toHaveBeenCalledOnce();
+  });
+
+  it("allows an explicit background request to bypass an open circuit", async () => {
+    const scheduler = new CoordinatorRequestScheduler();
+    const origin = "http://manual-refresh.onion";
+    scheduler.noteOriginFailure(origin);
+    scheduler.noteOriginFailure(origin);
+
+    const execute = vi.fn(async () => "refreshed");
+    const requestHandle = scheduler.schedule(
+      { ...request("manual", "maintenance"), bypassCircuit: true, origin },
+      execute
+    );
+
+    await expect(requestHandle.promise).resolves.toBe("refreshed");
+    expect(execute).toHaveBeenCalledOnce();
+  });
+
+  it("admits one half-open background probe after the retry window", async () => {
+    vi.useFakeTimers();
+    const scheduler = new CoordinatorRequestScheduler();
+    const origin = "http://recovering.onion";
+    scheduler.noteOriginFailure(origin);
+    scheduler.noteOriginFailure(origin);
+    await vi.advanceTimersByTimeAsync(120_000);
+
+    const release = deferred<void>();
+    const started: string[] = [];
+    const probe = scheduler.schedule(
+      { ...request("probe", "background"), origin },
+      async () => {
+        started.push("probe");
+        await release.promise;
+      }
+    );
+    const deferredProbe = scheduler.schedule(
+      { ...request("extra", "background"), origin },
+      async () => { started.push("extra"); }
+    );
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(started).toEqual(["probe"]);
+    release.resolve();
+    await probe.promise;
+    scheduler.noteOriginReachable(origin);
+    await vi.advanceTimersByTimeAsync(0);
+    await deferredProbe.promise;
+    expect(started).toEqual(["probe", "extra"]);
+    vi.useRealTimers();
+  });
+
   it("promotes a coalesced queued GET", async () => {
     vi.stubGlobal("window", { AndroidAppRobosats: { httpRequest: vi.fn() } });
     const scheduler = new CoordinatorRequestScheduler();
@@ -88,11 +208,50 @@ describe("CoordinatorRequestScheduler", () => {
     );
 
     blockers[0].resolve();
-    await vi.waitFor(() => expect(started[2]).toBe("shared"));
+    await vi.waitFor(() => expect(started[0]).toBe("shared"));
     await expect(Promise.all([background.promise, promoted.promise])).resolves.toEqual([42, 42]);
     blockers[1].resolve();
     await other.promise;
     await Promise.all(running.map((task) => task.promise));
+  });
+
+  it("extends the timeout when a visible caller joins a background request", async () => {
+    vi.useFakeTimers();
+    const scheduler = new CoordinatorRequestScheduler();
+    const release = deferred<number>();
+    const execute = vi.fn(async () => release.promise);
+    const background = scheduler.schedule(
+      { ...request("shared", "background"), key: "shared", timeoutMs: 20_000 },
+      execute
+    );
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    const visible = scheduler.schedule(
+      { ...request("shared", "visible"), key: "shared", timeoutMs: 45_000 },
+      async () => 0
+    );
+    await vi.advanceTimersByTimeAsync(15_000);
+    release.resolve(42);
+
+    await expect(Promise.all([background.promise, visible.promise])).resolves.toEqual([42, 42]);
+    expect(execute).toHaveBeenCalledOnce();
+    vi.useRealTimers();
+  });
+
+  it("aborts work at the scheduler timeout", async () => {
+    vi.useFakeTimers();
+    const scheduler = new CoordinatorRequestScheduler();
+    const task = scheduler.schedule(
+      { ...request("timeout", "background"), timeoutMs: 20_000 },
+      (signal) => new Promise((_resolve, reject) => {
+        signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+      })
+    );
+
+    const rejection = expect(task.promise).rejects.toThrow("Tor request timeout after 20000ms");
+    await vi.advanceTimersByTimeAsync(20_000);
+    await rejection;
+    vi.useRealTimers();
   });
 
   it("does not coalesce requests with different keys", async () => {

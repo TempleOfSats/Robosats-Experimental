@@ -4,11 +4,14 @@ import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.type
 import { fetchRobot } from "@/domains/garage/robotApi";
 import {
   publishRobotRefreshResult,
+  type RefreshRobotCoordinatorResult,
   type RefreshRobotSlotResult
 } from "@/domains/garage/robotRefreshEvents";
 import type { Auth, RequestPriority, RequestSource } from "@/domains/transport/apiClient";
+import { isNativeApp } from "@/domains/transport/androidBridge";
 import { systemClient } from "@/domains/transport/systemClient";
 import { toUserMessage } from "@/lib/userError";
+import { isTerminalOrderForCurrentRobot } from "@/domains/orders/orderStateMachine";
 
 export type {
   RefreshRobotCoordinatorResult,
@@ -16,10 +19,17 @@ export type {
 } from "@/domains/garage/robotRefreshEvents";
 
 const GARAGE_SLOTS_KEY = "robosats_exp_garage_slots_v1";
-const LEGACY_GARAGE_SLOTS_KEY = "robosats_exp_garage_slots";
 const GARAGE_CURRENT_SLOT_KEY = "robosats_exp_garage_current_slot";
 
-const robotRefreshes = new Map<string, Promise<RefreshRobotSlotResult>>();
+type RobotRefreshObserver = (result: RefreshRobotCoordinatorResult) => void;
+
+type RobotRefreshRun = {
+  promise: Promise<RefreshRobotSlotResult>;
+  observers: Set<RobotRefreshObserver>;
+  completed: Map<string, RefreshRobotCoordinatorResult>;
+};
+
+const robotRefreshes = new Map<string, RobotRefreshRun>();
 const activeRobotRefreshSessions = new Map<string, string>();
 const pendingRobotRefreshSessions = new Map<string, Set<string>>();
 let robotRefreshSequence = 0;
@@ -47,7 +57,14 @@ export type GarageState = {
   setActiveOrder: (token: string, shortAlias: string, orderId: number) => void;
   releaseOrderReservation: (token: string, shortAlias: string, orderId: number) => void;
   setStealthInvoices: (token: string, shortAlias: string, enabled: boolean) => void;
-  syncOrderSnapshot: (params: { token: string; shortAlias: string; orderId: number; status: number; isMaker?: boolean }) => void;
+  syncOrderSnapshot: (params: {
+    token: string;
+    shortAlias: string;
+    orderId: number;
+    status: number;
+    isMaker?: boolean;
+    isSeller?: boolean;
+  }) => void;
   updateSlotIdentityDetails: (
     token: string,
     details: { nickname?: string; keys?: { pubKey: string; encPrivKey: string } }
@@ -65,6 +82,8 @@ export type RefreshRobotSlotOptions = {
   source?: RequestSource;
   preferredAliases?: string[];
   requireCompleteAvailability?: boolean;
+  maxAgeMs?: number;
+  onCoordinatorResult?: RobotRefreshObserver;
 };
 
 export type RobotRecord = {
@@ -88,6 +107,7 @@ export type RobotRecord = {
   webhookUrl?: string;
   webhookEnabled?: boolean;
   webhookApiKey?: string;
+  lastCheckedAt?: number;
   loading?: boolean;
   error?: string;
 };
@@ -113,11 +133,16 @@ export const useGarageStore: UseBoundStore<StoreApi<GarageState>> = create<Garag
   hydrated: false,
   hydrate: () => {
     if (get().hydrated) return;
-    const rawSlots = systemClient.getItem(GARAGE_SLOTS_KEY)
-      ?? systemClient.getItem(LEGACY_GARAGE_SLOTS_KEY);
+    const rawSlots = systemClient.getItem(GARAGE_SLOTS_KEY);
     const currentToken = systemClient.getItem(GARAGE_CURRENT_SLOT_KEY) ?? undefined;
-    const slots = parseStoredSlots(rawSlots);
-    const nextCurrentToken = currentToken ?? slots[0]?.token;
+    const parsedSlots = parseStoredSlots(rawSlots);
+    const slots = slotsForPersistentStorage(parsedSlots);
+    const nextCurrentToken = currentToken && slots.some((slot) => slot.token === currentToken)
+      ? currentToken
+      : slots[0]?.token;
+    if (slots.length !== parsedSlots.length || currentToken !== nextCurrentToken) {
+      persistSlots(slots, nextCurrentToken);
+    }
     set({
       slots,
       currentToken: nextCurrentToken,
@@ -127,7 +152,7 @@ export const useGarageStore: UseBoundStore<StoreApi<GarageState>> = create<Garag
   currentSlot: () => selectCurrentSlot(get().slots, get().currentToken),
   setCurrentToken: (token) =>
     set((state) => {
-      systemClient.setItem(GARAGE_CURRENT_SLOT_KEY, token);
+      persistCurrentToken(state.slots, token);
       return { ...state, currentToken: token };
     }),
   addSlot: (slot) => {
@@ -238,10 +263,10 @@ export const useGarageStore: UseBoundStore<StoreApi<GarageState>> = create<Garag
       persistSlots(slots, state.currentToken ?? token);
       return { ...state, slots };
     }),
-  syncOrderSnapshot: ({ token, shortAlias, orderId, status, isMaker }) =>
+  syncOrderSnapshot: ({ token, shortAlias, orderId, status, isMaker, isSeller }) =>
     set((state) => {
       const renewable = status === 5 && Boolean(isMaker);
-      const terminal = isTerminalOrderStatus(status) && !renewable;
+      const terminal = isTerminalOrderForCurrentRobot({ status, isMaker, isSeller }) && !renewable;
       const slots = state.slots.map((slot) => {
         if (slot.token !== token) return slot;
         const existingRobot = slot.robots[shortAlias] ?? Object.values(slot.robots)[0];
@@ -283,13 +308,44 @@ export const useGarageStore: UseBoundStore<StoreApi<GarageState>> = create<Garag
       return publishRobotRefreshResult({ slotId: slot.tokenSHA256, coordinators: [] });
     }
 
-    const refreshKey = robotRefreshKey(slot, targets, options.priority);
+    const now = Date.now();
+    const cachedResults = new Map(
+      targets
+        .filter((coordinator) => isRobotRefreshFresh(
+          slot.robots[coordinator.shortAlias],
+          options.maxAgeMs,
+          now
+        ))
+        .map((coordinator) => [
+          coordinator.shortAlias,
+          cachedRobotCoordinatorResult(slot, coordinator.shortAlias)
+        ])
+    );
+    const networkTargets = targets.filter((coordinator) => !cachedResults.has(coordinator.shortAlias));
+    if (networkTargets.length === 0) {
+      const coordinators = targets.map((coordinator) => cachedResults.get(coordinator.shortAlias)!);
+      coordinators.forEach((result) => notifyRobotRefreshObserver(options.onCoordinatorResult, result));
+      return publishRobotRefreshResult({ slotId: slot.tokenSHA256, coordinators });
+    }
+
+    const refreshKey = robotRefreshKey(slot, networkTargets);
     const existingRefresh = robotRefreshes.get(refreshKey);
-    if (existingRefresh) return existingRefresh;
+    if (existingRefresh) {
+      attachRobotRefreshObserver(existingRefresh, options.onCoordinatorResult);
+      return existingRefresh.promise;
+    }
+
+    const run: RobotRefreshRun = {
+      promise: Promise.resolve({ slotId: slot.tokenSHA256, coordinators: [] }),
+      observers: new Set(),
+      completed: new Map()
+    };
+    attachRobotRefreshObserver(run, options.onCoordinatorResult);
+    cachedResults.forEach((result) => publishRobotCoordinatorResult(run, result));
 
     const refresh = (async () => {
       const keys = await ensureSlotKeys(slot);
-      const sessions = new Map(targets.map((coordinator) => [
+      const sessions = new Map(networkTargets.map((coordinator) => [
         coordinator.shortAlias,
         beginRobotRefreshSession(slot.token, coordinator.shortAlias)
       ]));
@@ -299,7 +355,7 @@ export const useGarageStore: UseBoundStore<StoreApi<GarageState>> = create<Garag
             ? {
                 ...item,
                 loading: true,
-                robots: markTargetRobotsLoading(item, targets, keys)
+                robots: markTargetRobotsLoading(item, networkTargets, keys)
               }
             : item
         );
@@ -315,9 +371,10 @@ export const useGarageStore: UseBoundStore<StoreApi<GarageState>> = create<Garag
           encPrivKey: keys.encPrivKey
         }
       };
-      const aliases = await Promise.all(
-        targets.map(async (coordinator) => {
+      const networkResults = await Promise.all(
+        networkTargets.map(async (coordinator) => {
           const sessionId = sessions.get(coordinator.shortAlias)!;
+          let transportFailed = false;
           try {
             const snapshot = await fetchRobot(coordinator.url, auth, undefined, {
               timeoutProfile: options.priority === "background" || options.priority === "maintenance"
@@ -349,11 +406,13 @@ export const useGarageStore: UseBoundStore<StoreApi<GarageState>> = create<Garag
                 webhookUrl: snapshot.webhookUrl,
                 webhookEnabled: snapshot.webhookEnabled,
                 webhookApiKey: snapshot.webhookApiKey,
+                lastCheckedAt: Date.now(),
                 loading: false,
                 error: snapshot.badRequest
               } satisfies RobotRecord
             });
           } catch (error) {
+            transportFailed = true;
             const currentSlot = useGarageStore.getState().slots.find((item) => item.token === slot.token);
             const currentRobot = currentSlot?.robots[coordinator.shortAlias];
             applyRobotRefreshResult(set, slot, coordinator.shortAlias, sessionId, {
@@ -372,29 +431,31 @@ export const useGarageStore: UseBoundStore<StoreApi<GarageState>> = create<Garag
               } satisfies RobotRecord
             });
           }
-          return coordinator.shortAlias;
+          const result = robotCoordinatorRefreshResult(
+            slot.token,
+            coordinator.shortAlias,
+            transportFailed
+          );
+          publishRobotCoordinatorResult(run, result);
+          return result;
         })
       );
+      const resultsByAlias = new Map([
+        ...cachedResults,
+        ...networkResults.map((result) => [result.shortAlias, result] as const)
+      ]);
+      const results = targets.map((coordinator) => resultsByAlias.get(coordinator.shortAlias)!);
 
-      const refreshedSlot = get().slots.find((item) => item.token === slot.token);
       return publishRobotRefreshResult({
         slotId: slot.tokenSHA256,
-        coordinators: aliases.map((shortAlias) => {
-          const robot = refreshedSlot?.robots[shortAlias];
-          return {
-            shortAlias,
-            found: robot?.found,
-            activeOrderId: robot?.activeOrderId,
-            lastOrderId: robot?.lastOrderId,
-            renewableOrderId: robot?.renewableOrderId,
-            releasedOrderId: robot?.releasedOrderId,
-            error: robot?.error
-          };
-        })
+        coordinators: results
       } satisfies RefreshRobotSlotResult);
-    })().finally(() => robotRefreshes.delete(refreshKey));
+    })().finally(() => {
+      if (robotRefreshes.get(refreshKey) === run) robotRefreshes.delete(refreshKey);
+    });
 
-    robotRefreshes.set(refreshKey, refresh);
+    run.promise = refresh;
+    robotRefreshes.set(refreshKey, run);
     return refresh;
   },
   refreshRobots: async (coordinators) => {
@@ -438,14 +499,103 @@ export function getRobotAuthForCoordinator(slot: RobotSlot | undefined, shortAli
 
 function robotRefreshKey(
   slot: RobotSlot,
-  coordinators: CoordinatorSummary[],
-  priority: RequestPriority = "visible"
+  coordinators: CoordinatorSummary[]
 ): string {
   return [
     slot.tokenSHA256,
-    coordinators.map((coordinator) => `${coordinator.shortAlias}:${coordinator.url}`).join(","),
-    priority
+    coordinators.map((coordinator) => `${coordinator.shortAlias}:${coordinator.url}`).join(",")
   ].join("|");
+}
+
+function attachRobotRefreshObserver(
+  run: RobotRefreshRun,
+  observer?: RobotRefreshObserver
+): void {
+  if (!observer || run.observers.has(observer)) return;
+  run.observers.add(observer);
+  for (const result of run.completed.values()) {
+    try {
+      observer(result);
+    } catch {
+      // Observers cannot turn a completed coordinator request into a failure.
+    }
+  }
+}
+
+function publishRobotCoordinatorResult(
+  run: RobotRefreshRun,
+  result: RefreshRobotCoordinatorResult
+): void {
+  run.completed.set(result.shortAlias, result);
+  for (const observer of run.observers) {
+    try {
+      observer(result);
+    } catch {
+      // Observers cannot turn a completed coordinator request into a failure.
+    }
+  }
+}
+
+function notifyRobotRefreshObserver(
+  observer: RobotRefreshObserver | undefined,
+  result: RefreshRobotCoordinatorResult
+): void {
+  if (!observer) return;
+  try {
+    observer(result);
+  } catch {
+    // Observers cannot turn a cached coordinator result into a failure.
+  }
+}
+
+function isRobotRefreshFresh(
+  robot: RobotRecord | undefined,
+  maxAgeMs: number | undefined,
+  now: number
+): boolean {
+  return typeof maxAgeMs === "number"
+    && maxAgeMs > 0
+    && !robot?.loading
+    && !robot?.error
+    && typeof robot?.lastCheckedAt === "number"
+    && now - robot.lastCheckedAt >= 0
+    && now - robot.lastCheckedAt < maxAgeMs;
+}
+
+function cachedRobotCoordinatorResult(
+  slot: RobotSlot,
+  shortAlias: string
+): RefreshRobotCoordinatorResult {
+  const robot = slot.robots[shortAlias];
+  return {
+    shortAlias,
+    cached: true,
+    found: robot?.found,
+    activeOrderId: robot?.activeOrderId,
+    lastOrderId: robot?.lastOrderId,
+    renewableOrderId: robot?.renewableOrderId,
+    releasedOrderId: robot?.releasedOrderId,
+    transportFailed: false
+  };
+}
+
+function robotCoordinatorRefreshResult(
+  token: string,
+  shortAlias: string,
+  transportFailed: boolean
+): RefreshRobotCoordinatorResult {
+  const refreshedSlot = useGarageStore.getState().slots.find((item) => item.token === token);
+  const robot = refreshedSlot?.robots[shortAlias];
+  return {
+    shortAlias,
+    found: robot?.found,
+    activeOrderId: robot?.activeOrderId,
+    lastOrderId: robot?.lastOrderId,
+    renewableOrderId: robot?.renewableOrderId,
+    releasedOrderId: robot?.releasedOrderId,
+    error: robot?.error,
+    transportFailed
+  };
 }
 
 function orderRobotRefreshTargets(
@@ -590,8 +740,9 @@ function parseStoredSlots(rawSlots: string | null): RobotSlot[] {
   }
 }
 
-function persistSlots(slots: RobotSlot[], currentToken: string): void {
-  const stored: StoredRobotSlot[] = slots.map((slot) => ({
+function persistSlots(slots: RobotSlot[], currentToken?: string): void {
+  const persistedSlots = slotsForPersistentStorage(slots);
+  const stored: StoredRobotSlot[] = persistedSlots.map((slot) => ({
       token: slot.token,
       nickname: slot.nickname,
       managedBy: slot.managedBy,
@@ -610,12 +761,27 @@ function persistSlots(slots: RobotSlot[], currentToken: string): void {
     slots: stored
   };
   systemClient.setItem(GARAGE_SLOTS_KEY, JSON.stringify(versioned));
-  systemClient.setItem(LEGACY_GARAGE_SLOTS_KEY, JSON.stringify(stored));
-  systemClient.setItem(GARAGE_CURRENT_SLOT_KEY, currentToken);
+  persistCurrentToken(persistedSlots, currentToken);
+}
+
+function slotsForPersistentStorage(slots: RobotSlot[]): RobotSlot[] {
+  return isNativeApp() ? slots : selectStandardGarageSlots(slots);
+}
+
+function persistCurrentToken(slots: RobotSlot[], currentToken?: string): void {
+  const persistedSlots = slotsForPersistentStorage(slots);
+  const requested = persistedSlots.find((slot) => slot.token === currentToken)?.token;
+  const previous = systemClient.getItem(GARAGE_CURRENT_SLOT_KEY);
+  const retained = persistedSlots.find((slot) => slot.token === previous)?.token;
+  const persistentToken = requested ?? retained ?? persistedSlots[0]?.token;
+  if (persistentToken) {
+    systemClient.setItem(GARAGE_CURRENT_SLOT_KEY, persistentToken);
+  } else {
+    systemClient.deleteItem(GARAGE_CURRENT_SLOT_KEY);
+  }
 }
 
 function storedSlotRecords(value: unknown): unknown[] {
-  if (Array.isArray(value)) return value;
   if (!value || typeof value !== "object") return [];
   const stored = value as Partial<StoredGarageV1>;
   return stored.format === "robosats-exp-garage-slots"
@@ -746,8 +912,4 @@ function summarizeSlot(slot: RobotSlot, options: { preserveOrderIds?: boolean } 
     earnedRewards,
     availableRewards: rewardRobot?.shortAlias
   };
-}
-
-function isTerminalOrderStatus(status: number): boolean {
-  return [4, 5, 12, 14, 17, 18].includes(status);
 }

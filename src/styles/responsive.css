@@ -1,0 +1,984 @@
+@media (max-width: 900px) {
+  .maker-create-identity-notice {
+    right: 0.75rem;
+    bottom: 0.75rem;
+    width: calc(100vw - 1.5rem);
+  }
+
+  .app-shell {
+    display: block;
+  }
+
+  .app-sidebar {
+    min-height: auto;
+    width: 100%;
+    position: sticky;
+    top: 0;
+    z-index: 70;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 0.75rem;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    padding: 0.55rem var(--space-page-x);
+    background: color-mix(in srgb, var(--background) 94%, transparent);
+    backdrop-filter: blur(16px);
+  }
+
+  .app-runtime-desktop .app-sidebar {
+    min-height: auto;
+  }
+
+  .brand-block {
+    border: 0;
+    padding: 0;
+  }
+
+  .sidebar-nav {
+    grid-template-columns: repeat(5, minmax(2.75rem, 1fr));
+    gap: 0.2rem;
+  }
+
+  .sidebar-nav-pro {
+    grid-template-columns: repeat(6, minmax(2.5rem, 1fr));
+  }
+
+  .nav-item {
+    justify-content: center;
+    min-height: 2.7rem;
+    padding: 0.55rem;
+  }
+
+  .nav-item span,
+  .sidebar-card {
+    display: none;
+  }
+
+  .nav-attention-count {
+    display: block;
+    position: absolute;
+    margin: -1.75rem 0 0 1.55rem;
+    min-width: 1rem;
+    border: 0;
+    padding: 0 0.18rem;
+    font-size: var(--type-caption-size);
+  }
+
+  .app-header {
+    position: static;
+  }
+
+  .app-content {
+    padding-top: 1.25rem;
+  }
+
+  .orderbook-layout,
+  .two-column,
+  .trade-layout,
+  .maker-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .trade-main-layout {
+    width: 100%;
+    grid-template-columns: 1fr;
+    justify-content: stretch;
+  }
+
+  .trade-panel-slot {
+    display: block;
+  }
+
+  .page-heading {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .settings-stack .setting-row {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .orderbook-secondary-filters {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: end;
+  }
+
+  .orderbook-secondary-filters .filter-select-field-wide {
+    grid-column: 1 / -1;
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .orderbook-secondary-filters .filter-select-field:nth-child(2) .image-select-menu {
+    right: 0;
+    left: auto;
+    max-width: calc(100vw - 2rem);
+  }
+
+  .page-trade .page-heading > .ui-badge {
+    width: fit-content;
+  }
+
+  .trade-contract-title-row .ui-badge {
+    max-width: 7.75rem;
+    font-size: 0.75rem;
+  }
+
+  .table-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .orderbook-filter-strip {
+    justify-content: stretch;
+    flex-wrap: wrap;
+  }
+
+  .orderbook-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .orderbook-secondary-filters {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: end;
+  }
+
+  .filter-select-field,
+  .filter-select-field-wide {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .filter-select {
+    width: 100%;
+    flex: 1;
+    max-width: none;
+  }
+
+  .offer-table-scroll {
+    max-height: min(62dvh, 38rem);
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+
+  .offer-table-scroll .offer-table {
+    gap: 0.65rem;
+  }
+
+  .offer-table {
+    min-width: 0;
+  }
+
+  .offer-table-header {
+    display: none;
+  }
+
+  .offer-mobile-sort {
+    display: grid;
+    grid-template-columns: auto repeat(2, minmax(0, 1fr));
+    align-items: center;
+    gap: 0.3rem;
+    margin: 0.55rem 0 0.65rem;
+    color: var(--muted-foreground);
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: none;
+  }
+
+  .offer-mobile-sort > span {
+    padding-right: 0.2rem;
+  }
+
+  .offer-mobile-sort-button {
+    appearance: none;
+    min-width: 0;
+    min-height: 2rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--muted-foreground);
+    background: color-mix(in srgb, var(--card) 84%, var(--muted));
+    padding: 0.35rem 0.5rem;
+    font: inherit;
+    text-transform: none;
+    cursor: pointer;
+  }
+
+  .offer-mobile-sort-button-active {
+    border-color: color-mix(in srgb, var(--primary) 72%, var(--border));
+    color: var(--foreground);
+    background: color-mix(in srgb, var(--primary) 12%, var(--card));
+  }
+
+  .offer-row {
+    grid-template-columns: 2.65rem minmax(6.4rem, 1fr) minmax(2.8rem, 0.4fr) 2.25rem 1.4rem;
+    grid-template-areas:
+      "side main premium expiry host"
+      "side method premium expiry host";
+    align-items: center;
+    gap: 0.42rem;
+    border-color: var(--border);
+    background: color-mix(in srgb, var(--card) 86%, var(--muted));
+    padding: 0.55rem 0.5rem;
+  }
+
+  .offer-row-skeleton {
+    min-height: 3.75rem;
+  }
+
+  .offer-direction {
+    grid-area: side;
+    width: 2.65rem;
+    height: 2.65rem;
+    min-height: 2.65rem;
+  }
+
+  .offer-main-cell {
+    grid-area: main;
+  }
+
+  .offer-amount-line {
+    gap: 0.28rem;
+  }
+
+  .offer-amount-line > span:not(:first-child) {
+    font-size: 0.75rem;
+  }
+
+  .offer-amount-line strong {
+    font-size: 0.96rem;
+    line-height: 1.1;
+  }
+
+  .offer-method-line {
+    gap: 0.22rem;
+    min-height: 1.25rem;
+  }
+
+  .offer-method-cell,
+  .offer-skeleton-method {
+    grid-area: method;
+  }
+
+  .offer-method-line-has-icon .offer-method-text {
+    display: none;
+  }
+
+  .offer-swap-chip {
+    font-size: 0.75rem;
+    padding: 0.04rem 0.26rem;
+  }
+
+  .payment-method-icon {
+    width: min(var(--payment-icon-size, 22px), 19px);
+    height: min(var(--payment-icon-size, 22px), 19px);
+  }
+
+  .offer-premium {
+    grid-area: premium;
+    justify-self: end;
+    text-align: right;
+    font-size: 0.96rem;
+  }
+
+  .offer-skeleton-short {
+    grid-area: premium;
+    justify-self: end;
+    width: 2.7rem;
+  }
+
+  .offer-expiry {
+    grid-area: expiry;
+    justify-self: end;
+  }
+
+  .offer-skeleton-expiry {
+    grid-area: expiry;
+    justify-self: end;
+    width: 2.15rem;
+    height: 2.15rem;
+  }
+
+  .offer-skeleton-host {
+    grid-area: host;
+    justify-self: center;
+    width: 1.55rem;
+    height: 1.55rem;
+  }
+
+  .offer-expiry-ring {
+    width: 2.15rem;
+    height: 2.15rem;
+  }
+
+  .offer-expiry-text {
+    font-size: 0.75rem;
+  }
+
+  .coordinator-pill {
+    grid-area: host;
+    justify-self: end;
+  }
+
+  .take-offer-actions {
+    justify-content: stretch;
+  }
+
+  .take-offer-actions .ui-button {
+    flex: 1;
+  }
+
+  .take-flow-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .take-flow-arrow {
+    justify-self: center;
+    transform: rotate(90deg);
+  }
+
+  .payment-card-body {
+    grid-template-columns: 1fr;
+  }
+
+  .chat-composer {
+    grid-template-columns: minmax(0, 1fr) 3rem;
+  }
+
+  .payment-qr-shell {
+    width: min(100%, 19rem);
+  }
+
+  .wizard-steps {
+    grid-template-columns: 1fr;
+  }
+
+  .garage-profile-stage > .next-action-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .garage-robot-hero {
+    padding: 1rem;
+  }
+
+  .garage-page {
+    max-width: none;
+    margin-inline: 0;
+  }
+
+  .garage-profile-stage {
+    width: 100%;
+    max-width: 48rem;
+    padding-block: 1.5rem;
+  }
+
+  .garage-robot-name {
+    max-width: calc(100% - 2.6rem);
+    font-size: 1.55rem;
+  }
+
+  .garage-robot-avatar-shell {
+    width: min(11.5rem, 64vw);
+  }
+
+  .garage-page > .next-action-grid {
+    gap: 0.65rem;
+  }
+
+  .garage-page .action-tile {
+    min-height: 4.8rem;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-content: center;
+    align-items: center;
+    column-gap: 0.75rem;
+  }
+
+  .garage-profile-stage .action-tile {
+    min-height: 4.8rem;
+    padding: 0.9rem 1rem;
+  }
+
+  .garage-page .action-tile span {
+    grid-column: 2;
+  }
+
+  .garage-utility-bar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .garage-switcher-overlay {
+    align-items: end;
+    padding: 0.75rem;
+  }
+
+  .federation-preview {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .robot-preview-card,
+  .active-robot-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .maker-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .maker-review-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .maker-review-identity {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
+  }
+
+  .maker-review-identity > div,
+  .maker-review-identity > a {
+    gap: 0.45rem;
+    padding: 0.55rem;
+  }
+
+  .maker-review-identity strong {
+    font-size: 0.9rem;
+  }
+
+  .maker-time-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .maker-clock-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .maker-clock-face {
+    width: min(15rem, 74vw);
+    justify-self: center;
+  }
+
+  .maker-stepper {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .maker-wizard-footer {
+    align-items: stretch;
+  }
+
+  .maker-wizard-footer .ui-button {
+    flex: 1;
+  }
+
+  .garage-page .page-heading {
+    text-align: left;
+  }
+}
+
+@media (max-width: 700px) {
+  .page-trade .page-heading {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    gap: 0.65rem;
+  }
+
+  .page-trade .page-heading > .ui-badge {
+    max-width: 9.5rem;
+    align-self: end;
+  }
+
+  .page-trade .page-heading p:last-child {
+    font-size: 0.8rem;
+  }
+}
+
+@media (max-width: 900px) {
+  .maker-method-field .image-select-combo,
+  .maker-method-field .image-select-combo-no-icon {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0;
+    padding: 0;
+  }
+
+  .maker-method-field .image-select-combo > .image-select-icon {
+    display: none;
+  }
+
+  .maker-method-field .image-select-input {
+    grid-column: 2;
+    grid-row: 1;
+    width: 100%;
+    height: 100%;
+    padding: 0 0.75rem;
+  }
+
+  .maker-method-field .image-select-input::placeholder {
+    color: var(--muted-foreground);
+  }
+
+  .maker-method-field .image-select-browse {
+    grid-column: 1;
+    grid-row: 1;
+    width: 100%;
+    min-height: 2.75rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    border-right: 1px solid var(--border);
+    border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+    padding: 0 0.65rem;
+    color: var(--foreground);
+  }
+
+  .maker-method-field .image-select-browse-label {
+    display: inline;
+    font-size: 0.82rem;
+    font-weight: 600;
+  }
+}
+
+@media (max-width: 520px) {
+  .desktop-titlebar-brand small,
+  .desktop-titlebar-status > span:last-child {
+    display: none;
+  }
+
+  .desktop-titlebar-status {
+    margin-right: 0.1rem;
+  }
+
+  .desktop-window-command {
+    width: 2.35rem;
+  }
+
+  .page-trade .page-heading > div {
+    min-width: 0;
+  }
+
+  .page-trade .page-heading h2 {
+    font-size: 1rem;
+    line-height: 1.2;
+    white-space: normal;
+  }
+
+  .app-sidebar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .maker-choice-card {
+    min-height: 6.25rem;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-content: center;
+    align-items: center;
+    column-gap: 0.75rem;
+    padding: 0.85rem;
+  }
+
+  .garage-profile-stage > .next-action-grid {
+    gap: 0.45rem;
+  }
+
+  .garage-profile-stage .action-tile {
+    min-height: 6.1rem;
+    grid-template-columns: 1fr;
+    align-content: start;
+    align-items: start;
+    gap: 0.32rem;
+    padding: 0.75rem;
+  }
+
+  .garage-profile-stage .action-tile span {
+    grid-column: 1;
+    font-size: 0.82rem;
+  }
+
+  .maker-choice-icon {
+    grid-row: 1 / 3;
+  }
+
+  .maker-choice-card strong,
+  .maker-choice-card small {
+    grid-column: 2;
+  }
+
+  .maker-choice-card small {
+    font-size: 0.75rem;
+    line-height: 1.3;
+  }
+
+  .maker-advanced-timers {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-stack .setting-row,
+  .settings-link-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .settings-link-row > * {
+    width: 100%;
+  }
+}
+
+@media (min-width: 501px) and (max-width: 520px) {
+  .robosats-logo-picture {
+    display: none;
+  }
+}
+
+@media (max-width: 500px) {
+  .robosats-logo-picture {
+    display: none;
+  }
+
+  .orderbook-table-card .ui-card-header {
+    padding: 0.75rem 0.75rem 0.5rem;
+  }
+
+  .orderbook-table-card .ui-card-content {
+    padding: 0.45rem 0.65rem 0.65rem;
+  }
+
+  .orderbook-card-header {
+    gap: 0.5rem;
+  }
+
+  .orderbook-card-header .ui-card-title {
+    font-size: 1rem;
+  }
+
+  .orderbook-refresh-state {
+    flex-wrap: nowrap;
+    gap: 0.2rem;
+  }
+
+  .orderbook-refresh-state .muted-copy {
+    display: none;
+  }
+
+  .orderbook-secondary-filters {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.4rem;
+  }
+
+  .orderbook-secondary-filters .filter-select-field-wide {
+    grid-column: auto;
+  }
+
+  .filter-select-field > span:first-child {
+    font-size: 0.75rem;
+  }
+
+  .image-select-button,
+  .image-select-combo {
+    min-height: 2.35rem;
+    gap: 0.25rem;
+    padding-inline: 0.4rem;
+  }
+
+  .maker-method-field .image-select-combo,
+  .maker-method-field .image-select-combo-no-icon {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0;
+    padding: 0;
+  }
+
+  .image-select-button:not(.image-select-button-no-icon),
+  .image-select-combo:not(.image-select-combo-no-icon) {
+    grid-template-columns: 1.25rem minmax(0, 1fr) auto;
+  }
+
+  .image-select-value,
+  .image-select-input {
+    font-size: 0.82rem;
+  }
+
+  .orderbook-secondary-filters .filter-select-field-wide .image-select-browse {
+    width: 2rem;
+    min-width: 2rem;
+    min-height: 2rem;
+  }
+
+  .orderbook-secondary-filters .filter-select-field-wide .image-select-input {
+    padding-inline: 0;
+    font-size: 0.82rem;
+  }
+
+  .offer-mobile-sort {
+    margin-top: 0.45rem;
+  }
+}
+
+@media (max-width: 1320px) {
+  .orderbook-layout,
+  .trade-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .trade-layout > :first-child {
+    grid-row: auto;
+  }
+
+  .trade-main-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 900px) {
+  .trade-main-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (min-width: 701px) and (max-width: 900px) {
+  .page-trade .page-heading {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .trade-main-layout {
+    width: min(100%, 36rem);
+    grid-template-columns: minmax(0, 1fr);
+    justify-content: center;
+  }
+}
+
+@keyframes sheet-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes offer-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes avatar-reveal {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes avatar-loading {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes payment-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes section-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes dice-roll {
+  0% {
+    transform: rotate(0deg) scale(1);
+  }
+  45% {
+    transform: rotate(160deg) scale(1.18);
+  }
+  100% {
+    transform: rotate(360deg) scale(1);
+  }
+}
+
+@keyframes trade-status-flash {
+  from {
+    background: color-mix(in srgb, var(--primary) 12%, transparent);
+  }
+  to {
+    background: transparent;
+  }
+}
+
+@keyframes trade-locked-fill {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--success) 30%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0.75rem transparent;
+  }
+}
+
+@keyframes payout-success-pop {
+  0% {
+    transform: scale(0.88);
+    opacity: 0.65;
+  }
+  55% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Review and confirm dialog for critical actions */
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 220;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: var(--overlay-scrim);
+  backdrop-filter: blur(12px);
+  animation: confirm-fade-in 150ms ease;
+}
+
+@keyframes confirm-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.confirm-sheet {
+  position: relative;
+  width: min(100%, 36rem);
+  max-height: min(40rem, calc(100vh - 2rem));
+  overflow: auto;
+  display: grid;
+  gap: 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--card);
+  padding: 1.5rem;
+  box-shadow: var(--modal-shadow);
+  animation: sheet-in 160ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.confirm-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.confirm-header h3 {
+  min-width: 0;
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.confirm-icon-shell {
+  flex: 0 0 2.75rem;
+  width: 2.75rem;
+  height: 2.75rem;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--warning) 15%, transparent);
+  color: var(--warning);
+  border: 1px solid color-mix(in srgb, var(--warning) 30%, var(--border));
+}
+
+.order-description-sheet {
+  width: min(100%, 32rem);
+}
+
+.order-description-sheet .confirm-header {
+  align-items: flex-start;
+}
+
+.order-description-sheet .confirm-header > div {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.order-description-sheet .confirm-header p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.order-description-copy {
+  max-height: 16rem;
+  margin: 0;
+  overflow: auto;
+  border-left: 2px solid var(--primary);
+  background: var(--muted);
+  color: var(--foreground);
+  padding: 0.85rem 1rem;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.confirm-body {
+  margin: 0;
+  color: var(--foreground);
+  line-height: 1.55;
+  font-size: 0.95rem;
+}
+
+.confirm-details {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--muted) 55%, transparent);
+}
+
+.confirm-details strong {
+  font-size: 0.95rem;
+}
+
+.confirm-details code {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  background: var(--muted);
+  padding: 0.15rem 0.35rem;
+  border-radius: var(--radius-sm);
+}
+
+.confirm-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.65rem;
+  margin-top: 0.5rem;
+}

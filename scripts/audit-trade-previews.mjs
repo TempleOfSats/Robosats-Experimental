@@ -90,7 +90,7 @@ try {
       try {
         response = await page.goto(
           `${baseUrl}/order/lake/95955?tradePreview=${scenario}`,
-          { waitUntil: "networkidle", timeout: 30_000 },
+          { waitUntil: "domcontentloaded", timeout: 30_000 },
         );
         await page
           .locator(".trade-layout")
@@ -98,13 +98,14 @@ try {
         await page.waitForTimeout(300);
 
         if (scenario === "take") {
-          await page.getByRole("button", { name: /Cancel order/ }).click();
-          await page.locator(".confirm-sheet").waitFor({ state: "visible" });
-          await page
-            .locator(".confirm-sheet")
-            .getByRole("button", { name: "Cancel" })
-            .click();
-          await page.locator(".confirm-sheet").waitFor({ state: "hidden" });
+          const cancelOrder = page.getByRole("button", { name: /Cancel order/ });
+          if (await cancelOrder.isEnabled()) {
+            await cancelOrder.click();
+            const confirmation = page.locator(".confirm-sheet");
+            await confirmation.waitFor({ state: "visible", timeout: 3_000 });
+            await confirmation.getByRole("button", { name: "Cancel" }).click();
+            await confirmation.waitFor({ state: "hidden", timeout: 3_000 });
+          }
         }
 
         if (
@@ -112,12 +113,16 @@ try {
             scenario,
           )
         ) {
-          const details = page.locator(".invoice-details");
+          const details = page.locator(".trade-order-disclosure");
+          const initiallyOpen = await details.evaluate((element) => element.open);
           await details.locator("summary").click();
-          if (!(await details.evaluate((element) => element.open))) {
-            throw new Error("Invoice details did not open");
+          if ((await details.evaluate((element) => element.open)) === initiallyOpen) {
+            throw new Error("Order details did not toggle");
           }
           await details.locator("summary").click();
+          if ((await details.evaluate((element) => element.open)) !== initiallyOpen) {
+            throw new Error("Order details did not return to its initial state");
+          }
         }
 
         metrics = await page.evaluate(() => {

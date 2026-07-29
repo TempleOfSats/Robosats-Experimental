@@ -1,12 +1,20 @@
-import type { HTMLAttributes, PropsWithChildren } from "react";
+import {
+  createElement,
+  type HTMLAttributes,
+  type PropsWithChildren
+} from "react";
 import { cn } from "@/lib/cn";
 
-export function Card({ className, children, ...props }: PropsWithChildren<HTMLAttributes<HTMLDivElement>>) {
-  return (
-    <section className={cn("ui-card", className)} {...props}>
-      {children}
-    </section>
-  );
+type CardElement = "article" | "div" | "section";
+type CardTitleElement = "div" | "h2" | "h3" | "h4" | "p";
+
+export function Card({
+  as = "div",
+  className,
+  children,
+  ...props
+}: PropsWithChildren<HTMLAttributes<HTMLElement> & { as?: CardElement }>) {
+  return createElement(as, { className: cn("ui-card", className), ...props }, children);
 }
 
 export function CardHeader({ className, children, ...props }: PropsWithChildren<HTMLAttributes<HTMLDivElement>>) {
@@ -17,12 +25,13 @@ export function CardHeader({ className, children, ...props }: PropsWithChildren<
   );
 }
 
-export function CardTitle({ className, children, ...props }: PropsWithChildren<HTMLAttributes<HTMLHeadingElement>>) {
-  return (
-    <h2 className={cn("ui-card-title", className)} {...props}>
-      {children}
-    </h2>
-  );
+export function CardTitle({
+  as = "h3",
+  className,
+  children,
+  ...props
+}: PropsWithChildren<HTMLAttributes<HTMLElement> & { as?: CardTitleElement }>) {
+  return createElement(as, { className: cn("ui-card-title", className), ...props }, children);
 }
 
 export function CardContent({ className, children, ...props }: PropsWithChildren<HTMLAttributes<HTMLDivElement>>) {

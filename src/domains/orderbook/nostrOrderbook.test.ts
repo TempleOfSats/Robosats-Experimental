@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Event } from "nostr-tools";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 
@@ -14,8 +14,8 @@ vi.mock("nostr-tools", async (importOriginal) => {
   return { ...actual, verifyEvent: () => true };
 });
 
-vi.mock("nostr-tools/pool", () => {
-  class TestSimplePool {
+vi.mock("@/domains/nostr/sharedRelayPool", () => ({
+  getLiveRelaySubscriptions: () => ({
     subscribeMany(
       relays: string[],
       _filter: unknown,
@@ -24,22 +24,22 @@ vi.mock("nostr-tools/pool", () => {
       poolState.subscriptions.push({ relays, params });
       return { close: () => Promise.resolve() };
     }
-
-    destroy() {}
-  }
-
-  return { SimplePool: TestSimplePool };
-});
+  }),
+  resetLiveRelaySubscriptionsForTests: () => undefined
+}));
 
 import {
   buildNostrRelayUrl,
   fetchNostrOrderbook,
   nostrEventToPublicOrder,
   nostrEventsToPublicOrders,
+  relayFallbackTiming,
   resetNostrOrderbookSession,
   selectNostrRelays,
   subscribeNostrOrderbook
 } from "@/domains/orderbook/nostrOrderbook";
+import { noteRelayEose, resetRelayHealthForTests } from "@/domains/nostr/relayHealth";
+import { resetLiveRelaySubscriptionsForTests } from "@/domains/nostr/sharedRelayPool";
 
 const coordinator = {
   shortAlias: "lake",
@@ -55,6 +55,13 @@ const coordinator = {
 } satisfies CoordinatorSummary;
 
 describe("nostr orderbook", () => {
+  beforeEach(() => {
+    resetNostrOrderbookSession();
+    resetLiveRelaySubscriptionsForTests();
+    resetRelayHealthForTests();
+    poolState.subscriptions.length = 0;
+  });
+
   it("converts current RoboSats kind 38383 order tags into public offers", () => {
     const parsed = nostrEventToPublicOrder(
       event({
@@ -69,6 +76,7 @@ describe("nostr orderbook", () => {
           ["name", "HelpfulVeranda735", "maker-hash"],
           ["premium", "0"],
           ["pm", "PIX", "Revolut"],
+          ["g", "xn774"],
           ["f", "BRL"],
           ["source", "http://example.onion/order/lake/89895"],
           ["y", "robosats", "lake"]
@@ -91,8 +99,12 @@ describe("nostr orderbook", () => {
       maker_nick: "HelpfulVeranda735",
       maker_hash_id: "maker-hash",
       bond_size_percent: 3,
+      latitude: expect.any(Number),
+      longitude: expect.any(Number),
       coordinatorShortAlias: "lake"
     });
+    expect(parsed.publicOrder?.latitude).toBeCloseTo(35.7, 0);
+    expect(parsed.publicOrder?.longitude).toBeCloseTo(139.7, 0);
   });
 
   it("removes an offer when a newer event for the same d tag is not pending", () => {
@@ -187,6 +199,35 @@ describe("nostr orderbook", () => {
     expect(selectNostrRelays(coordinators)[0]).not.toBe(failedRelay);
   });
 
+  it("backs off reconnecting the same failed relay", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    poolState.subscriptions.length = 0;
+
+    try {
+      const unsubscribe = subscribeNostrOrderbook([coordinator], "mainnet");
+      expect(poolState.subscriptions).toHaveLength(1);
+
+      poolState.subscriptions[0].params.onclose?.();
+      await vi.advanceTimersByTimeAsync(14_999);
+      expect(poolState.subscriptions).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(poolState.subscriptions).toHaveLength(2);
+
+      poolState.subscriptions[1].params.onclose?.();
+      await vi.advanceTimersByTimeAsync(44_999);
+      expect(poolState.subscriptions).toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(poolState.subscriptions).toHaveLength(3);
+
+      resetNostrOrderbookSession();
+      unsubscribe();
+    } finally {
+      resetNostrOrderbookSession();
+      vi.useRealTimers();
+    }
+  });
+
   it("sequences the host snapshot and live streams before finishing the initial fetch", async () => {
     poolState.subscriptions.length = 0;
     const updates: Array<{ partial: boolean }> = [];
@@ -198,8 +239,7 @@ describe("nostr orderbook", () => {
 
     expect(poolState.subscriptions).toHaveLength(1);
     poolState.subscriptions[0].params.oneose?.();
-    await Promise.resolve();
-    expect(poolState.subscriptions).toHaveLength(2);
+    await vi.waitFor(() => expect(poolState.subscriptions).toHaveLength(2));
     expect(poolState.subscriptions.every((subscription) => subscription.relays[0] === "wss://unsafe.thebiglake.org/relay/")).toBe(true);
     poolState.subscriptions[1].params.oneose?.();
 
@@ -223,10 +263,9 @@ describe("nostr orderbook", () => {
 
     expect(poolState.subscriptions).toHaveLength(1);
     poolState.subscriptions[0].params.oneose?.();
-    await Promise.resolve();
+    await vi.waitFor(() => expect(poolState.subscriptions).toHaveLength(2));
     poolState.subscriptions[1].params.oneose?.();
-    await Promise.resolve();
-    expect(poolState.subscriptions).toHaveLength(3);
+    await vi.waitFor(() => expect(poolState.subscriptions).toHaveLength(3));
 
     let settled = false;
     void promise.then(() => { settled = true; });
@@ -234,7 +273,7 @@ describe("nostr orderbook", () => {
     expect(settled).toBe(false);
 
     poolState.subscriptions[2].params.oneose?.();
-    await Promise.resolve();
+    await vi.waitFor(() => expect(poolState.subscriptions).toHaveLength(4));
     poolState.subscriptions[3].params.oneose?.();
     await expect(promise).resolves.toEqual([]);
   });
@@ -288,13 +327,57 @@ describe("nostr orderbook", () => {
       poolState.subscriptions[1].params.oneose?.();
       await expect(promise).resolves.toHaveLength(1);
 
-      await vi.advanceTimersByTimeAsync(1_799);
+      await vi.advanceTimersByTimeAsync(14_999);
       expect(poolState.subscriptions).toHaveLength(2);
       await vi.advanceTimersByTimeAsync(1);
       expect(poolState.subscriptions).toHaveLength(3);
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("tries one safety relay when the first relay emits data but never completes", async () => {
+    vi.useFakeTimers();
+    poolState.subscriptions.length = 0;
+    const secondCoordinator = {
+      ...coordinator,
+      shortAlias: "safety",
+      url: "https://safety.example",
+      nostrHexPubkey: "safety-coordinator-pubkey"
+    } satisfies CoordinatorSummary;
+
+    try {
+      const promise = fetchNostrOrderbook([coordinator, secondCoordinator], "mainnet", {
+        maxWaitMs: 45_000
+      });
+      expect(poolState.subscriptions).toHaveLength(1);
+
+      poolState.subscriptions[0].params.onevent?.(event({ tags: baseTags({ status: "pending" }) }));
+      await vi.advanceTimersByTimeAsync(14_999);
+      expect(poolState.subscriptions).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(poolState.subscriptions).toHaveLength(2);
+
+      poolState.subscriptions[1].params.oneose?.();
+      await vi.waitFor(() => expect(poolState.subscriptions).toHaveLength(3));
+      poolState.subscriptions[2].params.oneose?.();
+      await expect(promise).resolves.toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("adapts speculative relay fanout to observed Tor latency", () => {
+    expect(relayFallbackTiming("ws://unknown.onion/relay/")).toEqual({
+      primaryMs: 15_000,
+      secondaryMs: 30_000
+    });
+
+    noteRelayEose("ws://known.onion/relay/", 20_000);
+    expect(relayFallbackTiming("ws://known.onion/relay/")).toEqual({
+      primaryMs: 30_000,
+      secondaryMs: 45_000
+    });
   });
 
   it("does not crash the page while coordinator relay metadata is still loading", () => {

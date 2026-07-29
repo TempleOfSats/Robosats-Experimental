@@ -9,6 +9,7 @@ import { useGarageStore } from "@/domains/garage/garageStore";
 import { generateRobotToken } from "@/domains/garage/token";
 import { downloadRobotTokenBackup } from "@/domains/garage/tokenBackup";
 import { cn } from "@/lib/cn";
+import { writeClipboard } from "@/lib/clipboard";
 
 type WizardStep = "token" | "identity" | "ready";
 
@@ -129,8 +130,14 @@ export function CreateRobotPanel({ onProfile }: { onProfile?: () => void }) {
 
   const copyToken = async () => {
     if (!token) return;
-    await navigator.clipboard?.writeText(token);
-    setCopied(true);
+    try {
+      await writeClipboard(token);
+      setCopied(true);
+      setError("");
+    } catch {
+      setCopied(false);
+      setError("Clipboard access is unavailable. Use the download backup instead.");
+    }
   };
 
   const downloadToken = async () => {
@@ -191,7 +198,7 @@ export function CreateRobotPanel({ onProfile }: { onProfile?: () => void }) {
               downloadToken={downloadToken}
             />
             {copied ? <p className="field-note">Token copied.</p> : null}
-            {error ? <p className="field-error">{error}</p> : null}
+            {error ? <p className="field-error" role="alert">{error}</p> : null}
             <div className="wizard-actions centered-actions">
               <Button variant="ghost" onClick={generateToken}>
                 <Dices className={cn(rolling && "dice-roll")} size={17} />
@@ -219,7 +226,7 @@ export function CreateRobotPanel({ onProfile }: { onProfile?: () => void }) {
                 <Zap size={22} fill="currentColor" />
               </strong>
             </div>
-            {error ? <p className="field-error">{error}</p> : null}
+            {error ? <p className="field-error" role="alert">{error}</p> : null}
             <Button onClick={() => void finishRobotSetup()} loading={saving} size="lg">
               <Check size={18} />
               Continue

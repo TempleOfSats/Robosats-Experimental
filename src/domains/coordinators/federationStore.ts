@@ -23,6 +23,7 @@ type FederationState = {
   refreshing: boolean;
   selfhostedClient: boolean;
   refreshCoordinator: (shortAlias: string, options?: FederationRefreshOptions) => Promise<boolean>;
+  refreshCoordinatorLimits: (shortAlias: string, options?: FederationRefreshOptions) => Promise<boolean>;
   refreshCoordinators: (options?: FederationRefreshOptions) => Promise<void>;
   setConnection: (connection: CoordinatorConnection) => void;
   setNetwork: (network: Network) => void;
@@ -36,6 +37,7 @@ type FederationState = {
 type FederationSettings = Pick<FederationState, "connection" | "network" | "origin" | "selfhostedClient">;
 type FederationRefreshOptions = {
   force?: boolean;
+  priority?: "background" | "visible";
 };
 type CachedFederation = {
   savedAt: number;
@@ -65,6 +67,7 @@ persistNativeFederation(initialCoordinators);
 let refreshInFlight: Promise<void> | undefined;
 let refreshInFlightKey = "";
 const coordinatorRefreshes = new Map<string, Promise<boolean>>();
+const coordinatorLimitRefreshes = new Map<string, Promise<boolean>>();
 const coordinatorRetryAfter = new Map<string, number>();
 const coordinatorRetryFailures = new Map<string, number>();
 const COORDINATOR_RETRY_BASE_MS = 15_000;
@@ -95,7 +98,21 @@ export const useFederationStore = create<FederationState>((set, get) => ({
           : item)
       }));
 
-      const refreshed = await refreshCoordinatorSummary(summaryToDefinition(coordinator), settings, coordinator);
+      const refreshed = await refreshCoordinatorSummary(
+        summaryToDefinition(coordinator),
+        settings,
+        coordinator,
+        options.force,
+        options.priority,
+        (available) => {
+          if (!sameFederationSettings(currentFederationSettings(get()), settings)) return;
+          set((state) => ({
+            coordinators: state.coordinators.map((item) => item.shortAlias === shortAlias
+              ? { ...available, enabled: item.enabled }
+              : item)
+          }));
+        }
+      );
       if (!sameFederationSettings(currentFederationSettings(get()), settings)) return false;
 
       const current = get();
@@ -105,7 +122,7 @@ export const useFederationStore = create<FederationState>((set, get) => ({
       set({ coordinators });
       writeFederationCache(settings, coordinators, current.lastRefreshed ?? Date.now());
 
-      if (refreshed.online) {
+      if (refreshed.online && !refreshed.error) {
         coordinatorRetryAfter.delete(requestKey);
         coordinatorRetryFailures.delete(requestKey);
       } else {
@@ -122,6 +139,41 @@ export const useFederationStore = create<FederationState>((set, get) => ({
     coordinatorRefreshes.set(requestKey, refresh);
     return refresh;
   },
+  refreshCoordinatorLimits: async (shortAlias, options = {}) => {
+    const settings = currentFederationSettings(get());
+    const requestKey = `${federationSettingsKey(settings)}|${shortAlias}`;
+    const existing = coordinatorLimitRefreshes.get(requestKey);
+    if (existing) return existing;
+
+    const coordinator = get().coordinators.find((item) => item.shortAlias === shortAlias);
+    if (!coordinator?.url) return false;
+    if (coordinator.limits && !options.force) return true;
+
+    const refresh = (async () => {
+      try {
+        const limits = await fetchCoordinatorLimits(coordinator.url, {
+          force: options.force,
+          priority: options.priority
+        });
+        if (!sameFederationSettings(currentFederationSettings(get()), settings)) return false;
+
+        const current = get();
+        const coordinators = current.coordinators.map((item) => item.shortAlias === shortAlias
+          ? { ...item, limits }
+          : item);
+        set({ coordinators });
+        writeFederationCache(settings, coordinators, current.lastRefreshed ?? Date.now());
+        return true;
+      } catch {
+        // Limits are optional metadata. A failed limits request must not turn a
+        // reachable coordinator into an unavailable one.
+        return false;
+      }
+    })().finally(() => coordinatorLimitRefreshes.delete(requestKey));
+
+    coordinatorLimitRefreshes.set(requestKey, refresh);
+    return refresh;
+  },
   refreshCoordinators: async (options = {}) => {
     const settings = currentFederationSettings(get());
     const key = federationSettingsKey(settings);
@@ -135,7 +187,7 @@ export const useFederationStore = create<FederationState>((set, get) => ({
       if (state.lastRefreshed && Date.now() - state.lastRefreshed < FEDERATION_REFRESH_MIN_INTERVAL_MS) return;
     }
 
-    const refresh = refreshFederation(settings, set, get).finally(() => {
+    const refresh = refreshFederation(settings, set, get, options.force).finally(() => {
       if (refreshInFlight === refresh) {
         refreshInFlight = undefined;
         refreshInFlightKey = "";
@@ -227,16 +279,35 @@ function applyFederationSettings(settings: FederationSettings): Partial<Federati
 async function refreshFederation(
   settings: FederationSettings,
   set: FederationSet,
-  get: FederationGet
+  get: FederationGet,
+  force = false
 ): Promise<void> {
   set((state) => ({
     refreshing: true,
-    coordinators: state.coordinators.map((coordinator) => ({ ...coordinator, loading: true, error: undefined }))
+    coordinators: state.coordinators.map((coordinator) => coordinator.enabled
+      ? { ...coordinator, loading: true, error: undefined }
+      : { ...coordinator, loading: false })
   }));
 
-  const current = get().coordinators;
-  await Promise.allSettled(current.map(async (coordinator) => {
-    const refreshed = await refreshCoordinatorSummary(summaryToDefinition(coordinator), settings, coordinator);
+  const current = get().coordinators.filter((coordinator) => coordinator.enabled);
+  await mapWithConcurrency(current, 2, async (coordinator) => {
+    const refreshed = await refreshCoordinatorSummary(
+      summaryToDefinition(coordinator),
+      settings,
+      coordinator,
+      force,
+      force ? "visible" : "background",
+      (available) => {
+        if (!sameFederationSettings(currentFederationSettings(get()), settings)) return;
+        set((state) => ({
+          coordinators: applyCoordinatorPreferences(state.coordinators.map((item) =>
+            item.shortAlias === coordinator.shortAlias
+              ? { ...available, enabled: item.enabled }
+              : item
+          ))
+        }));
+      }
+    );
     if (!sameFederationSettings(currentFederationSettings(get()), settings)) return;
     set((state) => {
       const coordinators = applyCoordinatorPreferences(state.coordinators.map((item) =>
@@ -247,7 +318,7 @@ async function refreshFederation(
       writeFederationCache(settings, coordinators, state.lastRefreshed ?? Date.now());
       return { coordinators };
     });
-  }));
+  });
   if (!sameFederationSettings(currentFederationSettings(get()), settings)) return;
   const savedAt = Date.now();
   const coordinators = get().coordinators.map((coordinator) => ({ ...coordinator, loading: false }));
@@ -258,7 +329,10 @@ async function refreshFederation(
 async function refreshCoordinatorSummary(
   definition: CoordinatorDefinition,
   settings: FederationSettings,
-  previous?: CoordinatorSummary
+  previous?: CoordinatorSummary,
+  force = false,
+  priority: "background" | "visible" = "background",
+  onAvailable?: (summary: CoordinatorSummary) => void
 ): Promise<CoordinatorSummary> {
   const summary = buildCoordinatorSummary(definition, {
     ...settings,
@@ -276,37 +350,51 @@ async function refreshCoordinatorSummary(
   }
 
   try {
-    const [infoResult, limitsResult] = await Promise.allSettled([
-      fetchCoordinatorInfo(summary.url),
-      fetchCoordinatorLimits(summary.url)
-    ]);
-    const info = infoResult.status === "fulfilled" ? infoResult.value : undefined;
-    const limits = limitsResult.status === "fulfilled" ? limitsResult.value : undefined;
-
-    if (!info && !limits) {
-      const reason = infoResult.status === "rejected" ? infoResult.reason : limitsResult.status === "rejected" ? limitsResult.reason : undefined;
-      throw reason ?? new Error("Coordinator unavailable");
-    }
-
-    return {
+    const info = await fetchCoordinatorInfo(summary.url, { force, priority });
+    const available = {
       ...summary,
       online: true,
+      lastCheckedAt: Date.now(),
       loading: false,
-      ...(info ? { info } : previous?.info ? { info: previous.info } : {}),
-      ...(limits ? { limits } : previous?.limits ? { limits: previous.limits } : {})
+      info,
+      ...(previous?.limits ? { limits: previous.limits } : {})
     };
+    onAvailable?.(available);
+    return available;
   } catch (error) {
+    const keepRecentAvailability = Boolean(
+      previous?.online
+      && previous.lastCheckedAt
+      && Date.now() - previous.lastCheckedAt <= FEDERATION_CACHE_MAX_AGE_MS
+    );
     return {
       ...summary,
       ...(previous?.info ? { info: previous.info } : {}),
       ...(previous?.limits ? { limits: previous.limits } : {}),
+      ...(previous?.lastCheckedAt ? { lastCheckedAt: previous.lastCheckedAt } : {}),
       // Onion circuits fail transiently. Keep a recently cached health result
       // until the 30-minute cache boundary instead of flashing Offline.
-      online: previous?.online ?? false,
+      online: keepRecentAvailability,
       loading: false,
       error: toUserMessage(error, "Coordinator unavailable.")
     };
   }
+}
+
+async function mapWithConcurrency<T>(
+  items: T[],
+  concurrency: number,
+  task: (item: T) => Promise<void>
+): Promise<void> {
+  let nextIndex = 0;
+  const workerCount = Math.min(Math.max(1, concurrency), items.length);
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (nextIndex < items.length) {
+      const item = items[nextIndex];
+      nextIndex += 1;
+      await task(item);
+    }
+  }));
 }
 
 function buildCoordinatorSummaries(settings: FederationSettings): CoordinatorSummary[] {

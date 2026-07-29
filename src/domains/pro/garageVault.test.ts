@@ -88,11 +88,11 @@ describe("Garage vault primitives", () => {
       manifest = upsertGarageEntry(manifest, derivedEntry(id, `Robot ${index + 1}`), index + 2);
     }
 
-    expect(activeGarageEntries(manifest)).toHaveLength(16);
+    expect(activeGarageEntries(manifest)).toHaveLength(GARAGE_LIMITS.activeRobots);
     expect(hasGarageRobotCapacity(manifest)).toBe(false);
 
     manifest = removeGarageEntry(manifest, manifest.entries[0].id, 100);
-    expect(activeGarageEntries(manifest)).toHaveLength(15);
+    expect(activeGarageEntries(manifest)).toHaveLength(GARAGE_LIMITS.activeRobots - 1);
     expect(hasGarageRobotCapacity(manifest)).toBe(true);
   });
 

@@ -1,0 +1,1903 @@
+/* Coordinator directory */
+.coordinator-table-heading {
+  width: min(100%, 34.5rem);
+  margin: 0 auto 0.85rem;
+  flex-direction: column;
+  text-align: center;
+  align-items: center;
+}
+
+.coordinator-refresh-button {
+  justify-self: center;
+  min-width: 8.5rem;
+}
+
+.coordinator-directory-table {
+  width: min(100%, 34.5rem);
+  margin: 0 auto;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--foreground) 18%, var(--border));
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.coordinator-directory-header,
+.coordinator-directory-row {
+  display: grid;
+  grid-template-columns: minmax(11rem, 1.35fr) minmax(8.7rem, 0.95fr) 3.1rem 4.45rem;
+  align-items: center;
+}
+
+.coordinator-directory-header {
+  min-height: 3.35rem;
+  color: var(--foreground);
+  font-size: 0.82rem;
+  font-weight: 600;
+  background: var(--surface);
+}
+
+.coordinator-directory-header span {
+  min-width: 0;
+  padding: 0 0.65rem;
+  border-right: 1px solid color-mix(in srgb, var(--foreground) 18%, transparent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.coordinator-directory-header span:last-child {
+  border-right: 0;
+}
+
+.coordinator-directory-row {
+  appearance: none;
+  width: 100%;
+  min-height: 3.4rem;
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--foreground) 20%, transparent);
+  background: transparent;
+  color: var(--foreground);
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+  text-align: left;
+}
+
+.coordinator-directory-row:hover,
+.coordinator-directory-row:focus-visible {
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+  outline: 0;
+}
+
+.coordinator-directory-row:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--primary);
+}
+
+.coordinator-directory-name,
+.coordinator-name-cell,
+.coordinator-rating-cell,
+.coordinator-status-cell,
+.coordinator-enabled-cell {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 0.7rem;
+}
+
+.coordinator-name-cell {
+  height: 100%;
+  padding: 0;
+}
+
+.coordinator-directory-name {
+  gap: 0.55rem;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.coordinator-directory-name .coordinator-avatar {
+  width: 2.85rem;
+  height: 2.85rem;
+  flex: 0 0 auto;
+}
+
+.coordinator-directory-name strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.coordinator-rating-cell {
+  gap: 0.35rem;
+}
+
+.coordinator-rating-cell small,
+.coordinator-dialog-rating span {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+
+.coordinator-rating-stars {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.02rem;
+  color: var(--primary);
+}
+
+.coordinator-dialog-rating .coordinator-rating-stars {
+  color: var(--primary);
+}
+
+.coordinator-star-empty {
+  color: var(--text-supporting);
+}
+
+.coordinator-status-cell {
+  justify-content: center;
+  color: var(--text-supporting);
+}
+
+.coordinator-directory-row-online .coordinator-status-cell {
+  color: var(--success-foreground);
+}
+
+.coordinator-enabled-cell {
+  justify-content: center;
+  cursor: pointer;
+}
+
+.coordinator-enabled-cell input {
+  width: 1.1rem;
+  height: 1.1rem;
+  accent-color: var(--buy);
+}
+
+.coordinator-custom-panel {
+  width: min(100%, 34.5rem);
+  margin: 1rem auto 0;
+}
+
+.input-with-unit {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.4rem;
+}
+
+.receipt-json {
+  max-height: 16rem;
+  overflow: auto;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--input);
+  color: var(--muted-foreground);
+  font: 0.76rem/1.45 var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.trade-copy-link {
+  margin-top: 0.75rem;
+}
+
+.reward-target {
+  margin-block: 0.8rem;
+}
+
+.dispute-contact-grid {
+  display: grid;
+  grid-template-columns: minmax(10.5rem, 0.9fr) minmax(0, 1.1fr);
+  gap: 0.75rem;
+}
+
+.dispute-contact-grid select,
+.dispute-contact-grid input {
+  min-width: 0;
+  font-size: 0.82rem;
+}
+
+.dispute-logs-toggle {
+  display: flex;
+  gap: 0.55rem;
+  align-items: center;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--input);
+}
+
+.dispute-logs-toggle strong {
+  font-size: 0.82rem;
+}
+
+.dispute-logs-toggle small {
+  font-size: 0.75rem;
+}
+
+.dispute-submit-button {
+  border-color: color-mix(in srgb, var(--primary) 58%, var(--border));
+}
+
+.toggle-row > input[type="checkbox"] {
+  width: 1.05rem;
+  height: 1.05rem;
+  flex: 0 0 auto;
+  accent-color: var(--primary);
+}
+
+.toggle-row > span {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.toggle-row > span small {
+  color: var(--muted-foreground);
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.dispute-logs-toggle > svg {
+  flex: 0 0 auto;
+  color: var(--muted-foreground);
+}
+
+@media (max-width: 620px) {
+  .dispute-contact-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .trade-completion-rating-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .trade-rating-field + .trade-rating-field {
+    border-top: 1px solid var(--border);
+    border-left: 0;
+  }
+}
+
+:root[data-theme="light"] .trade-order-eyebrow {
+  color: var(--brand-amber-ink);
+}
+
+:root[data-theme="light"] .app-sidebar,
+:root[data-theme="light"] .app-header {
+  background: var(--layer-navigation);
+}
+
+:root[data-theme="light"] .coordinator-directory-table,
+:root[data-theme="light"] .coordinator-directory-header {
+  background: var(--layer-surface);
+}
+
+:root[data-theme="light"] .nav-item:hover,
+:root[data-theme="light"] .nav-item.active {
+  background: var(--selection-background);
+}
+
+:root[data-theme="light"] .robosats-logo {
+  filter: none;
+}
+
+:root[data-theme="light"] .secondary-link-button,
+:root[data-theme="light"] .path-card:hover,
+:root[data-theme="light"] .action-tile:hover,
+:root[data-theme="light"] .path-card-primary,
+:root[data-theme="light"] .action-tile-primary,
+:root[data-theme="light"] .wizard-step,
+:root[data-theme="light"] .wizard-panel,
+:root[data-theme="light"] .robot-preview-card,
+:root[data-theme="light"] .garage-balance-row,
+:root[data-theme="light"] .garage-utility-btn:hover,
+:root[data-theme="light"] .garage-switcher-item.active,
+:root[data-theme="light"] .chip-button-active {
+  background: color-mix(in srgb, var(--card) 82%, var(--muted));
+}
+
+:root[data-theme="light"] .wizard-step.active,
+:root[data-theme="light"] .maker-choice-card-active {
+  background: var(--selection-background);
+}
+
+:root[data-theme="light"] .coordinator-dialog,
+:root[data-theme="light"] .garage-robot-dialog,
+:root[data-theme="light"] .garage-settings-panel,
+:root[data-theme="light"] .robot-keys-dialog,
+:root[data-theme="light"] .telegram-setup-dialog {
+  border-color: var(--border);
+  background: var(--card);
+  color: var(--foreground);
+}
+
+:root[data-theme="light"] .coordinator-dialog-header p,
+:root[data-theme="light"] .coordinator-dialog-detail-row p,
+:root[data-theme="light"] .garage-dialog-row,
+:root[data-theme="light"] .garage-dialog-command,
+:root[data-theme="light"] .garage-dialog-toggle,
+:root[data-theme="light"] .robot-key-tabs button[aria-selected="true"],
+:root[data-theme="light"] .robot-key-panel > p,
+:root[data-theme="light"] .robot-key-field > span:first-child,
+:root[data-theme="light"] .telegram-setup-dialog h2,
+:root[data-theme="light"] .telegram-setup-dialog p {
+  color: var(--foreground);
+}
+
+:root[data-theme="light"] .coordinator-contact-icons,
+:root[data-theme="light"] .coordinator-dialog-detail-link,
+:root[data-theme="light"] .garage-dialog-command,
+:root[data-theme="light"] .robot-keys-dialog > header svg,
+:root[data-theme="light"] .robot-key-value input,
+:root[data-theme="light"] .robot-key-value textarea,
+:root[data-theme="light"] .robot-key-value button,
+:root[data-theme="light"] .telegram-setup-dialog header {
+  color: var(--info-foreground);
+}
+
+:root[data-theme="light"] .coordinator-dialog-detail-row small,
+:root[data-theme="light"] .garage-dialog-row small,
+:root[data-theme="light"] .robot-key-tabs button,
+:root[data-theme="light"] .garage-dialog-command:disabled {
+  color: var(--muted-foreground);
+}
+
+:root[data-theme="light"] .garage-token-reveal,
+:root[data-theme="light"] .robot-key-value,
+:root[data-theme="light"] .garage-known-list {
+  background: var(--input);
+}
+
+.coordinator-enabled-cell svg {
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 0.2rem;
+  background: var(--info);
+  color: var(--surface);
+  padding: 0.1rem;
+}
+
+.coordinator-enabled-cell-muted svg {
+  background: var(--muted);
+  color: var(--muted-foreground);
+}
+
+.coordinator-dialog-overlay,
+.garage-robot-dialog-overlay,
+.garage-settings-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 160;
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  background: var(--overlay-scrim);
+  padding: 1rem;
+}
+
+.coordinator-dialog,
+.garage-robot-dialog,
+.garage-settings-panel {
+  position: relative;
+  width: min(100%, 25.5rem);
+  max-height: min(92vh, 48rem);
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--foreground) 12%, transparent);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--foreground);
+  box-shadow: var(--modal-shadow);
+}
+
+.coordinator-dialog {
+  display: grid;
+  gap: 1rem;
+  padding: 1.25rem 2rem 2rem;
+  text-align: center;
+}
+
+.coordinator-dialog .take-modal-close,
+.garage-robot-dialog .take-modal-close {
+  top: 0.55rem;
+  right: 0.55rem;
+}
+
+.coordinator-dialog-header {
+  display: grid;
+  justify-items: center;
+  gap: 0.45rem;
+}
+
+.coordinator-dialog-header h2 {
+  margin: 0;
+  font-size: 1.55rem;
+  font-weight: 500;
+}
+
+.coordinator-dialog-header p {
+  margin: 0;
+  color: var(--foreground);
+  font-style: italic;
+}
+
+.coordinator-dialog-avatar {
+  width: 7.4rem;
+  height: 7.4rem;
+}
+
+.coordinator-dialog-rating,
+.coordinator-contact-icons,
+.coordinator-dialog-badges {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.coordinator-contact-icons {
+  gap: 1rem;
+  margin-top: 0.3rem;
+  color: var(--foreground);
+}
+
+.coordinator-contact-icons a,
+.coordinator-contact-icons span {
+  display: inline-grid;
+  place-items: center;
+  color: inherit;
+}
+
+.coordinator-contact-icons a:hover,
+.coordinator-contact-icons a:focus-visible {
+  color: var(--info-foreground);
+  outline: 0;
+}
+
+.coordinator-dialog-badges {
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.45rem;
+}
+
+.coordinator-dialog-badge {
+  width: 4.55rem;
+  height: 4.55rem;
+  border-radius: 0.55rem;
+  object-fit: contain;
+}
+
+.coordinator-dialog-badge-muted {
+  filter: grayscale(100%) opacity(0.55);
+}
+
+.coordinator-dialog-details {
+  display: grid;
+  gap: 1.05rem;
+  text-align: left;
+}
+
+.coordinator-dialog-detail-row {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr);
+  column-gap: 1rem;
+  align-items: start;
+}
+
+.coordinator-dialog-detail-row > span {
+  grid-row: span 2;
+  display: grid;
+  place-items: center;
+  padding-top: 0.15rem;
+}
+
+.coordinator-dialog-detail-row p {
+  margin: 0;
+  color: var(--foreground);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.coordinator-dialog-detail-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 100%;
+  color: var(--info-foreground);
+  overflow-wrap: anywhere;
+  text-decoration: none;
+}
+
+.coordinator-dialog-detail-link:hover,
+.coordinator-dialog-detail-link:focus-visible {
+  color: var(--info-foreground);
+  outline: 0;
+  text-decoration: underline;
+  text-underline-offset: 0.16rem;
+}
+
+.coordinator-dialog-detail-row small {
+  color: var(--muted-foreground);
+}
+
+.coordinator-production-dialog {
+  width: min(100%, 39rem);
+  max-height: min(94vh, 58rem);
+  gap: 1.15rem;
+  padding: 1.35rem 1.5rem 1.5rem;
+  text-align: left;
+}
+
+.coordinator-production-dialog .coordinator-dialog-header {
+  text-align: center;
+}
+
+.coordinator-production-dialog .coordinator-dialog-badge {
+  width: 3.8rem;
+  height: 3.8rem;
+}
+
+.coordinator-choice-dialog {
+  width: min(100%, 36rem);
+  max-height: min(90vh, 48rem);
+}
+
+.coordinator-choice-dialog .coordinator-dialog-avatar {
+  width: 5.5rem;
+  height: 5.5rem;
+}
+
+.coordinator-live-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.coordinator-live-status > span {
+  width: 0.48rem;
+  height: 0.48rem;
+  border-radius: 999px;
+  background: var(--text-supporting);
+}
+
+.coordinator-live-status-online > span {
+  background: var(--success);
+  box-shadow: 0 0 0 0.2rem color-mix(in srgb, var(--success) 14%, transparent);
+}
+
+.coordinator-live-status-checking > span {
+  background: var(--primary);
+}
+
+.coordinator-unrated {
+  color: var(--muted-foreground);
+  font-size: 0.76rem;
+}
+
+.coordinator-status-spinner {
+  animation: app-loading-spin 1s linear infinite;
+}
+
+.coordinator-notice {
+  display: grid;
+  gap: 0.25rem;
+  border-left: 3px solid var(--info-border);
+  background: color-mix(in srgb, var(--info-border) 10%, transparent);
+  padding: 0.75rem 0.85rem;
+  text-align: left;
+}
+
+.coordinator-notice strong {
+  font-size: 0.8rem;
+}
+
+.coordinator-notice p {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.coordinator-notice-warning {
+  border-left-color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+}
+
+.coordinator-notice-error {
+  border-left-color: var(--destructive);
+  background: color-mix(in srgb, var(--destructive) 10%, transparent);
+}
+
+.coordinator-notice-success {
+  border-left-color: var(--success);
+  background: color-mix(in srgb, var(--success) 10%, transparent);
+}
+
+.coordinator-profile-details {
+  gap: 0.85rem;
+  border-top: 1px solid color-mix(in srgb, var(--foreground) 14%, transparent);
+  padding-top: 1rem;
+}
+
+.coordinator-live-section {
+  display: grid;
+  gap: 0.85rem;
+  border-top: 1px solid color-mix(in srgb, var(--foreground) 14%, transparent);
+  padding-top: 1rem;
+}
+
+.coordinator-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.coordinator-section-heading > div {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.coordinator-section-heading h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.coordinator-section-heading > span {
+  color: var(--success);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: none;
+}
+
+.coordinator-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.coordinator-metric {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 1.6rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.55rem;
+  border: 1px solid color-mix(in srgb, var(--foreground) 10%, transparent);
+  background: color-mix(in srgb, var(--foreground) 3%, transparent);
+  padding: 0.65rem 0.7rem;
+}
+
+.coordinator-metric-wide {
+  grid-column: 1 / -1;
+}
+
+.coordinator-metric > span {
+  display: grid;
+  place-items: center;
+  color: var(--primary);
+}
+
+.coordinator-metric > div {
+  min-width: 0;
+  display: grid;
+  gap: 0.08rem;
+}
+
+.coordinator-metric small {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+
+.coordinator-metric strong {
+  overflow-wrap: anywhere;
+  font-size: 0.86rem;
+}
+
+.coordinator-data-disclosure {
+  border-top: 1px solid color-mix(in srgb, var(--foreground) 14%, transparent);
+}
+
+.coordinator-data-disclosure > summary {
+  min-height: 3.75rem;
+  display: grid;
+  grid-template-columns: 1.6rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.55rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.coordinator-data-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.coordinator-data-disclosure > summary > span:nth-child(2) {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.coordinator-data-disclosure > summary strong {
+  font-size: 0.9rem;
+}
+
+.coordinator-data-disclosure > summary small {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+
+.coordinator-disclosure-icon {
+  display: grid;
+  place-items: center;
+  color: var(--primary);
+}
+
+.coordinator-disclosure-chevron {
+  color: var(--muted-foreground);
+  transition: transform 160ms ease;
+}
+
+.coordinator-data-disclosure[open] .coordinator-disclosure-chevron {
+  transform: rotate(180deg);
+}
+
+.coordinator-disclosure-body {
+  padding: 0 0 1rem 2.15rem;
+}
+
+.coordinator-metric-grid-secondary {
+  padding-top: 0.15rem;
+}
+
+.coordinator-policy-list {
+  display: grid;
+  gap: 0.9rem;
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.coordinator-policy-list li {
+  padding-left: 0.2rem;
+}
+
+.coordinator-policy-list strong {
+  font-size: 0.82rem;
+}
+
+.coordinator-policy-list p {
+  margin: 0.22rem 0 0;
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.coordinator-technical-list {
+  display: grid;
+  margin: 0;
+}
+
+.coordinator-technical-list > div {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 0.75fr) minmax(0, 1.25fr);
+  gap: 0.8rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--foreground) 10%, transparent);
+  padding: 0.65rem 0;
+}
+
+.coordinator-technical-list > div:last-child {
+  border-bottom: 0;
+}
+
+.coordinator-technical-list dt {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+
+.coordinator-technical-list dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.78rem;
+  text-align: right;
+}
+
+.coordinator-technical-list a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.3rem;
+  color: var(--info-foreground);
+  text-decoration: none;
+}
+
+.coordinator-data-unavailable {
+  display: grid;
+  grid-template-columns: 1.6rem minmax(0, 1fr);
+  gap: 0.6rem;
+  border-top: 1px solid color-mix(in srgb, var(--foreground) 14%, transparent);
+  padding-top: 1rem;
+}
+
+.coordinator-data-unavailable > svg {
+  color: var(--muted-foreground);
+}
+
+.coordinator-data-unavailable > div {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.coordinator-data-unavailable span {
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+}
+
+:root[data-theme="light"] .coordinator-notice p,
+:root[data-theme="light"] .coordinator-metric small,
+:root[data-theme="light"] .coordinator-data-disclosure > summary small,
+:root[data-theme="light"] .coordinator-policy-list p,
+:root[data-theme="light"] .coordinator-technical-list dt,
+:root[data-theme="light"] .coordinator-data-unavailable span,
+:root[data-theme="light"] .coordinator-unrated,
+:root[data-theme="light"] .coordinator-live-status {
+  color: var(--muted-foreground);
+}
+
+:root[data-theme="light"] .coordinator-technical-list a {
+  color: var(--brand-amber-ink);
+}
+
+@media (max-width: 560px) {
+  .coordinator-production-dialog {
+    padding-inline: 1rem;
+  }
+
+  .coordinator-metric-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .coordinator-metric-wide {
+    grid-column: auto;
+  }
+
+  .coordinator-disclosure-body {
+    padding-left: 0;
+  }
+}
+
+.garage-settings-dialog {
+  width: min(100%, 33rem);
+  margin-inline: auto;
+  gap: 0.7rem;
+}
+
+.garage-settings-dialog h2 {
+  margin: 0;
+  font-size: 1.4rem;
+  font-weight: 600;
+}
+
+.garage-keys-button {
+  text-transform: none;
+}
+
+.garage-settings-security-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+.garage-settings-security-actions .garage-security-button {
+  min-width: 0;
+  flex: 1 1 0;
+  min-height: 2.5rem;
+  font-size: var(--type-compact-size);
+  font-weight: 600;
+  line-height: var(--type-compact-line);
+}
+
+@media (max-width: 430px) {
+  .garage-settings-security-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .garage-settings-security-actions .ui-button {
+    width: 100%;
+  }
+}
+
+.garage-token-reveal {
+  display: grid;
+  gap: 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--input);
+  padding: 0.75rem;
+}
+
+.garage-token-reveal code {
+  overflow-wrap: anywhere;
+  color: var(--info-foreground);
+}
+
+.robot-keys-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 190;
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  padding: 1rem;
+  background: var(--overlay-scrim);
+}
+
+.robot-keys-dialog {
+  position: relative;
+  width: min(100%, 39rem);
+  max-height: min(92vh, 52rem);
+  display: grid;
+  gap: 1rem;
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--foreground) 14%, transparent);
+  border-radius: var(--radius-sm);
+  padding: 1.35rem;
+  background: var(--surface-raised);
+  color: var(--foreground);
+  box-shadow: var(--modal-shadow);
+}
+
+.robot-keys-dialog > header {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding-right: 2rem;
+}
+
+.robot-keys-dialog > header svg {
+  color: var(--info-foreground);
+}
+
+.robot-keys-dialog h2 {
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.robot-key-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-bottom: 1px solid var(--border);
+}
+
+.robot-key-tabs button {
+  appearance: none;
+  min-height: 2.75rem;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-supporting);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+}
+
+.robot-key-tabs button[aria-selected="true"] {
+  border-bottom-color: var(--info-foreground);
+  color: var(--foreground);
+}
+
+.robot-key-panel {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.robot-key-panel > p {
+  margin: 0;
+  color: var(--muted-foreground);
+  line-height: 1.5;
+}
+
+.robot-key-panel > .ui-button {
+  justify-self: start;
+}
+
+.robot-key-field {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.robot-key-field > span:first-child {
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.robot-key-value {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 2.65rem;
+  align-items: stretch;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--input);
+}
+
+.robot-key-value input,
+.robot-key-value textarea {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  resize: vertical;
+  background: transparent;
+  color: var(--info-foreground);
+  padding: 0.7rem;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+
+.robot-key-value button {
+  appearance: none;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-left: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-supporting);
+  cursor: pointer;
+}
+
+.robot-key-value button:hover,
+.robot-key-value button:focus-visible {
+  color: var(--info-foreground);
+  outline: 0;
+}
+
+.robot-keys-back {
+  justify-self: end;
+}
+
+.garage-known-coordinators h3 {
+  margin: 0 0 0.4rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.garage-known-list {
+  display: grid;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--input);
+}
+
+.garage-known-row {
+  appearance: none;
+  width: 100%;
+  min-height: 4.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  border: 0;
+  border-top: 1px solid var(--border);
+  background: transparent;
+  color: var(--foreground);
+  cursor: pointer;
+  font: inherit;
+  padding: 0.55rem 0.75rem;
+  text-align: left;
+}
+
+.garage-known-row:first-child {
+  border-top: 0;
+}
+
+.garage-known-row:hover,
+.garage-known-row:focus-visible {
+  background: color-mix(in srgb, var(--primary) 7%, transparent);
+  outline: 0;
+}
+
+.garage-known-row .coordinator-avatar {
+  width: 2.55rem;
+  height: 2.55rem;
+  flex: 0 0 auto;
+}
+
+.garage-known-row span {
+  display: grid;
+  min-width: 0;
+  gap: 0.14rem;
+}
+
+.garage-known-row strong {
+  overflow: hidden;
+  font-size: 0.92rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.garage-known-row small {
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.garage-robot-dialog {
+  display: grid;
+  gap: 1rem;
+  padding: 1.45rem 1.55rem 1rem;
+}
+
+.garage-settings-panel {
+  width: min(100%, 33rem);
+  display: grid;
+  gap: 0.7rem;
+  padding: 1.2rem;
+}
+
+.garage-settings-panel .take-modal-close {
+  top: 0.55rem;
+  right: 0.55rem;
+}
+
+.garage-robot-dialog header {
+  display: flex;
+  align-items: center;
+  gap: 1.1rem;
+  padding: 0 1.2rem;
+}
+
+.coordinator-avatar-button {
+  appearance: none;
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.coordinator-avatar-button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+
+.garage-robot-dialog header h2 {
+  margin: 0;
+  font-size: 1.55rem;
+  font-weight: 500;
+}
+
+.garage-dialog-row,
+.garage-dialog-command,
+.garage-dialog-toggle {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1rem;
+  color: var(--foreground);
+}
+
+.garage-dialog-command,
+.garage-dialog-toggle {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.garage-dialog-command {
+  color: var(--info-foreground);
+  font-size: 0.88rem;
+  font-weight: 600;
+  text-transform: none;
+  text-decoration: none;
+}
+
+.garage-dialog-command:disabled {
+  color: var(--text-supporting);
+  cursor: not-allowed;
+}
+
+.garage-dialog-row > span:not(.toggle-switch) {
+  display: grid;
+}
+
+.garage-dialog-row strong {
+  font-weight: 400;
+}
+
+.garage-dialog-row small {
+  color: var(--muted-foreground);
+}
+
+.garage-compensation-row {
+  grid-template-columns: 2rem minmax(0, 1fr) auto;
+}
+
+.garage-reward-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 210;
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  padding: 1rem;
+  background: var(--overlay-scrim);
+}
+
+.garage-reward-dialog {
+  position: relative;
+  width: min(100%, 25.5rem);
+  max-height: min(92vh, 46rem);
+  overflow: auto;
+  display: grid;
+  gap: 1rem;
+  border: 1px solid color-mix(in srgb, var(--foreground) 14%, transparent);
+  border-radius: var(--radius-sm);
+  padding: 1.25rem;
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: var(--modal-shadow);
+}
+
+.garage-reward-dialog > header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding-right: 2rem;
+}
+
+.garage-reward-dialog > header > svg {
+  color: var(--primary);
+}
+
+.garage-reward-dialog h2 {
+  margin: 0.12rem 0 0;
+  font-size: 1.15rem;
+}
+
+.garage-reward-dialog .reward-withdrawal-card {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.garage-reward-dialog .reward-withdrawal-card .ui-card-content {
+  padding: 0;
+}
+
+.garage-reward-dialog .reward-target {
+  width: 100%;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0.9rem;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--primary) 7%, var(--input));
+}
+
+.garage-reward-dialog .payment-amount {
+  font-size: 1.7rem;
+}
+
+.reward-withdrawal-copy {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.82rem;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.garage-reward-dialog .ui-button:disabled {
+  background: var(--muted);
+  color: var(--muted-foreground);
+  box-shadow: none;
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+@media (max-width: 520px) {
+  .settings-stack .setting-row {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .page-settings .setting-row-coordinators {
+    display: grid;
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .settings-row-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .settings-row-actions > * {
+    width: 100%;
+  }
+
+  .settings-link-row {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .settings-link-row > * {
+    width: auto;
+    flex: 1 1 10rem;
+  }
+}
+
+.toggle-switch {
+  position: relative;
+  width: 2.55rem;
+  height: 1.18rem;
+  border-radius: 999px;
+  background: var(--text-supporting);
+}
+
+.toggle-switch::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0.18rem;
+  width: 1.28rem;
+  height: 1.28rem;
+  border-radius: 999px;
+  background: var(--info);
+  transform: translateY(-50%);
+  transition: left 120ms ease;
+}
+
+.toggle-switch-on::after {
+  left: 1.12rem;
+}
+
+.garage-dialog-back {
+  justify-self: end;
+  text-transform: none;
+}
+
+.garage-dialog-error {
+  margin: -0.5rem 0 0 3rem;
+}
+
+.telegram-setup-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 190;
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  padding: 1rem;
+  background: var(--overlay-scrim);
+}
+
+.telegram-setup-dialog {
+  position: relative;
+  width: min(100%, 25rem);
+  display: grid;
+  justify-items: center;
+  gap: 1rem;
+  border: 1px solid color-mix(in srgb, var(--foreground) 14%, transparent);
+  border-radius: var(--radius-sm);
+  padding: 1.35rem;
+  background: var(--surface-raised);
+  color: var(--foreground);
+  box-shadow: var(--modal-shadow);
+}
+
+.telegram-setup-dialog header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  padding-inline: 1.5rem;
+  color: var(--info-foreground);
+  text-align: center;
+}
+
+.telegram-setup-dialog h2 {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 1.2rem;
+}
+
+.telegram-setup-qr {
+  display: grid;
+  place-items: center;
+  width: min(100%, 16rem);
+  aspect-ratio: 1;
+  border-radius: 0.25rem;
+  overflow: hidden;
+  background: var(--fixed-white);
+}
+
+.telegram-setup-qr svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.telegram-setup-dialog p {
+  margin: 0;
+  color: var(--muted-foreground);
+  line-height: 1.5;
+  text-align: center;
+}
+
+.telegram-setup-actions {
+  width: 100%;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+@media (max-width: 32rem) {
+  .telegram-setup-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .telegram-setup-actions > :first-child {
+    grid-column: 1 / -1;
+  }
+}
+
+.maker-coordinator-picker {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 1rem;
+}
+
+.maker-coordinator-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.maker-coordinator-heading > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--foreground);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.maker-coordinator-heading > a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.maker-coordinator-heading > a:hover,
+.maker-coordinator-heading > a:focus-visible {
+  color: var(--primary);
+  outline: 0;
+}
+
+.maker-coordinator-box {
+  min-width: 0;
+}
+
+.maker-coordinator-box .visual-select-trigger {
+  min-height: 4.75rem;
+  background: color-mix(in srgb, var(--muted) 42%, transparent);
+}
+
+.maker-coordinator-box .visual-select-icon > img {
+  width: 3rem;
+  height: 3rem;
+}
+
+.maker-coordinator-detail-button {
+  appearance: none;
+  min-height: 2.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  color: var(--muted-foreground);
+  padding: 0.35rem 0.55rem;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.maker-coordinator-detail-button:hover:not(:disabled),
+.maker-coordinator-detail-button:focus-visible {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.maker-coordinator-detail-button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.maker-coordinator-detail-button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.maker-coordinator-status {
+  min-height: 2.35rem;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  border-radius: var(--radius-sm);
+  padding: 0.48rem 0.65rem;
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.maker-coordinator-status-success {
+  color: var(--success-foreground);
+  background: var(--success-surface);
+}
+
+.maker-coordinator-status-success > svg {
+  color: var(--success);
+}
+
+.maker-coordinator-status-loading {
+  color: var(--pending-foreground);
+  background: var(--pending-surface);
+}
+
+.maker-coordinator-status-loading > svg {
+  color: var(--pending);
+}
+
+.maker-coordinator-status-warning {
+  color: var(--warning-foreground);
+  background: var(--warning-surface);
+}
+
+.maker-coordinator-status-warning > svg {
+  color: var(--warning);
+}
+
+.maker-coordinator-status > button {
+  appearance: none;
+  margin-left: auto;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--primary);
+  padding: 0.3rem 0.45rem;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+}
+
+.maker-coordinator-status > button:hover,
+.maker-coordinator-status > button:focus-visible {
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  outline: 0;
+}
+
+.maker-coordinator-spinner {
+  animation: coordinator-spin 800ms linear infinite;
+}
+
+@keyframes coordinator-spin {
+  to { transform: rotate(360deg); }
+}
+
+.maker-coordinator-fees {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-top: 1px solid var(--border);
+  padding-top: 0.65rem;
+}
+
+:root[data-theme="light"] .robot-wizard {
+  background: var(--card);
+  color: var(--foreground);
+}
+
+:root[data-theme="light"] .wizard-section {
+  border-color: var(--border);
+  background: var(--card);
+}
+
+:root[data-theme="light"] .wizard-section h3,
+:root[data-theme="light"] .wizard-section.active h3,
+:root[data-theme="light"] .wizard-step-body p,
+:root[data-theme="light"] .recover-token-details summary {
+  color: var(--foreground);
+}
+
+.maker-coordinator-fees span {
+  min-width: 0;
+  display: grid;
+  gap: 0.15rem;
+}
+
+.maker-coordinator-fees span + span {
+  border-left: 1px solid var(--border);
+  padding-left: 0.75rem;
+}
+
+.maker-coordinator-fees small {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.22rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.maker-coordinator-fees strong {
+  overflow: hidden;
+  color: var(--foreground);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 520px) {
+  .chat-header-row {
+    align-items: flex-start;
+  }
+
+  .chat-header-row .ui-button {
+    min-height: 2rem;
+    padding-inline: 0.55rem;
+  }
+
+  .chat-participants {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 0.5rem;
+    padding: 0.6rem;
+  }
+
+  .chat-participant-divider {
+    display: none;
+  }
+
+  .chat-participant {
+    gap: 0.45rem;
+  }
+
+  .chat-participant .robot-avatar-sm {
+    width: 2rem;
+    height: 2rem;
+  }
+
+  .chat-presence {
+    font-size: 0.75rem;
+  }
+
+  .chat-participant strong {
+    font-size: 0.75rem;
+  }
+
+  .chat-bubble {
+    max-width: 84%;
+  }
+
+  .trade-completion-hero {
+    padding: 1.6rem 1rem 1.35rem;
+  }
+
+  .trade-completion-summary > div {
+    padding: 0.8rem 0.45rem;
+  }
+
+  .trade-completion-summary dt {
+    font-size: 0.75rem;
+  }
+
+  .trade-completion-summary dd {
+    font-size: 0.76rem;
+  }
+
+  .trade-completion-rating {
+    padding-inline: 1rem;
+  }
+
+  .coordinator-table-heading {
+    align-items: center;
+  }
+
+  .coordinator-refresh-button {
+    width: auto;
+    align-self: center;
+  }
+
+  .coordinator-directory-header,
+  .coordinator-directory-row {
+    grid-template-columns: minmax(7.75rem, 1fr) minmax(6rem, auto) 2.15rem 4.2rem;
+  }
+
+  .coordinator-directory-name,
+  .coordinator-rating-cell,
+  .coordinator-status-cell,
+  .coordinator-enabled-cell {
+    padding-inline: 0.35rem;
+  }
+
+  .coordinator-rating-stars svg {
+    width: 0.92rem;
+    height: 0.92rem;
+  }
+
+  .coordinator-directory-name .coordinator-avatar {
+    width: 2.35rem;
+    height: 2.35rem;
+  }
+
+  .coordinator-directory-name strong {
+    font-size: 0.88rem;
+  }
+
+  .coordinator-rating-cell {
+    gap: 0.18rem;
+  }
+
+  .coordinator-rating-cell small {
+    font-size: 0.75rem;
+  }
+
+  .coordinator-directory-header {
+    font-size: 0.75rem;
+  }
+
+  .coordinator-directory-header span {
+    padding-inline: 0.3rem;
+  }
+
+  .coordinator-directory-header span:nth-child(3),
+  .coordinator-directory-header span:nth-child(4) {
+    text-align: center;
+  }
+
+  .coordinator-dialog,
+  .garage-robot-dialog {
+    padding-inline: 1.1rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .offer-row {
+    grid-template-columns: 2.45rem minmax(0, 1fr) auto 2.15rem 1.55rem;
+    grid-template-areas:
+      "side main premium expiry host"
+      "side method premium expiry host";
+    row-gap: 0.12rem;
+  }
+
+  .offer-main-cell {
+    display: block;
+  }
+
+  .offer-method-cell {
+    overflow: hidden;
+  }
+
+  .offer-skeleton-method {
+    grid-area: method;
+  }
+}
+
+@media (max-width: 460px) {
+  .offer-amount-value-range .currency-flag {
+    display: none;
+  }
+}
+
+@media (max-width: 380px) {
+  .orderbook-secondary-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .orderbook-secondary-filters .filter-select-field-wide {
+    grid-column: 1 / -1;
+  }
+
+  .maker-inline-warning {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .maker-inline-warning > svg {
+    margin-top: 0.15rem;
+  }
+
+  .maker-inline-warning .text-command {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .maker-choice-card {
+    min-height: 8.25rem;
+    grid-template-columns: minmax(0, 1fr);
+    align-content: start;
+    justify-items: center;
+    gap: 0.4rem;
+    padding: 0.75rem 0.55rem;
+    text-align: center;
+  }
+
+  .maker-choice-icon {
+    grid-row: auto;
+  }
+
+  .maker-choice-card strong,
+  .maker-choice-card small {
+    grid-column: 1;
+  }
+
+  .maker-choice-card strong {
+    font-size: 1rem;
+    white-space: nowrap;
+  }
+
+  .maker-choice-card small {
+    max-width: 10rem;
+  }
+
+  .garage-robot-name {
+    font-size: 1.25rem;
+  }
+
+  .coordinator-directory-header,
+  .coordinator-directory-row {
+    grid-template-columns: minmax(0, 1fr) 2.15rem 4.2rem;
+  }
+
+  .coordinator-directory-header span:nth-child(2),
+  .coordinator-rating-cell {
+    display: none;
+  }
+
+  .coordinator-directory-name strong {
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+
+  .confirm-sheet {
+    padding: 1rem;
+  }
+
+  .confirm-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .confirm-actions .ui-button {
+    width: 100%;
+  }
+}

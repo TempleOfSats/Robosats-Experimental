@@ -2,8 +2,11 @@ import { Check, Copy, Download, KeyRound, X } from "lucide-react";
 import { nip19 } from "nostr-tools";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
+import { Tabs, tabId } from "@/components/ui/tabs";
 import type { RobotSlot } from "@/domains/garage/garageStore";
 import { deriveRobotIdentity } from "@/domains/identity/robotIdentity";
+import { writeClipboard } from "@/lib/clipboard";
 
 type KeyTab = "nostr" | "pgp";
 
@@ -14,14 +17,22 @@ export function RobotKeysDialog({ onClose, slot }: { onClose: () => void; slot: 
 
   async function copy(label: string, value: string) {
     if (!value) return;
-    await navigator.clipboard?.writeText(value);
-    setCopied(label);
-    window.setTimeout(() => setCopied(""), 1200);
+    try {
+      await writeClipboard(value);
+      setCopied(label);
+      window.setTimeout(() => setCopied(""), 1200);
+    } catch {
+      setCopied("");
+    }
   }
 
   return (
-    <div className="robot-keys-overlay" onClick={onClose} role="dialog" aria-modal="true" aria-labelledby="robot-keys-title">
-      <section className="robot-keys-dialog" onClick={(event) => event.stopPropagation()}>
+    <Dialog
+      ariaLabelledby="robot-keys-title"
+      onClose={onClose}
+      overlayClassName="robot-keys-overlay"
+      panelClassName="robot-keys-dialog"
+    >
         <button className="take-modal-close" onClick={onClose} type="button" aria-label="Close robot keys">
           <X size={20} />
         </button>
@@ -31,41 +42,53 @@ export function RobotKeysDialog({ onClose, slot }: { onClose: () => void; slot: 
           <h2 id="robot-keys-title">Don't trust, verify</h2>
         </header>
 
-        <div className="robot-key-tabs" role="tablist" aria-label="Robot key type">
-          <button type="button" role="tab" aria-selected={tab === "nostr"} onClick={() => setTab("nostr")}>
-            Nostr
-          </button>
-          <button type="button" role="tab" aria-selected={tab === "pgp"} onClick={() => setTab("pgp")}>
-            OpenPGP
-          </button>
-        </div>
+        <Tabs
+          ariaLabel="Robot key type"
+          className="robot-key-tabs"
+          id="robot-keys"
+          onChange={setTab}
+          options={[
+            { value: "nostr", label: "Nostr" },
+            { value: "pgp", label: "OpenPGP" }
+          ]}
+          panelId="robot-key-panel"
+          value={tab}
+        />
 
-        <section className={tab === "nostr" ? "robot-key-panel" : "robot-key-panel robot-key-panel-hidden"}>
-          <p>Your messages use secp256k1 Schnorr signatures and end-to-end encryption. These credentials let you independently verify that identity.</p>
-          <CredentialField label="Your public key" value={credentials.nostrPublicKey} copied={copied} onCopy={copy} />
-          <CredentialField label="Your private key" value={credentials.nostrPrivateKey} copied={copied} onCopy={copy} sensitive />
-          <Button type="button" size="sm" onClick={() => downloadCredentials("nostr_keys.json", credentials.nostrExport)}>
-            <Download size={16} />
-            Export keys
-          </Button>
-        </section>
-
-        <section className={tab === "pgp" ? "robot-key-panel" : "robot-key-panel robot-key-panel-hidden"}>
-          <p>Your coordinator chat uses OpenPGP end-to-end encryption. The private key remains encrypted with your robot token.</p>
-          <CredentialField label="Your public key" value={credentials.pgpPublicKey} copied={copied} onCopy={copy} multiline />
-          <CredentialField label="Your encrypted private key" value={credentials.pgpEncryptedPrivateKey} copied={copied} onCopy={copy} multiline sensitive />
-          <CredentialField label="Your private key passphrase (keep secure!)" value={credentials.passphrase} copied={copied} onCopy={copy} sensitive />
-          <Button type="button" size="sm" onClick={() => downloadCredentials("pgp_keys.json", credentials.pgpExport)}>
-            <Download size={16} />
-            Export keys
-          </Button>
+        <section
+          aria-labelledby={tabId("robot-keys", tab)}
+          className="robot-key-panel"
+          id="robot-key-panel"
+          role="tabpanel"
+        >
+          {tab === "nostr" ? (
+            <>
+              <p>Your messages use secp256k1 Schnorr signatures and end-to-end encryption. These credentials let you independently verify that identity.</p>
+              <CredentialField label="Your public key" value={credentials.nostrPublicKey} copied={copied} onCopy={copy} />
+              <CredentialField label="Your private key" value={credentials.nostrPrivateKey} copied={copied} onCopy={copy} sensitive />
+              <Button type="button" size="sm" onClick={() => downloadCredentials("nostr_keys.json", credentials.nostrExport)}>
+                <Download size={16} />
+                Export keys
+              </Button>
+            </>
+          ) : (
+            <>
+              <p>Your coordinator chat uses OpenPGP end-to-end encryption. The private key remains encrypted with your robot token.</p>
+              <CredentialField label="Your public key" value={credentials.pgpPublicKey} copied={copied} onCopy={copy} multiline />
+              <CredentialField label="Your encrypted private key" value={credentials.pgpEncryptedPrivateKey} copied={copied} onCopy={copy} multiline sensitive />
+              <CredentialField label="Your private key passphrase (keep secure!)" value={credentials.passphrase} copied={copied} onCopy={copy} sensitive />
+              <Button type="button" size="sm" onClick={() => downloadCredentials("pgp_keys.json", credentials.pgpExport)}>
+                <Download size={16} />
+                Export keys
+              </Button>
+            </>
+          )}
         </section>
 
         <Button className="robot-keys-back" type="button" variant="ghost" onClick={onClose}>
           Back
         </Button>
-      </section>
-    </div>
+    </Dialog>
   );
 }
 

@@ -81,7 +81,7 @@ export function relayHealthSnapshot(relay: string): RelayHealthSnapshot | undefi
   return snapshot ? { ...snapshot } : undefined;
 }
 
-export function normalizeRelayUrl(relay: string): string {
+function normalizeRelayUrl(relay: string): string {
   try {
     const url = new URL(relay.trim());
     url.hash = "";

@@ -53,7 +53,7 @@ class WebAppInterface(
         if (!storageKey.matches(key)) return
         EncryptedStorage.setEncryptedStorage(key, value)
         when (key) {
-            "garage_slots", "robosats_exp_garage_slots", "robosats_exp_garage_slots_v1", "federation_relays", "federation_pubkeys" -> NostrClient.refresh()
+            "robosats_exp_garage_slots_v1", "federation_relays", "federation_pubkeys" -> NostrClient.refresh()
             "settings_notifications" -> updateNotificationService(value == "true")
         }
     }
@@ -62,7 +62,7 @@ class WebAppInterface(
     fun deleteStorage(key: String) {
         if (!storageKey.matches(key)) return
         EncryptedStorage.deleteEncryptedStorage(key)
-        if (key == "garage_slots" || key == "robosats_exp_garage_slots" || key == "robosats_exp_garage_slots_v1") NostrClient.refresh()
+        if (key == "robosats_exp_garage_slots_v1") NostrClient.refresh()
     }
 
     @JavascriptInterface

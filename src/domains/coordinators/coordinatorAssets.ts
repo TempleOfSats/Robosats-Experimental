@@ -4,13 +4,12 @@ import type {
   CoordinatorDefinition
 } from "@/domains/coordinators/coordinator.types";
 
-const staticBase = "/static";
 const androidStaticBase = "file:///android_asset/static";
 
 export function getCoordinatorAvatarUrl(shortAlias: string, size: "small" | "large" = "large", android = false): string {
-  const base = android ? androidStaticBase : staticBase;
   const suffix = size === "small" ? ".small" : "";
-  return `${base}/federation/avatars/${shortAlias}${suffix}.webp`;
+  if (android) return `${androidStaticBase}/federation/avatars/${shortAlias}${suffix}.webp`;
+  return `/static/federation/avatars/${shortAlias}${suffix}.webp`;
 }
 
 export function getCoordinatorBadgeIcons(coordinator: Pick<CoordinatorDefinition, "badges">): CoordinatorBadgeIcon[] {
@@ -65,5 +64,5 @@ const defaultBadges: CoordinatorBadges = {
 };
 
 function badgeAsset(filename: string): string {
-  return `${staticBase}/assets/vector/${filename}`;
+  return `/static/assets/vector/${filename}`;
 }

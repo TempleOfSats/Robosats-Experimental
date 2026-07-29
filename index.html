@@ -210,6 +210,7 @@
         const progress = overlay.querySelector(".app-boot-progress");
         const percent = overlay.querySelector(".app-boot-percent");
         const retry = overlay.querySelector(".app-boot-retry");
+        const applicationStyles = [...document.querySelectorAll("link[data-robosats-app-style]")];
         const messages = [
           "Loading the private interface...",
           "Restoring your local settings...",
@@ -220,6 +221,9 @@
         let shown = 2;
         let stageTarget = 2;
         let messageIndex = 0;
+        let appReady = false;
+        let pendingStyles = applicationStyles.length;
+        let styleLoadFailed = false;
         let ready = false;
         let finished = false;
         let previousFrame = startedAt;
@@ -261,6 +265,40 @@
           }, 150);
         };
 
+        const maybeFinish = () => {
+          if (!appReady || pendingStyles > 0 || styleLoadFailed) return;
+          ready = true;
+          stageTarget = 100;
+          setMessage("RoboSats is ready.");
+          finish();
+        };
+
+        const activateApplicationStyles = () => {
+          for (const link of applicationStyles) {
+            let settled = false;
+            const loaded = () => {
+              if (settled) return;
+              settled = true;
+              pendingStyles = Math.max(0, pendingStyles - 1);
+              maybeFinish();
+            };
+            const failed = () => {
+              if (settled) return;
+              settled = true;
+              styleLoadFailed = true;
+              setMessage("Interface styles could not be loaded. Try again.");
+              retry.hidden = false;
+            };
+
+            link.addEventListener("load", loaded, { once: true });
+            link.addEventListener("error", failed, { once: true });
+            link.rel = "stylesheet";
+            requestAnimationFrame(() => {
+              if (link.sheet) loaded();
+            });
+          }
+        };
+
         window.addEventListener("robosats:boot-stage", (event) => {
           const detail = event.detail || {};
           if (Number.isFinite(detail.progress)) stageTarget = Math.max(stageTarget, Math.min(95, detail.progress));
@@ -268,10 +306,10 @@
         });
 
         window.addEventListener("robosats:app-ready", () => {
-          ready = true;
-          stageTarget = 100;
-          setMessage("RoboSats is ready.");
-          finish();
+          appReady = true;
+          stageTarget = Math.max(stageTarget, 95);
+          if (pendingStyles > 0) setMessage("Applying the interface styles...");
+          maybeFinish();
         }, { once: true });
 
         window.setTimeout(() => {
@@ -294,7 +332,7 @@
           progress.style.width = `${rounded}%`;
           percent.textContent = `${rounded}%`;
 
-          if (!ready) {
+          if (!appReady) {
             const nextMessage = Math.floor(elapsed / 1800) % messages.length;
             if (nextMessage !== messageIndex) {
               messageIndex = nextMessage;
@@ -305,6 +343,7 @@
           requestAnimationFrame(frame);
         };
 
+        requestAnimationFrame(activateApplicationStyles);
         requestAnimationFrame(frame);
       })();
     </script>

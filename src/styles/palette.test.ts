@@ -53,8 +53,10 @@ const textPairs = [
   ["warning-foreground", "warning-surface"],
   ["info-foreground", "info-surface"],
   ["pending-foreground", "pending-surface"],
-  ["buy-foreground", "buy"],
-  ["sell-foreground", "sell"],
+  ["direction-buy-foreground", "direction-buy"],
+  ["direction-sell-foreground", "direction-sell"],
+  ["metric-positive", "surface"],
+  ["metric-negative", "surface"],
   ["danger-button-foreground", "danger"],
   ["success-solid-foreground", "success"],
   ["warning-solid-foreground", "warning"],
@@ -62,6 +64,8 @@ const textPairs = [
 
 const graphicalPairs = [
   ["border-strong", "surface"],
+  ["control-border", "surface"],
+  ["control-border", "input-surface"],
   ["focus-ring", "surface"],
   ["focus-ring", "canvas"],
   ["success-border", "success-surface"],
@@ -69,6 +73,10 @@ const graphicalPairs = [
   ["warning-border", "warning-surface"],
   ["info-border", "info-surface"],
   ["pending-border", "pending-surface"],
+  ["direction-buy-border", "direction-buy-surface"],
+  ["direction-sell-border", "direction-sell-surface"],
+  ["control-selected-indicator", "control-selected-background"],
+  ["selection-indicator", "selection-background"],
 ] as const;
 
 describe.each([
@@ -90,4 +98,15 @@ it("retains the approved anchor families", () => {
   expect(resolve(light, "success-border")).toBe("#008f8a");
   expect(resolve(light, "danger-border")).toBe("#d55e00");
   expect(resolve(light, "info-border")).toBe("#0072b2");
+});
+
+it.each([
+  ["dark", dark],
+  ["light", light],
+] as const)("%s keeps structural and semantic roles distinct", (_, tokens) => {
+  expect(resolve(tokens, "surface-subtle")).not.toBe(resolve(tokens, "interactive-selected"));
+  expect(resolve(tokens, "skeleton-base")).not.toBe(resolve(tokens, "pending"));
+  expect(resolve(tokens, "direction-buy")).not.toBe(resolve(tokens, "success"));
+  expect(resolve(tokens, "direction-sell")).not.toBe(resolve(tokens, "pending-surface"));
+  expect(resolve(tokens, "trade-action-required")).toBe(resolve(tokens, "warning"));
 });
