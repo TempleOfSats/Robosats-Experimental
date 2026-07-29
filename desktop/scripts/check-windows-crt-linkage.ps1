@@ -39,7 +39,38 @@ if ($dumpbinCommand) {
   }
 }
 
-$forbiddenRuntime = "(?im)^\s*(?:VCRUNTIME|MSVCP|CONCRT|ucrtbase|api-ms-win-crt)[^\s]*\.dll\s*$"
+# VCRUNTIME/MSVCP/CONCRT/VCOMP are distributed by the Visual C++
+# Redistributable and caused the clean-machine VCRUNTIME140_1.dll failure.
+# ucrtbase.dll and api-ms-win-crt-*.dll are different: they are Universal CRT
+# operating-system components on the supported Windows 10/11 targets.
+$redistributableRuntime = "(?im)^[ \t]*(?:(?:VCRUNTIME|MSVCP|CONCRT|VCOMP)\d+(?:_\d+)*|MSVCR\d+)[^\s]*\.dll[ \t]*$"
+$systemUcrt = "(?im)^[ \t]*(?:ucrtbase|api-ms-win-crt[^\s]*)\.dll[ \t]*$"
+
+$mustReject = @(
+  "VCRUNTIME140.dll",
+  "VCRUNTIME140_1.dll",
+  "MSVCP140_ATOMIC_WAIT.dll",
+  "CONCRT140.dll",
+  "VCOMP140.dll",
+  "MSVCR120.dll"
+)
+$mustAllow = @(
+  "api-ms-win-crt-convert-l1-1-0.dll",
+  "api-ms-win-crt-runtime-l1-1-0.dll",
+  "ucrtbase.dll",
+  "msvcrt.dll",
+  "KERNEL32.dll"
+)
+foreach ($dependency in $mustReject) {
+  if (-not [regex]::IsMatch($dependency, $redistributableRuntime)) {
+    throw "CRT linkage policy must reject $dependency"
+  }
+}
+foreach ($dependency in $mustAllow) {
+  if ([regex]::IsMatch($dependency, $redistributableRuntime)) {
+    throw "CRT linkage policy must allow $dependency"
+  }
+}
 
 foreach ($binary in $binaries) {
   $dependencies = (& $dumpbin /DEPENDENTS $binary 2>&1 | Out-String)
@@ -47,12 +78,19 @@ foreach ($binary in $binaries) {
     throw "dumpbin.exe failed while inspecting $binary.`n$dependencies"
   }
 
-  $matches = [regex]::Matches($dependencies, $forbiddenRuntime) |
+  $matches = [regex]::Matches($dependencies, $redistributableRuntime) |
     ForEach-Object { $_.Value.Trim() } |
     Sort-Object -Unique
   if ($matches.Count -gt 0) {
-    throw "$binary dynamically imports Microsoft C runtime libraries: $($matches -join ', ')"
+    throw "$binary requires Visual C++ Redistributable libraries: $($matches -join ', ')"
   }
 
-  Write-Host "Static Microsoft CRT linkage verified: $binary"
+  $ucrtMatches = [regex]::Matches($dependencies, $systemUcrt) |
+    ForEach-Object { $_.Value.Trim() } |
+    Sort-Object -Unique
+  if ($ucrtMatches.Count -gt 0) {
+    Write-Host "Windows Universal CRT OS imports: $($ucrtMatches -join ', ')"
+  }
+
+  Write-Host "No Visual C++ Redistributable dependency: $binary"
 }
