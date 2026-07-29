@@ -68,7 +68,7 @@ const DEVICE_ID_KEY = "robosats_exp_garage_device_v3";
 const ENVELOPE_KEY = "robosats_exp_garage_envelope_v3";
 const BACKUP_CONFIRMED_KEY = "robosats_exp_garage_backup_confirmed_v3";
 
-export type GarageVaultStatus = "idle" | "loading" | "unconfigured" | "needs-backup" | "ready" | "error";
+type GarageVaultStatus = "idle" | "loading" | "unconfigured" | "needs-backup" | "ready" | "error";
 export type GarageSyncStatus = "idle" | "saving" | "up-to-date" | "offline";
 
 export type GarageLocalEnvelope = {
@@ -95,7 +95,7 @@ export type GarageRecoverySnapshot = {
 
 export type MaterializedGarageRobot = GarageRobotEntry & { token: string };
 
-export type GaragePendingRecord = {
+type GaragePendingRecord = {
   item: GarageOutboxItem;
   record: GarageSyncRecord;
 };

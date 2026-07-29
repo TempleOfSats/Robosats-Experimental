@@ -29,7 +29,7 @@ interface CoordinatorVersion {
   patch: number;
 }
 
-export interface CoordinatorFeatures {
+interface CoordinatorFeatures {
   pre_chat?: boolean;
 }
 

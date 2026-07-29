@@ -277,10 +277,6 @@ export function nativeAppBridge(): RoboSatsNativeBridge | undefined {
   return window.AndroidAppRobosats ?? window.IOSAppRobosats;
 }
 
-export const getAndroidNotificationState = getNativeNotificationState;
-export const setAndroidNotificationsEnabled = setNativeNotificationsEnabled;
-export const getAndroidTorDiagnostics = getNativeTorDiagnostics;
-
 if (typeof window !== "undefined") {
   window.__robosatsNativeTransport = {
     resolve(requestId, result) {

@@ -2,7 +2,6 @@ import { create } from "zustand";
 import { readUiPreferences, saveUiPreferences } from "@/domains/settings/uiPreferences";
 import { useGarageVaultStore } from "@/domains/pro/garageVaultStore";
 import {
-  createPortableSettingsManifest,
   removeOfferPreset,
   saveOfferPreset,
   updatePortablePreferences,
@@ -60,10 +59,6 @@ export const usePortableSettingsStore = create<PortableSettingsState>((set, get)
   }
 }));
 
-export function resetPortableSettingsStoreForTests(): void {
-  usePortableSettingsStore.setState({ manifest: undefined });
-}
-
 function applyPortablePreferences(settings: PortableSettingsManifest): void {
   const ui = readUiPreferences();
   if (ui.theme === settings.theme.value) return;
@@ -71,9 +66,4 @@ function applyPortablePreferences(settings: PortableSettingsManifest): void {
     ...ui,
     theme: settings.theme.value
   });
-}
-
-export function emptyPortableSettings(deviceId: string): PortableSettingsManifest {
-  const ui = readUiPreferences();
-  return createPortableSettingsManifest(deviceId, { theme: ui.theme });
 }

@@ -16,8 +16,6 @@ import java.security.MessageDigest
 
 object NostrClient {
     private const val currentGarageKey = "robosats_exp_garage_slots_v1"
-    private const val compatibleGarageKey = "robosats_exp_garage_slots"
-    private const val legacyGarageKey = "garage_slots"
     private const val subscriptionId = "robosatsNotificationId"
     private const val maxNotificationRelays = 3
     private const val relayOrderKey = "robosats_notification_relay_order_v1"
@@ -152,42 +150,23 @@ object NostrClient {
 
     private fun storedIdentities(): List<StoredIdentity> {
         val current = EncryptedStorage.getEncryptedStorage(currentGarageKey)
-        val currentIdentities = parseCurrentGarage(current)
-        if (currentIdentities.isNotEmpty() || current.isNotEmpty()) return currentIdentities.distinctBy { it.publicKey }
-
-        val compatible = EncryptedStorage.getEncryptedStorage(compatibleGarageKey)
-        val compatibleIdentities = parseCurrentGarage(compatible)
-        if (compatibleIdentities.isNotEmpty() || compatible.isNotEmpty()) {
-            return compatibleIdentities.distinctBy { it.publicKey }
-        }
-
-        return parseLegacyGarage(EncryptedStorage.getEncryptedStorage(legacyGarageKey))
-            .distinctBy { it.publicKey }
+        return parseCurrentGarage(current).distinctBy { it.publicKey }
     }
 
     private fun parseCurrentGarage(encoded: String): List<StoredIdentity> {
         if (encoded.isEmpty()) return emptyList()
-        val garage = runCatching { JSONArray(encoded) }.getOrNull()
-            ?: runCatching {
-                val payload = JSONObject(encoded)
-                if (payload.optString("format") != "robosats-exp-garage-slots" || payload.optInt("version") != 1) {
-                    null
-                } else {
-                    payload.optJSONArray("slots")
-                }
-            }.getOrNull()
+        val garage = runCatching {
+            val payload = JSONObject(encoded)
+            if (payload.optString("format") != "robosats-exp-garage-slots" || payload.optInt("version") != 1) {
+                null
+            } else {
+                payload.optJSONArray("slots")
+            }
+        }.getOrNull()
             ?: return emptyList()
         return (0 until garage.length()).flatMap { index ->
             identitiesFromSlot(garage.optJSONObject(index))
         }
-    }
-
-    private fun parseLegacyGarage(encoded: String): List<StoredIdentity> {
-        if (encoded.isEmpty()) return emptyList()
-        val garage = runCatching { JSONObject(encoded) }.getOrNull() ?: return emptyList()
-        return garage.keys().asSequence().flatMap { slotKey ->
-            identitiesFromSlot(garage.optJSONObject(slotKey)).asSequence()
-        }.toList()
     }
 
     private fun identitiesFromSlot(slot: JSONObject?): List<StoredIdentity> {

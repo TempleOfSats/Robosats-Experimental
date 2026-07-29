@@ -13,7 +13,7 @@ import type {
   SlotSyncState
 } from "@/domains/pro/pro.types";
 
-export type ProRobotLifecycleStatus =
+type ProRobotLifecycleStatus =
   | "ready"
   | "checking"
   | "waiting"
@@ -23,7 +23,7 @@ export type ProRobotLifecycleStatus =
   | "ongoing"
   | "needs-attention";
 
-export type ProRobotVerification =
+type ProRobotVerification =
   | "local"
   | "coordinator"
   | "checking"

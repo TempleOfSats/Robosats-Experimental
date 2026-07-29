@@ -189,7 +189,7 @@ export function pruneTradeHistoryManifest(
   };
 }
 
-export function compareTradeHistoryEntries(left: TradeHistoryEntry, right: TradeHistoryEntry): number {
+function compareTradeHistoryEntries(left: TradeHistoryEntry, right: TradeHistoryEntry): number {
   if (left.revision !== right.revision) return left.revision - right.revision;
   const deviceOrder = left.deviceId.localeCompare(right.deviceId);
   return deviceOrder || left.updatedAt - right.updatedAt;

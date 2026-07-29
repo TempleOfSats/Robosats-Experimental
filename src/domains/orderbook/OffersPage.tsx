@@ -94,7 +94,8 @@ const intentOptions: IntentPickerOption[] = [
   { label: "SWAP OUT", value: "swap-out", tone: "swap-out" }
 ];
 const preloadedPaymentIconUrls = new Set<string>();
-const loadF2FOffersMapDialog = () => import("@/domains/location/F2FOffersMapDialog");
+const loadF2FOffersMapDialog = () =>
+  import("@/domains/location/F2FOffersMapDialog").then((module) => ({ default: module.F2FOffersMapDialog }));
 const LazyF2FOffersMapDialog = lazy(loadF2FOffersMapDialog);
 const LazyF2FLocationDialog = lazy(() =>
   import("@/domains/location/F2FLocationDialog").then((module) => ({ default: module.F2FLocationDialog }))

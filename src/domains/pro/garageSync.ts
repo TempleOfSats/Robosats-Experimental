@@ -100,7 +100,7 @@ export type GarageRecoveryOptions = {
   ) => void | Promise<void>;
 };
 
-export class GarageSyncEngine {
+class GarageSyncEngine {
   private readonly pool = getSharedRelayPool();
   private readonly liveSubscriptions = getLiveRelaySubscriptions();
   private coordinators: () => CoordinatorSummary[] = () => [];

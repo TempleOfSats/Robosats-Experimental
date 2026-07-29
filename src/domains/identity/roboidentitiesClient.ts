@@ -6,11 +6,9 @@ import {
 const avatarCache = new Map<string, string>();
 const avatarPromiseCache = new Map<string, Promise<string>>();
 const nameCache = new Map<string, string>();
-const AVATAR_STORAGE_PREFIX = "robosats_avatar_v3:";
 const AVATAR_CACHE_NAME = "robosats-exp-avatar-cache-v3";
 const AVATAR_CACHE_PATH = "https://robosats.invalid/avatar-cache/v3/";
 const AVATAR_CACHE_LIMIT = 32;
-let legacyCacheCleared = false;
 
 export function generateRoboname(hashId: string): string {
   if (!hashId) return "Robot";
@@ -71,7 +69,6 @@ export async function prepareRobotIdentity(hashId: string): Promise<{ avatar: st
 }
 
 async function readPersistedAvatar(cacheKey: string): Promise<string | undefined> {
-  clearLegacyAvatarCache();
   if (typeof caches === "undefined") return undefined;
   try {
     const cache = await caches.open(AVATAR_CACHE_NAME);
@@ -84,7 +81,6 @@ async function readPersistedAvatar(cacheKey: string): Promise<string | undefined
 }
 
 async function persistAvatar(cacheKey: string, image: string): Promise<void> {
-  clearLegacyAvatarCache();
   if (typeof caches === "undefined") return;
   try {
     const cache = await caches.open(AVATAR_CACHE_NAME);
@@ -102,16 +98,4 @@ async function persistAvatar(cacheKey: string, image: string): Promise<void> {
 
 function avatarCacheRequest(cacheKey: string): Request {
   return new Request(`${AVATAR_CACHE_PATH}${encodeURIComponent(cacheKey)}`);
-}
-
-function clearLegacyAvatarCache(): void {
-  if (legacyCacheCleared || typeof window === "undefined") return;
-  legacyCacheCleared = true;
-  try {
-    const legacyKeys = Array.from({ length: window.localStorage.length }, (_, index) => window.localStorage.key(index))
-      .filter((key): key is string => Boolean(key?.startsWith(AVATAR_STORAGE_PREFIX)));
-    for (const key of legacyKeys) window.localStorage.removeItem(key);
-  } catch {
-    // Storage can be unavailable in private contexts; the in-memory cache still works.
-  }
 }
