@@ -18,8 +18,11 @@ signatures before installing a binary.
 
 ## User guides
 
-- [Standard Garage guide](docs/standard-garage-guide.md): create and back up a robot, find or publish an offer, and complete a trade.
-- [Pro Mode and Robot Fleet guide](docs/pro-mode-guide.md): manage several robots, reusable presets, encrypted synchronization, history, and Fleet recovery.
+- [Complete user guide](docs/README.md): choose the path that matches your experience and workspace.
+- [First trade quick start](docs/first-trade-quick-start.md): complete a first buyer or seller flow with the essential safety checks.
+- [Coming from the classic frontend](docs/classic-frontend-transition.md): find familiar concepts and understand what moved.
+- [Standard Garage guide](docs/standard-garage-guide.md): create and back up one robot, find or publish an offer, and complete a trade.
+- [Pro Mode and Robot Fleet guide](docs/pro-mode-guide.md): manage several independent robots, reusable presets, encrypted synchronization, history, and Fleet recovery.
 
 ## Install dependencies
 
@@ -170,16 +173,20 @@ SideStore, or AltHub signs the IPA with the user's Apple certificate.
 
 ## Verification
 
-Run the repository checks independently with:
+Run the portable maintenance gate before every meaningful commit:
 
 ```bash
-npm run typecheck
-npm run check:typography
-npm run check:desktop
-npm test
+./scripts/check
+```
+
+It checks formatting, lint, strict types, unit and integration tests, module
+boundaries, complexity, duplication, dead code, and dependency advisories.
+Then run the checks relevant to the target being changed, for example:
+
+```bash
 npm run build
 npm run check:production-build
-npm audit --audit-level=high
+npm run check:desktop
 ```
 
 `npm run check:production-build` verifies that development-only modules were
@@ -189,17 +196,19 @@ separate coordinator backend.
 ## Design
 
 The active semantic color and accessibility rules are documented in
-[docs/color-system.md](docs/color-system.md) and
-[docs/typography-system.md](docs/typography-system.md).
+[maintainers/design/color-system.md](maintainers/design/color-system.md) and
+[maintainers/design/typography-system.md](maintainers/design/typography-system.md).
 
 Public Sans is distributed under the SIL Open Font License 1.1. Its complete
 notice is bundled at `static/licenses/PublicSans-OFL.txt`.
 
 ## Contributing and releases
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development requirements,
+See [ARCHITECTURE.md](ARCHITECTURE.md) for module ownership and dependency
+rules, [CONTRIBUTING.md](CONTRIBUTING.md) for the builder and maintainer
+workflow, [docs/decisions/](docs/decisions/) for structural decisions,
 [SECURITY.md](SECURITY.md) for private vulnerability reporting, and
-[docs/releasing.md](docs/releasing.md) for versioning, Android packaging, iOS
+[maintainers/releasing.md](maintainers/releasing.md) for versioning, Android packaging, iOS
 packaging, and the GitHub release process.
 
 This project is distributed under the GNU Affero General Public License v3.0.

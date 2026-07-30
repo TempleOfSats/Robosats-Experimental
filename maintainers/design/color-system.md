@@ -1,4 +1,4 @@
-# Color system
+# Maintainer color system
 
 The interface uses five chromatic families plus neutrals:
 
