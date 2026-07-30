@@ -10,10 +10,9 @@ export type RouteTransitionDetail = {
 export function beginRouteTransition(path: string): void {
   if (typeof window === "undefined") return;
   try {
-    window.dispatchEvent(new CustomEvent<RouteTransitionDetail>(
-      ROUTE_TRANSITION_START_EVENT,
-      { detail: routeTransitionDetail(path) }
-    ));
+    window.dispatchEvent(
+      new CustomEvent<RouteTransitionDetail>(ROUTE_TRANSITION_START_EVENT, { detail: routeTransitionDetail(path) })
+    );
   } catch {
     // Transition feedback is progressive enhancement and must never block navigation.
   }
@@ -21,10 +20,7 @@ export function beginRouteTransition(path: string): void {
 
 export function finishRouteTransition(path: string): void {
   if (typeof window === "undefined") return;
-  window.dispatchEvent(new CustomEvent<{ path: string }>(
-    ROUTE_TRANSITION_READY_EVENT,
-    { detail: { path } }
-  ));
+  window.dispatchEvent(new CustomEvent<{ path: string }>(ROUTE_TRANSITION_READY_EVENT, { detail: { path } }));
 }
 
 export function routeTransitionDetail(path: string): RouteTransitionDetail {

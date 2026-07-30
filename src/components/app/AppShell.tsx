@@ -8,9 +8,9 @@ import {
   ROUTE_TRANSITION_READY_EVENT,
   ROUTE_TRANSITION_START_EVENT,
   type RouteTransitionDetail
-} from "@/app/routeTransition";
+} from "@/domains/navigation/routeTransition";
 import { AppSidebar } from "@/components/app/AppSidebar";
-import { AppTransitionFeedback } from "@/components/app/AppTransitionFeedback";
+import { AppTransitionFeedback } from "@/domains/navigation/AppTransitionFeedback";
 import { DesktopTitleBar } from "@/components/app/DesktopTitleBar";
 import { isTauriDesktop } from "@/domains/transport/tauriBridge";
 

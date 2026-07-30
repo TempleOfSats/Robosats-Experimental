@@ -1,6 +1,6 @@
 import { Check, Copy, Download, ShieldCheck } from "lucide-react";
 import { useState } from "react";
-import { AppTransitionFeedback } from "@/components/app/AppTransitionFeedback";
+import { AppTransitionFeedback } from "@/domains/navigation/AppTransitionFeedback";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { downloadFleetKeyBackup } from "@/domains/pro/fleetKeyBackup";

@@ -1,0 +1,4 @@
+{
+  // dependency-cruiser loads SWC dynamically to parse TypeScript 7.
+  "ignoreDependencies": ["@swc/core"]
+}

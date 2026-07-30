@@ -23,6 +23,7 @@ jobs:
       - name: Check out source
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
+          fetch-depth: 0
           persist-credentials: false
       - name: Set up Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
@@ -30,10 +31,11 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run audit:dependencies -- high
-      - run: npm run lint
+      - name: Run portable maintenance gate
+        env:
+          FORMAT_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: ./scripts/check
       - run: npm run check:asset-budgets
-      - run: npm test
       - run: npm run check:release-signing
       - run: npm run build
       - run: npm run check:production-build
