@@ -14,6 +14,8 @@ type RelayState = {
   subscriptions: Map<number, LogicalSubscription>;
   physical?: SubCloser;
   rebuildTimer?: ReturnType<typeof setTimeout>;
+  rebuildAt?: number;
+  pendingDelayMs?: number;
   rebuildReason?: string;
   generation: number;
   revision: number;
@@ -23,9 +25,11 @@ type RelayState = {
 
 type LiveRelaySubscriptionManagerOptions = {
   rebuildDelayMs?: number;
+  removalRebuildDelayMs?: number;
 };
 
 const DEFAULT_REBUILD_DELAY_MS = 50;
+const DEFAULT_REMOVAL_REBUILD_DELAY_MS = 400;
 
 /**
  * Multiplexes all long-lived consumers into one multi-filter NIP-01 REQ per
@@ -37,12 +41,17 @@ export class LiveRelaySubscriptionManager {
   private nextLogicalId = 1;
   private nextPhysicalId = 1;
   private readonly rebuildDelayMs: number;
+  private readonly removalRebuildDelayMs: number;
 
   constructor(
     private readonly pool: SubscriptionPool,
     options: LiveRelaySubscriptionManagerOptions = {}
   ) {
     this.rebuildDelayMs = Math.max(0, options.rebuildDelayMs ?? DEFAULT_REBUILD_DELAY_MS);
+    this.removalRebuildDelayMs = Math.max(
+      this.rebuildDelayMs,
+      options.removalRebuildDelayMs ?? DEFAULT_REMOVAL_REBUILD_DELAY_MS
+    );
   }
 
   subscribeMany(relays: string[], filter: Filter, params: SubscribeManyParams): SubCloser {
@@ -60,6 +69,8 @@ export class LiveRelaySubscriptionManager {
     states.forEach((state) => {
       if (state.rebuildTimer) clearTimeout(state.rebuildTimer);
       state.rebuildTimer = undefined;
+      state.rebuildAt = undefined;
+      state.pendingDelayMs = undefined;
       state.generation += 1;
       void state.physical?.close(reason);
       state.physical = undefined;
@@ -72,7 +83,7 @@ export class LiveRelaySubscriptionManager {
     const id = this.nextLogicalId++;
     const logical = { id, filter, params };
     state.subscriptions.set(id, logical);
-    this.requestRebuild(state);
+    this.requestRebuild(state, "logical-subscription-added", this.rebuildDelayMs);
 
     let closed = false;
     return {
@@ -81,7 +92,11 @@ export class LiveRelaySubscriptionManager {
         closed = true;
         if (state.subscriptions.get(id) !== logical) return;
         state.subscriptions.delete(id);
-        this.requestRebuild(state, reason ?? "logical-subscription-closed");
+        this.requestRebuild(
+          state,
+          reason ?? "logical-subscription-closed",
+          this.removalRebuildDelayMs
+        );
       }
     };
   }
@@ -100,23 +115,35 @@ export class LiveRelaySubscriptionManager {
     return state;
   }
 
-  private requestRebuild(state: RelayState, reason = "filters-updated"): void {
+  private requestRebuild(
+    state: RelayState,
+    reason = "filters-updated",
+    delayMs = this.rebuildDelayMs
+  ): void {
     state.revision += 1;
-    this.scheduleRebuild(state, reason);
+    this.scheduleRebuild(state, reason, delayMs);
   }
 
-  private scheduleRebuild(state: RelayState, reason: string): void {
+  private scheduleRebuild(state: RelayState, reason: string, delayMs = this.rebuildDelayMs): void {
     state.rebuildReason = reason;
-    if (state.rebuilding || state.rebuildTimer) return;
-    if (this.rebuildDelayMs === 0) {
+    state.pendingDelayMs = Math.min(state.pendingDelayMs ?? delayMs, delayMs);
+    if (state.rebuilding) return;
+    const rebuildAt = Date.now() + state.pendingDelayMs;
+    if (state.rebuildTimer && (state.rebuildAt ?? rebuildAt) <= rebuildAt) return;
+    if (state.rebuildTimer) clearTimeout(state.rebuildTimer);
+    state.rebuildTimer = undefined;
+    state.rebuildAt = undefined;
+    if (state.pendingDelayMs === 0) {
       this.ensureRebuild(state, reason);
       return;
     }
+    state.rebuildAt = rebuildAt;
     state.rebuildTimer = setTimeout(() => {
       state.rebuildTimer = undefined;
+      state.rebuildAt = undefined;
       if (this.relays.get(state.relay) !== state) return;
       this.ensureRebuild(state, state.rebuildReason ?? "filters-updated");
-    }, this.rebuildDelayMs);
+    }, state.pendingDelayMs);
   }
 
   private ensureRebuild(state: RelayState, reason: string): void {
@@ -125,11 +152,17 @@ export class LiveRelaySubscriptionManager {
       clearTimeout(state.rebuildTimer);
       state.rebuildTimer = undefined;
     }
+    state.rebuildAt = undefined;
     state.rebuildReason = undefined;
+    state.pendingDelayMs = undefined;
     state.rebuilding = this.rebuild(state, reason).finally(() => {
       state.rebuilding = undefined;
       if (this.relays.get(state.relay) === state && state.revision !== state.appliedRevision) {
-        this.scheduleRebuild(state, "filters-updated");
+        this.scheduleRebuild(
+          state,
+          state.rebuildReason ?? "filters-updated",
+          state.pendingDelayMs ?? this.rebuildDelayMs
+        );
       }
     });
   }
@@ -186,7 +219,7 @@ export class LiveRelaySubscriptionManager {
               state.subscriptions.delete(logical.id);
               logical.params.onclose?.(reasons);
             });
-            this.requestRebuild(state, "relay-closed");
+            this.requestRebuild(state, "relay-closed", this.rebuildDelayMs);
           }
         }
       );

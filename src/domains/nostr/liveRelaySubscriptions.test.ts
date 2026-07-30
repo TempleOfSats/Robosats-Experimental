@@ -106,6 +106,50 @@ describe("live relay subscription manager", () => {
     expect(harness.maximumActive).toBe(1);
     vi.useRealTimers();
   });
+
+  it("delays a removal-only rebuild to absorb short route transitions", async () => {
+    vi.useFakeTimers();
+    const harness = poolHarness();
+    const manager = new LiveRelaySubscriptionManager(harness.pool, {
+      rebuildDelayMs: 50,
+      removalRebuildDelayMs: 400
+    });
+    const subscription = manager.subscribeMany(["wss://relay.example"], { kinds: [38383] }, {});
+    await vi.advanceTimersByTimeAsync(50);
+
+    subscription.close("route-changed");
+    await vi.advanceTimersByTimeAsync(399);
+    expect(harness.requests[0].close).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(harness.requests[0].close).toHaveBeenCalledOnce();
+    vi.useRealTimers();
+  });
+
+  it("promotes a pending removal rebuild when a new consumer arrives", async () => {
+    vi.useFakeTimers();
+    const harness = poolHarness();
+    const manager = new LiveRelaySubscriptionManager(harness.pool, {
+      rebuildDelayMs: 50,
+      removalRebuildDelayMs: 400
+    });
+    const previous = manager.subscribeMany(["wss://relay.example"], { kinds: [38383] }, {});
+    await vi.advanceTimersByTimeAsync(50);
+
+    previous.close("route-changed");
+    await vi.advanceTimersByTimeAsync(100);
+    manager.subscribeMany(["wss://relay.example"], { kinds: [30078] }, {});
+    await vi.advanceTimersByTimeAsync(49);
+    expect(harness.requests).toHaveLength(1);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(harness.requests).toHaveLength(2);
+    expect(harness.requests[1].requests).toEqual([
+      { url: "wss://relay.example", filter: { kinds: [30078] } }
+    ]);
+    expect(harness.maximumActive).toBe(1);
+    vi.useRealTimers();
+  });
 });
 
 function poolHarness() {

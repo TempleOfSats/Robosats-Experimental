@@ -14,8 +14,20 @@ export type CoordinatorOrderObservation = {
 
 type OrderObservationListener = (observation: CoordinatorOrderObservation) => void;
 
+export type CoordinatorSettlementObservation = {
+  slotId: string;
+  shortAlias: string;
+  orderId: number;
+  purpose: "payout-received" | "escrow-paid";
+  value: string;
+};
+
+type SettlementObservationListener = (observation: CoordinatorSettlementObservation) => void;
+
 const observations = new Map<string, CoordinatorOrderObservation>();
 const listeners = new Set<OrderObservationListener>();
+const settlementObservations = new Map<string, CoordinatorSettlementObservation>();
+const settlementListeners = new Set<SettlementObservationListener>();
 
 export function ingestCoordinatorOrder({
   authoritative = true,
@@ -74,9 +86,34 @@ export function replayCoordinatorOrderActivity(listener: OrderObservationListene
   for (const observation of observations.values()) notifyListener(listener, observation);
 }
 
+export function recordCoordinatorSettlement(observation: CoordinatorSettlementObservation): void {
+  const key = observationKey(observation.slotId, observation.shortAlias, observation.orderId);
+  settlementObservations.delete(key);
+  settlementObservations.set(key, observation);
+  trimMap(settlementObservations);
+  for (const listener of settlementListeners) notifySettlementListener(listener, observation);
+}
+
+export function subscribeCoordinatorSettlementActivity(
+  listener: SettlementObservationListener,
+  options: { replay?: boolean } = {}
+): () => void {
+  settlementListeners.add(listener);
+  if (options.replay) replayCoordinatorSettlementActivity(listener);
+  return () => settlementListeners.delete(listener);
+}
+
+export function replayCoordinatorSettlementActivity(listener: SettlementObservationListener): void {
+  for (const observation of settlementObservations.values()) {
+    notifySettlementListener(listener, observation);
+  }
+}
+
 export function resetCoordinatorOrderActivityForTests(): void {
   observations.clear();
   listeners.clear();
+  settlementObservations.clear();
+  settlementListeners.clear();
 }
 
 function observationKey(slotId: string, shortAlias: string, orderId: number): string {
@@ -84,10 +121,25 @@ function observationKey(slotId: string, shortAlias: string, orderId: number): st
 }
 
 function trimObservations(): void {
-  while (observations.size > MAX_OBSERVED_ORDERS) {
-    const oldest = observations.keys().next().value;
+  trimMap(observations);
+}
+
+function trimMap<T>(records: Map<string, T>): void {
+  while (records.size > MAX_OBSERVED_ORDERS) {
+    const oldest = records.keys().next().value;
     if (!oldest) return;
-    observations.delete(oldest);
+    records.delete(oldest);
+  }
+}
+
+function notifySettlementListener(
+  listener: SettlementObservationListener,
+  observation: CoordinatorSettlementObservation
+): void {
+  try {
+    listener(observation);
+  } catch {
+    // Settlement indexing is repairable and cannot fail a coordinator action.
   }
 }
 

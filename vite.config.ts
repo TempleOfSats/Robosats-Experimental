@@ -55,7 +55,14 @@ export default defineConfig(({ command }) => {
     },
     build: {
       chunkSizeWarningLimit: 750,
-      modulePreload: false,
+      // Keep first paint free from eager route/crypto fetches. Once a lazy
+      // route is requested, preload its shared dependencies in parallel to
+      // avoid serial request waterfalls over Tor.
+      modulePreload: {
+        polyfill: true,
+        resolveDependencies: (_filename, dependencies, context) =>
+          context.hostType === "html" ? [] : dependencies
+      },
       outDir: "dist",
       sourcemap: false,
       target: "esnext",

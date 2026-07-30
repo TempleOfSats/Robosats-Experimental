@@ -33,7 +33,7 @@ import { subscribeRefreshIntents, type RefreshReason } from "@/domains/transport
 import type { PublicOrder } from "@/domains/orderbook/orderbook.types";
 import { filterPublicOrders } from "@/domains/orderbook/orderbookFilters";
 import { buildTakeOfferPayload, defaultTakeAmount, validateTakeOffer } from "@/domains/orderbook/takeOffer";
-import { getRobotAuthForCoordinator, selectCurrentSlot, selectStandardGarageSlots, useGarageStore } from "@/domains/garage/garageStore";
+import { getRobotAuthForCoordinator, selectCurrentSlot, selectStandardGarageSlots, useGarageStore, type RobotSlot } from "@/domains/garage/garageStore";
 import { getRobotOrderAvailability } from "@/domains/garage/robotAvailability";
 import { reserveRobotOrderAction, revalidateRobotForNewOrder } from "@/domains/orders/robotOrderGuard";
 import { downloadRobotTokenBackup } from "@/domains/garage/tokenBackup";
@@ -47,19 +47,14 @@ import type { OrderDto } from "@/domains/orders/order.types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
-import { AppTransitionFeedback } from "@/domains/navigation/AppTransitionFeedback";
+import { AppTransitionDialog, AppTransitionFeedback } from "@/domains/navigation/AppTransitionFeedback";
 import { preloadStatisticsRoute } from "@/domains/statistics/statisticsRoute";
 import { InfoHint } from "@/components/ui/infoHint";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CurrencyFlag, CurrencyPicker, IntentPicker, PaymentMethodIcons, PaymentMethodPicker, type IntentPickerOption } from "@/domains/orderbook/OfferMeta";
 import type { GuidedTradeCriteria } from "@/domains/orderbook/guidedTrade";
 import { isSwapPaymentMethod, matchedPaymentMethods, paymentIconSrc, paymentMethodOptions } from "@/domains/orderbook/paymentMethods";
-import { CreateOfferRobotPicker } from "@/domains/pro/ProWorkspaceDialogs";
-import { selectOfferReadyRobots } from "@/domains/pro/proRobotLifecycle";
-import { summarizeProRobots } from "@/domains/pro/proSelectors";
 import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
-import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
-import { selectProGarageSlots, useGarageVaultStore } from "@/domains/pro/garageVaultStore";
 import { bondDisplayValue, expiryRingValue, formatExpiryTitle, knownSatsValue, orderSatsPreview } from "@/domains/orderbook/offerDisplay";
 import { formatFiat, formatSats } from "@/lib/format";
 import { toUserMessage } from "@/lib/userError";
@@ -104,6 +99,9 @@ const LazyF2FLocationDialog = lazy(() =>
 const LazyBeginnerTradeWizard = lazy(() =>
   import("@/domains/orderbook/BeginnerTradeWizard").then((module) => ({ default: module.BeginnerTradeWizard }))
 );
+const LazyProTakeRobotPicker = lazy(() =>
+  import("@/domains/pro/ProTakeRobotPicker").then((module) => ({ default: module.ProTakeRobotPicker }))
+);
 
 export function OffersPage() {
   const location = useLocation();
@@ -115,17 +113,23 @@ export function OffersPage() {
   const [directOfferLaunch] = useState(
     () => (location.state as OffersLocationState | null)?.directOfferLaunch
   );
-  const { connection, coordinators, origin, refreshCoordinators } = useFederationStore();
+  const connection = useFederationStore((state) => state.connection);
+  const coordinators = useFederationStore((state) => state.coordinators);
+  const origin = useFederationStore((state) => state.origin);
+  const refreshCoordinators = useFederationStore((state) => state.refreshCoordinators);
   const refreshCoordinatorLimits = useFederationStore((state) => state.refreshCoordinatorLimits);
-  const { orders, loading, refreshing, error, refreshOrderbook, applyLiveOrders } = useOrderbookStore();
+  const orders = useOrderbookStore((state) => state.orders);
+  const loading = useOrderbookStore((state) => state.loading);
+  const refreshing = useOrderbookStore((state) => state.refreshing);
+  const error = useOrderbookStore((state) => state.error);
+  const refreshOrderbook = useOrderbookStore((state) => state.refreshOrderbook);
+  const applyLiveOrders = useOrderbookStore((state) => state.applyLiveOrders);
   const hydrateGarage = useGarageStore((state) => state.hydrate);
   const garageSlots = useGarageStore((state) => state.slots);
   const currentToken = useGarageStore((state) => state.currentToken);
   const setCurrentToken = useGarageStore((state) => state.setCurrentToken);
   const proEnabled = useProPreferencesStore((state) => state.enabled);
   const setProLastView = useProPreferencesStore((state) => state.setLastView);
-  const fleetManifest = useGarageVaultStore((state) => state.manifest);
-  const tradeSnapshots = useProTradeIndexStore((state) => state.snapshots);
   const [intentFilter, setIntentFilter] = useState<IntentFilter>("any");
   const [currencyFilter, setCurrencyFilter] = useState("all");
   const [methodFilter, setMethodFilter] = useState("all");
@@ -144,7 +148,7 @@ export function OffersPage() {
   const [descriptionConfirmOpen, setDescriptionConfirmOpen] = useState(false);
   const [takeIntentPending, setTakeIntentPending] = useState(false);
   const [takeRobotPickerOpen, setTakeRobotPickerOpen] = useState(false);
-  const [takeSlotId, setTakeSlotId] = useState<string>();
+  const [proTakeSlotId, setProTakeSlotId] = useState<string>();
   const [privateOrder, setPrivateOrder] = useState<OrderDto | undefined>();
   const [privateOrderLoading, setPrivateOrderLoading] = useState(false);
   const [orderDetailsResolved, setOrderDetailsResolved] = useState(true);
@@ -156,26 +160,12 @@ export function OffersPage() {
   const [guidedReviewOpened, setGuidedReviewOpened] = useState(false);
   const [directReviewOpened, setDirectReviewOpened] = useState(false);
   const [f2fOffersMapOpen, setF2FOffersMapOpen] = useState(false);
-  const fleetSlots = useMemo(
-    () => selectProGarageSlots(garageSlots, fleetManifest),
-    [fleetManifest, garageSlots]
-  );
   const standardSlots = useMemo(() => selectStandardGarageSlots(garageSlots), [garageSlots]);
   const cashF2FOffers = useMemo(() => selectCashF2FOffers(orders), [orders]);
   const activeSlot = selectCurrentSlot(standardSlots, currentToken);
-  const readyFleetRobots = useMemo(
-    () => selectOfferReadyRobots(
-      fleetSlots,
-      summarizeProRobots(fleetSlots, tradeSnapshots),
-      tradeSnapshots
-    ),
-    [fleetSlots, tradeSnapshots]
-  );
-  const standardTakeAvailability = getRobotOrderAvailability(activeSlot, tradeSnapshots);
+  const standardTakeAvailability = getRobotOrderAvailability(activeSlot);
   const takeRobotUnavailableMessage = proEnabled
-    ? readyFleetRobots.length > 0
-      ? undefined
-      : "No Fleet robot is available. Finish an existing order or refresh the Pro Desk first."
+    ? undefined
     : standardTakeAvailability.available
       ? undefined
       : standardTakeAvailability.message ?? "Create or recover a robot in Garage first.";
@@ -189,7 +179,7 @@ export function OffersPage() {
     setSearchParams(nextParams, { replace: true });
   }, [searchParams, setSearchParams]);
   const takeSlot = proEnabled
-    ? fleetSlots.find((slot) => slot.tokenSHA256 === takeSlotId)
+    ? garageSlots.find((slot) => slot.tokenSHA256 === proTakeSlotId)
     : activeSlot;
 
   async function refresh(force = false) {
@@ -416,7 +406,7 @@ export function OffersPage() {
     setDescriptionConfirmOpen(false);
     setTakeIntentPending(false);
     setTakeRobotPickerOpen(false);
-    setTakeSlotId(undefined);
+    setProTakeSlotId(undefined);
     const coordinator = coordinators.find((item) => item.shortAlias === order.coordinatorShortAlias);
     const initialSlot = proEnabled ? undefined : activeSlot;
     const canFetchDetails = Boolean(initialSlot && coordinator && getRobotAuthForCoordinator(initialSlot, coordinator.shortAlias));
@@ -446,29 +436,21 @@ export function OffersPage() {
     setDescriptionConfirmOpen(false);
     setTakeIntentPending(false);
     setTakeRobotPickerOpen(false);
-    setTakeSlotId(undefined);
+    setProTakeSlotId(undefined);
     setTakeModalOpen(false);
     setTakeError(undefined);
   }
 
   function beginTakeConfirmation() {
     if (proEnabled && !takeSlot) {
-      if (readyFleetRobots.length === 0) {
-        setTakeError("No Fleet robot is available. Finish an existing order or refresh the Pro Desk first.");
-        return;
-      }
-      if (readyFleetRobots.length === 1) {
-        selectTakeRobot(readyFleetRobots[0].slotId);
-      } else {
-        setTakeRobotPickerOpen(true);
-      }
+      setTakeRobotPickerOpen(true);
       return;
     }
     continueTakeConfirmation();
   }
 
-  function selectTakeRobot(slotId: string) {
-    setTakeSlotId(slotId);
+  function selectTakeRobot(slot: RobotSlot) {
+    setProTakeSlotId(slot.tokenSHA256);
     setTakeRobotPickerOpen(false);
     setOrderDetailsResolved(false);
     setTakeIntentPending(true);
@@ -572,7 +554,7 @@ export function OffersPage() {
       }
     } catch (error) {
       setTakeError(toUserMessage(error, "Could not take this offer."));
-      if (proEnabled) setTakeSlotId(undefined);
+      if (proEnabled) setProTakeSlotId(undefined);
     } finally {
       releaseReservation();
       setTaking(false);
@@ -861,15 +843,19 @@ export function OffersPage() {
       ) : null}
 
       {takeRobotPickerOpen ? (
-        <CreateOfferRobotPicker
-          emptyMessage="Every Fleet robot already has an order or still needs to be refreshed."
-          onClose={() => setTakeRobotPickerOpen(false)}
-          onSelect={selectTakeRobot}
-          optionStatus="Ready to take this offer"
-          robots={readyFleetRobots}
-          subtitle="Available Fleet robots without another order"
-          title="Take with which robot?"
-        />
+        <Suspense
+          fallback={(
+            <AppTransitionDialog
+              title="Preparing your Robot Fleet"
+              message="Finding an available robot for this offer."
+            />
+          )}
+        >
+          <LazyProTakeRobotPicker
+            onClose={() => setTakeRobotPickerOpen(false)}
+            onSelect={selectTakeRobot}
+          />
+        </Suspense>
       ) : null}
 
       {descriptionConfirmOpen && selectedDescription ? (
