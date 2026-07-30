@@ -27,6 +27,7 @@ interface Window {
   AndroidAppRobosats?: RoboSatsNativeBridge;
   IOSAppRobosats?: RoboSatsNativeBridge;
   __robosatsNativeTransport?: {
+    reset(message: string): void;
     resolve(requestId: string, result: import("@/domains/transport/androidBridge").NativeHttpResult): void;
     reject(requestId: string, message: string): void;
     webSocketOpen(socketId: string, protocol: string): void;

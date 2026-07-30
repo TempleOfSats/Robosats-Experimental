@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { AppTransitionDialog, AppTransitionFeedback } from "@/components/app/AppTransitionFeedback";
+import { AppTransitionDialog, AppTransitionFeedback } from "@/domains/navigation/AppTransitionFeedback";
 
 describe("AppTransitionFeedback", () => {
   it("renders a polite loading status with the RoboSats mark", () => {

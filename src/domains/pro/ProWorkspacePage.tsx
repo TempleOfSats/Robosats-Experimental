@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
-import { AppTransitionFeedback } from "@/components/app/AppTransitionFeedback";
+import { AppTransitionFeedback } from "@/domains/navigation/AppTransitionFeedback";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { InfoHint } from "@/components/ui/infoHint";
@@ -36,6 +36,7 @@ import { useOrderbookStore } from "@/domains/orderbook/orderbookStore";
 import type { PublicOrder } from "@/domains/orderbook/orderbook.types";
 import { ingestCoordinatorOrder } from "@/domains/orders/orderActivity";
 import { submitOrderAction } from "@/domains/orders/orderApi";
+import { loadOrderPage } from "@/domains/orders/orderRoute";
 import { isAlreadyCancelledError } from "@/domains/orders/orderStore";
 import {
   garageReconciler,
@@ -91,9 +92,7 @@ const MANUAL_REFRESH_FOREGROUND_MS = 8_000;
 const LazyBeginnerTradeWizard = lazy(() =>
   import("@/domains/orderbook/BeginnerTradeWizard").then((module) => ({ default: module.BeginnerTradeWizard }))
 );
-const LazyOrderPage = lazy(() =>
-  import("@/domains/orders/OrderPage").then((module) => ({ default: module.OrderPage }))
-);
+const LazyOrderPage = lazy(() => loadOrderPage().then((module) => ({ default: module.OrderPage })));
 const LazyRobotCoordinatorDialog = lazy(() =>
   import("@/domains/garage/RobotGaragePage").then((module) => ({ default: module.RobotCoordinatorDialog }))
 );

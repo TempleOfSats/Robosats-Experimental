@@ -20,8 +20,7 @@ import {
 } from "lucide-react";
 import { lazy, Suspense, type CSSProperties, type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { preloadAppRoute } from "@/app/routes";
-import { AppTransitionFeedback } from "@/components/app/AppTransitionFeedback";
+import { AppTransitionFeedback } from "@/domains/navigation/AppTransitionFeedback";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -54,6 +53,7 @@ import { CurrencyFlag, CurrencyPicker, PaymentMethodIcons, PaymentMethodPicker }
 import { normalPaymentMethodOptions, swapPaymentMethodOptions } from "@/domains/orderbook/paymentMethods";
 import { ingestCoordinatorOrder } from "@/domains/orders/orderActivity";
 import { openConfirmedOrder } from "@/domains/orders/confirmedOrderNavigation";
+import { preloadOrderRoute } from "@/domains/orders/orderRoute";
 import { reserveRobotOrderAction, revalidateRobotForNewOrder } from "@/domains/orders/robotOrderGuard";
 import { roleBuysBitcoin, roleIntentLabel } from "@/domains/orders/orderRole";
 import { activeOfferPresets, type OfferPreset } from "@/domains/pro/portableSettings";
@@ -370,7 +370,7 @@ export function CreateOrderPage() {
 
     setSubmitting(true);
     setSubmitError("");
-    preloadAppRoute("/order");
+    preloadOrderRoute();
 
     try {
       const actionSlot = await revalidateRobotForNewOrder({

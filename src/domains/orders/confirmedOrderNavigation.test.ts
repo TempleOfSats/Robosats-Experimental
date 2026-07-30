@@ -4,7 +4,7 @@ import type { OrderDto } from "@/domains/orders/order.types";
 
 const beginRouteTransitionMock = vi.hoisted(() => vi.fn());
 
-vi.mock("@/app/routeTransition", () => ({
+vi.mock("@/domains/navigation/routeTransition", () => ({
   beginRouteTransition: beginRouteTransitionMock
 }));
 

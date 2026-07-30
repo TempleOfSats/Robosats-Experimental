@@ -31,6 +31,8 @@ import okio.ByteString
 import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 class WebAppInterface(
     private val context: MainActivity,
@@ -41,6 +43,8 @@ class WebAppInterface(
     private val webSockets = ConcurrentHashMap<String, WebSocket>()
     private val closedBeforeOpen = ConcurrentHashMap.newKeySet<String>()
     private val storageKey = Regex("^[A-Za-z0-9_.:-]{1,128}$")
+    private val foreground = AtomicBoolean(true)
+    private val transportGeneration = AtomicLong(0L)
 
     @JavascriptInterface
     fun getStorage(key: String): String? {
@@ -122,10 +126,12 @@ class WebAppInterface(
         headersJson: String,
         body: String
     ) {
+        if (!foreground.get()) return
         if (!isIdentifier(requestId) || !isHttpUrl(url)) {
             reject(requestId, "Invalid native HTTP request")
             return
         }
+        val generation = transportGeneration.get()
 
         try {
             val headers = JSONObject(headersJson.ifBlank { "{}" })
@@ -157,6 +163,7 @@ class WebAppInterface(
             val request = requestBuilder.build()
             context.lifecycleScope.launch(Dispatchers.IO) {
                 val status = ArtiTorManager.start(context.applicationContext)
+                if (!isCurrent(generation)) return@launch
                 if (status !is TorStatus.Active) {
                     reject(requestId, (status as? TorStatus.Failed)?.reason ?: "Tor is not ready")
                     return@launch
@@ -165,7 +172,7 @@ class WebAppInterface(
                 runCatching { NativeNetworkClient.requireClient() }
                     .onSuccess { client ->
                         val call = client.newCall(request)
-                        if (cancelledBeforeStart.remove(requestId)) {
+                        if (!isCurrent(generation) || cancelledBeforeStart.remove(requestId)) {
                             call.cancel()
                             return@onSuccess
                         }
@@ -201,6 +208,7 @@ class WebAppInterface(
                         })
                     }
                     .onFailure { error ->
+                        if (!isCurrent(generation)) return@onFailure
                         Log.e(TAG, "Native HTTP request could not acquire Tor client", error)
                         reject(requestId, error.message ?: "Tor request failed")
                     }
@@ -220,10 +228,12 @@ class WebAppInterface(
 
     @JavascriptInterface
     fun openWebSocket(socketId: String, url: String, protocolsJson: String) {
+        if (!foreground.get()) return
         if (!isIdentifier(socketId) || !isWebSocketUrl(url)) {
             webSocketError(socketId, "Invalid WebSocket request")
             return
         }
+        val generation = transportGeneration.get()
         closedBeforeOpen.remove(socketId)
 
         try {
@@ -237,6 +247,7 @@ class WebAppInterface(
 
             context.lifecycleScope.launch(Dispatchers.IO) {
                 val status = ArtiTorManager.start(context.applicationContext)
+                if (!isCurrent(generation)) return@launch
                 if (status !is TorStatus.Active) {
                     webSocketError(socketId, (status as? TorStatus.Failed)?.reason ?: "Tor is not ready")
                     return@launch
@@ -248,41 +259,53 @@ class WebAppInterface(
                         request,
                         object : WebSocketListener() {
                     override fun onOpen(webSocket: WebSocket, response: Response) {
+                        if (!isCurrentSocket(generation, socketId, webSocket)) {
+                            webSocket.cancel()
+                            return
+                        }
                         Log.d(TAG, "Native Tor WebSocket opened")
                         evaluate("window.__robosatsNativeTransport?.webSocketOpen(${quote(socketId)}, ${quote(response.header("Sec-WebSocket-Protocol") ?: "")})")
                     }
 
                     override fun onMessage(webSocket: WebSocket, text: String) {
+                        if (!isCurrentSocket(generation, socketId, webSocket)) return
                         evaluate("window.__robosatsNativeTransport?.webSocketMessage(${quote(socketId)}, ${quote(text)})")
                     }
 
                     override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+                        if (!isCurrentSocket(generation, socketId, webSocket)) return
                         evaluate("window.__robosatsNativeTransport?.webSocketMessage(${quote(socketId)}, ${quote(bytes.base64())})")
                     }
 
                     override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                        if (!isCurrentSocket(generation, socketId, webSocket)) return
                         evaluate("window.__robosatsNativeTransport?.webSocketClosing(${quote(socketId)}, $code, ${quote(reason)})")
                     }
 
                     override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                        webSockets.remove(socketId)
+                        if (!webSockets.remove(socketId, webSocket) || !isCurrent(generation)) return
                         Log.d(TAG, "Native Tor WebSocket closed: $code")
                         evaluate("window.__robosatsNativeTransport?.webSocketClosed(${quote(socketId)}, $code, ${quote(reason)})")
                     }
 
                     override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                        webSockets.remove(socketId)
+                        if (!webSockets.remove(socketId, webSocket) || !isCurrent(generation)) return
                         Log.w(TAG, "Native Tor WebSocket failed: ${t.message}")
                         webSocketError(socketId, t.message ?: "WebSocket failed")
                     }
                         }
                     )
                 }.onSuccess { socket ->
+                    if (!isCurrent(generation)) {
+                        socket.cancel()
+                        return@onSuccess
+                    }
                     webSockets[socketId] = socket
                     if (closedBeforeOpen.remove(socketId)) {
                         webSockets.remove(socketId)?.cancel()
                     }
                 }.onFailure { error ->
+                    if (!isCurrent(generation)) return@onFailure
                     Log.w(TAG, "Native Tor WebSocket could not acquire Tor client", error)
                     webSocketError(socketId, error.message ?: "WebSocket failed")
                 }
@@ -294,7 +317,7 @@ class WebAppInterface(
 
     @JavascriptInterface
     fun sendWebSocket(socketId: String, message: String): Boolean =
-        webSockets[socketId]?.send(message) ?: false
+        if (foreground.get()) webSockets[socketId]?.send(message) ?: false else false
 
     @JavascriptInterface
     fun closeWebSocket(socketId: String, code: Int, reason: String) {
@@ -321,12 +344,24 @@ class WebAppInterface(
     }
 
     fun closeAll() {
+        transportGeneration.incrementAndGet()
         httpCalls.values.forEach { it.cancel() }
         httpCalls.clear()
         cancelledBeforeStart.clear()
         webSockets.values.forEach { it.cancel() }
         webSockets.clear()
         closedBeforeOpen.clear()
+    }
+
+    fun suspendTransport() {
+        Log.d(TAG, "Suspending native transport (${httpCalls.size} HTTP, ${webSockets.size} WebSocket)")
+        foreground.set(false)
+        closeAll()
+    }
+
+    fun resumeTransport() {
+        foreground.set(true)
+        Log.d(TAG, "Native transport ready after resume")
     }
 
     private fun updateNotificationService(enabled: Boolean) {
@@ -348,8 +383,18 @@ class WebAppInterface(
     }
 
     private fun evaluate(script: String) {
-        webView.post { webView.evaluateJavascript(script, null) }
+        val generation = transportGeneration.get()
+        if (!isCurrent(generation)) return
+        webView.post {
+            if (isCurrent(generation)) webView.evaluateJavascript(script, null)
+        }
     }
+
+    private fun isCurrent(generation: Long): Boolean =
+        foreground.get() && transportGeneration.get() == generation
+
+    private fun isCurrentSocket(generation: Long, socketId: String, socket: WebSocket): Boolean =
+        isCurrent(generation) && webSockets[socketId] === socket
 
     private fun quote(value: String): String = JSONObject.quote(value)
     private fun isIdentifier(value: String) = value.matches(Regex("^[A-Za-z0-9_-]{1,96}$"))

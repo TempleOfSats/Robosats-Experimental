@@ -7,7 +7,7 @@ import {
   isStandardGarageRoute,
   ROUTE_TRANSITION_READY_EVENT,
   ROUTE_TRANSITION_START_EVENT
-} from "@/app/routeTransition";
+} from "@/domains/navigation/routeTransition";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
 import {
@@ -18,6 +18,7 @@ import {
   type RobotSlot,
   useGarageStore
 } from "@/domains/garage/garageStore";
+import { subscribeRobotDataRefresh } from "@/domains/garage/robotDataRefresh";
 import { startOrderChangeHintRuntime } from "@/domains/nostr/orderChangeHints";
 import { ingestCoordinatorOrder } from "@/domains/orders/orderActivity";
 import { fetchOrder } from "@/domains/orders/orderApi";
@@ -55,6 +56,7 @@ export function scheduleAppPrewarm(): () => void {
     refreshForegroundRobot();
   };
   const stopLifecycle = subscribeRefreshIntents(refreshAfterLifecycle);
+  const stopRobotDataRefresh = subscribeRobotDataRefresh(prewarmData);
   const refreshGarageRoute = (event: Event) => {
     const path = (event as CustomEvent<{ path?: string }>).detail?.path ?? window.location.pathname;
     if (isStandardGarageRoute(path)) refreshForegroundRobot();
@@ -81,13 +83,10 @@ export function scheduleAppPrewarm(): () => void {
   return () => {
     stopOrderChangeHints();
     stopLifecycle();
+    stopRobotDataRefresh();
     window.removeEventListener(ROUTE_TRANSITION_READY_EVENT, refreshGarageRoute);
     cleanups.forEach((cleanup) => cleanup());
   };
-}
-
-export function prewarmActiveRobotTradeData(): void {
-  prewarmData();
 }
 
 function prewarmData(): void {

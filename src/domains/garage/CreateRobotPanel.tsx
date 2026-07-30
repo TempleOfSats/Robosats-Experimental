@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { RobotAvatar } from "@/domains/identity/RobotAvatar";
 import { deriveRobotIdentity, type RobotIdentity } from "@/domains/identity/robotIdentity";
 import { useGarageStore } from "@/domains/garage/garageStore";
+import { requestRobotDataRefresh } from "@/domains/garage/robotDataRefresh";
 import { generateRobotToken } from "@/domains/garage/token";
 import { downloadRobotTokenBackup } from "@/domains/garage/tokenBackup";
 import { cn } from "@/lib/cn";
@@ -121,9 +122,7 @@ export function CreateRobotPanel({ onProfile }: { onProfile?: () => void }) {
   const finishRobotSetup = async () => {
     const saved = await saveRobot();
     if (!saved) return;
-    void import("@/app/prewarm")
-      .then(({ prewarmActiveRobotTradeData }) => prewarmActiveRobotTradeData())
-      .catch(() => undefined);
+    requestRobotDataRefresh();
     onProfile?.();
     navigate("/garage");
   };
