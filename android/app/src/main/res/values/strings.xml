@@ -5,6 +5,7 @@
     <string name="notifications">Notifications</string>
     <string name="loading_app">Secure connection established. Loading app&#8230;</string>
     <string name="reconnecting_tor" translatable="false">Network changed. Reconnecting privately&#8230;</string>
+    <string name="rebuilding_tor_circuits" translatable="false">Building fresh Tor circuits&#8230;</string>
     <string name="private_connection_title">Establishing a private connection</string>
     <string name="private_connection_failed">Private connection interrupted</string>
     <string name="preparing_tor">Preparing Tor on this device&#8230;</string>

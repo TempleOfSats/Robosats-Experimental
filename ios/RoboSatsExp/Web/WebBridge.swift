@@ -13,10 +13,16 @@ final class WebBridge: NSObject {
     private var pendingSocketMessages: [[String]] = []
     private var socketMessageFlushTask: Task<Void, Never>?
     private let readinessChanged: (Bool) -> Void
+    private let reconnectTor: () -> Void
 
-    init(diagnostics: [String: Any], readinessChanged: @escaping (Bool) -> Void) {
+    init(
+        diagnostics: [String: Any],
+        readinessChanged: @escaping (Bool) -> Void,
+        reconnectTor: @escaping () -> Void
+    ) {
         self.diagnostics = diagnostics
         self.readinessChanged = readinessChanged
+        self.reconnectTor = reconnectTor
         super.init()
         TorNetworkClient.shared.delegate = self
     }
@@ -29,13 +35,14 @@ final class WebBridge: NSObject {
     func updateDiagnostics(_ diagnostics: [String: Any], notify: Bool = false) {
         self.diagnostics = diagnostics
         let connected = diagnostics["connected"] as? Bool == true
+        var script = "window.__robosatsIOS?.updateDiagnostics(\(Self.json(diagnostics)));"
+        if notify, connected, !wasConnected {
+            script +=
+                "window.dispatchEvent(new Event('robosats:tor-reconnected'));" +
+                "window.dispatchEvent(new Event('robosats:native-resume'));"
+        }
         defer { wasConnected = connected }
-        guard notify, connected, !wasConnected else { return }
-        evaluate(
-            "window.__robosatsIOS?.updateDiagnostics(\(Self.json(diagnostics)));" +
-            "window.dispatchEvent(new Event('robosats:tor-reconnected'));" +
-            "window.dispatchEvent(new Event('robosats:native-resume'));"
-        )
+        evaluate(script)
     }
 
     func bootstrapScript() -> String {
@@ -90,6 +97,7 @@ final class WebBridge: NSObject {
               return JSON.stringify({ enabled: false, permissionGranted: false, permissionRequired: false });
             },
             setNotificationsEnabled() {},
+            reconnectTorTransport() { post('reconnectTorTransport'); },
             httpRequest(requestId, method, url, headersJson, body) {
               post('httpRequest', { requestId, verb: method, url, headersJson, body });
             },
@@ -132,6 +140,8 @@ final class WebBridge: NSObject {
             } else {
                 SecureStorage.shared.delete(key)
             }
+        case "reconnectTorTransport":
+            reconnectTor()
         case "httpRequest":
             handleHTTPRequest(message)
         case "openWebSocket":

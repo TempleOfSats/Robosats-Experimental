@@ -1,6 +1,7 @@
 import type { RobotSlot } from "@/domains/garage/garageStore";
 import {
   getRobotOrderAvailability,
+  isExpiredRenewableOrder,
   type RobotOrderAvailability
 } from "@/domains/garage/robotAvailability";
 import {
@@ -55,7 +56,9 @@ export function deriveProRobotLifecycle(
   const trades = Object.values(snapshots).filter((snapshot) =>
     snapshot.locator.slotId === slot.tokenSHA256 && !snapshot.released
   );
-  const needsAttention = trades.some((snapshot) => classifyProTrade(snapshot) === "needs-action");
+  const blockingTrades = trades.filter((snapshot) => !isExpiredRenewableOrder(snapshot));
+  const renewableTrades = trades.filter(isExpiredRenewableOrder);
+  const needsAttention = blockingTrades.some((snapshot) => classifyProTrade(snapshot) === "needs-action");
 
   if (availability.reason === "pending") {
     return lifecycle("starting", "unknown", "Starting order", "default", availability, sync);
@@ -63,18 +66,21 @@ export function deriveProRobotLifecycle(
   if (needsAttention) {
     return lifecycle("needs-attention", verification(sync), "Needs attention", "warning", availability, sync, true);
   }
-  if (trades.some(isResumableOrRenewableOffer)) {
+  if (blockingTrades.some(isResumableOrRenewableOffer)) {
     return lifecycle("renewable", verification(sync), "Renewable trade", "default", availability, sync, true);
   }
-  const unresolvedOrder = trades.find((snapshot) => !snapshot.order);
-  if (unresolvedOrder && trades.every((snapshot) => !snapshot.order)) {
+  const unresolvedOrder = blockingTrades.find((snapshot) => !snapshot.order);
+  if (unresolvedOrder && blockingTrades.every((snapshot) => !snapshot.order)) {
     if (unresolvedOrder.freshness === "refreshing") {
       return lifecycle("checking", "checking", "Checking last order", "muted", availability, sync);
     }
     return lifecycle("unavailable", "unavailable", "Order status unavailable", "muted", availability, sync);
   }
-  if (!availability.available || trades.length > 0) {
+  if (!availability.available || blockingTrades.length > 0) {
     return lifecycle("ongoing", verification(sync), "Ongoing trade", "default", availability, sync, true);
+  }
+  if (renewableTrades.length > 0) {
+    return lifecycle("renewable", verification(sync), "Renewable trade", "default", availability, sync, true);
   }
 
   const confidence = verification(sync);
