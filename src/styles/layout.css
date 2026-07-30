@@ -959,6 +959,19 @@
   box-shadow: 0 0 0 0.2rem color-mix(in srgb, var(--success) 14%, transparent);
 }
 
+.settings-tor-health.reconnecting {
+  border-color: var(--info-border);
+  background: var(--info-surface);
+  color: var(--foreground);
+}
+
+.settings-tor-health.reconnecting > .ui-spinner {
+  width: 1rem;
+  height: 1rem;
+  background: transparent;
+  box-shadow: none;
+}
+
 .settings-tor-details {
   display: grid;
   margin: 0;
@@ -982,6 +995,13 @@
   overflow-wrap: anywhere;
   text-align: right;
   font-weight: 600;
+}
+
+.settings-tor-reconnect-copy {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.82rem;
+  line-height: 1.5;
 }
 
 .settings-control-icon {

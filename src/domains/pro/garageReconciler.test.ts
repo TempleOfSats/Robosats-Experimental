@@ -142,8 +142,13 @@ describe("GarageReconciler", () => {
       renewable: true,
       order: { id: 91234, status: 5 }
     });
-    expect(useGarageStore.getState().slots.find((slot) => slot.tokenSHA256 === "slot-beta")?.robots.lake)
+    const restored = useGarageStore.getState().slots.find((slot) => slot.tokenSHA256 === "slot-beta");
+    expect(restored?.robots.lake)
       .toMatchObject({ activeOrderId: 91234, lastOrderId: 91234, renewableOrderId: 91234 });
+    expect(getRobotOrderAvailability(
+      restored,
+      useProTradeIndexStore.getState().snapshots
+    ).available).toBe(true);
   });
 
   it("keeps a restored robot reserved when its reported last order cannot be read", async () => {
