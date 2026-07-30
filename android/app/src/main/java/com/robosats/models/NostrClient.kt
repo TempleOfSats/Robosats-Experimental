@@ -52,7 +52,12 @@ object NostrClient {
             configuredRelayUrls = emptySet()
             connectRelays(relayUrls)
         }
-        if (relayChanged || authors.toSet() != current.toSet()) subscribeToInbox()
+        if (relayChanged || authors.toSet() != current.toSet()) subscribeToInbox(current)
+    }
+
+    fun refreshGarage(encoded: String) {
+        val current = parseCurrentGarage(encoded).map { it.publicKey }.distinct()
+        if (authors.toSet() != current.toSet()) subscribeToInbox(current)
     }
 
     fun checkRelaysHealth() {
@@ -134,9 +139,12 @@ object NostrClient {
             .toSet()
     }
 
-    private fun subscribeToInbox() {
-        authors = garagePubKeys()
-        if (authors.isEmpty()) return
+    private fun subscribeToInbox(currentAuthors: List<String> = garagePubKeys()) {
+        authors = currentAuthors
+        if (authors.isEmpty()) {
+            Client.close(subscriptionId)
+            return
+        }
         Client.sendFilter(
             subscriptionId,
             listOf(

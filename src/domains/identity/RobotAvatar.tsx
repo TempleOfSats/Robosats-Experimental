@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
+import { Bot } from "lucide-react";
 import { cn } from "@/lib/cn";
-
-const loadingAvatarUrl = "/static/assets/vector/robot-avatar-loading.gif";
 
 export function RobotAvatar({
   hashId,
@@ -56,7 +55,7 @@ export function RobotAvatar({
         <img src={avatarSrc} alt="" />
       ) : (
         <span className="robot-avatar-placeholder" aria-hidden="true">
-          <img className="robot-avatar-placeholder-image" src={loadingAvatarUrl} alt="" />
+          <Bot className="robot-avatar-placeholder-icon" strokeWidth={1.7} />
         </span>
       )}
     </div>

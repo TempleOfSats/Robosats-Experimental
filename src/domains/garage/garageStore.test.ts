@@ -3,6 +3,7 @@ import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.type
 import { getRobotAuthForCoordinator, selectCurrentSlot, selectFleetManagedSlots, selectStandardGarageSlots, type RobotSlot, useGarageStore } from "@/domains/garage/garageStore";
 
 let storage: Map<string, string>;
+let storageSetItem: ReturnType<typeof vi.fn>;
 
 const fetchRobotMock = vi.hoisted(() => vi.fn());
 
@@ -12,9 +13,10 @@ vi.mock("@/domains/garage/robotApi", () => ({
 
 beforeEach(() => {
   storage = new Map();
+  storageSetItem = vi.fn((key: string, value: string) => storage.set(key, value));
   const localStorage = {
     getItem: (key: string) => storage.get(key) ?? null,
-    setItem: (key: string, value: string) => storage.set(key, value),
+    setItem: storageSetItem,
     removeItem: (key: string) => storage.delete(key)
   };
   vi.stubGlobal("localStorage", localStorage);
@@ -599,6 +601,35 @@ describe("garage order sync", () => {
     await refresh;
     expect(observer).toHaveBeenCalledTimes(2);
   }, 30000);
+
+  it("persists one combined snapshot after a multi-coordinator refresh", async () => {
+    const temple = {
+      ...coordinator,
+      shortAlias: "temple",
+      longAlias: "Temple",
+      url: "https://temple.example"
+    };
+    useGarageStore.setState({ slots: [slotWithCoordinatorKeys()], currentToken: "token", hydrated: true });
+    const resolvers: Array<(value: ReturnType<typeof robotSnapshot>) => void> = [];
+    const observer = vi.fn();
+    fetchRobotMock.mockImplementation(() => new Promise((resolve) => resolvers.push(resolve)));
+
+    const refresh = useGarageStore.getState().refreshRobotSlot("token", [coordinator, temple], {
+      onCoordinatorResult: observer
+    });
+    await vi.waitFor(() => expect(fetchRobotMock).toHaveBeenCalledTimes(2));
+    storageSetItem.mockClear();
+    resolvers[0](robotSnapshot());
+    await vi.waitFor(() => expect(observer).toHaveBeenCalledTimes(1));
+    expect(storageSetItem.mock.calls.filter(([key]) => key === "robosats_exp_garage_slots_v1"))
+      .toHaveLength(0);
+
+    resolvers[1](robotSnapshot());
+    await refresh;
+
+    expect(storageSetItem.mock.calls.filter(([key]) => key === "robosats_exp_garage_slots_v1"))
+      .toHaveLength(1);
+  });
 
   it("does not resurrect a released reservation from a stale robot snapshot", async () => {
     const activeSlot = slotWithCoordinatorKeys({ activeOrderId: 89895, lastOrderId: 89895 });

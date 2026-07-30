@@ -300,22 +300,21 @@ async function refreshFederation(
       (available) => {
         if (!sameFederationSettings(currentFederationSettings(get()), settings)) return;
         set((state) => ({
-          coordinators: applyCoordinatorPreferences(state.coordinators.map((item) =>
+          coordinators: state.coordinators.map((item) =>
             item.shortAlias === coordinator.shortAlias
               ? { ...available, enabled: item.enabled }
               : item
-          ))
+          )
         }));
       }
     );
     if (!sameFederationSettings(currentFederationSettings(get()), settings)) return;
     set((state) => {
-      const coordinators = applyCoordinatorPreferences(state.coordinators.map((item) =>
+      const coordinators = state.coordinators.map((item) =>
         item.shortAlias === coordinator.shortAlias
           ? { ...refreshed, enabled: item.enabled }
           : item
-      ));
-      writeFederationCache(settings, coordinators, state.lastRefreshed ?? Date.now());
+      );
       return { coordinators };
     });
   });

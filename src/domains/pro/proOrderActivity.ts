@@ -1,7 +1,10 @@
 import { useGarageStore, type RobotSlot } from "@/domains/garage/garageStore";
 import {
+  replayCoordinatorSettlementActivity,
   replayCoordinatorOrderActivity,
   subscribeCoordinatorOrderActivity,
+  subscribeCoordinatorSettlementActivity,
+  type CoordinatorSettlementObservation,
   type CoordinatorOrderObservation
 } from "@/domains/orders/orderActivity";
 import type { OrderDto } from "@/domains/orders/order.types";
@@ -28,15 +31,32 @@ export function startProOrderActivityBridge(): () => void {
     });
   };
 
+  const consumeSettlement = (observation: CoordinatorSettlementObservation) => {
+    recordProSettlementInvoice(
+      {
+        slotId: observation.slotId,
+        shortAlias: observation.shortAlias,
+        orderId: observation.orderId
+      },
+      observation.purpose,
+      observation.value
+    );
+  };
+
   const unsubscribeActivity = subscribeCoordinatorOrderActivity(consume, { replay: true });
+  const unsubscribeSettlement = subscribeCoordinatorSettlementActivity(consumeSettlement, { replay: true });
   const unsubscribeVault = useGarageVaultStore.subscribe((state, previous) => {
     const envelopeBecameAvailable = Boolean(state.envelope && !previous.envelope);
     const fleetChanged = Boolean(state.envelope)
       && state.manifest?.revision !== previous.manifest?.revision;
-    if (envelopeBecameAvailable || fleetChanged) replayCoordinatorOrderActivity(consume);
+    if (envelopeBecameAvailable || fleetChanged) {
+      replayCoordinatorOrderActivity(consume);
+      replayCoordinatorSettlementActivity(consumeSettlement);
+    }
   });
   return () => {
     unsubscribeActivity();
+    unsubscribeSettlement();
     unsubscribeVault();
   };
 }
