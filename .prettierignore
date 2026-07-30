@@ -1,0 +1,9 @@
+android/
+desktop/
+dist/
+docs/assets/
+docs/*.md
+ios/
+node_modules/
+public/
+src/domains/identity/generated/

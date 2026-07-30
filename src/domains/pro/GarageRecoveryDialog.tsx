@@ -1,6 +1,6 @@
 import { Check, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { AppTransitionFeedback } from "@/components/app/AppTransitionFeedback";
+import { AppTransitionFeedback } from "@/domains/navigation/AppTransitionFeedback";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { useFederationStore } from "@/domains/coordinators/federationStore";

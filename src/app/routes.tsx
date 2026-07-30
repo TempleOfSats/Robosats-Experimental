@@ -1,18 +1,23 @@
 import { lazy, Suspense, useEffect, type ReactNode } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
-import { finishRouteTransition, routeTransitionDetail } from "@/app/routeTransition";
-import { AppTransitionFeedback } from "@/components/app/AppTransitionFeedback";
 import { AppErrorBoundary } from "@/components/app/AppErrorBoundary";
+import { AppTransitionFeedback } from "@/domains/navigation/AppTransitionFeedback";
+import { finishRouteTransition, routeTransitionDetail } from "@/domains/navigation/routeTransition";
+import { loadOrderPage, preloadOrderRoute } from "@/domains/orders/orderRoute";
 import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
+import {
+  loadStatisticsPage,
+  preloadStatisticsRoute
+} from "@/domains/statistics/statisticsRoute";
 
 const RobotGaragePage = lazy(() => import("@/domains/garage/RobotGaragePage").then((module) => ({ default: module.RobotGaragePage })));
 const OffersPage = lazy(() => import("@/domains/orderbook/OffersPage").then((module) => ({ default: module.OffersPage })));
 const CreateOrderPage = lazy(() => import("@/domains/maker/CreateOrderPage").then((module) => ({ default: module.CreateOrderPage })));
 const CoordinatorsPage = lazy(() => import("@/domains/coordinators/CoordinatorsPage").then((module) => ({ default: module.CoordinatorsPage })));
-const OrderPage = lazy(() => import("@/domains/orders/OrderPage").then((module) => ({ default: module.OrderPage })));
+const OrderPage = lazy(() => loadOrderPage().then((module) => ({ default: module.OrderPage })));
 const SettingsPage = lazy(() => import("@/domains/settings/SettingsPage").then((module) => ({ default: module.SettingsPage })));
 const ProWorkspacePage = lazy(() => import("@/domains/pro/ProWorkspacePage").then((module) => ({ default: module.ProWorkspacePage })));
-const StatisticsPage = lazy(() => import("@/domains/statistics/StatisticsPage").then((module) => ({ default: module.StatisticsPage })));
+const StatisticsPage = lazy(() => loadStatisticsPage().then((module) => ({ default: module.StatisticsPage })));
 const TradeLabPage = (import.meta.env.DEV || import.meta.env.VITE_ENABLE_TRADE_LAB === "true")
   ? lazy(() => import("@/dev/TradeLabPage").then((module) => ({ default: module.TradeLabPage })))
   : null;
@@ -126,16 +131,8 @@ function preloadCoordinatorsRoute() {
   return import("@/domains/coordinators/CoordinatorsPage");
 }
 
-function preloadOrderRoute() {
-  return import("@/domains/orders/OrderPage");
-}
-
 function preloadSettingsRoute() {
   return import("@/domains/settings/SettingsPage");
-}
-
-function preloadStatisticsRoute() {
-  return import("@/domains/statistics/StatisticsPage");
 }
 
 function preloadProRoute() {

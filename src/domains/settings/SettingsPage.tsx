@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { ALargeSmall, BarChart3, BellRing, BookOpen, ChevronRight, ExternalLink, Info, KeyRound, Link2, Palette, PanelsTopLeft, RadioTower, RefreshCw, Users, WalletCards, X } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
-import { AppTransitionDialog } from "@/components/app/AppTransitionFeedback";
+import { AppTransitionDialog } from "@/domains/navigation/AppTransitionFeedback";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { RobotIcon } from "@/components/ui/robotIcon";

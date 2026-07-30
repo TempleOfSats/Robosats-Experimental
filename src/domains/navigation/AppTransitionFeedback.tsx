@@ -1,5 +1,5 @@
-import { cn } from "@/lib/cn";
 import { Dialog } from "@/components/ui/dialog";
+import { cn } from "@/lib/cn";
 
 type AppTransitionFeedbackProps = {
   title: string;
@@ -7,11 +7,7 @@ type AppTransitionFeedbackProps = {
   compact?: boolean;
 };
 
-export function AppTransitionFeedback({
-  title,
-  message,
-  compact = false
-}: AppTransitionFeedbackProps) {
+export function AppTransitionFeedback({ title, message, compact = false }: AppTransitionFeedbackProps) {
   return (
     <div
       className={cn("app-transition-feedback", compact && "app-transition-feedback-compact")}
@@ -29,10 +25,7 @@ export function AppTransitionFeedback({
   );
 }
 
-export function AppTransitionDialog({
-  title,
-  message
-}: Omit<AppTransitionFeedbackProps, "compact">) {
+export function AppTransitionDialog({ title, message }: Omit<AppTransitionFeedbackProps, "compact">) {
   return (
     <Dialog
       ariaLabel={title}

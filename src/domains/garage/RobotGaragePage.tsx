@@ -2,7 +2,7 @@ import { AlertTriangle, Copy, Download, Eye, EyeOff, Hash, Home, KeyRound, Plus,
 import { lazy, Suspense, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { AppTransitionFeedback } from "@/components/app/AppTransitionFeedback";
+import { AppTransitionFeedback } from "@/domains/navigation/AppTransitionFeedback";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
@@ -12,6 +12,7 @@ import { compareCoordinatorsByEstablished } from "@/domains/coordinators/coordin
 import type { CoordinatorRating } from "@/domains/coordinators/coordinatorRatings";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
 import { getRobotAuthForCoordinator, selectCurrentSlot, selectStandardGarageSlots, type RobotRecord, type RobotSlot, useGarageStore } from "@/domains/garage/garageStore";
+import { requestRobotDataRefresh } from "@/domains/garage/robotDataRefresh";
 import { downloadRobotTokenBackup } from "@/domains/garage/tokenBackup";
 import { CreateRobotPanel } from "@/domains/garage/CreateRobotPanel";
 import { RobotAvatar } from "@/domains/identity/RobotAvatar";
@@ -402,9 +403,7 @@ export function RobotGaragePage() {
           onRecover={(token) => {
             recoverRobotToken(token, addSlot, updateSlotIdentityDetails);
             setShowRecovery(false);
-            void import("@/app/prewarm")
-              .then(({ prewarmActiveRobotTradeData }) => prewarmActiveRobotTradeData())
-              .catch(() => undefined);
+            requestRobotDataRefresh();
           }}
         />
       ) : null}

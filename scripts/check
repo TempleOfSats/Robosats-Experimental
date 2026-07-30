@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+step() {
+  printf '\n\033[1;34m[%s/9] %s\033[0m\n' "$1" "$2"
+}
+
+step 1 "Formatter"
+npm run format:check
+
+step 2 "Linter"
+npm run lint:code
+npm run lint:ui
+
+step 3 "Type checker"
+npm run typecheck
+
+step 4 "Unit tests"
+npm run test:unit
+
+step 5 "Integration tests"
+npm run test:integration
+
+step 6 "Dependency boundaries"
+npm run check:boundaries
+
+step 7 "Complexity and duplication"
+npm run check:complexity
+npm run check:duplication
+
+step 8 "Dead code"
+npm run check:dead-code
+
+step 9 "Dependency and security audit"
+npm run audit:dependencies -- high
+
+printf '\n\033[1;32mAll local maintenance checks passed.\033[0m\n'
