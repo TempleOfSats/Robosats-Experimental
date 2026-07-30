@@ -78,14 +78,14 @@ export async function showDesktopNotification(request: {
   return invoke<boolean>("desktop_show_notification", { request });
 }
 
-export async function retryDesktopTor(): Promise<void> {
-  if (!isTauriDesktop()) return;
-  await invoke("desktop_retry");
-}
-
 export async function requestDesktopTransportRecovery(): Promise<void> {
   if (!isTauriDesktop()) return;
   await invoke("desktop_recover_transport");
+}
+
+export async function requestDesktopTorReconnect(): Promise<void> {
+  if (!isTauriDesktop()) return;
+  await invoke("desktop_reconnect_transport");
 }
 
 export async function loadDesktopSecret(key: string): Promise<string | null> {

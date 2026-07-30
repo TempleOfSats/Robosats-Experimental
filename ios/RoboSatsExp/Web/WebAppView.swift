@@ -6,9 +6,11 @@ struct WebAppView: UIViewRepresentable {
     @Binding var isReady: Bool
 
     func makeCoordinator() -> WebBridge {
-        WebBridge(diagnostics: tor.diagnostics) { ready in
-            isReady = ready
-        }
+        WebBridge(
+            diagnostics: tor.diagnostics,
+            readinessChanged: { ready in isReady = ready },
+            reconnectTor: { tor.retry() }
+        )
     }
 
     func makeUIView(context: Context) -> WKWebView {

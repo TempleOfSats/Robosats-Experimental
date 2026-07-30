@@ -34,11 +34,61 @@ describe("robot order guard", () => {
     expect(getRobotOrderAvailability(slot).available).toBe(true);
   });
 
-  it("blocks slot, coordinator, renewable, and indexed reservations", () => {
+  it("blocks active slot, coordinator, and indexed reservations", () => {
     expect(getRobotOrderAvailability({ ...robotSlot(), activeOrderId: 10 }).available).toBe(false);
     expect(getRobotOrderAvailability(robotSlot({ activeOrderId: 11 })).available).toBe(false);
-    expect(getRobotOrderAvailability(robotSlot({ renewableOrderId: 12 })).available).toBe(false);
     expect(getRobotOrderAvailability(robotSlot(), { order: snapshot() }).available).toBe(false);
+  });
+
+  it("allows expired renewable orders but keeps paused orders reserved", () => {
+    const renewableSlot = {
+      ...robotSlot({ activeOrderId: 12, renewableOrderId: 12 }),
+      activeOrderId: 12
+    };
+    const renewable = snapshot({
+      id: 12,
+      status: 5,
+      is_maker: true,
+      is_taker: false
+    });
+    const paused = snapshot({
+      id: 13,
+      status: 2,
+      is_maker: true,
+      is_taker: false
+    });
+
+    expect(getRobotOrderAvailability(renewableSlot, { renewable }).available).toBe(true);
+    expect(getRobotOrderAvailability(renewableSlot).available).toBe(true);
+    expect(getRobotOrderAvailability(robotSlot(), { paused }).available).toBe(false);
+  });
+
+  it("keeps a robot reserved when active work exists beside an older renewable order", () => {
+    const slot = robotSlot({ activeOrderId: 12, renewableOrderId: 12 });
+    const busySlot = {
+      ...slot,
+      activeOrderId: 13,
+      robots: {
+        ...slot.robots,
+        lake: {
+          ...slot.robots.local,
+          shortAlias: "lake",
+          activeOrderId: 13,
+          lastOrderId: 13,
+          renewableOrderId: undefined
+        }
+      }
+    };
+
+    expect(getRobotOrderAvailability(busySlot, {
+      renewable: snapshot({
+        id: 12,
+        status: 5,
+        is_maker: true,
+        is_taker: false
+      }),
+      active: snapshot({ id: 13, status: 1, is_maker: true })
+    }).available).toBe(false);
   });
 
   it("blocks a second local order action until the first releases", () => {
@@ -92,12 +142,42 @@ function robotSlot(robot: {
   };
 }
 
-function snapshot(): ProTradeSnapshot {
+function snapshot(overrides: Partial<NonNullable<ProTradeSnapshot["order"]>> = {}): ProTradeSnapshot {
+  const order = {
+    id: 1,
+    status: 1,
+    type: 0,
+    amount: 100,
+    currency: 1,
+    payment_method: "SEPA",
+    premium: 0,
+    satoshis: 1000,
+    is_maker: true,
+    is_taker: false,
+    is_buyer: true,
+    is_seller: false,
+    maker_nick: "Maker",
+    maker_hash_id: "maker",
+    taker_nick: "",
+    taker_hash_id: "",
+    bond_invoice: "",
+    bond_satoshis: 0,
+    escrow_invoice: "",
+    escrow_satoshis: 0,
+    invoice_amount: 0,
+    swap_allowed: false,
+    suggested_mining_fee_rate: 0,
+    swap_fee_rate: 0,
+    expires_at: "2026-07-23T12:00:00Z",
+    shortAlias: "lake",
+    ...overrides
+  };
   return {
-    key: "slot:lake:1",
-    locator: { slotId: robotSlot().tokenSHA256, shortAlias: "lake", orderId: 1 },
+    key: `${robotSlot().tokenSHA256}:lake:${order.id}`,
+    locator: { slotId: robotSlot().tokenSHA256, shortAlias: "lake", orderId: order.id },
     nickname: "GuardedRobot",
     hashId: "hash",
+    order,
     renewable: false,
     released: false,
     freshness: "fresh"

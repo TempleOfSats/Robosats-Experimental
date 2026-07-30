@@ -76,6 +76,7 @@ class MainActivity : AppCompatActivity() {
     private var backgroundedAt = 0L
     private var activityResumed = false
     private var resumeRecoveryRunning = false
+    private var manualReconnectRunning = false
     private var lastFailureHealthCheckAt = 0L
 
     private val filePicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -444,11 +445,9 @@ class MainActivity : AppCompatActivity() {
                 if (resumeRecoveryRunning) return@launch
                 resumeRecoveryRunning = true
                 try {
-                    val status = ArtiTorManager.recoverAfterEndToEndFailure(applicationContext)
-                    torReady = status is TorStatus.Active
-                    bridge?.closeAll()
-                    dispatchNativeResume(0L, transportRefreshed = true, resetTransport = true)
-                    if (torReady) dispatchTorReady()
+                    applyRebuiltTransport(
+                        ArtiTorManager.recoverAfterEndToEndFailure(applicationContext)
+                    )
                 } finally {
                     resumeRecoveryRunning = false
                 }
@@ -456,6 +455,28 @@ class MainActivity : AppCompatActivity() {
                 runTransportHealthCheck(backgroundDurationMs = 0L)
             }
         }
+    }
+
+    fun reconnectTorTransport() {
+        lifecycleScope.launch {
+            if (manualReconnectRunning) return@launch
+            manualReconnectRunning = true
+            try {
+                updateStatusAnimated(getString(R.string.rebuilding_tor_circuits))
+                applyRebuiltTransport(
+                    ArtiTorManager.reset(applicationContext, clearState = false)
+                )
+            } finally {
+                manualReconnectRunning = false
+            }
+        }
+    }
+
+    private fun applyRebuiltTransport(status: TorStatus) {
+        torReady = status is TorStatus.Active
+        bridge?.closeAll()
+        dispatchNativeResume(0L, transportRefreshed = true, resetTransport = true)
+        if (torReady) dispatchTorReady()
     }
 
     private fun runTransportHealthCheck(backgroundDurationMs: Long) {

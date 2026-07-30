@@ -104,6 +104,10 @@ impl DesktopRuntime {
         self.start_with_feedback(app, true, false);
     }
 
+    pub fn reconnect_transport(&self, app: AppHandle) {
+        self.start_with_feedback(app, true, false);
+    }
+
     fn start_with_feedback(&self, app: AppHandle, force: bool, show_splash: bool) {
         let (generation, port, old_child) = {
             let mut inner = self.inner.lock().expect("runtime mutex poisoned");

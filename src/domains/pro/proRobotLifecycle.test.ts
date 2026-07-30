@@ -111,6 +111,25 @@ describe("PRO robot lifecycle", () => {
     })).toMatchObject({
       status: "renewable",
       statusLabel: "Renewable trade",
+      canStartOrder: true,
+      canRemove: true,
+      canOpenTrade: true
+    });
+  });
+
+  it("prioritizes current active work over an older renewable order", () => {
+    const slot = robotSlot();
+
+    expect(deriveProRobotLifecycle(slot, {
+      expired: {
+        ...snapshot(slot, { id: 1, status: 5, is_maker: true }),
+        renewable: true
+      },
+      active: snapshot(slot, { id: 2, status: 1, is_maker: true })
+    })).toMatchObject({
+      status: "ongoing",
+      canStartOrder: false,
+      canRemove: false,
       canOpenTrade: true
     });
   });
