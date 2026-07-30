@@ -12,9 +12,18 @@ import {
 import type { PublicOrder } from "@/domains/orderbook/orderbook.types";
 
 let refreshSequence = 0;
-let refreshInFlight: Promise<void> | undefined;
-let refreshInFlightKey = "";
+let refreshInFlight: OrderbookRefreshRun | undefined;
 const ORDERBOOK_STATE_FRESH_MS = 60 * 1000;
+const API_BOOK_CONCURRENCY = 2;
+
+type OrderbookRefreshPriority = "background" | "visible";
+
+interface OrderbookRefreshRun {
+  activeApiBookUrls: Set<string>;
+  key: string;
+  priority: OrderbookRefreshPriority;
+  promise: Promise<void>;
+}
 
 interface OrderbookRefreshOptions {
   connection?: CoordinatorConnection;
@@ -22,6 +31,7 @@ interface OrderbookRefreshOptions {
   hostUrl?: string;
   network?: Network;
   origin?: Origin;
+  priority?: OrderbookRefreshPriority;
 }
 
 type OrderbookState = {
@@ -54,24 +64,40 @@ export const useOrderbookStore = create<OrderbookState>((set, get) => ({
     const network = options.network ?? "mainnet";
     const origin = options.origin ?? "clearnet";
     const refreshKey = orderbookRefreshKey(coordinators, connection, network, options.hostUrl);
+    const priority = options.force ? "visible" : options.priority ?? "visible";
     const state = get();
     const sameSource = state.sourceConnection === connection && state.sourceNetwork === network && state.sourceOrigin === origin;
 
+    if (refreshInFlight?.key === refreshKey) {
+      if (priority === "visible" && refreshInFlight.priority === "background") {
+        refreshInFlight.priority = "visible";
+        // The API client deduplicates identical GETs and promotes a queued
+        // background request when the visible route asks for the same URL.
+        refreshInFlight.activeApiBookUrls.forEach((url) => {
+          void fetchCoordinatorBook(url, { priority: "visible" }).catch(() => undefined);
+        });
+      }
+      return refreshInFlight.promise;
+    }
+
     if (!options.force) {
-      if (refreshInFlight && refreshInFlightKey === refreshKey) return refreshInFlight;
       if (sameSource && state.lastUpdated && Date.now() - state.lastUpdated < ORDERBOOK_STATE_FRESH_MS && !state.error) return;
     }
 
-    const refresh = runOrderbookRefresh(coordinators, options, set, get).finally(() => {
-      if (refreshInFlight === refresh) {
+    const run: OrderbookRefreshRun = {
+      activeApiBookUrls: new Set(),
+      key: refreshKey,
+      priority,
+      promise: Promise.resolve()
+    };
+    run.promise = runOrderbookRefresh(coordinators, options, run, set, get).finally(() => {
+      if (refreshInFlight === run) {
         refreshInFlight = undefined;
-        refreshInFlightKey = "";
       }
     });
 
-    refreshInFlight = refresh;
-    refreshInFlightKey = refreshKey;
-    return refresh;
+    refreshInFlight = run;
+    return run.promise;
   },
   applyLiveOrders: (orders, connection, network, origin, partial = false) => {
     applyOrderbookSnapshot(set, orders, connection, network, origin, partial);
@@ -81,6 +107,7 @@ export const useOrderbookStore = create<OrderbookState>((set, get) => ({
 async function runOrderbookRefresh(
   coordinators: CoordinatorSummary[],
   options: OrderbookRefreshOptions,
+  run: OrderbookRefreshRun,
   set: (partial: Partial<OrderbookState> | ((state: OrderbookState) => Partial<OrderbookState>)) => void,
   get: () => OrderbookState
 ): Promise<void> {
@@ -176,34 +203,41 @@ async function runOrderbookRefresh(
     // Coordinator status and orderbook endpoints can recover independently,
     // especially across Tor circuit changes. Always try every enabled book;
     // a stale offline badge must not hide a reachable coordinator's offers.
-    const targets = coordinators.filter((coordinator) => coordinator.enabled);
-    const enabledAliases = new Set(targets.map((coordinator) => coordinator.shortAlias));
-    const results = await Promise.all(
-      targets.map(async (coordinator) => {
-        try {
-          const orders = await fetchCoordinatorBook(coordinator.url);
-          const coordinatorOrders = orders.map((order) => ({
-            ...order,
-            coordinatorShortAlias: coordinator.shortAlias
-          }));
-          if (sequence === refreshSequence) {
-            if (firstPartialMs === undefined) firstPartialMs = performance.now() - startedAt;
-            applyApiCoordinatorBook(
-              set,
-              coordinator.shortAlias,
-              coordinatorOrders,
-              enabledAliases,
-              connection,
-              network,
-              origin
-            );
-          }
-          return { coordinator, orders: coordinatorOrders };
-        } catch (error) {
-          return { coordinator, error };
-        }
-      })
+    const targets = prioritizedApiTargets(
+      coordinators.filter((coordinator) => coordinator.enabled),
+      options.hostUrl
     );
+    const enabledAliases = new Set(targets.map((coordinator) => coordinator.shortAlias));
+    const results = await mapWithConcurrency(targets, API_BOOK_CONCURRENCY, async (coordinator) => {
+      run.activeApiBookUrls.add(coordinator.url);
+      try {
+        const orders = await fetchCoordinatorBook(coordinator.url, {
+          force: options.force,
+          priority: run.priority
+        });
+        const coordinatorOrders = orders.map((order) => ({
+          ...order,
+          coordinatorShortAlias: coordinator.shortAlias
+        }));
+        if (sequence === refreshSequence) {
+          if (firstPartialMs === undefined) firstPartialMs = performance.now() - startedAt;
+          applyApiCoordinatorBook(
+            set,
+            coordinator.shortAlias,
+            coordinatorOrders,
+            enabledAliases,
+            connection,
+            network,
+            origin
+          );
+        }
+        return { coordinator, orders: coordinatorOrders };
+      } catch (error) {
+        return { coordinator, error };
+      } finally {
+        run.activeApiBookUrls.delete(coordinator.url);
+      }
+    });
 
     if (sequence !== refreshSequence) return;
     const successfulBooks = results.filter(
@@ -242,6 +276,49 @@ async function runOrderbookRefresh(
       cacheState: state.cacheState,
       error: toUserMessage(error, "Could not load public offers.")
     }));
+  }
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  task: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = [];
+  let nextIndex = 0;
+  const workers = Math.min(Math.max(1, concurrency), items.length);
+  await Promise.all(Array.from({ length: workers }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex++;
+      results[index] = await task(items[index]);
+    }
+  }));
+  return results;
+}
+
+function prioritizedApiTargets(
+  coordinators: CoordinatorSummary[],
+  hostUrl = typeof window === "undefined" ? "" : window.location.origin
+): CoordinatorSummary[] {
+  return coordinators
+    .map((coordinator, index) => ({ coordinator, index }))
+    .sort((left, right) => {
+      const leftHosted = sameOrigin(left.coordinator.url, hostUrl);
+      const rightHosted = sameOrigin(right.coordinator.url, hostUrl);
+      return Number(rightHosted) - Number(leftHosted)
+        || Number(right.coordinator.online) - Number(left.coordinator.online)
+        || (right.coordinator.lastCheckedAt ?? 0) - (left.coordinator.lastCheckedAt ?? 0)
+        || left.index - right.index;
+    })
+    .map(({ coordinator }) => coordinator);
+}
+
+function sameOrigin(candidate: string, hostUrl: string): boolean {
+  if (!candidate || !hostUrl) return false;
+  try {
+    return new URL(candidate).origin === new URL(hostUrl).origin;
+  } catch {
+    return false;
   }
 }
 

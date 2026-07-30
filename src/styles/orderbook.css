@@ -214,10 +214,27 @@
   box-shadow: none;
 }
 
-.robot-avatar-placeholder-image {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+.robot-avatar-placeholder-icon {
+  width: 54%;
+  height: 54%;
+  color: var(--text-supporting);
+  animation: avatar-placeholder-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes avatar-placeholder-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .robot-avatar-placeholder-icon {
+    animation: none;
+  }
 }
 
 .robot-avatar-sm {

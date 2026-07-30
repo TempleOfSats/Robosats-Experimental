@@ -103,9 +103,144 @@ describe("orderbook store reliability", () => {
     expect(useOrderbookStore.getState().orders).toEqual([freshLakeOrder]);
     expect(useOrderbookStore.getState().refreshing).toBe(false);
   });
+
+  it("limits Tor orderbook fan-out while still attempting every coordinator", async () => {
+    const coordinators = [
+      coordinator("lake", "https://lake.example"),
+      coordinator("temple", "https://temple.example"),
+      coordinator("alice", "https://alice.example"),
+      coordinator("bazaar", "https://bazaar.example")
+    ];
+    const pending = new Map<string, ReturnType<typeof deferred<PublicOrder[]>>>();
+    let active = 0;
+    let maximumActive = 0;
+    fetchCoordinatorBook.mockImplementation((url: string) => {
+      active += 1;
+      maximumActive = Math.max(maximumActive, active);
+      const request = deferred<PublicOrder[]>();
+      pending.set(url, request);
+      return request.promise.finally(() => {
+        active -= 1;
+      });
+    });
+
+    const refresh = useOrderbookStore.getState().refreshOrderbook(coordinators, {
+      connection: "api",
+      force: true,
+      network: "mainnet",
+      origin: "onion"
+    });
+
+    await vi.waitFor(() => expect(fetchCoordinatorBook).toHaveBeenCalledTimes(2));
+    pending.get(coordinators[0].url)?.resolve([]);
+    await vi.waitFor(() => expect(fetchCoordinatorBook).toHaveBeenCalledTimes(3));
+    pending.get(coordinators[1].url)?.resolve([]);
+    await vi.waitFor(() => expect(fetchCoordinatorBook).toHaveBeenCalledTimes(4));
+    pending.get(coordinators[2].url)?.resolve([]);
+    pending.get(coordinators[3].url)?.resolve([]);
+    await refresh;
+
+    expect(maximumActive).toBe(2);
+    expect(fetchCoordinatorBook.mock.calls.map(([url]) => url)).toEqual(
+      coordinators.map((item) => item.url)
+    );
+  });
+
+  it("starts the hosted and recently healthy coordinator books first", async () => {
+    const staleOnline = coordinator("stale", "https://stale.example", {
+      lastCheckedAt: 100,
+      online: true
+    });
+    const offline = coordinator("offline", "https://offline.example", {
+      lastCheckedAt: 300,
+      online: false
+    });
+    const recentOnline = coordinator("recent", "https://recent.example", {
+      lastCheckedAt: 200,
+      online: true
+    });
+    const hosted = coordinator("hosted", "https://app.example", {
+      lastCheckedAt: 50,
+      online: false
+    });
+    const firstRequests: string[] = [];
+    const pending = new Map<string, ReturnType<typeof deferred<PublicOrder[]>>>();
+    fetchCoordinatorBook.mockImplementation((url: string) => {
+      firstRequests.push(url);
+      const request = deferred<PublicOrder[]>();
+      pending.set(url, request);
+      return request.promise;
+    });
+
+    const refresh = useOrderbookStore.getState().refreshOrderbook(
+      [staleOnline, offline, recentOnline, hosted],
+      {
+        connection: "api",
+        force: true,
+        hostUrl: "https://app.example",
+        network: "mainnet",
+        origin: "onion"
+      }
+    );
+
+    await vi.waitFor(() => expect(firstRequests).toHaveLength(2));
+    expect(firstRequests).toEqual([hosted.url, recentOnline.url]);
+    pending.get(hosted.url)?.resolve([]);
+    await vi.waitFor(() => expect(firstRequests).toHaveLength(3));
+    pending.get(recentOnline.url)?.resolve([]);
+    await vi.waitFor(() => expect(firstRequests).toHaveLength(4));
+    pending.get(staleOnline.url)?.resolve([]);
+    pending.get(offline.url)?.resolve([]);
+    await refresh;
+  });
+
+  it("uses background book requests until a visible route promotes the refresh", async () => {
+    const lake = coordinator("lake", "https://lake.example");
+    const temple = coordinator("temple", "https://temple.example");
+    const alice = coordinator("alice", "https://alice.example");
+    const initialRequests = new Map<string, ReturnType<typeof deferred<PublicOrder[]>>>();
+    fetchCoordinatorBook.mockImplementation((url: string, options: { priority?: string }) => {
+      if (options.priority === "visible") return Promise.resolve([]);
+      const request = deferred<PublicOrder[]>();
+      initialRequests.set(url, request);
+      return request.promise;
+    });
+
+    const background = useOrderbookStore.getState().refreshOrderbook([lake, temple, alice], {
+      connection: "api",
+      network: "mainnet",
+      origin: "onion",
+      priority: "background"
+    });
+    await vi.waitFor(() => expect(fetchCoordinatorBook).toHaveBeenCalledTimes(2));
+
+    const visible = useOrderbookStore.getState().refreshOrderbook([lake, temple, alice], {
+      connection: "api",
+      network: "mainnet",
+      origin: "onion",
+      priority: "visible"
+    });
+    await vi.waitFor(() => {
+      expect(fetchCoordinatorBook).toHaveBeenCalledWith(lake.url, { priority: "visible" });
+      expect(fetchCoordinatorBook).toHaveBeenCalledWith(temple.url, { priority: "visible" });
+    });
+
+    initialRequests.get(lake.url)?.resolve([]);
+    initialRequests.get(temple.url)?.resolve([]);
+    await Promise.all([background, visible]);
+
+    expect(fetchCoordinatorBook).toHaveBeenCalledWith(alice.url, {
+      force: undefined,
+      priority: "visible"
+    });
+  });
 });
 
-function coordinator(shortAlias: string, url: string): CoordinatorSummary {
+function coordinator(
+  shortAlias: string,
+  url: string,
+  overrides: Partial<CoordinatorSummary> = {}
+): CoordinatorSummary {
   return {
     shortAlias,
     longAlias: shortAlias,
@@ -115,8 +250,19 @@ function coordinator(shortAlias: string, url: string): CoordinatorSummary {
     smallAvatarUrl: "",
     badgeIcons: [],
     enabled: true,
-    online: true
+    online: true,
+    ...overrides
   };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, reject, resolve };
 }
 
 function order(id: number, coordinatorShortAlias: string): PublicOrder {

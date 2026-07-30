@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import { lazy, Suspense, type CSSProperties, type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { AppTransitionFeedback } from "@/domains/navigation/AppTransitionFeedback";
+import { AppTransitionDialog, AppTransitionFeedback } from "@/domains/navigation/AppTransitionFeedback";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -63,7 +63,6 @@ import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
 import { deriveProRobotLifecycle } from "@/domains/pro/proRobotLifecycle";
 import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
 import { formatFiat } from "@/lib/format";
-import { F2FLocationDialog } from "@/domains/location/F2FLocationDialog";
 import {
   CASH_F2F_METHOD,
   hasApproximateF2FLocation,
@@ -73,6 +72,9 @@ import {
 
 const LazyCoordinatorDetailDialog = lazy(() =>
   import("@/domains/coordinators/CoordinatorsPage").then((module) => ({ default: module.CoordinatorDetailDialog }))
+);
+const LazyF2FLocationDialog = lazy(() =>
+  import("@/domains/location/F2FLocationDialog").then((module) => ({ default: module.F2FLocationDialog }))
 );
 const NORMAL_PAYMENT_METHODS = normalPaymentMethodOptions();
 const SWAP_PAYMENT_METHODS = swapPaymentMethodOptions();
@@ -896,12 +898,14 @@ function AmountStep({
       </div>
 
       {showF2FMap ? (
-        <F2FLocationDialog
-          latitude={draft.latitude}
-          longitude={draft.longitude}
-          onClose={() => setShowF2FMap(false)}
-          onConfirm={confirmF2FLocation}
-        />
+        <Suspense fallback={<AppTransitionDialog title="Preparing meeting map" message="Loading the private location picker..." />}>
+          <LazyF2FLocationDialog
+            latitude={draft.latitude}
+            longitude={draft.longitude}
+            onClose={() => setShowF2FMap(false)}
+            onConfirm={confirmF2FLocation}
+          />
+        </Suspense>
       ) : null}
 
       <div className="maker-grid">
@@ -1056,12 +1060,14 @@ function ReviewStep({
         </div>
       ) : null}
       {showF2FMap ? (
-        <F2FLocationDialog
-          latitude={draft.latitude}
-          longitude={draft.longitude}
-          onClose={() => setShowF2FMap(false)}
-          readOnly
-        />
+        <Suspense fallback={<AppTransitionDialog title="Preparing meeting map" message="Loading the approximate meeting area..." />}>
+          <LazyF2FLocationDialog
+            latitude={draft.latitude}
+            longitude={draft.longitude}
+            onClose={() => setShowF2FMap(false)}
+            readOnly
+          />
+        </Suspense>
       ) : null}
     </div>
   );

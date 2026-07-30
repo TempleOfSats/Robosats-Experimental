@@ -5,8 +5,7 @@ import {
 } from "@/app/routes";
 import {
   isStandardGarageRoute,
-  ROUTE_TRANSITION_READY_EVENT,
-  ROUTE_TRANSITION_START_EVENT
+  ROUTE_TRANSITION_READY_EVENT
 } from "@/domains/navigation/routeTransition";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
@@ -26,7 +25,6 @@ import { useOrderbookStore } from "@/domains/orderbook/orderbookStore";
 import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
 import { getNativeTorDiagnostics, isNativeApp } from "@/domains/transport/androidBridge";
 import { subscribeRefreshIntents, type RefreshReason } from "@/domains/transport/refreshIntents";
-import { coordinatorRequestScheduler } from "@/domains/transport/requestScheduler";
 import {
   desktopBackgroundNotificationsEnabled,
   isTauriDesktop
@@ -66,7 +64,10 @@ export function scheduleAppPrewarm(): () => void {
 
   const cleanups = [
     scheduleIdle(prewarmData, 500, 3000),
-    scheduleQuietIdle(preloadQuickAccessRoutes, 900, 7000),
+    // These local route chunks do not use coordinator circuits. Warm them as
+    // soon as the shell is idle so a slow/offline coordinator cannot make the
+    // first Offers or Settings navigation wait on an app-onion round trip.
+    scheduleIdle(preloadQuickAccessRoutes, 900, 7000),
     scheduleIdle(prewarmVisualAssets, 7000, 16000),
     scheduleIdle(prewarmAudioAssets, 45000, 60000),
     scheduleDesktopNotificationRefresh()
@@ -106,7 +107,8 @@ function prewarmData(): void {
         connection: federation.connection,
         hostUrl: currentHostUrl(),
         network: federation.network,
-        origin: federation.origin
+        origin: federation.origin,
+        priority: "background"
       }).catch(() => undefined).then(refreshSecondaryData)
     );
     return;
@@ -127,7 +129,8 @@ async function refreshSecondaryData(): Promise<void> {
     await useOrderbookStore.getState().refreshOrderbook(refreshedFederation.coordinators, {
       connection: refreshedFederation.connection,
       network: refreshedFederation.network,
-      origin: refreshedFederation.origin
+      origin: refreshedFederation.origin,
+      priority: "background"
     });
   }
 }
@@ -266,68 +269,6 @@ function scheduleIdle(callback: () => void, delayMs: number, timeout: number): (
       idleWindow.cancelIdleCallback?.(idleId);
     }
   };
-}
-
-function scheduleQuietIdle(callback: () => void, delayMs: number, timeout: number): () => void {
-  if (typeof window === "undefined") return () => undefined;
-
-  let cancelled = false;
-  let completed = false;
-  let routeTransitionPending = false;
-  let retryTimer: number | undefined;
-  let cancelIdle: () => void = () => undefined;
-
-  const scheduleAttempt = (delay: number) => {
-    if (cancelled || completed) return;
-    if (retryTimer !== undefined) {
-      window.clearTimeout(retryTimer);
-      retryTimer = undefined;
-    }
-    cancelIdle();
-    cancelIdle = scheduleIdle(attempt, delay, timeout);
-  };
-  const attempt = () => {
-    if (cancelled) return;
-    // Visibility and route-transition events will reschedule without polling.
-    if (document.visibilityState !== "visible" || routeTransitionPending) return;
-    if (coordinatorRequestScheduler.hasUserPriorityWork() || inputPending()) {
-      retryTimer = window.setTimeout(() => scheduleAttempt(0), 750);
-      return;
-    }
-    completed = true;
-    callback();
-  };
-  const pause = () => {
-    routeTransitionPending = true;
-  };
-  const resume = () => {
-    routeTransitionPending = false;
-    if (!completed && document.visibilityState === "visible") scheduleAttempt(250);
-  };
-  const handleVisibility = () => {
-    if (!completed && document.visibilityState === "visible") scheduleAttempt(250);
-  };
-
-  window.addEventListener(ROUTE_TRANSITION_START_EVENT, pause);
-  window.addEventListener(ROUTE_TRANSITION_READY_EVENT, resume);
-  document.addEventListener("visibilitychange", handleVisibility);
-  scheduleAttempt(delayMs);
-
-  return () => {
-    cancelled = true;
-    cancelIdle();
-    if (retryTimer !== undefined) window.clearTimeout(retryTimer);
-    window.removeEventListener(ROUTE_TRANSITION_START_EVENT, pause);
-    window.removeEventListener(ROUTE_TRANSITION_READY_EVENT, resume);
-    document.removeEventListener("visibilitychange", handleVisibility);
-  };
-}
-
-function inputPending(): boolean {
-  const scheduling = (navigator as Navigator & {
-    scheduling?: { isInputPending?: () => boolean };
-  }).scheduling;
-  return scheduling?.isInputPending?.() ?? false;
 }
 
 function currentHostUrl(): string | undefined {
