@@ -23,8 +23,7 @@ import {
   X
 } from "lucide-react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { preloadAppRoute } from "@/app/routes";
-import { beginRouteTransition } from "@/app/routeTransition";
+import { beginRouteTransition } from "@/domains/navigation/routeTransition";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import { useOrderbookStore } from "@/domains/orderbook/orderbookStore";
@@ -40,6 +39,7 @@ import { reserveRobotOrderAction, revalidateRobotForNewOrder } from "@/domains/o
 import { downloadRobotTokenBackup } from "@/domains/garage/tokenBackup";
 import { ingestCoordinatorOrder } from "@/domains/orders/orderActivity";
 import { openConfirmedOrder } from "@/domains/orders/confirmedOrderNavigation";
+import { preloadOrderRoute } from "@/domains/orders/orderRoute";
 import { writeClipboard } from "@/lib/clipboard";
 import { fetchOrder, isCompleteOrderActionResponse, submitOrderAction } from "@/domains/orders/orderApi";
 import { roleBuysBitcoin, roleIntentLabel } from "@/domains/orders/orderRole";
@@ -47,7 +47,8 @@ import type { OrderDto } from "@/domains/orders/order.types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
-import { AppTransitionFeedback } from "@/components/app/AppTransitionFeedback";
+import { AppTransitionFeedback } from "@/domains/navigation/AppTransitionFeedback";
+import { preloadStatisticsRoute } from "@/domains/statistics/statisticsRoute";
 import { InfoHint } from "@/components/ui/infoHint";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CurrencyFlag, CurrencyPicker, IntentPicker, PaymentMethodIcons, PaymentMethodPicker, type IntentPickerOption } from "@/domains/orderbook/OfferMeta";
@@ -527,7 +528,7 @@ export function OffersPage() {
 
     setTaking(true);
     setTakeError(undefined);
-    preloadAppRoute("/order");
+    preloadOrderRoute();
     try {
       const actionSlot = await revalidateRobotForNewOrder({
         coordinator: selectedCoordinator,
@@ -625,8 +626,8 @@ export function OffersPage() {
                   beginRouteTransition("/statistics");
                   navigate("/statistics");
                 }}
-                onFocus={() => preloadAppRoute("/statistics")}
-                onPointerEnter={() => preloadAppRoute("/statistics")}
+                onFocus={preloadStatisticsRoute}
+                onPointerEnter={preloadStatisticsRoute}
                 size="sm"
                 title="View market statistics"
                 type="button"

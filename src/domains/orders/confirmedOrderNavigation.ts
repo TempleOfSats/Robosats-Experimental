@@ -1,5 +1,5 @@
 import type { NavigateFunction } from "react-router-dom";
-import { beginRouteTransition } from "@/app/routeTransition";
+import { beginRouteTransition } from "@/domains/navigation/routeTransition";
 import type { OrderDto } from "@/domains/orders/order.types";
 import { useOrderStore } from "@/domains/orders/orderStore";
 

@@ -250,12 +250,19 @@ export class NativeWebSocket extends EventTarget {
   nativeClosed(code: number, reason: string): void {
     this.readyState = NativeWebSocket.CLOSED;
     sockets.delete(this.socketId);
-    this.emit(new CloseEvent("close", { code, reason, wasClean: code === 1000 }), this.onclose);
+    this.emit(createCloseEvent(code, reason, code === 1000), this.onclose);
   }
 
   nativeError(message: string): void {
     this.emit(new ErrorEvent("error", { message }), this.onerror);
     if (this.readyState !== NativeWebSocket.CLOSED) this.nativeClosed(1006, message);
+  }
+
+  nativeReset(reason: string): void {
+    if (this.readyState === NativeWebSocket.CLOSED) return;
+    this.readyState = NativeWebSocket.CLOSED;
+    sockets.delete(this.socketId);
+    this.emit(createCloseEvent(1001, reason, false), this.onclose);
   }
 
   private emit<T extends Event>(event: T, handler: ((this: WebSocket, event: T) => unknown) | null): void {
@@ -272,6 +279,13 @@ function headersToRecord(headers?: HeadersInit): Record<string, string> {
   return headers ? Object.fromEntries(new Headers(headers).entries()) : {};
 }
 
+function createCloseEvent(code: number, reason: string, wasClean: boolean): CloseEvent {
+  if (typeof CloseEvent === "function") {
+    return new CloseEvent("close", { code, reason, wasClean });
+  }
+  return Object.assign(new Event("close"), { code, reason, wasClean }) as CloseEvent;
+}
+
 export function nativeAppBridge(): RoboSatsNativeBridge | undefined {
   if (typeof window === "undefined") return undefined;
   return window.AndroidAppRobosats ?? window.IOSAppRobosats;
@@ -279,6 +293,12 @@ export function nativeAppBridge(): RoboSatsNativeBridge | undefined {
 
 if (typeof window !== "undefined") {
   window.__robosatsNativeTransport = {
+    reset(message) {
+      const reason = message || "Native transport restarted";
+      const error = new DOMException(reason, "AbortError");
+      for (const pending of pendingRequests.values()) pending.reject(error);
+      for (const socket of sockets.values()) socket.nativeReset(reason);
+    },
     resolve(requestId, result) {
       const pending = pendingRequests.get(requestId);
       if (!pending) return;

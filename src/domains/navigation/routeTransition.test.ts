@@ -3,7 +3,7 @@ import {
   beginRouteTransition,
   isMatchingRouteTransition,
   isStandardGarageRoute
-} from "@/app/routeTransition";
+} from "@/domains/navigation/routeTransition";
 
 afterEach(() => {
   vi.unstubAllGlobals();

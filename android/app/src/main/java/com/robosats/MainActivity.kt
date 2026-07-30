@@ -74,6 +74,7 @@ class MainActivity : AppCompatActivity() {
     private var displayedMessageIndex = -1
     private var displayedMessage: String? = null
     private var backgroundedAt = 0L
+    private var activityResumed = false
     private var resumeRecoveryRunning = false
     private var lastFailureHealthCheckAt = 0L
 
@@ -152,19 +153,45 @@ class MainActivity : AppCompatActivity() {
         navigateToPendingOrder()
     }
 
-    override fun onStart() {
-        super.onStart()
+    override fun onResume() {
+        super.onResume()
+        activityResumed = true
         activeActivity = WeakReference(this)
+        webView.onResume()
+        bridge?.resumeTransport()
+        webView.post {
+            if (!activityResumed) return@post
+            webView.isFocusableInTouchMode = true
+            webView.requestFocus(View.FOCUS_DOWN)
+        }
         val pausedAt = backgroundedAt
         if (pausedAt == 0L) return
         backgroundedAt = 0L
         recoverAfterBackground(SystemClock.elapsedRealtime() - pausedAt)
     }
 
-    override fun onStop() {
+    override fun onPause() {
+        activityResumed = false
         if (activeActivity?.get() === this) activeActivity = null
-        if (!isChangingConfigurations) backgroundedAt = SystemClock.elapsedRealtime()
+        webView.onPause()
+        super.onPause()
+    }
+
+    override fun onStop() {
+        if (!isChangingConfigurations) {
+            backgroundedAt = SystemClock.elapsedRealtime()
+            bridge?.suspendTransport()
+        }
         super.onStop()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus && activityResumed && ::webView.isInitialized) {
+            webView.post {
+                if (activityResumed && hasWindowFocus()) webView.requestFocus(View.FOCUS_DOWN)
+            }
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -386,8 +413,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun dispatchTorReady() {
-        if (!webAppReady) return
+        if (!webAppReady || !activityResumed) return
         webView.post {
+            if (!activityResumed) return@post
             webView.evaluateJavascript(
                 "window.dispatchEvent(new CustomEvent('robosats:tor-reconnected'))",
                 null
@@ -397,7 +425,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun recoverAfterBackground(backgroundDurationMs: Long) {
         if (!webAppReady) return
-        dispatchNativeResume(backgroundDurationMs, transportRefreshed = false)
+        Log.d("RoboSatsLifecycle", "Resuming after ${backgroundDurationMs}ms in background")
+        dispatchNativeResume(
+            backgroundDurationMs,
+            transportRefreshed = false,
+            resetTransport = true
+        )
         if (backgroundDurationMs < TRANSPORT_HEALTH_CHECK_AFTER_MS) return
         runTransportHealthCheck(backgroundDurationMs)
     }
@@ -414,7 +447,7 @@ class MainActivity : AppCompatActivity() {
                     val status = ArtiTorManager.recoverAfterEndToEndFailure(applicationContext)
                     torReady = status is TorStatus.Active
                     bridge?.closeAll()
-                    dispatchNativeResume(0L, transportRefreshed = true)
+                    dispatchNativeResume(0L, transportRefreshed = true, resetTransport = true)
                     if (torReady) dispatchTorReady()
                 } finally {
                     resumeRecoveryRunning = false
@@ -435,7 +468,11 @@ class MainActivity : AppCompatActivity() {
                 if (result.transportRebuilt) {
                     lastFailureHealthCheckAt = SystemClock.elapsedRealtime()
                     bridge?.closeAll()
-                    dispatchNativeResume(backgroundDurationMs, transportRefreshed = true)
+                    dispatchNativeResume(
+                        backgroundDurationMs,
+                        transportRefreshed = true,
+                        resetTransport = true
+                    )
                     if (torReady) dispatchTorReady()
                 }
             } finally {
@@ -444,24 +481,35 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun dispatchNativeResume(backgroundDurationMs: Long, transportRefreshed: Boolean) {
-        if (!webAppReady) return
+    private fun dispatchNativeResume(
+        backgroundDurationMs: Long,
+        transportRefreshed: Boolean,
+        resetTransport: Boolean = false
+    ) {
+        if (!webAppReady || !activityResumed) return
         val detail = JSONObject()
             .put("backgroundMs", backgroundDurationMs)
             .put("transportRefreshed", transportRefreshed)
             .put("torReady", torReady)
+        val reset = if (resetTransport) {
+            "window.__robosatsNativeTransport?.reset('Android app resumed');"
+        } else {
+            ""
+        }
         webView.post {
+            if (!activityResumed) return@post
             webView.evaluateJavascript(
-                "window.dispatchEvent(new CustomEvent('robosats:native-resume', {detail: $detail}))",
+                "$reset window.dispatchEvent(new CustomEvent('robosats:native-resume', {detail: $detail}))",
                 null
             )
         }
     }
 
     private fun dispatchNativeOrderHint(orderId: String?) {
-        if (!webAppReady) return
+        if (!webAppReady || !activityResumed) return
         val detail = JSONObject().put("orderId", orderId)
         webView.post {
+            if (!activityResumed) return@post
             webView.evaluateJavascript(
                 "window.dispatchEvent(new CustomEvent('robosats:native-order-hint', {detail: $detail}))",
                 null

@@ -93,6 +93,57 @@ describe("Native transport bridge", () => {
     expect(cancelHttpRequest).toHaveBeenCalledOnce();
   });
 
+  it("atomically rejects pending requests when native transport restarts", async () => {
+    const bridgeWindow = {
+      AndroidAppRobosats: {
+        httpRequest: vi.fn(),
+        cancelHttpRequest: vi.fn()
+      },
+      __robosatsNativeTransport: undefined as Window["__robosatsNativeTransport"]
+    };
+    vi.stubGlobal("window", bridgeWindow);
+    const { nativeHttpRequest } = await import("./androidBridge");
+    const request = nativeHttpRequest("http://coordinator.onion/api/", {}, 90_000);
+    const rejection = expect(request).rejects.toMatchObject({
+      name: "AbortError",
+      message: "App resumed"
+    });
+
+    bridgeWindow.__robosatsNativeTransport?.reset("App resumed");
+
+    await rejection;
+  });
+
+  it("closes native sockets once when transport restarts", async () => {
+    const bridgeWindow = {
+      AndroidAppRobosats: {
+        httpRequest: vi.fn(),
+        openWebSocket: vi.fn(),
+        sendWebSocket: vi.fn(() => true),
+        closeWebSocket: vi.fn()
+      },
+      __robosatsNativeTransport: undefined as Window["__robosatsNativeTransport"]
+    };
+    vi.stubGlobal("window", bridgeWindow);
+    const { NativeWebSocket } = await import("./androidBridge");
+    const socket = new NativeWebSocket("ws://relay.onion/relay/");
+    const closed = vi.fn();
+    socket.addEventListener("close", closed);
+    const socketId = bridgeWindow.AndroidAppRobosats.openWebSocket.mock.calls[0]?.[0] as string;
+    bridgeWindow.__robosatsNativeTransport?.webSocketOpen(socketId, "");
+
+    bridgeWindow.__robosatsNativeTransport?.reset("App resumed");
+    bridgeWindow.__robosatsNativeTransport?.webSocketClosed(socketId, 1000, "late callback");
+
+    expect(socket.readyState).toBe(NativeWebSocket.CLOSED);
+    expect(closed).toHaveBeenCalledOnce();
+    expect(closed.mock.calls[0]?.[0]).toMatchObject({
+      code: 1001,
+      reason: "App resumed",
+      wasClean: false
+    });
+  });
+
   it("discards sends after close like a browser WebSocket", async () => {
     const bridgeWindow = {
       AndroidAppRobosats: {
