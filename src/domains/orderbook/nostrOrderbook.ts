@@ -273,7 +273,7 @@ class NostrOrderbookSession {
   }
 
   private handleEvent(event: Event, relay: string): void {
-    if (this.closed || !verifyEvent(event)) return;
+    if (this.closed || this.events.has(event.id) || !verifyEvent(event)) return;
     const relayIndex = this.relays.indexOf(relay);
     if (relayIndex >= 0) this.relayRetryAttempts.delete(relayIndex);
     noteRelayEvent(relay);

@@ -16,7 +16,6 @@ import {
   saveUiPreferences
 } from "@/domains/settings/uiPreferences";
 import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
-import { syncAllProDataNow } from "@/domains/pro/proRuntime";
 import { useGarageVaultStore } from "@/domains/pro/garageVaultStore";
 import {
   OnionIcon,
@@ -36,7 +35,7 @@ import {
   isTauriDesktop,
   setDesktopNotificationsEnabled
 } from "@/domains/transport/tauriBridge";
-import "@/domains/pro/proWorkspace.css";
+import "@/domains/pro/proFleet.css";
 
 const GarageRobotSettingsDialog = lazy(() =>
   import("@/domains/garage/RobotGaragePage").then((module) => ({ default: module.RobotSettingsDialog }))
@@ -59,13 +58,11 @@ const FleetKeyDialog = lazy(() =>
 
 export function SettingsPage() {
   const navigate = useNavigate();
-  const {
-    connection,
-    coordinators,
-    network,
-    setConnection,
-    setNetwork
-  } = useFederationStore();
+  const connection = useFederationStore((state) => state.connection);
+  const coordinators = useFederationStore((state) => state.coordinators);
+  const network = useFederationStore((state) => state.network);
+  const setConnection = useFederationStore((state) => state.setConnection);
+  const setNetwork = useFederationStore((state) => state.setNetwork);
   const allSlots = useGarageStore((state) => state.slots);
   const slots = selectStandardGarageSlots(allSlots);
   const currentToken = useGarageStore((state) => state.currentToken);
@@ -273,7 +270,9 @@ export function SettingsPage() {
                     variant="outline"
                     disabled={garageVaultStatus !== "ready"}
                     loading={garageSyncStatus === "saving"}
-                    onClick={() => void syncAllProDataNow(coordinators, { forcePublish: true }).catch(() => undefined)}
+                    onClick={() => void import("@/domains/pro/proRuntime")
+                      .then(({ syncAllProDataNow }) => syncAllProDataNow(coordinators, { forcePublish: true }))
+                      .catch(() => undefined)}
                   >
                     <RefreshCw size={16} /> Sync now
                   </Button>

@@ -30,11 +30,16 @@ export async function fetchCoordinatorLimits(
   });
 }
 
-export async function fetchCoordinatorBook(baseUrl: string): Promise<PublicOrder[]> {
+export async function fetchCoordinatorBook(
+  baseUrl: string,
+  options: { force?: boolean; priority?: "background" | "visible" } = {}
+): Promise<PublicOrder[]> {
+  const visible = options.force || options.priority !== "background";
   const data = await apiClient.get<PublicOrderApi[] | { orders?: PublicOrderApi[] }>(baseUrl, apiRoutes.book, undefined, {
-    timeoutProfile: "interactive",
-    priority: "visible",
-    source: "orderbook-fallback"
+    bypassCircuit: options.force,
+    timeoutProfile: visible ? "interactive" : "background",
+    priority: visible ? "visible" : "background",
+    source: options.force ? "manual" : visible ? "orderbook-fallback" : "prewarm"
   });
   const orders = Array.isArray(data) ? data : data.orders ?? [];
   return orders.map(normalizePublicOrder);

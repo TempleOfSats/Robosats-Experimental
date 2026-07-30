@@ -3,6 +3,7 @@ import type { Event } from "nostr-tools";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 
 const poolState = vi.hoisted(() => ({
+  verifyEvent: vi.fn(() => true),
   subscriptions: [] as Array<{
     relays: string[];
     params: { onevent?: (event: Event) => void; oneose?: () => void; onclose?: () => void };
@@ -11,7 +12,7 @@ const poolState = vi.hoisted(() => ({
 
 vi.mock("nostr-tools", async (importOriginal) => {
   const actual = await importOriginal<typeof import("nostr-tools")>();
-  return { ...actual, verifyEvent: () => true };
+  return { ...actual, verifyEvent: poolState.verifyEvent };
 });
 
 vi.mock("@/domains/nostr/sharedRelayPool", () => ({
@@ -59,6 +60,7 @@ describe("nostr orderbook", () => {
     resetNostrOrderbookSession();
     resetLiveRelaySubscriptionsForTests();
     resetRelayHealthForTests();
+    poolState.verifyEvent.mockClear();
     poolState.subscriptions.length = 0;
   });
 
@@ -163,6 +165,17 @@ describe("nostr orderbook", () => {
     ];
 
     expect(selectNostrRelays(coordinators)).toEqual(selectNostrRelays(coordinators));
+  });
+
+  it("does not verify the same relay event more than once", () => {
+    const unsubscribe = subscribeNostrOrderbook([coordinator], "mainnet");
+    const pending = event({ tags: baseTags({ status: "pending" }) });
+
+    poolState.subscriptions[0].params.onevent?.(pending);
+    poolState.subscriptions[0].params.onevent?.(pending);
+
+    expect(poolState.verifyEvent).toHaveBeenCalledOnce();
+    unsubscribe();
   });
 
   it("prefers relays whose coordinators are already known online", () => {

@@ -11,7 +11,7 @@
   "src/domains/maker/CreateOrderPage.tsx#submit": 22,
   "src/domains/orderbook/BeginnerTradeWizard.tsx#BeginnerTradeWizard": 37,
   "src/domains/orderbook/OfferMeta.tsx#PaymentMethodPicker": 24,
-  "src/domains/orderbook/OffersPage.tsx#OffersPage": 62,
+  "src/domains/orderbook/OffersPage.tsx#OffersPage": 61,
   "src/domains/orderbook/OffersPage.tsx#TakeOfferModal": 33,
   "src/domains/orderbook/nostrOrderbook.ts#nostrEventToPublicOrder": 28,
   "src/domains/orders/OrderPage.tsx#ContractPanel": 22,

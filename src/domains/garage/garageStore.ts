@@ -33,6 +33,8 @@ const robotRefreshes = new Map<string, RobotRefreshRun>();
 const activeRobotRefreshSessions = new Map<string, string>();
 const pendingRobotRefreshSessions = new Map<string, Set<string>>();
 let robotRefreshSequence = 0;
+let pendingSlotsPersistence: { slots: RobotSlot[]; currentToken?: string } | undefined;
+let persistenceLifecycleRegistered = false;
 
 export type RobotSlot = RobotIdentity & {
   nickname: string;
@@ -359,7 +361,6 @@ export const useGarageStore: UseBoundStore<StoreApi<GarageState>> = create<Garag
               }
             : item
         );
-        persistSlots(slots, state.currentToken ?? slot.token);
         return { ...state, slots };
       });
 
@@ -451,6 +452,7 @@ export const useGarageStore: UseBoundStore<StoreApi<GarageState>> = create<Garag
         coordinators: results
       } satisfies RefreshRobotSlotResult);
     })().finally(() => {
+      flushScheduledSlotsPersistence();
       if (robotRefreshes.get(refreshKey) === run) robotRefreshes.delete(refreshKey);
     });
 
@@ -680,7 +682,7 @@ function applyRobotRefreshResult(
         }
       });
     });
-    persistSlots(slots, state.currentToken ?? slot.token);
+    scheduleSlotsPersistence(slots, state.currentToken ?? slot.token);
     return { ...state, slots };
   });
 }
@@ -741,6 +743,7 @@ function parseStoredSlots(rawSlots: string | null): RobotSlot[] {
 }
 
 function persistSlots(slots: RobotSlot[], currentToken?: string): void {
+  cancelScheduledSlotsPersistence();
   const persistedSlots = slotsForPersistentStorage(slots);
   const stored: StoredRobotSlot[] = persistedSlots.map((slot) => ({
       token: slot.token,
@@ -762,6 +765,38 @@ function persistSlots(slots: RobotSlot[], currentToken?: string): void {
   };
   systemClient.setItem(GARAGE_SLOTS_KEY, JSON.stringify(versioned));
   persistCurrentToken(persistedSlots, currentToken);
+}
+
+function scheduleSlotsPersistence(slots: RobotSlot[], currentToken?: string): void {
+  pendingSlotsPersistence = { slots, currentToken };
+  ensurePersistenceLifecycleListeners();
+}
+
+function flushScheduledSlotsPersistence(): void {
+  const pending = pendingSlotsPersistence;
+  cancelScheduledSlotsPersistence();
+  if (pending) persistSlots(pending.slots, pending.currentToken);
+}
+
+function cancelScheduledSlotsPersistence(): void {
+  pendingSlotsPersistence = undefined;
+}
+
+function ensurePersistenceLifecycleListeners(): void {
+  if (
+    persistenceLifecycleRegistered
+    || typeof window === "undefined"
+    || typeof window.addEventListener !== "function"
+  ) return;
+  persistenceLifecycleRegistered = true;
+  window.addEventListener("pagehide", flushScheduledSlotsPersistence);
+  if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") {
+        flushScheduledSlotsPersistence();
+      }
+    });
+  }
 }
 
 function slotsForPersistentStorage(slots: RobotSlot[]): RobotSlot[] {

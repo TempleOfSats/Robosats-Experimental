@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Banknote, Check, ChevronDown, Clock, Copy, Download, ExternalLink, FileText, Link2, MapPin, Paperclip, RefreshCw, Rocket, ShieldAlert, Star, Tag, WifiOff, AlertTriangle, XCircle, Zap } from "lucide-react";
@@ -30,7 +30,7 @@ import { tradePreviewOrder } from "@/domains/orders/tradePreviewFixtures";
 import { isOrderReferenceSatsApproximate, orderReferenceSats, orderReferenceSatsRange } from "@/domains/orders/orderModel";
 import type { OrderDto, SubmitOrderActionPayload } from "@/domains/orders/order.types";
 import { buildProvisionalMakerOrder, buildRenewOrderPayload, createOrder } from "@/domains/maker/makerApi";
-import { ingestCoordinatorOrder } from "@/domains/orders/orderActivity";
+import { ingestCoordinatorOrder, recordCoordinatorSettlement } from "@/domains/orders/orderActivity";
 import { tradeStatusLabel } from "@/domains/orders/orderStatus";
 import type { Auth } from "@/domains/transport/apiClient";
 import { tradeMotionClass } from "@/domains/motion/tradeMotion";
@@ -52,12 +52,15 @@ import { fetchChatMessages } from "@/domains/chat/chatApi";
 import { decryptChatMessage } from "@/domains/chat/chatCrypto";
 import { toUserMessage } from "@/lib/userError";
 import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
-import { recordProSettlementInvoice } from "@/domains/pro/proOrderActivity";
 import { isNativeApp } from "@/domains/transport/androidBridge";
 import { runRefreshIntent, subscribeRefreshIntents } from "@/domains/transport/refreshIntents";
-import { F2FLocationDialog } from "@/domains/location/F2FLocationDialog";
 import { hasApproximateF2FLocation, paymentMethodHasF2F } from "@/domains/location/f2fLocation";
 import { registerVisibleTrade } from "@/domains/notifications/orderFeedbackVisibility";
+import { AppTransitionDialog } from "@/domains/navigation/AppTransitionFeedback";
+
+const LazyF2FLocationDialog = lazy(() =>
+  import("@/domains/location/F2FLocationDialog").then((module) => ({ default: module.F2FLocationDialog }))
+);
 
 export function OrderPage({
   embeddedLocator,
@@ -394,11 +397,13 @@ export function OrderPage({
                 && clearInvoice
                 && !result.error
                 && !result.order?.bad_invoice) {
-                recordProSettlementInvoice({
+                recordCoordinatorSettlement({
                   slotId: currentSlot.tokenSHA256,
                   shortAlias: coordinator.shortAlias,
-                  orderId: order.id
-                }, "payout-received", clearInvoice);
+                  orderId: order.id,
+                  purpose: "payout-received",
+                  value: clearInvoice
+                });
               }
             }}
           />
@@ -846,12 +851,14 @@ function OrderDetailsPanel({
         </CardContent>
       </details>
       {showF2FMap ? (
-        <F2FLocationDialog
-          latitude={order.latitude}
-          longitude={order.longitude}
-          onClose={() => setShowF2FMap(false)}
-          readOnly
-        />
+        <Suspense fallback={<AppTransitionDialog title="Preparing meeting map" message="Loading the approximate meeting area..." />}>
+          <LazyF2FLocationDialog
+            latitude={order.latitude}
+            longitude={order.longitude}
+            onClose={() => setShowF2FMap(false)}
+            readOnly
+          />
+        </Suspense>
       ) : null}
     </Card>
   );

@@ -4,6 +4,7 @@ import { useGarageStore } from "@/domains/garage/garageStore";
 import { buildProvisionalMakerOrder } from "@/domains/maker/makerApi";
 import {
   ingestCoordinatorOrder,
+  recordCoordinatorSettlement,
   resetCoordinatorOrderActivityForTests
 } from "@/domains/orders/orderActivity";
 import type { OrderDto } from "@/domains/orders/order.types";
@@ -173,6 +174,33 @@ describe("foreground order activity", () => {
     expect(useProTradeIndexStore.getState().snapshots["slot-id:lake:43"]).toMatchObject({
       settlementInvoice: "lnbc2000n1sellerinvoice0123456789",
       settlementInvoicePurpose: "escrow-paid"
+    });
+  });
+
+  it("replays a foreground payout submission after the Pro runtime loads lazily", () => {
+    stopBridge?.();
+    stopBridge = undefined;
+    useProTradeIndexStore.getState().resetRuntimeCache();
+
+    ingestCoordinatorOrder({
+      order: order({ id: 42, status: 8, is_buyer: true, is_seller: false }),
+      shortAlias: "lake",
+      slot
+    });
+    recordCoordinatorSettlement({
+      slotId: slot.tokenSHA256,
+      shortAlias: "lake",
+      orderId: 42,
+      purpose: "payout-received",
+      value: "lnbc1000n1buyerinvoice0123456789"
+    });
+
+    expect(useProTradeIndexStore.getState().snapshots["slot-id:lake:42"]).toBeUndefined();
+    stopBridge = startProOrderActivityBridge();
+
+    expect(useProTradeIndexStore.getState().snapshots["slot-id:lake:42"]).toMatchObject({
+      settlementInvoice: "lnbc1000n1buyerinvoice0123456789",
+      settlementInvoicePurpose: "payout-received"
     });
   });
 

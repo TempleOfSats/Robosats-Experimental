@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { fetchCoordinatorInfoMock, fetchCoordinatorLimitsMock } = vi.hoisted(() => ({
   fetchCoordinatorInfoMock: vi.fn(),
@@ -60,6 +60,18 @@ const coordinator: CoordinatorDefinition = {
 beforeEach(() => {
   fetchCoordinatorInfoMock.mockReset();
   fetchCoordinatorLimitsMock.mockReset();
+  const storage = new Map<string, string>();
+  const localStorage = {
+    getItem: (key: string) => storage.get(key) ?? null,
+    setItem: vi.fn((key: string, value: string) => storage.set(key, value)),
+    removeItem: (key: string) => storage.delete(key)
+  };
+  vi.stubGlobal("localStorage", localStorage);
+  vi.stubGlobal("window", { localStorage, location: { origin: "http://client.onion" } });
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 describe("buildCoordinatorSummary", () => {
@@ -205,5 +217,42 @@ describe("buildCoordinatorSummary", () => {
     });
 
     expect(useFederationStore.getState().coordinators[0]?.online).toBe(false);
+  });
+
+  it("writes one combined cache snapshot after refreshing the federation", async () => {
+    const summary = buildCoordinatorSummary(coordinator, {
+      network: "mainnet",
+      origin: "onion",
+      selfhostedClient: false
+    });
+    const second = {
+      ...summary,
+      shortAlias: "temple",
+      longAlias: "Temple of Sats",
+      identifier: "temple",
+      url: "http://temple.onion"
+    };
+    fetchCoordinatorInfoMock.mockResolvedValue({
+      maker_fee: 0.002,
+      taker_fee: 0.002,
+      swap_enabled: false,
+      notice_severity: "none",
+      notice_message: ""
+    } as CoordinatorInfo);
+    useFederationStore.setState({
+      connection: "nostr",
+      coordinators: [summary, second],
+      lastRefreshed: undefined,
+      network: "mainnet",
+      origin: "onion",
+      refreshing: false,
+      selfhostedClient: false
+    });
+
+    await useFederationStore.getState().refreshCoordinators({ force: true });
+
+    expect(vi.mocked(globalThis.localStorage.setItem).mock.calls.filter(
+      ([key]) => key === "robosats_exp_federation_cache_v1"
+    )).toHaveLength(1);
   });
 });
