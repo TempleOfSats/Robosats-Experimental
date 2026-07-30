@@ -204,6 +204,66 @@ describe("Native transport bridge", () => {
     expect(setNotificationsEnabled).toHaveBeenCalledWith(false);
   });
 
+  it("requests an explicit native Tor reconnect when supported", async () => {
+    const reconnectTorTransport = vi.fn();
+    const recoverTorTransport = vi.fn();
+    vi.stubGlobal("window", {
+      AndroidAppRobosats: {
+        httpRequest: vi.fn(),
+        reconnectTorTransport,
+        recoverTorTransport
+      }
+    });
+
+    const { requestNativeTorReconnect } = await import("./androidBridge");
+
+    expect(requestNativeTorReconnect()).toBe(true);
+    expect(reconnectTorTransport).toHaveBeenCalledOnce();
+    expect(recoverTorTransport).not.toHaveBeenCalled();
+  });
+
+  it("requests an explicit iOS Tor reconnect when supported", async () => {
+    const reconnectTorTransport = vi.fn();
+    vi.stubGlobal("window", {
+      IOSAppRobosats: {
+        httpRequest: vi.fn(),
+        reconnectTorTransport
+      }
+    });
+
+    const { requestNativeTorReconnect } = await import("./androidBridge");
+
+    expect(requestNativeTorReconnect()).toBe(true);
+    expect(reconnectTorTransport).toHaveBeenCalledOnce();
+  });
+
+  it("does not substitute cooldown-protected automatic recovery", async () => {
+    const recoverTorTransport = vi.fn();
+    vi.stubGlobal("window", {
+      IOSAppRobosats: {
+        httpRequest: vi.fn(),
+        recoverTorTransport
+      }
+    });
+
+    const { requestNativeTorReconnect } = await import("./androidBridge");
+
+    expect(requestNativeTorReconnect()).toBe(false);
+    expect(recoverTorTransport).not.toHaveBeenCalled();
+  });
+
+  it("reports when native Tor reconnect is unavailable", async () => {
+    vi.stubGlobal("window", {
+      AndroidAppRobosats: {
+        httpRequest: vi.fn()
+      }
+    });
+
+    const { requestNativeTorReconnect } = await import("./androidBridge");
+
+    expect(requestNativeTorReconnect()).toBe(false);
+  });
+
   it("uses the iOS bridge when Android is not present", async () => {
     const bridgeWindow = {
       IOSAppRobosats: {

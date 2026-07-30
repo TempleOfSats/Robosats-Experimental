@@ -1,9 +1,8 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { ALargeSmall, BarChart3, BellRing, BookOpen, ChevronRight, ExternalLink, Info, KeyRound, Link2, Palette, PanelsTopLeft, RadioTower, RefreshCw, Users, WalletCards, X } from "lucide-react";
+import { ALargeSmall, BarChart3, BellRing, BookOpen, ChevronRight, ExternalLink, Info, KeyRound, Link2, Palette, PanelsTopLeft, RadioTower, RefreshCw, Users, WalletCards } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { AppTransitionDialog } from "@/domains/navigation/AppTransitionFeedback";
 import { Button } from "@/components/ui/button";
-import { Dialog } from "@/components/ui/dialog";
 import { RobotIcon } from "@/components/ui/robotIcon";
 import { Card, CardContent } from "@/components/ui/card";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
@@ -20,19 +19,21 @@ import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
 import { syncAllProDataNow } from "@/domains/pro/proRuntime";
 import { useGarageVaultStore } from "@/domains/pro/garageVaultStore";
 import {
+  OnionIcon,
+  TorConnectionDialog,
+  torStatusLabel,
+  useNativeTorConnection
+} from "@/domains/settings/TorConnectionSettings";
+import {
   getNativeNotificationState,
-  getNativeTorDiagnostics,
   isAndroidApp,
   isIOSApp,
   setNativeNotificationsEnabled,
-  type AndroidNotificationState,
-  type AndroidTorDiagnostics
+  type AndroidNotificationState
 } from "@/domains/transport/androidBridge";
 import {
   getDesktopNotificationState,
-  getDesktopTorDiagnostics,
   isTauriDesktop,
-  retryDesktopTor,
   setDesktopNotificationsEnabled
 } from "@/domains/transport/tauriBridge";
 import "@/domains/pro/proWorkspace.css";
@@ -78,7 +79,8 @@ export function SettingsPage() {
   const desktopRuntime = isTauriDesktop();
   const nativeRuntime = androidRuntime || iosRuntime || desktopRuntime;
   const [notificationState, setNotificationState] = useState<AndroidNotificationState | null>(null);
-  const [torDiagnostics, setTorDiagnostics] = useState<AndroidTorDiagnostics | null>(null);
+  const torConnection = useNativeTorConnection(nativeRuntime, desktopRuntime);
+  const torDiagnostics = torConnection.diagnostics;
   const [showTorDetails, setShowTorDetails] = useState(false);
   const [showRobotSettings, setShowRobotSettings] = useState(false);
   const [showRobotKeys, setShowRobotKeys] = useState(false);
@@ -133,25 +135,14 @@ export function SettingsPage() {
     if (!nativeRuntime) return;
     const refresh = () => {
       if (desktopRuntime) {
-        void Promise.all([
-          getDesktopNotificationState(),
-          getDesktopTorDiagnostics()
-        ]).then(([notifications, diagnostics]) => {
-          setNotificationState(notifications);
-          setTorDiagnostics(diagnostics);
-        });
+        void getDesktopNotificationState().then(setNotificationState);
       } else {
         setNotificationState(getNativeNotificationState());
-        setTorDiagnostics(getNativeTorDiagnostics());
       }
     };
     refresh();
     window.addEventListener("robosats:native-notification-state", refresh);
-    window.addEventListener("robosats:tor-reconnected", refresh);
-    return () => {
-      window.removeEventListener("robosats:native-notification-state", refresh);
-      window.removeEventListener("robosats:tor-reconnected", refresh);
-    };
+    return () => window.removeEventListener("robosats:native-notification-state", refresh);
   }, [desktopRuntime, nativeRuntime]);
 
   return (
@@ -202,11 +193,7 @@ export function SettingsPage() {
               type="button"
               onClick={() => {
                 setShowTorDetails(true);
-                if (desktopRuntime) {
-                  void getDesktopTorDiagnostics().then(setTorDiagnostics);
-                } else {
-                  setTorDiagnostics(getNativeTorDiagnostics());
-                }
+                void torConnection.refresh();
               }}
             >
               <OnionIcon />
@@ -477,52 +464,10 @@ export function SettingsPage() {
       ) : null}
 
       {showTorDetails ? (
-        <Dialog
-          ariaLabelledby="tor-details-title"
-          dismissOnBackdrop
+        <TorConnectionDialog
+          {...torConnection}
           onClose={() => setShowTorDetails(false)}
-          overlayClassName="confirm-overlay"
-          panelClassName="confirm-sheet settings-tor-dialog"
-        >
-            <header className="settings-tor-dialog-header">
-              <span className="settings-onion-mark settings-onion-mark-large"><OnionIcon /></span>
-              <span>
-                <h3 id="tor-details-title">Tor connection</h3>
-                <p>{torStatusLabel(torDiagnostics)}</p>
-              </span>
-              <Button size="icon" variant="ghost" aria-label="Close Tor details" onClick={() => setShowTorDetails(false)}><X size={18} /></Button>
-            </header>
-            <div className={`settings-tor-health ${torDiagnostics?.connected ? "connected" : ""}`}>
-              <span aria-hidden="true" />
-              {torDiagnostics?.connected ? "Traffic is routed through Tor" : "Tor is not ready"}
-            </div>
-            <dl className="settings-tor-details">
-              <div><dt>State</dt><dd>{torDiagnostics?.state ?? "Unavailable"}</dd></div>
-              <div><dt>Engine</dt><dd>{torDiagnostics?.implementation ?? "Arti"}</dd></div>
-              <div><dt>Arti build</dt><dd>{torDiagnostics?.artiVersion ?? "Unavailable"}</dd></div>
-              <div><dt>Native client</dt><dd>{torDiagnostics?.clientInitialized && torDiagnostics.proxyRunning ? "Ready" : "Not ready"}</dd></div>
-              <div><dt>SOCKS proxy</dt><dd>{torDiagnostics?.socksHost && torDiagnostics.socksPort ? `${torDiagnostics.socksHost}:${torDiagnostics.socksPort}` : "Not listening"}</dd></div>
-              <div><dt>Network</dt><dd>{torDiagnostics?.networkAvailable ? "Available" : "Unavailable"}</dd></div>
-              <div><dt>Routing</dt><dd>{torDiagnostics?.routing ?? "Native Tor transport"}</dd></div>
-              <div><dt>App</dt><dd>RoboSats Exp. {torDiagnostics?.appVersion ?? ""}</dd></div>
-            </dl>
-            {torDiagnostics?.error ? <p className="field-error" role="alert">{torDiagnostics.error}</p> : null}
-            <Button
-              variant="secondary"
-              className="full-width"
-              onClick={() => {
-                if (desktopRuntime) {
-                  void retryDesktopTor()
-                    .then(() => getDesktopTorDiagnostics())
-                    .then(setTorDiagnostics);
-                } else {
-                  setTorDiagnostics(getNativeTorDiagnostics());
-                }
-              }}
-            >
-              {desktopRuntime && torDiagnostics?.state === "failed" ? "Retry connection" : "Check connection"}
-            </Button>
-        </Dialog>
+        />
       ) : null}
 
       {showRobotSettings && activeSlot ? (
@@ -577,27 +522,9 @@ export function SettingsPage() {
   }
 }
 
-function torStatusLabel(diagnostics: AndroidTorDiagnostics | null): string {
-  if (!diagnostics) return "Checking...";
-  if (diagnostics.connected) return "Connected";
-  if (diagnostics.state === "connecting") return "Connecting...";
-  if (diagnostics.state === "failed") return "Connection failed";
-  return "Disconnected";
-}
-
 function syncStatusLabel(status: "idle" | "saving" | "up-to-date" | "offline", lastSyncAt?: number): string {
   if (status === "saving") return "Saving";
   if (status === "offline") return "Offline, changes will sync";
   if (status !== "up-to-date" || !lastSyncAt) return "Not saved yet";
   return `Up to date · ${new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(lastSyncAt)}`;
-}
-
-function OnionIcon({ size = 20 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M12 3c0 2.3-1.7 3.2-3.4 4.3C6.4 8.7 5 10.6 5 13.2A7 7 0 0 0 19 13c0-2.5-1.4-4.4-3.6-5.8C13.7 6.1 12 5.2 12 3Z" />
-      <path d="M12 7.1c0 1.5-1 2.2-2.1 3.1-1.1.8-1.8 1.8-1.8 3.2a3.9 3.9 0 0 0 7.8 0c0-1.4-.7-2.4-1.8-3.2C13 9.3 12 8.6 12 7.1Z" />
-      <path d="M12 11.3c-.8.8-1.4 1.4-1.4 2.4a1.4 1.4 0 0 0 2.8 0c0-1-.6-1.6-1.4-2.4Z" />
-    </svg>
-  );
 }

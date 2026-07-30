@@ -9,6 +9,13 @@ export type RobotOrderAvailability = {
   message?: string;
 };
 
+export function isExpiredRenewableOrder(snapshot: ProTradeSnapshot): boolean {
+  if (snapshot.order) {
+    return snapshot.order.status === 5 && Boolean(snapshot.order.is_maker);
+  }
+  return snapshot.renewable;
+}
+
 export function getRobotOrderAvailability(
   slot: RobotSlot | undefined,
   snapshots: Record<string, ProTradeSnapshot> = {},
@@ -19,11 +26,34 @@ export function getRobotOrderAvailability(
     return { available: false, reason: "pending", message: `${slot.nickname} is already starting another order.` };
   }
 
-  const reservedByGarage = Boolean(slot.activeOrderId) || Object.values(slot.robots).some((robot) =>
-    Boolean(robot.activeOrderId || robot.renewableOrderId)
+  const renewableSnapshots = new Set(Object.values(snapshots)
+    .filter((snapshot) =>
+      snapshot.locator.slotId === slot.tokenSHA256
+      && !snapshot.released
+      && isExpiredRenewableOrder(snapshot)
+    )
+    .map((snapshot) => `${snapshot.locator.shortAlias}:${snapshot.locator.orderId}`));
+  const robotReservations = Object.entries(slot.robots).map(([alias, robot]) => {
+    const shortAlias = robot.shortAlias || alias;
+    return {
+      orderId: robot.activeOrderId,
+      renewable: Boolean(robot.activeOrderId) && (
+        robot.renewableOrderId === robot.activeOrderId
+          || renewableSnapshots.has(`${shortAlias}:${robot.activeOrderId}`)
+      )
+    };
+  });
+  const reservedByRobot = robotReservations.some((reservation) =>
+    reservation.orderId && !reservation.renewable
   );
+  const slotActiveIsRenewable = Boolean(slot.activeOrderId) && robotReservations.some((reservation) =>
+    reservation.orderId === slot.activeOrderId && reservation.renewable
+  );
+  const reservedByGarage = reservedByRobot || Boolean(slot.activeOrderId && !slotActiveIsRenewable);
   const reservedByTradeIndex = Object.values(snapshots).some((snapshot) =>
-    snapshot.locator.slotId === slot.tokenSHA256 && !snapshot.released
+    snapshot.locator.slotId === slot.tokenSHA256
+      && !snapshot.released
+      && !isExpiredRenewableOrder(snapshot)
   );
   if (reservedByGarage || reservedByTradeIndex) {
     return {

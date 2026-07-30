@@ -32,5 +32,5 @@
   "src/domains/pro/proOrderActivity.ts#applyProOrderSnapshot": 30,
   "src/domains/pro/proTradeCache.ts#isCachedOrder": 37,
   "src/domains/pro/tradeHistory.ts#validateTradeHistoryEntry": 49,
-  "src/domains/settings/SettingsPage.tsx#SettingsPage": 81
+  "src/domains/settings/SettingsPage.tsx#SettingsPage": 54
 }

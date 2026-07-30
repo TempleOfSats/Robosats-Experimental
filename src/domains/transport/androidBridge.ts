@@ -72,6 +72,14 @@ export function getNativeTorDiagnostics(): AndroidTorDiagnostics | null {
   }
 }
 
+export function requestNativeTorReconnect(): boolean {
+  const bridge = nativeAppBridge();
+  const reconnect = bridge?.reconnectTorTransport;
+  if (!bridge || !reconnect) return false;
+  reconnect.call(bridge);
+  return true;
+}
+
 export function nativeHttpRequest(
   url: string,
   init: RequestInit = {},

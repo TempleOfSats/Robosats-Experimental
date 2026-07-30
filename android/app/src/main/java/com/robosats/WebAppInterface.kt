@@ -119,6 +119,11 @@ class WebAppInterface(
     }
 
     @JavascriptInterface
+    fun reconnectTorTransport() {
+        context.reconnectTorTransport()
+    }
+
+    @JavascriptInterface
     fun httpRequest(
         requestId: String,
         method: String,

@@ -1,8 +1,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { isTauriDesktop } from "@/domains/transport/tauriBridge";
+
+const mocks = vi.hoisted(() => ({
+  invoke: vi.fn()
+}));
+
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: mocks.invoke
+}));
+
+import { isTauriDesktop, requestDesktopTorReconnect } from "@/domains/transport/tauriBridge";
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  mocks.invoke.mockReset();
 });
 
 describe("Tauri desktop detection", () => {
@@ -16,5 +26,14 @@ describe("Tauri desktop detection", () => {
     vi.stubGlobal("window", { RobosatsSettings: "web-basic" });
 
     expect(isTauriDesktop()).toBe(false);
+  });
+
+  it("invokes the dedicated desktop Tor reconnect command", async () => {
+    vi.stubGlobal("window", { RobosatsSettings: "desktop-basic" });
+    mocks.invoke.mockResolvedValue(undefined);
+
+    await requestDesktopTorReconnect();
+
+    expect(mocks.invoke).toHaveBeenCalledWith("desktop_reconnect_transport", undefined);
   });
 });
