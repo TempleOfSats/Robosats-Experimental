@@ -1,4 +1,4 @@
-# Releasing RoboSats Exp.
+# Maintainer release process
 
 ## Versioning
 

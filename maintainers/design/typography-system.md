@@ -1,4 +1,4 @@
-# Typography system
+# Maintainer typography system
 
 RoboSats uses locally bundled Public Sans for product UI and a system
 monospace stack only for machine-readable values. No font request leaves the
