@@ -677,7 +677,11 @@ export function OffersPage() {
                     open={openFilter === "currency"}
                     options={[{ label: "ANY", value: "all" }, ...currencyOptions.map((currency) => ({ label: currency, value: currency }))]}
                     value={currencyFilter}
-                    onChange={setCurrencyFilter}
+                    onChange={(value) => {
+                      if (value === currencyFilter) return;
+                      setCurrencyFilter(value);
+                      setMethodFilter("all");
+                    }}
                     onOpenChange={(open) => setOpenFilter((current) => open ? "currency" : current === "currency" ? null : current)}
                   />
                 </div>
