@@ -181,6 +181,41 @@
   margin-bottom: 1rem;
 }
 
+.order-load-recovery {
+  width: min(100%, 36rem);
+  display: grid;
+  gap: 0.75rem;
+  margin: 0 auto 1rem;
+}
+
+.order-load-recovery > p {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: var(--type-compact-size);
+  line-height: var(--type-compact-line);
+}
+
+.order-load-recovery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.625rem;
+}
+
+.order-load-recovery-actions .ui-button {
+  min-width: 8.75rem;
+}
+
+@media (max-width: 420px) {
+  .order-load-recovery-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .order-load-recovery-actions .ui-button {
+    width: 100%;
+  }
+}
+
 .robot-avatar {
   border-radius: 999px;
   display: inline-grid;

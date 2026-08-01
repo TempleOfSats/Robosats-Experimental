@@ -1,4 +1,4 @@
-const activeIntents = new Map<string, Promise<void>>();
+const activeIntents = new Map<string, Promise<unknown>>();
 const REFRESH_EVENT = "robosats:refresh-intent";
 export const ORDER_CHANGE_HINT_REFRESH_EVENT = "robosats:order-change-hint-refresh";
 
@@ -14,10 +14,24 @@ type RefreshIntentEvent = CustomEvent<{ reason: RefreshReason }>;
 
 let lifecycleCleanup: (() => void) | undefined;
 
-export function runRefreshIntent(key: string, refresh: () => void | Promise<void>): Promise<void> {
-  const active = activeIntents.get(key);
-  if (active) return active;
-  let refreshResult: void | Promise<void>;
+type RefreshIntentOptions = {
+  afterActive?: boolean;
+};
+
+export function runRefreshIntent<T>(
+  key: string,
+  refresh: () => T | Promise<T>,
+  options: RefreshIntentOptions = {}
+): Promise<T> {
+  const active = activeIntents.get(key) as Promise<T> | undefined;
+  if (active) {
+    if (!options.afterActive) return active;
+    return active.then(
+      () => runRefreshIntent(key, refresh),
+      () => runRefreshIntent(key, refresh)
+    );
+  }
+  let refreshResult: T | Promise<T>;
   try {
     refreshResult = refresh();
   } catch (error) {
@@ -38,8 +52,14 @@ export function installRefreshIntentLifecycle(): () => void {
   if (lifecycleCleanup) return lifecycleCleanup;
   let timer: number | undefined;
   let pendingReason: RefreshReason | undefined;
+  let recentImmediate: { at: number; reason: RefreshReason } | undefined;
 
   const emit = (reason: RefreshReason, immediate = false) => {
+    if (
+      recentImmediate
+      && Date.now() - recentImmediate.at < 750
+      && preferredReason(recentImmediate.reason, reason) === recentImmediate.reason
+    ) return;
     pendingReason = preferredReason(pendingReason, reason);
     if (timer !== undefined) window.clearTimeout(timer);
     const dispatch = () => {
@@ -48,8 +68,10 @@ export function installRefreshIntentLifecycle(): () => void {
       pendingReason = undefined;
       if (nextReason) window.dispatchEvent(new CustomEvent(REFRESH_EVENT, { detail: { reason: nextReason } }));
     };
-    if (immediate) dispatch();
-    else timer = window.setTimeout(dispatch, 750);
+    if (immediate) {
+      recentImmediate = { at: Date.now(), reason };
+      dispatch();
+    } else timer = window.setTimeout(dispatch, 750);
   };
   const onFocus = () => emit("focus");
   const onOnline = () => emit("online");
@@ -81,6 +103,7 @@ export function installRefreshIntentLifecycle(): () => void {
     window.removeEventListener("robosats:tor-ready", onTorReady);
     window.removeEventListener("robosats:tor-reconnected", onTorReconnected);
     document.removeEventListener("visibilitychange", onVisibility);
+    recentImmediate = undefined;
     lifecycleCleanup = undefined;
   };
   return lifecycleCleanup;
