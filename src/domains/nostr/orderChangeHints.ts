@@ -12,11 +12,13 @@ import {
 } from "@/domains/garage/garageStore";
 import { relayRetryDelay } from "@/domains/nostr/relayRetry";
 import { getLiveRelaySubscriptions } from "@/domains/nostr/sharedRelayPool";
+import {
+  publishOrderChangeNotification,
+  type NostrOrderChangeNotification
+} from "@/domains/orders/orderChangeNotifications";
 import { buildNostrRelayUrl } from "@/domains/orderbook/nostrOrderbook";
 import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
-import type { OrderHint } from "@/domains/pro/pro.types";
 import { getNativeTorDiagnostics, isNativeApp } from "@/domains/transport/androidBridge";
-import { ORDER_CHANGE_HINT_REFRESH_EVENT } from "@/domains/transport/refreshIntents";
 
 export const ORDER_CHANGE_HINT_KIND = 28383;
 
@@ -26,7 +28,6 @@ const MAX_CONTENT_LENGTH = 4096;
 const RECONFIGURE_DELAY_MS = 100;
 const COALESCE_WINDOW_MS = 750;
 const MAX_REMEMBERED_EVENTS = 2048;
-const ORDER_HINT_EVENT = "robosats:order-hint";
 
 type Subscription = ReturnType<SimplePool["subscribeMany"]>;
 
@@ -47,7 +48,8 @@ type RuntimeDependencies = {
   subscribeGarage: (listener: () => void) => () => void;
   subscribeFederation: (listener: () => void) => () => void;
   subscribeProPreferences: (listener: () => void) => () => void;
-  eventTarget: Pick<Window, "addEventListener" | "removeEventListener" | "dispatchEvent" | "setTimeout" | "clearTimeout">;
+  publishHint: (hint: NostrOrderChangeNotification) => void;
+  eventTarget: Pick<Window, "addEventListener" | "removeEventListener" | "setTimeout" | "clearTimeout">;
 };
 
 let stopRuntime: (() => void) | undefined;
@@ -214,7 +216,8 @@ export class OrderChangeHintRuntime {
       if (oldest) this.lastDispatchByOrder.delete(oldest);
     }
 
-    const hint: OrderHint = {
+    const hint: NostrOrderChangeNotification = {
+      source: "nostr",
       recipientPubkey,
       coordinatorPubkey: target.coordinatorPubkey,
       shortAlias: target.shortAlias,
@@ -222,10 +225,7 @@ export class OrderChangeHintRuntime {
       eventId: event.id,
       createdAt: event.created_at * 1000
     };
-    this.dependencies.eventTarget.dispatchEvent(new CustomEvent(ORDER_HINT_EVENT, { detail: hint }));
-    if (!this.dependencies.proEnabled()) {
-      this.dependencies.eventTarget.dispatchEvent(new Event(ORDER_CHANGE_HINT_REFRESH_EVENT));
-    }
+    this.dependencies.publishHint(hint);
   }
 
   private rememberEvent(eventId: string): void {
@@ -266,6 +266,7 @@ function defaultDependencies(): RuntimeDependencies {
     subscribeGarage: (listener) => useGarageStore.subscribe(listener),
     subscribeFederation: (listener) => useFederationStore.subscribe(listener),
     subscribeProPreferences: (listener) => useProPreferencesStore.subscribe(listener),
+    publishHint: publishOrderChangeNotification,
     eventTarget: window
   };
 }

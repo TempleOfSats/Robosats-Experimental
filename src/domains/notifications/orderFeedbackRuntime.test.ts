@@ -22,6 +22,7 @@ import {
 } from "@/domains/notifications/orderFeedbackRuntime";
 import { resetTradeFeedbackForTests } from "@/domains/notifications/tradeFeedback";
 import {
+  isTradeVisible,
   registerVisibleTrade,
   resetOrderFeedbackVisibilityForTests
 } from "@/domains/notifications/orderFeedbackVisibility";
@@ -45,6 +46,17 @@ beforeEach(() => {
 });
 
 describe("desktop trade feedback", () => {
+  it("tracks a visible trade by Fleet slot while preserving alias-only queries", () => {
+    const unregister = registerVisibleTrade("lake", 123, "slot-a");
+
+    expect(isTradeVisible("lake", 123, "slot-a")).toBe(true);
+    expect(isTradeVisible("lake", 123, "slot-b")).toBe(false);
+    expect(isTradeVisible("lake", 123)).toBe(true);
+
+    unregister();
+    expect(isTradeVisible("lake", 123)).toBe(false);
+  });
+
   it("seeds current state and reports each material change once", () => {
     startOrderFeedbackRuntime();
     observe({ status: 1, chat_last_index: 2 });

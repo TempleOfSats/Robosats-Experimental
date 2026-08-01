@@ -3,9 +3,23 @@ import {
   publishCoordinatorOrderActionActivity,
   resetCoordinatorOrderActivityForTests
 } from "@/domains/orders/orderActivity";
+import {
+  publishOrderChangeNotification,
+  replayPendingOrderChangeNotifications,
+  resetOrderChangeNotificationsForTests
+} from "@/domains/orders/orderChangeNotifications";
 import type { GarageReconcileController } from "@/domains/pro/garageReconciler";
-import { registerExpiryReconcileTrigger, registerReconcileTriggers } from "@/domains/pro/reconcileTriggers";
+import {
+  PRO_ORDER_CHANGE_CONSUMER_ID,
+  registerExpiryReconcileTrigger,
+  registerReconcileTriggers
+} from "@/domains/pro/reconcileTriggers";
 import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
+import {
+  publishRefreshIntent,
+  resetRefreshIntentLifecycleForTests,
+  type RefreshReason
+} from "@/domains/transport/refreshIntents";
 
 const markProOrderActionFinishedMock = vi.hoisted(() => vi.fn());
 const markProOrderActionStartedMock = vi.hoisted(() => vi.fn());
@@ -32,10 +46,14 @@ beforeEach(() => {
   vi.stubGlobal("window", windowTarget);
   vi.stubGlobal("document", documentTarget);
   resetCoordinatorOrderActivityForTests();
+  resetOrderChangeNotificationsForTests();
+  resetRefreshIntentLifecycleForTests();
   useProTradeIndexStore.getState().resetRuntimeCache();
 });
 
 afterEach(() => {
+  resetOrderChangeNotificationsForTests();
+  resetRefreshIntentLifecycleForTests();
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
@@ -107,6 +125,73 @@ describe("reconciliation triggers", () => {
     await vi.advanceTimersByTimeAsync(10);
 
     expect(controller.reconcileAll).toHaveBeenCalledWith("visibility-resume");
+    cleanup();
+  });
+
+  it("routes typed order hints only to the active Pro owner", () => {
+    const standardController = fakeController();
+    const stopStandard = registerReconcileTriggers({
+      controller: standardController,
+      proEnabled: () => false,
+      reconcileCurrent: vi.fn(async () => undefined)
+    });
+    stopStandard();
+    const proController = fakeController();
+    const stopPro = registerReconcileTriggers({
+      controller: proController,
+      proEnabled: () => true,
+      reconcileCurrent: vi.fn(async () => undefined)
+    });
+    const hint = nostrHint(42);
+
+    publishOrderChangeNotification(hint);
+    const nativeHint = { source: "native" as const, shortAlias: "lake", orderId: 42 };
+    publishOrderChangeNotification(nativeHint);
+    publishOrderChangeNotification({ source: "native" });
+
+    expect(standardController.handleOrderHint).not.toHaveBeenCalled();
+    expect(standardController.handleNativeOrderHint).not.toHaveBeenCalled();
+    expect(proController.handleOrderHint).toHaveBeenCalledOnce();
+    expect(proController.handleOrderHint).toHaveBeenCalledWith(hint);
+    expect(proController.handleNativeOrderHint).toHaveBeenNthCalledWith(1, nativeHint);
+    expect(proController.handleNativeOrderHint).toHaveBeenNthCalledWith(2, { source: "native" });
+    stopPro();
+  });
+
+  it("replays a hint published before the Pro owner registers", () => {
+    const hint = nostrHint(42);
+    publishOrderChangeNotification(hint);
+    const controller = fakeController();
+
+    const cleanup = registerReconcileTriggers({
+      controller,
+      proEnabled: () => true,
+      reconcileCurrent: vi.fn(async () => undefined)
+    });
+
+    expect(controller.handleOrderHint).toHaveBeenCalledOnce();
+    expect(controller.handleOrderHint).toHaveBeenCalledWith(hint);
+    cleanup();
+  });
+
+  it("keeps a hint pending until Pro activation explicitly replays it", () => {
+    let proEnabled = false;
+    const hint = nostrHint(42);
+    const controller = fakeController();
+    const cleanup = registerReconcileTriggers({
+      controller,
+      proEnabled: () => proEnabled,
+      reconcileCurrent: vi.fn(async () => undefined)
+    });
+
+    publishOrderChangeNotification(hint);
+    expect(controller.handleOrderHint).not.toHaveBeenCalled();
+
+    proEnabled = true;
+    replayPendingOrderChangeNotifications(PRO_ORDER_CHANGE_CONSUMER_ID);
+
+    expect(controller.handleOrderHint).toHaveBeenCalledOnce();
+    expect(controller.handleOrderHint).toHaveBeenCalledWith(hint);
     cleanup();
   });
 
@@ -265,10 +350,8 @@ describe("reconciliation triggers", () => {
   });
 });
 
-function dispatchLifecycle(reason: string): void {
-  const event = new Event("robosats:refresh-intent");
-  Object.defineProperty(event, "detail", { value: { reason } });
-  windowTarget.dispatchEvent(event);
+function dispatchLifecycle(reason: RefreshReason): void {
+  publishRefreshIntent(reason);
 }
 
 function fakeController(): GarageReconcileController {
@@ -276,7 +359,20 @@ function fakeController(): GarageReconcileController {
     reconcileAll: vi.fn(async () => undefined),
     reconcileSlot: vi.fn(async () => undefined),
     reconcileOrder: vi.fn(async () => undefined),
-    handleOrderHint: vi.fn(async () => undefined),
+    handleOrderHint: vi.fn(async () => true),
+    handleNativeOrderHint: vi.fn(async () => true),
     invalidateEpoch: vi.fn()
+  };
+}
+
+function nostrHint(orderId: number) {
+  return {
+    source: "nostr" as const,
+    recipientPubkey: "robot",
+    coordinatorPubkey: "coordinator",
+    shortAlias: "lake",
+    orderId,
+    eventId: `event:${orderId}`,
+    createdAt: 1
   };
 }

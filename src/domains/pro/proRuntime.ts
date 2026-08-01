@@ -14,8 +14,13 @@ import {
 import { garageTokenId } from "@/domains/pro/garageVault";
 import { usePortableSettingsStore } from "@/domains/pro/portableSettingsStore";
 import { startProOrderActivityBridge } from "@/domains/pro/proOrderActivity";
+import { replayPendingOrderChangeNotifications } from "@/domains/orders/orderChangeNotifications";
 import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
-import { registerExpiryReconcileTrigger, registerReconcileTriggers } from "@/domains/pro/reconcileTriggers";
+import {
+  PRO_ORDER_CHANGE_CONSUMER_ID,
+  registerExpiryReconcileTrigger,
+  registerReconcileTriggers
+} from "@/domains/pro/reconcileTriggers";
 import {
   clearProTradeRuntimeCache,
   loadProTradeRuntimeCache,
@@ -142,6 +147,9 @@ function startGarageVaultRuntime(): () => void {
       usePortableSettingsStore.getState().initialize();
     }
     startSyncEngine();
+    if (useProPreferencesStore.getState().enabled) {
+      replayPendingOrderChangeNotifications(PRO_ORDER_CHANGE_CONSUMER_ID);
+    }
     if (useProPreferencesStore.getState().enabled && (manifestChanged || forceReconcile)) {
       void garageReconciler.reconcileAll("fleet-ready").catch(() => undefined);
     }
@@ -175,6 +183,9 @@ function startGarageVaultRuntime(): () => void {
   });
   const unsubscribeFederation = useFederationStore.subscribe((state, previous) => {
     if (state.coordinators === previous.coordinators) return;
+    if (useProPreferencesStore.getState().enabled) {
+      replayPendingOrderChangeNotifications(PRO_ORDER_CHANGE_CONSUMER_ID);
+    }
     garageSyncEngine.reconfigure();
     const nextFingerprint = enabledCoordinatorFingerprint();
     if (nextFingerprint !== coordinatorFingerprint) {

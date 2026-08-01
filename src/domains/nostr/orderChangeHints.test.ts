@@ -9,7 +9,6 @@ import {
   ORDER_CHANGE_HINT_KIND,
   OrderChangeHintRuntime
 } from "@/domains/nostr/orderChangeHints";
-import { ORDER_CHANGE_HINT_REFRESH_EVENT } from "@/domains/transport/refreshIntents";
 
 const NOW = 1_800_000_000_000;
 const coordinatorSecret = new Uint8Array(32).fill(7);
@@ -20,10 +19,6 @@ describe("order change hints", () => {
     const slot = robotSlot();
     const coordinator = coordinatorSummary();
     const harness = runtimeHarness(slot, coordinator, false);
-    const onHint = vi.fn();
-    const onRefresh = vi.fn();
-    harness.eventTarget.addEventListener("robosats:order-hint", onHint);
-    harness.eventTarget.addEventListener(ORDER_CHANGE_HINT_REFRESH_EVENT, onRefresh);
 
     harness.runtime.start();
 
@@ -38,8 +33,9 @@ describe("order change hints", () => {
     const event = orderChangedEvent(slot, 91330);
     harness.subscriptions[0].onevent?.(event);
 
-    expect(onHint).toHaveBeenCalledOnce();
-    expect((onHint.mock.calls[0][0] as CustomEvent).detail).toEqual({
+    expect(harness.publishHint).toHaveBeenCalledOnce();
+    expect(harness.publishHint).toHaveBeenCalledWith({
+      source: "nostr",
       recipientPubkey: slot.nostrPubKey,
       coordinatorPubkey,
       shortAlias: "lake",
@@ -47,32 +43,24 @@ describe("order change hints", () => {
       eventId: event.id,
       createdAt: NOW
     });
-    expect(onRefresh).toHaveBeenCalledOnce();
     harness.runtime.stop();
   });
 
-  it("does not emit a generic standard Garage refresh while PRO is active", () => {
+  it("publishes the same single typed hint while PRO is active", () => {
     const slot = robotSlot();
     slot.managedBy = "fleet";
     const harness = runtimeHarness(slot, coordinatorSummary(), true);
-    const onHint = vi.fn();
-    const onRefresh = vi.fn();
-    harness.eventTarget.addEventListener("robosats:order-hint", onHint);
-    harness.eventTarget.addEventListener(ORDER_CHANGE_HINT_REFRESH_EVENT, onRefresh);
     harness.runtime.start();
 
     harness.subscriptions[0].onevent?.(orderChangedEvent(slot, 91330));
 
-    expect(onHint).toHaveBeenCalledOnce();
-    expect(onRefresh).not.toHaveBeenCalled();
+    expect(harness.publishHint).toHaveBeenCalledOnce();
     harness.runtime.stop();
   });
 
   it("rejects stale, duplicate and incorrectly addressed events", () => {
     const slot = robotSlot();
     const harness = runtimeHarness(slot, coordinatorSummary(), false);
-    const onHint = vi.fn();
-    harness.eventTarget.addEventListener("robosats:order-hint", onHint);
     harness.runtime.start();
 
     const valid = orderChangedEvent(slot, 91330);
@@ -85,7 +73,7 @@ describe("order change hints", () => {
       recipientPubkey: getPublicKey(new Uint8Array(32).fill(8))
     }));
 
-    expect(onHint).toHaveBeenCalledOnce();
+    expect(harness.publishHint).toHaveBeenCalledOnce();
     harness.runtime.stop();
   });
 
@@ -201,6 +189,7 @@ function runtimeHarness(
     clearTimeout: globalThis.clearTimeout
   });
   const subscribe = () => () => undefined;
+  const publishHint = vi.fn();
   const runtime = new OrderChangeHintRuntime({
     pool: pool as never,
     now: () => NOW,
@@ -211,9 +200,10 @@ function runtimeHarness(
     subscribeGarage: subscribe,
     subscribeFederation: subscribe,
     subscribeProPreferences: subscribe,
+    publishHint,
     eventTarget: eventTarget as never
   });
-  return { runtime, subscriptions, eventTarget };
+  return { publishHint, runtime, subscriptions, eventTarget };
 }
 
 function robotSlot(): RobotSlot {
