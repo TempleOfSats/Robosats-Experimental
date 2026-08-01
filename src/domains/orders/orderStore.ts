@@ -2,7 +2,10 @@ import { create } from "zustand";
 import { toUserMessage } from "@/lib/userError";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import { getRobotAuthForCoordinator, type RobotSlot, useGarageStore } from "@/domains/garage/garageStore";
-import { ingestCoordinatorOrder } from "@/domains/orders/orderActivity";
+import {
+  ingestCoordinatorOrder,
+  publishCoordinatorOrderActionActivity
+} from "@/domains/orders/orderActivity";
 import { fetchOrder, isCompleteOrderActionResponse, submitOrderAction } from "@/domains/orders/orderApi";
 import type { OrderDto, SubmitOrderActionPayload } from "@/domains/orders/order.types";
 import type { ApiRequestOptions } from "@/domains/transport/apiClient";
@@ -126,9 +129,14 @@ export const useOrderStore = create<OrderState>((set, get) => ({
 
     const requestId = ++requestSequence;
     const previousOrder = get().order;
+    const actionLocator = slot
+      ? { slotId: slot.tokenSHA256, shortAlias: coordinator.shortAlias, orderId }
+      : undefined;
     let snapshotApplied = false;
     set({ submitting: true, refreshing: false, actionError: undefined });
-    dispatchOrderActionEvent("robosats:order-action-start", slot, coordinator.shortAlias, orderId);
+    if (actionLocator) {
+      publishCoordinatorOrderActionActivity({ ...actionLocator, phase: "start" });
+    }
     try {
       const responseOrder = await submitOrderAction(coordinator.url, orderId, payload, auth);
       const order = {
@@ -168,20 +176,13 @@ export const useOrderStore = create<OrderState>((set, get) => ({
       });
     } finally {
       const completedOrder = snapshotApplied ? get().order : undefined;
-      dispatchOrderActionEvent(
-        "robosats:order-action-complete",
-        slot,
-        coordinator.shortAlias,
-        orderId,
-        completedOrder
-          ? {
-              status: completedOrder.status,
-              isMaker: completedOrder.is_maker,
-              isSeller: completedOrder.is_seller,
-              snapshotApplied: true
-            }
-          : undefined
-      );
+      if (actionLocator) {
+        publishCoordinatorOrderActionActivity({
+          ...actionLocator,
+          phase: "complete",
+          snapshotApplied: Boolean(completedOrder)
+        });
+      }
     }
   },
   clearOrder: () => {
@@ -287,17 +288,4 @@ function isReleasedEarlyTake(
     && !previousOrder.is_maker
     && order.status === 1
     && !order.is_maker;
-}
-
-function dispatchOrderActionEvent(
-  name: "robosats:order-action-start" | "robosats:order-action-complete",
-  slot: RobotSlot | undefined,
-  shortAlias: string,
-  orderId: number,
-  result?: { status: number; isMaker: boolean; isSeller: boolean; snapshotApplied: boolean }
-): void {
-  if (!slot || typeof window === "undefined") return;
-  window.dispatchEvent(new CustomEvent(name, {
-    detail: { slotId: slot.tokenSHA256, shortAlias, orderId, ...result }
-  }));
 }

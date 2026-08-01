@@ -19,7 +19,11 @@ import { ChatStagePanel, PreChatDisclosure } from "@/domains/chat/ChatStagePanel
 import { Dialog } from "@/components/ui/dialog";
 import { shouldOfferPreChat } from "@/domains/chat/preChat";
 import { signCleartextMessage } from "@/domains/crypto/pgp";
-import { getTradeActionCommands, type TradeActionCommand } from "@/domains/orders/orderActions";
+import {
+  getTradeActionCommands,
+  shouldLeaveTradeAfterAction,
+  type TradeActionCommand
+} from "@/domains/orders/orderActions";
 import {
   getTradeViewState,
   hasFailedPayoutForCurrentRobot,
@@ -347,7 +351,7 @@ export function OrderPage({
               if (!coordinator || !currentSlot || !action.payload) return;
               await submitAction({ coordinator, orderId: order.id, slot: currentSlot, payload: action.payload });
               const updated = useOrderStore.getState();
-              if (!updated.actionError && shouldLeaveTradeAfterAction(action.key, updated.order)) {
+              if (!updated.actionError && shouldLeaveTradeAfterAction(action, updated.order)) {
                 if (onEmbeddedClose) {
                   if (shouldDismissEmbeddedTrade(updated.order)) onEmbeddedClose();
                 } else {
@@ -579,15 +583,6 @@ export function shouldReturnExpiredTakeToOffers(
   return lastStatus === 3 && wasTaker && order.status === 1 && !order.is_maker;
 }
 
-export function shouldLeaveTradeAfterAction(
-  actionKey: string,
-  order?: Pick<OrderDto, "status" | "is_maker" | "is_taker">
-): boolean {
-  if (!["cancel", "collaborative-cancel"].includes(actionKey) || !order) return false;
-  return [4, 12].includes(order.status)
-    || (order.status === 1 && !order.is_maker && !order.is_taker);
-}
-
 export function shouldDismissEmbeddedTrade(
   order?: Pick<OrderDto, "status" | "is_maker" | "is_taker">
 ): boolean {
@@ -759,8 +754,8 @@ function ChatTradeActions({
   order: OrderDto;
   onSubmit: (action: TradeActionCommand) => Promise<void>;
 }) {
-  const primaryActions = actions.filter((action) => ["confirm-fiat-sent", "confirm-fiat-received", "undo-confirm"].includes(action.key));
-  const optionActions = actions.filter((action) => !primaryActions.includes(action));
+  const primaryActions = actions.filter((action) => action.placement === "primary");
+  const optionActions = actions.filter((action) => action.placement === "options");
 
   return (
     <div className="chat-trade-actions">
@@ -1042,20 +1037,11 @@ function TradeActionSurface({
 }) {
   const [pendingAction, setPendingAction] = useState<TradeActionCommand | null>(null);
   const [activeActionKey, setActiveActionKey] = useState<string | null>(null);
-  const orderedActions = [...actions].sort((left, right) => actionPriority(left.key) - actionPriority(right.key));
+  const orderedActions = [...actions].sort((left, right) => left.displayOrder - right.displayOrder);
 
   if (actions.length === 0) {
     return null;
   }
-
-  const criticalActions = [
-    "cancel",
-    "collaborative-cancel",
-    "confirm-fiat-sent",
-    "confirm-fiat-received",
-    "undo-confirm",
-    "open-dispute"
-  ];
 
   const submitCommand = async (action: TradeActionCommand) => {
     setActiveActionKey(action.key);
@@ -1067,7 +1053,7 @@ function TradeActionSurface({
   };
 
   const handleActionClick = (action: TradeActionCommand) => {
-    if (criticalActions.includes(action.key) && action.payload) {
+    if (action.requiresConfirmation && action.payload) {
       setPendingAction(action);
     } else {
       void submitCommand(action);
@@ -1090,7 +1076,7 @@ function TradeActionSurface({
       <div className="trade-action-surface">
         {orderedActions.map((action) => {
           const disabledReason = action.disabledReason ?? (!canSubmit ? "Load a live order with an active robot first" : undefined);
-          const isCritical = criticalActions.includes(action.key);
+          const isCritical = action.requiresConfirmation;
           const isActive = activeActionKey === action.key;
           return (
             <div className={`trade-action-command trade-action-command-${action.key}`} key={action.key}>
@@ -1143,13 +1129,6 @@ function TradeActionSurface({
       )}
     </>
   );
-}
-
-function actionPriority(key: string): number {
-  if (key.startsWith("confirm-") || key === "undo-confirm") return 0;
-  if (key === "cancel") return 1;
-  if (key === "open-dispute") return 2;
-  return 1;
 }
 
 function TradePaymentPanel({

@@ -8,6 +8,10 @@ export type TradeActionCommand = {
   payload?: SubmitOrderActionPayload;
   variant: "primary" | "secondary" | "outline" | "destructive";
   disabledReason?: string;
+  displayOrder: number;
+  placement: "primary" | "options";
+  postSuccess: "stay" | "leave-if-order-inactive";
+  requiresConfirmation: boolean;
 };
 
 export function getTradeActionCommands(order: OrderDto, view: TradeViewState): TradeActionCommand[] {
@@ -27,7 +31,11 @@ export function getTradeActionCommands(order: OrderDto, view: TradeViewState): T
             ? "Unilateral cancellation at this stage can put your bond at risk."
             : "Cancel this order before the trade moves further.",
       payload: { action: "cancel", cancel_status: shouldSendCancelStatus(order) ? order.status : undefined },
-      variant: collaborative ? "secondary" : "outline"
+      variant: collaborative ? "secondary" : "outline",
+      displayOrder: 1,
+      placement: "options",
+      postSuccess: "leave-if-order-inactive",
+      requiresConfirmation: true
     });
   }
 
@@ -37,7 +45,11 @@ export function getTradeActionCommands(order: OrderDto, view: TradeViewState): T
       label: order.status === 2 ? "Resume order" : "Pause order",
       description: order.status === 2 ? "Make this order visible again." : "Hide this order from the public book.",
       payload: { action: "pause" },
-      variant: "outline"
+      variant: "outline",
+      displayOrder: 1,
+      placement: "options",
+      postSuccess: "stay",
+      requiresConfirmation: false
     });
   }
 
@@ -47,7 +59,11 @@ export function getTradeActionCommands(order: OrderDto, view: TradeViewState): T
       label: "Confirm fiat sent",
       description: `Confirm only after you sent ${tradeFiatAmount(order)}. This cannot be undone normally, and a false confirmation can cost your bond.`,
       payload: { action: "confirm" },
-      variant: "primary"
+      variant: "primary",
+      displayOrder: 0,
+      placement: "primary",
+      postSuccess: "stay",
+      requiresConfirmation: true
     });
   }
 
@@ -57,7 +73,11 @@ export function getTradeActionCommands(order: OrderDto, view: TradeViewState): T
       label: "Undo fiat sent",
       description: "Use only when the fiat payment definitively failed, the funds are back in your account, and both peers already agreed in chat to collaborate on cancellation.",
       payload: { action: "undo_confirm" },
-      variant: "outline"
+      variant: "outline",
+      displayOrder: 0,
+      placement: "primary",
+      postSuccess: "stay",
+      requiresConfirmation: true
     });
   }
 
@@ -67,7 +87,11 @@ export function getTradeActionCommands(order: OrderDto, view: TradeViewState): T
       label: "Confirm fiat received",
       description: `Confirm only after ${tradeFiatAmount(order)} is visible in your account. This releases the bitcoin escrow to the buyer and cannot be undone.`,
       payload: { action: "confirm" },
-      variant: "primary"
+      variant: "primary",
+      displayOrder: 0,
+      placement: "primary",
+      postSuccess: "stay",
+      requiresConfirmation: true
     });
   }
 
@@ -78,11 +102,24 @@ export function getTradeActionCommands(order: OrderDto, view: TradeViewState): T
       description: "Open a dispute only when the peer is not cooperating. The coordinator cannot read this encrypted chat automatically, so preserve the messages and prepare a factual statement with evidence.",
       payload: { action: "dispute" },
       variant: "outline",
-      disabledReason: disputeDisabledReason(order)
+      disabledReason: disputeDisabledReason(order),
+      displayOrder: 2,
+      placement: "options",
+      postSuccess: "stay",
+      requiresConfirmation: true
     });
   }
 
   return actions;
+}
+
+export function shouldLeaveTradeAfterAction(
+  action: Pick<TradeActionCommand, "postSuccess">,
+  order?: Pick<OrderDto, "status" | "is_maker" | "is_taker">
+): boolean {
+  if (action.postSuccess !== "leave-if-order-inactive" || !order) return false;
+  return [4, 12].includes(order.status)
+    || (order.status === 1 && !order.is_maker && !order.is_taker);
 }
 
 function tradeFiatAmount(order: OrderDto): string {
