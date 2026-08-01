@@ -4,7 +4,12 @@ import { App } from "@/app/App";
 import "@fontsource-variable/public-sans/wght.css";
 import "@/styles/globals.css";
 import { applyUiPreferences } from "@/domains/settings/uiPreferences";
-import { isNativeApp, webSocketImplementation } from "@/domains/transport/androidBridge";
+import { publishOrderChangeNotification } from "@/domains/orders/orderChangeNotifications";
+import {
+  isNativeApp,
+  subscribeNativeOrderHints,
+  webSocketImplementation
+} from "@/domains/transport/androidBridge";
 import { initializeDesktopRuntimeBridge } from "@/domains/transport/tauriBridge";
 import { installRefreshIntentLifecycle } from "@/domains/transport/refreshIntents";
 import { startOrderFeedbackRuntime } from "@/domains/notifications/orderFeedbackRuntime";
@@ -12,6 +17,9 @@ import { AppErrorBoundary } from "@/components/app/AppErrorBoundary";
 
 initializeDesktopRuntimeBridge();
 installRefreshIntentLifecycle();
+subscribeNativeOrderHints((hint) => {
+  publishOrderChangeNotification({ source: "native", ...hint });
+});
 startOrderFeedbackRuntime();
 window.dispatchEvent(new CustomEvent("robosats:boot-stage", {
   detail: { progress: 82, message: "Starting the private interface..." }

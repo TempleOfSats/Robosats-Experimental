@@ -22,6 +22,7 @@ vi.mock("@/domains/orders/orderApi", () => ({
 import { useGarageStore } from "@/domains/garage/garageStore";
 import {
   classifyOrderLoadFailure,
+  orderLoadIdentityMatches,
   orderForLocator,
   orderLoadRequestOptions,
   useOrderStore
@@ -64,6 +65,12 @@ describe("order API propagation", () => {
       authoritative: true,
       order: expect.objectContaining({ id: 123, status: 0, shortAlias: coordinator.shortAlias })
     }));
+    expect(useOrderStore.getState().orderIdentity).toEqual({
+      coordinatorEndpoint: coordinator.url,
+      slotId: slot.tokenSHA256,
+      shortAlias: coordinator.shortAlias,
+      orderId: 123
+    });
   });
 
   it("verifies an incomplete action acknowledgement with one GET", async () => {
@@ -122,6 +129,12 @@ describe("order API propagation", () => {
         snapshotApplied: true
       }]
     ]);
+    expect(useOrderStore.getState().orderIdentity).toEqual({
+      coordinatorEndpoint: coordinator.url,
+      slotId: slot.tokenSHA256,
+      shortAlias: coordinator.shortAlias,
+      orderId: 123
+    });
 
     unsubscribe();
     await useOrderStore.getState().submitAction({
@@ -187,6 +200,34 @@ describe("order load request profiles", () => {
 });
 
 describe("order load outcomes", () => {
+  it("does not let an older read restore an order after authentication clears it", async () => {
+    let resolveOldOrder!: (order: OrderDto) => void;
+    fetchOrderMock.mockImplementation(
+      () =>
+        new Promise<OrderDto>((resolve) => {
+          resolveOldOrder = resolve;
+        })
+    );
+    const oldRequest = useOrderStore.getState().loadOrder({ coordinator, orderId: 123, slot });
+
+    const authFailure = await useOrderStore.getState().loadOrder({
+      coordinator,
+      orderId: 123,
+      slot: undefined
+    });
+    resolveOldOrder({ id: 123, status: 1, is_maker: true } as OrderDto);
+    const oldResult = await oldRequest;
+
+    expect(authFailure).toMatchObject({ status: "failed", failure: { kind: "authentication" } });
+    expect(oldResult).toEqual({ status: "unchanged", order: undefined });
+    expect(useOrderStore.getState()).toMatchObject({
+      order: undefined,
+      orderIdentity: undefined,
+      loading: false,
+      refreshing: false
+    });
+  });
+
   it("exposes a transient cold-load failure without blaming the coordinator", async () => {
     fetchOrderMock.mockRejectedValue(new Error("Tor could not open the private destination"));
 
@@ -307,6 +348,22 @@ describe("order load failure classification", () => {
 });
 
 describe("confirmed-order handoff", () => {
+  it("matches only the exact endpoint, slot, coordinator, and order identity", () => {
+    const identity = {
+      coordinatorEndpoint: coordinator.url,
+      slotId: slot.tokenSHA256,
+      shortAlias: coordinator.shortAlias,
+      orderId: 123
+    };
+
+    expect(orderLoadIdentityMatches(identity, identity)).toBe(true);
+    expect(orderLoadIdentityMatches(identity, { ...identity, coordinatorEndpoint: "https://other.example" })).toBe(false);
+    expect(orderLoadIdentityMatches(identity, { ...identity, slotId: "other-slot" })).toBe(false);
+    expect(orderLoadIdentityMatches(identity, { ...identity, shortAlias: "temple" })).toBe(false);
+    expect(orderLoadIdentityMatches(identity, { ...identity, orderId: 456 })).toBe(false);
+    expect(orderLoadIdentityMatches(undefined, identity)).toBe(false);
+  });
+
   it("only exposes an order to its matching coordinator route", () => {
     const order = { id: 123, shortAlias: "lake" } as OrderDto;
 
@@ -328,12 +385,23 @@ describe("confirmed-order handoff", () => {
       is_maker: true
     } as OrderDto;
 
-    useOrderStore.getState().primeOrder(confirmedOrder);
+    useOrderStore.getState().primeOrder(confirmedOrder, {
+      coordinatorEndpoint: coordinator.url,
+      slotId: slot.tokenSHA256,
+      shortAlias: coordinator.shortAlias,
+      orderId: confirmedOrder.id
+    });
     resolveOldOrder({ id: 123, status: 1, is_maker: true } as OrderDto);
     const result = await oldRequest;
 
     expect(result).toEqual({ status: "unchanged", order: confirmedOrder });
     expect(useOrderStore.getState().order).toBe(confirmedOrder);
+    expect(useOrderStore.getState().orderIdentity).toEqual({
+      coordinatorEndpoint: coordinator.url,
+      slotId: slot.tokenSHA256,
+      shortAlias: coordinator.shortAlias,
+      orderId: confirmedOrder.id
+    });
   });
 });
 

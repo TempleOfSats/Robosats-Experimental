@@ -1,6 +1,6 @@
 import { create } from "zustand";
+import type { NostrOrderChangeNotification } from "@/domains/orders/orderChangeNotifications";
 import type {
-  OrderHint,
   ProSlotId,
   ProTradeKey,
   ProTradeLocator,
@@ -22,7 +22,7 @@ type ProTradeIndexState = {
   markSlotLocallyReady: (slotId: ProSlotId, readyAt?: number) => void;
   upsertSnapshot: (snapshot: ProTradeSnapshot) => void;
   setSlotSync: (sync: SlotSyncState) => void;
-  markDirtyByNostr: (slotId: ProSlotId, hint: OrderHint) => void;
+  markDirtyByNostr: (slotId: ProSlotId, hint: NostrOrderChangeNotification) => void;
   clearDirty: (locator: ProTradeLocator) => void;
   removeTrade: (locator: ProTradeLocator) => void;
   removeCoordinatorSnapshots: (slotId: ProSlotId, shortAlias: string, exceptOrderIds?: number[]) => void;

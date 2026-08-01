@@ -10,6 +10,11 @@ import {
 } from "@/domains/garage/garageStore";
 import { fetchOrder } from "@/domains/orders/orderApi";
 import { ingestCoordinatorOrder } from "@/domains/orders/orderActivity";
+import type {
+  NativeOrderChangeNotification,
+  NostrOrderChangeNotification
+} from "@/domains/orders/orderChangeNotifications";
+import { isTradeVisible } from "@/domains/notifications/orderFeedbackVisibility";
 import { isAlreadyCancelledError } from "@/domains/orders/orderStore";
 import type { OrderDto } from "@/domains/orders/order.types";
 import { CoordinatorRequestBackoff } from "@/domains/pro/coordinatorRequestBackoff";
@@ -19,7 +24,6 @@ import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
 import { selectProGarageSlots, useGarageVaultStore } from "@/domains/pro/garageVaultStore";
 import { classifyProTrade } from "@/domains/pro/proSelectors";
 import {
-  type OrderHint,
   type ProTradeLocator,
   type ProTradeSnapshot,
   type ReconcileReason,
@@ -49,7 +53,8 @@ export interface GarageReconcileController {
   reconcileAll(reason: ReconcileReason): Promise<void>;
   reconcileSlot(slotId: string, reason: ReconcileReason): Promise<void>;
   reconcileOrder(locator: ProTradeLocator, reason: ReconcileReason): Promise<void>;
-  handleOrderHint(hint: OrderHint): Promise<void>;
+  handleOrderHint(hint: NostrOrderChangeNotification): Promise<boolean>;
+  handleNativeOrderHint(hint: NativeOrderChangeNotification): Promise<boolean>;
   invalidateEpoch(): void;
 }
 
@@ -116,21 +121,64 @@ export class GarageReconciler implements GarageReconcileController {
     await this.refreshOrder(slot, coordinator, locator, undefined, reason, this.epoch);
   }
 
-  async handleOrderHint(hint: OrderHint): Promise<void> {
+  async handleOrderHint(hint: NostrOrderChangeNotification): Promise<boolean> {
     const slot = this.dependencies.getSlots().find((item) => item.nostrPubKey === hint.recipientPubkey);
     const coordinator = this.dependencies.getCoordinators().find((item) =>
       item.enabled && item.nostrHexPubkey?.toLowerCase() === hint.coordinatorPubkey.toLowerCase()
     );
-    if (!slot || !coordinator || this.handledHintIds.has(hint.eventId) || !isRecentHint(hint, this.dependencies.now())) return;
-    if (hint.shortAlias && hint.shortAlias !== coordinator.shortAlias) return;
+    if (!slot || !coordinator) return false;
+    if (
+      this.handledHintIds.has(hint.eventId)
+      || !isRecentHint(hint, this.dependencies.now())
+      || hint.shortAlias !== coordinator.shortAlias
+    ) return true;
     this.rememberHint(hint.eventId);
     const normalizedHint = { ...hint, shortAlias: coordinator.shortAlias };
     useProTradeIndexStore.getState().markDirtyByNostr(slot.tokenSHA256, normalizedHint);
     if (hint.orderId) {
       await this.reconcileOrder({ slotId: slot.tokenSHA256, shortAlias: coordinator.shortAlias, orderId: hint.orderId }, "nostr-hint");
-      return;
+      return true;
     }
     await this.reconcileSlot(slot.tokenSHA256, "nostr-hint");
+    return true;
+  }
+
+  async handleNativeOrderHint(hint: NativeOrderChangeNotification): Promise<boolean> {
+    const { orderId, shortAlias: hintedAlias } = hint;
+    if (!orderId) {
+      if (
+        this.dependencies.getSlots().length === 0
+        || this.dependencies.getCoordinators().length === 0
+      ) return false;
+      await this.reconcileAll("nostr-hint");
+      return true;
+    }
+    const locators = new Map<string, ProTradeLocator>();
+    for (const slot of this.dependencies.getSlots()) {
+      for (const [shortAlias, robot] of Object.entries(slot.robots)) {
+        if (hintedAlias && hintedAlias !== shortAlias) continue;
+        if (![robot.activeOrderId, robot.lastOrderId, robot.renewableOrderId].includes(orderId)) continue;
+        const locator = { slotId: slot.tokenSHA256, shortAlias, orderId };
+        locators.set(proTradeKey(locator), locator);
+      }
+    }
+    for (const snapshot of Object.values(useProTradeIndexStore.getState().snapshots)) {
+      if (
+        snapshot.locator.orderId === orderId
+        && (!hintedAlias || snapshot.locator.shortAlias === hintedAlias)
+      ) {
+        locators.set(snapshot.key, snapshot.locator);
+      }
+    }
+    if (locators.size === 0) return true;
+    const coordinators = this.dependencies.getCoordinators();
+    if ([...locators.values()].some((locator) => !coordinators.some((coordinator) =>
+      coordinator.enabled && coordinator.url && coordinator.shortAlias === locator.shortAlias
+    ))) return false;
+    await Promise.all([...locators.values()].map((locator) =>
+      this.reconcileOrder(locator, "nostr-hint")
+    ));
+    return true;
   }
 
   invalidateEpoch(): void {
@@ -364,6 +412,7 @@ export class GarageReconciler implements GarageReconcileController {
     reason: ReconcileReason,
     epoch: number
   ): Promise<void> {
+    if (visibleOrderPageOwnsHintRefresh(reason, locator, slot)) return;
     const key = proTradeKey(locator);
     let previous = useProTradeIndexStore.getState().snapshots[key];
     const pendingSnapshot = previous ? undefined : pendingOrderSnapshot(slot, locator, robot, this.dependencies.now());
@@ -668,7 +717,16 @@ function isReleasedPublicTake(order: OrderDto, robot?: RefreshRobotCoordinatorRe
   return order.status === 1 && !order.is_maker && robot?.activeOrderId === order.id;
 }
 
-function isRecentHint(hint: OrderHint, now: number): boolean {
+function visibleOrderPageOwnsHintRefresh(
+  reason: ReconcileReason,
+  locator: ProTradeLocator,
+  slot: RobotSlot
+): boolean {
+  return reason === "nostr-hint"
+    && isTradeVisible(locator.shortAlias, locator.orderId, slot.tokenSHA256);
+}
+
+function isRecentHint(hint: NostrOrderChangeNotification, now: number): boolean {
   const createdAt = hint.createdAt < 1_000_000_000_000 ? hint.createdAt * 1000 : hint.createdAt;
   return createdAt <= now + 10 * 60_000 && createdAt >= now - 7 * 24 * 60 * 60_000;
 }

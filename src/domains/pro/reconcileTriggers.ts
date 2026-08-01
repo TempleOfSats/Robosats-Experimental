@@ -7,8 +7,12 @@ import {
   subscribeCoordinatorOrderActionActivity,
   type CoordinatorOrderActionActivity
 } from "@/domains/orders/orderActivity";
+import {
+  subscribeOrderChangeNotifications,
+  type OrderChangeNotification
+} from "@/domains/orders/orderChangeNotifications";
 import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
-import type { OrderHint, ReconcileReason } from "@/domains/pro/pro.types";
+import type { ReconcileReason } from "@/domains/pro/pro.types";
 import { subscribeRefreshIntents, type RefreshReason } from "@/domains/transport/refreshIntents";
 import { desktopBackgroundNotificationsEnabled } from "@/domains/transport/tauriBridge";
 import { hasActionableOrderDeadline } from "@/domains/orders/orderStateMachine";
@@ -20,6 +24,8 @@ type ReconcileTriggerOptions = {
   intervalMs?: number;
   debounceMs?: number;
 };
+
+export const PRO_ORDER_CHANGE_CONSUMER_ID = "pro-reconcile";
 
 export function registerReconcileTriggers(options: ReconcileTriggerOptions): () => void {
   const intervalMs = options.intervalMs ?? 60_000;
@@ -38,9 +44,12 @@ export function registerReconcileTriggers(options: ReconcileTriggerOptions): () 
     if (reason === "tor-reconnected") options.controller.invalidateEpoch();
     run(reconcileReason(reason));
   };
-  const onOrderHint = (event: Event) => {
-    const hint = validOrderHint((event as CustomEvent<unknown>).detail);
-    if (hint) void options.controller.handleOrderHint(hint).catch(() => undefined);
+  const onOrderHint = (notification: OrderChangeNotification) => {
+    if (!options.proEnabled()) return false;
+    const operation = notification.source === "nostr"
+      ? options.controller.handleOrderHint(notification)
+      : options.controller.handleNativeOrderHint(notification);
+    return operation.catch(() => false);
   };
   const onOrderAction = (activity: CoordinatorOrderActionActivity) => {
     if (activity.phase === "start") {
@@ -62,7 +71,9 @@ export function registerReconcileTriggers(options: ReconcileTriggerOptions): () 
 
   const stopLifecycle = subscribeRefreshIntents(onLifecycle);
   const stopOrderActions = subscribeCoordinatorOrderActionActivity(onOrderAction);
-  window.addEventListener("robosats:order-hint", onOrderHint);
+  const stopOrderHints = subscribeOrderChangeNotifications(onOrderHint, {
+    consumerId: PRO_ORDER_CHANGE_CONSUMER_ID
+  });
 
   intervalTimer = window.setInterval(() => {
     if (
@@ -76,14 +87,13 @@ export function registerReconcileTriggers(options: ReconcileTriggerOptions): () 
     if (intervalTimer !== undefined) window.clearInterval(intervalTimer);
     stopLifecycle();
     stopOrderActions();
-    window.removeEventListener("robosats:order-hint", onOrderHint);
+    stopOrderHints();
   };
 }
 
 function reconcileReason(reason: RefreshReason): ReconcileReason {
   if (reason === "focus") return "window-focus";
   if (reason === "resume") return "visibility-resume";
-  if (reason === "notification") return "nostr-hint";
   return reason;
 }
 
@@ -121,23 +131,4 @@ export function registerExpiryReconcileTrigger(
     unsubscribe();
     if (timer !== undefined) window.clearTimeout(timer);
   };
-}
-
-function validOrderHint(value: unknown): OrderHint | undefined {
-  if (!value || typeof value !== "object") return undefined;
-  const hint = value as Partial<OrderHint>;
-  if (!isString(hint.recipientPubkey) || !isString(hint.coordinatorPubkey)) return undefined;
-  if (!isString(hint.eventId) || !isFiniteNumber(hint.createdAt)) return undefined;
-  if (hint.shortAlias !== undefined && !isString(hint.shortAlias)) return undefined;
-  if (hint.orderId !== undefined && (!Number.isInteger(hint.orderId) || hint.orderId <= 0)) return undefined;
-  if (hint.status !== undefined && !Number.isInteger(hint.status)) return undefined;
-  return hint as OrderHint;
-}
-
-function isString(value: unknown): value is string {
-  return typeof value === "string" && value.length > 0;
-}
-
-function isFiniteNumber(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value);
 }

@@ -14,7 +14,11 @@ import { RobotAvatar } from "@/domains/identity/RobotAvatar";
 import { createWebSocket, isNativeApp } from "@/domains/transport/androidBridge";
 import { deliverChatFeedback } from "@/domains/notifications/tradeFeedback";
 import { chatPollDelayMs, chatReconnectDelayMs } from "@/domains/chat/chatRefresh";
-import { runRefreshIntent, subscribeRefreshIntents } from "@/domains/transport/refreshIntents";
+import {
+  orderChangeMatches,
+  subscribeOrderChangeNotifications
+} from "@/domains/orders/orderChangeNotifications";
+import { subscribeRefreshIntents } from "@/domains/transport/refreshIntents";
 import { hasSentPreChatMessage, isOwnChatMessage, usablePeerPublicKey, visiblePreChatMessages } from "@/domains/chat/preChat";
 
 export function ChatStagePanel({
@@ -81,11 +85,18 @@ export function ChatStagePanel({
 
   useEffect(() => {
     if (previewMode) return;
-    const reconnect = () => {
-      void runRefreshIntent(`chat:${orderId}`, () => setConnectionEpoch((value) => value + 1));
+    const reconnect = () => setConnectionEpoch((value) => value + 1);
+    const stopLifecycle = subscribeRefreshIntents(reconnect);
+    const stopOrderChanges = subscribeOrderChangeNotifications((notification) => {
+      if (!orderChangeMatches(notification, { shortAlias, orderId })) return false;
+      reconnect();
+      return true;
+    }, { consumerId: `chat:${shortAlias}:${orderId}` });
+    return () => {
+      stopLifecycle();
+      stopOrderChanges();
     };
-    return subscribeRefreshIntents(reconnect);
-  }, [orderId, previewMode]);
+  }, [orderId, previewMode, shortAlias]);
 
   useEffect(() => {
     const element = messagesRef.current;
