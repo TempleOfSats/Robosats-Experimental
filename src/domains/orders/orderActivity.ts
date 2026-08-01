@@ -24,10 +24,25 @@ export type CoordinatorSettlementObservation = {
 
 type SettlementObservationListener = (observation: CoordinatorSettlementObservation) => void;
 
+export type CoordinatorOrderActionActivity = {
+  slotId: string;
+  shortAlias: string;
+  orderId: number;
+} & (
+  | { phase: "start" }
+  | {
+      phase: "complete";
+      snapshotApplied: boolean;
+    }
+);
+
+type OrderActionActivityListener = (activity: CoordinatorOrderActionActivity) => void;
+
 const observations = new Map<string, CoordinatorOrderObservation>();
 const listeners = new Set<OrderObservationListener>();
 const settlementObservations = new Map<string, CoordinatorSettlementObservation>();
 const settlementListeners = new Set<SettlementObservationListener>();
+const orderActionListeners = new Set<OrderActionActivityListener>();
 
 export function ingestCoordinatorOrder({
   authoritative = true,
@@ -109,11 +124,21 @@ export function replayCoordinatorSettlementActivity(listener: SettlementObservat
   }
 }
 
+export function publishCoordinatorOrderActionActivity(activity: CoordinatorOrderActionActivity): void {
+  for (const listener of orderActionListeners) notifyOrderActionListener(listener, activity);
+}
+
+export function subscribeCoordinatorOrderActionActivity(listener: OrderActionActivityListener): () => void {
+  orderActionListeners.add(listener);
+  return () => orderActionListeners.delete(listener);
+}
+
 export function resetCoordinatorOrderActivityForTests(): void {
   observations.clear();
   listeners.clear();
   settlementObservations.clear();
   settlementListeners.clear();
+  orderActionListeners.clear();
 }
 
 function observationKey(slotId: string, shortAlias: string, orderId: number): string {
@@ -145,6 +170,17 @@ function notifySettlementListener(
 
 function notifyListeners(observation: CoordinatorOrderObservation): void {
   for (const listener of listeners) notifyListener(listener, observation);
+}
+
+function notifyOrderActionListener(
+  listener: OrderActionActivityListener,
+  activity: CoordinatorOrderActionActivity
+): void {
+  try {
+    listener(activity);
+  } catch {
+    // Reconciliation bookkeeping cannot fail a coordinator action.
+  }
 }
 
 function notifyListener(listener: OrderObservationListener, observation: CoordinatorOrderObservation): void {
