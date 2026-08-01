@@ -3,7 +3,6 @@ import {
   orderRefreshDelayMs,
   jitterDelay,
   shouldDismissEmbeddedTrade,
-  shouldLeaveTradeAfterAction,
   shouldOpenOrderDetailsByDefault,
   shouldReturnExpiredTakeToOffers
 } from "@/domains/orders/OrderPage";
@@ -38,18 +37,6 @@ describe("shouldReturnExpiredTakeToOffers", () => {
     expect(shouldReturnExpiredTakeToOffers(3, false, { status: 1, is_maker: false })).toBe(false);
     expect(shouldReturnExpiredTakeToOffers(3, true, { status: 1, is_maker: true })).toBe(false);
     expect(shouldReturnExpiredTakeToOffers(undefined, true, { status: 1, is_maker: false })).toBe(false);
-  });
-});
-
-describe("shouldLeaveTradeAfterAction", () => {
-  it("keeps the first peer in chat while collaborative cancellation awaits acceptance", () => {
-    expect(shouldLeaveTradeAfterAction("collaborative-cancel", { status: 9, is_maker: false, is_taker: true })).toBe(false);
-  });
-
-  it("leaves after terminal cancellation or an early take is released", () => {
-    expect(shouldLeaveTradeAfterAction("collaborative-cancel", { status: 12, is_maker: false, is_taker: true })).toBe(true);
-    expect(shouldLeaveTradeAfterAction("cancel", { status: 4, is_maker: false, is_taker: false })).toBe(true);
-    expect(shouldLeaveTradeAfterAction("cancel", { status: 1, is_maker: false, is_taker: false })).toBe(true);
   });
 });
 
