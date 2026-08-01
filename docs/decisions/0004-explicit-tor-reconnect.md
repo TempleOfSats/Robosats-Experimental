@@ -61,10 +61,25 @@ The order store records the coordinator endpoint, robot slot, coordinator
 alias, and order ID that produced each private snapshot. OrderPage renders a
 snapshot only when that full identity matches the current request. A genuine
 identity change invalidates the prior store request and discards any cold-read
-dedupe entry for the incoming identity before starting a fresh read. The
-same-identity React Strict Mode replacement still reuses its active request.
+dedupe entry for the incoming identity before starting a fresh read. That read
+becomes the transport scheduler's new in-flight coalescing owner without
+cancelling callers of the older request. Later equivalent reads therefore join
+the new request, while the old response remains confined to its original
+callers. Work that is still queued remains reusable because it has not reached
+Tor and cannot contain a pre-transition response. When both normal same-origin
+slots are occupied, one active replacement may use the remaining global
+capacity; the scheduler never admits a second replacement slot, bypasses action
+priority, or exceeds its global/background budgets. The exact active predecessor
+is retained until it settles so a failed replacement and its retry receive the
+same bounded admission. The same-identity React Strict Mode replacement still
+reuses its active request.
 Confirmed create and take handoffs prime the store with the same full identity,
 so their immediate transition remains smooth without weakening this check.
+
+An order GET used to verify an incomplete action response also supersedes any
+older matching GET. This prevents a pre-action snapshot from being accepted as
+post-action verification while preserving the normal request budget and
+coalescing behavior for all other reads.
 
 ## Consequences
 

@@ -234,13 +234,14 @@ describe("order load recovery with the order store", () => {
       slot: alternateSlot
     };
     const loads: Array<Promise<OrderLoadResult>> = [];
-    const register = (identity: typeof identityA) =>
+    const register = (identity: typeof identityA, independentInitialRead = false) =>
       registerOrderLoadRecovery({
         coordinatorEndpoint: identity.coordinator.url,
         locator: identity.locator,
         load: (reason) => {
           const result = useOrderStore.getState().loadOrder({
             coordinator: identity.coordinator,
+            independentRead: independentInitialRead && reason === "initial",
             orderId: identity.locator.orderId,
             reason,
             slot: identity.slot
@@ -252,9 +253,9 @@ describe("order load recovery with the order store", () => {
       });
     const replace = (recovery: ReturnType<typeof registerOrderLoadRecovery>, nextIdentity: typeof identityA) => {
       recovery.dispose();
-      discardColdOrderLoad(nextIdentity.coordinator.url, nextIdentity.locator);
+      const independentInitialRead = discardColdOrderLoad(nextIdentity.coordinator.url, nextIdentity.locator);
       useOrderStore.getState().clearOrder();
-      return register(nextIdentity);
+      return register(nextIdentity, independentInitialRead);
     };
 
     const firstA = register(identityA);
@@ -263,6 +264,9 @@ describe("order load recovery with the order store", () => {
 
     expect(fetchOrderMock).toHaveBeenCalledTimes(3);
     expect(loads).toHaveLength(3);
+    expect(fetchOrderMock.mock.calls[0]?.[3]).not.toHaveProperty("supersedeInFlight");
+    expect(fetchOrderMock.mock.calls[1]?.[3]).not.toHaveProperty("supersedeInFlight");
+    expect(fetchOrderMock.mock.calls[2]?.[3]).toMatchObject({ supersedeInFlight: true });
 
     resolvers[1]({ id: 123, status: 8, is_maker: true, is_taker: false } as OrderDto);
     await expect(loads[1]).resolves.toMatchObject({ status: "unchanged" });
@@ -281,12 +285,6 @@ describe("order load recovery with the order store", () => {
       id: 123,
       status: 3,
       shortAlias: coordinator.shortAlias
-    });
-    expect(useOrderStore.getState().orderIdentity).toEqual({
-      coordinatorEndpoint: coordinator.url,
-      slotId: slot.tokenSHA256,
-      shortAlias: coordinator.shortAlias,
-      orderId: 123
     });
     expect(useOrderStore.getState().orderIdentity).toEqual({
       coordinatorEndpoint: coordinator.url,

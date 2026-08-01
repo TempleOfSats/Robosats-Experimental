@@ -91,9 +91,39 @@ describe("order API propagation", () => {
       coordinator.url,
       123,
       expect.any(Object),
-      { timeoutProfile: "interactive", priority: "foreground", source: "order-refresh" }
+      {
+        timeoutProfile: "interactive",
+        priority: "foreground",
+        source: "order-refresh",
+        supersedeInFlight: true
+      }
     );
     expect(useOrderStore.getState().order?.status).toBe(2);
+  });
+
+  it("requests reconciliation when incomplete action verification fails", async () => {
+    const listener = vi.fn();
+    subscribeCoordinatorOrderActionActivity(listener);
+    useOrderStore.setState({ order: { id: 123, status: 1, is_maker: true } as OrderDto });
+    submitOrderActionMock.mockResolvedValue({ id: 123 });
+    isCompleteOrderActionResponseMock.mockReturnValue(false);
+    fetchOrderMock.mockRejectedValue(new DOMException("Tor request failed", "NetworkError"));
+
+    await useOrderStore.getState().submitAction({
+      coordinator,
+      orderId: 123,
+      slot,
+      payload: { action: "pause" }
+    });
+
+    expect(useOrderStore.getState().order?.status).toBe(1);
+    expect(listener).toHaveBeenLastCalledWith({
+      phase: "complete",
+      slotId: slot.tokenSHA256,
+      shortAlias: coordinator.shortAlias,
+      orderId: 123,
+      snapshotApplied: false
+    });
   });
 
   it("publishes typed action start and completion with the applied snapshot", async () => {
@@ -176,13 +206,25 @@ describe("order API propagation", () => {
 
 describe("order load request profiles", () => {
   it("keeps user-facing refreshes in the foreground", () => {
-    for (const reason of ["initial", "lifecycle", "manual", "post-action"] as const) {
+    for (const reason of ["initial", "lifecycle", "manual"] as const) {
       expect(orderLoadRequestOptions(reason)).toEqual({
         timeoutProfile: "interactive",
         priority: "foreground",
         source: "order-refresh"
       });
     }
+    expect(orderLoadRequestOptions("post-action")).toEqual({
+      timeoutProfile: "interactive",
+      priority: "foreground",
+      source: "order-refresh",
+      supersedeInFlight: true
+    });
+    expect(orderLoadRequestOptions("initial", true)).toEqual({
+      timeoutProfile: "interactive",
+      priority: "foreground",
+      source: "order-refresh",
+      supersedeInFlight: true
+    });
   });
 
   it("bounds routine and hidden polling as background work", () => {
@@ -195,6 +237,12 @@ describe("order load request profiles", () => {
       timeoutProfile: "background",
       priority: "maintenance",
       source: "order-refresh"
+    });
+    expect(orderLoadRequestOptions("poll", true)).toEqual({
+      timeoutProfile: "background",
+      priority: "background",
+      source: "order-refresh",
+      supersedeInFlight: true
     });
   });
 });

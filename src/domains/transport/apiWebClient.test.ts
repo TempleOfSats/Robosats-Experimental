@@ -92,4 +92,47 @@ describe("ApiWebClient GET coalescing", () => {
     ]);
     expect(transportRequestMock).toHaveBeenCalledOnce();
   });
+
+  it("keeps a superseding GET independent and coalesces later callers onto it", async () => {
+    type TransportResponse = {
+      status: number;
+      headers: Record<string, string>;
+      body: string;
+    };
+    const resolvers: Array<(value: TransportResponse) => void> = [];
+    transportRequestMock.mockImplementation(
+      () =>
+        new Promise<TransportResponse>((resolve) => {
+          resolvers.push(resolve);
+        })
+    );
+    const auth = { tokenSHA256: "robot-token-hash" };
+
+    const old = apiClient.get("http://coordinator.onion", "/api/order/?order_id=42", auth);
+    await vi.waitFor(() => expect(transportRequestMock).toHaveBeenCalledOnce());
+    const fresh = apiClient.get("http://coordinator.onion", "/api/order/?order_id=42", auth, {
+      supersedeInFlight: true
+    });
+    await vi.waitFor(() => expect(transportRequestMock).toHaveBeenCalledTimes(2));
+
+    resolvers[0]({
+      status: 200,
+      headers: { "content-type": "application/json" },
+      body: '{"version":"old"}'
+    });
+    await expect(old).resolves.toEqual({ version: "old" });
+    const follower = apiClient.get("http://coordinator.onion", "/api/order/?order_id=42", auth);
+
+    expect(transportRequestMock).toHaveBeenCalledTimes(2);
+    resolvers[1]({
+      status: 200,
+      headers: { "content-type": "application/json" },
+      body: '{"version":"fresh"}'
+    });
+    await expect(Promise.all([fresh, follower])).resolves.toEqual([
+      { version: "fresh" },
+      { version: "fresh" }
+    ]);
+    expect(transportRequestMock).toHaveBeenCalledTimes(2);
+  });
 });

@@ -203,7 +203,7 @@ describe("CoordinatorRequestScheduler", () => {
       async () => { started.push("other"); return 7; }
     );
     const promoted = scheduler.schedule(
-      { ...request("shared-visible", "visible"), key: "shared" },
+      { ...request("shared-visible", "visible"), key: "shared", origin: "http://shared.onion" },
       async () => { throw new Error("coalesced execution must not run"); }
     );
 
@@ -236,6 +236,150 @@ describe("CoordinatorRequestScheduler", () => {
     await expect(Promise.all([background.promise, visible.promise])).resolves.toEqual([42, 42]);
     expect(execute).toHaveBeenCalledOnce();
     vi.useRealTimers();
+  });
+
+  it("makes a superseding request the new coalescing owner without cancelling older callers", async () => {
+    const scheduler = new CoordinatorRequestScheduler();
+    const oldRelease = deferred<string>();
+    const concurrentRelease = deferred<string>();
+    const freshRelease = deferred<string>();
+    const oldExecute = vi.fn(async () => oldRelease.promise);
+    const concurrentExecute = vi.fn(async () => concurrentRelease.promise);
+    const freshExecute = vi.fn(async () => freshRelease.promise);
+    const followerExecute = vi.fn(async () => "unexpected");
+    const sharedRequest = {
+      ...request("shared", "visible"),
+      key: "shared",
+      origin: "http://shared.onion"
+    };
+
+    const old = scheduler.schedule(sharedRequest, oldExecute);
+    const concurrent = scheduler.schedule(
+      { ...request("concurrent", "visible"), origin: sharedRequest.origin },
+      concurrentExecute
+    );
+    await vi.waitFor(() => {
+      expect(oldExecute).toHaveBeenCalledOnce();
+      expect(concurrentExecute).toHaveBeenCalledOnce();
+    });
+    const fresh = scheduler.schedule({ ...sharedRequest, supersedeInFlight: true }, freshExecute);
+    await vi.waitFor(() => expect(freshExecute).toHaveBeenCalledOnce());
+
+    oldRelease.resolve("old");
+    await expect(old.promise).resolves.toBe("old");
+    const follower = scheduler.schedule(sharedRequest, followerExecute);
+
+    expect(followerExecute).not.toHaveBeenCalled();
+    freshRelease.resolve("fresh");
+    await expect(Promise.all([fresh.promise, follower.promise])).resolves.toEqual(["fresh", "fresh"]);
+    concurrentRelease.resolve("concurrent");
+    await expect(concurrent.promise).resolves.toBe("concurrent");
+    expect(followerExecute).not.toHaveBeenCalled();
+  });
+
+  it("keeps replacement capacity available after a fresh request fails", async () => {
+    const scheduler = new CoordinatorRequestScheduler();
+    const oldRelease = deferred<string>();
+    const concurrentRelease = deferred<string>();
+    const failedRelease = deferred<string>();
+    const retryRelease = deferred<string>();
+    const origin = "http://shared.onion";
+    const sharedRequest = { ...request("shared", "visible"), key: "shared", origin };
+    const oldExecute = vi.fn(async () => oldRelease.promise);
+    const concurrentExecute = vi.fn(async () => concurrentRelease.promise);
+    const old = scheduler.schedule(sharedRequest, oldExecute);
+    const concurrent = scheduler.schedule(
+      { ...request("concurrent", "visible"), origin },
+      concurrentExecute
+    );
+    await vi.waitFor(() => {
+      expect(oldExecute).toHaveBeenCalledOnce();
+      expect(concurrentExecute).toHaveBeenCalledOnce();
+    });
+
+    const failedExecute = vi.fn(async () => failedRelease.promise);
+    const failed = scheduler.schedule(
+      { ...sharedRequest, supersedeInFlight: true },
+      failedExecute
+    );
+    await vi.waitFor(() => expect(failedExecute).toHaveBeenCalledOnce());
+    failedRelease.reject(new Error("fresh request failed"));
+    await expect(failed.promise).rejects.toThrow("fresh request failed");
+
+    const retryExecute = vi.fn(async () => retryRelease.promise);
+    const retry = scheduler.schedule(sharedRequest, retryExecute);
+    await vi.waitFor(() => expect(retryExecute).toHaveBeenCalledOnce());
+
+    retryRelease.resolve("retry");
+    await expect(retry.promise).resolves.toBe("retry");
+    oldRelease.resolve("old");
+    concurrentRelease.resolve("concurrent");
+    await expect(Promise.all([old.promise, concurrent.promise])).resolves.toEqual(["old", "concurrent"]);
+  });
+
+  it("bounds same-origin supersession to one replacement slot", async () => {
+    const scheduler = new CoordinatorRequestScheduler();
+    const releases = Array.from({ length: 4 }, () => deferred<void>());
+    const origin = "http://shared.onion";
+    const sharedRequest = { ...request("shared", "visible"), key: "shared", origin };
+    let active = 0;
+    let maximum = 0;
+    const execute = (index: number) => async () => {
+      active += 1;
+      maximum = Math.max(maximum, active);
+      await releases[index].promise;
+      active -= 1;
+      return index;
+    };
+
+    const old = scheduler.schedule(sharedRequest, execute(0));
+    const concurrent = scheduler.schedule({ ...request("concurrent", "visible"), origin }, execute(1));
+    await vi.waitFor(() => expect(active).toBe(2));
+    const fresh = scheduler.schedule({ ...sharedRequest, supersedeInFlight: true }, execute(2));
+    await vi.waitFor(() => expect(active).toBe(3));
+
+    const newestExecute = vi.fn(execute(3));
+    const newest = scheduler.schedule({ ...sharedRequest, supersedeInFlight: true }, newestExecute);
+    await Promise.resolve();
+    expect(newestExecute).not.toHaveBeenCalled();
+
+    releases[0].resolve();
+    await vi.waitFor(() => expect(newestExecute).toHaveBeenCalledOnce());
+    expect(maximum).toBe(3);
+    releases[1].resolve();
+    releases[2].resolve();
+    releases[3].resolve();
+    await expect(Promise.all([old.promise, concurrent.promise, fresh.promise, newest.promise])).resolves.toEqual([
+      0, 1, 2, 3
+    ]);
+  });
+
+  it("reuses a matching request that has not started when superseding", async () => {
+    const scheduler = new CoordinatorRequestScheduler();
+    const blockerRelease = deferred<void>();
+    const origin = "http://shared.onion";
+    const blockers = Array.from({ length: 2 }, (_, index) => scheduler.schedule(
+      { ...request(`block-${index}`, "visible"), origin },
+      async () => blockerRelease.promise
+    ));
+    await vi.waitFor(() => expect(scheduler.hasUserPriorityWork()).toBe(true));
+
+    const queuedExecute = vi.fn(async () => "queued");
+    const replacementExecute = vi.fn(async () => "replacement");
+    const sharedRequest = { ...request("shared", "visible"), key: "shared", origin };
+    const queued = scheduler.schedule(sharedRequest, queuedExecute);
+    const replacement = scheduler.schedule(
+      { ...sharedRequest, supersedeInFlight: true },
+      replacementExecute
+    );
+
+    expect(queuedExecute).not.toHaveBeenCalled();
+    expect(replacementExecute).not.toHaveBeenCalled();
+    blockerRelease.resolve();
+    await expect(Promise.all([queued.promise, replacement.promise])).resolves.toEqual(["queued", "queued"]);
+    await Promise.all(blockers.map((blocker) => blocker.promise));
+    expect(queuedExecute).toHaveBeenCalledOnce();
+    expect(replacementExecute).not.toHaveBeenCalled();
   });
 
   it("aborts work at the scheduler timeout", async () => {

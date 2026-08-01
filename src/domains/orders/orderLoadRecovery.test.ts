@@ -543,8 +543,9 @@ describe("order load recovery", () => {
       onPhaseChange: vi.fn()
     });
 
-    discardColdOrderLoad("https://lake.example", locator);
+    expect(discardColdOrderLoad("https://lake.example", locator)).toBe(true);
     expect(isColdOrderLoadActive("https://lake.example", locator)).toBe(false);
+    expect(discardColdOrderLoad("https://lake.example", locator)).toBe(false);
 
     resolveInitial(loadedResult());
     await vi.advanceTimersByTimeAsync(0);
