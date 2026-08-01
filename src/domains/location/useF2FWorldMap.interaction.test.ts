@@ -92,6 +92,31 @@ describe("F2F world map pointer interactions", () => {
     expect(renderMap(runtime, options).center).toEqual([15, -0.5]);
   });
 
+  it("reads geometry only for the pointer that owns an active drag", () => {
+    const runtime = createHookRuntime();
+    const options: MapOptions = {
+      dragThreshold: 0,
+      initialCenter: [15, 0],
+      initialZoom: 2,
+      maxZoom: 16,
+      minZoom: 1
+    };
+    const map = renderMap(runtime, options);
+    const svg = createSvg();
+    map.svgRef.current = svg.element;
+
+    map.handlePointerMove(pointerEvent(svg.element, 1, 181, 75));
+    map.handlePointerDown(pointerEvent(svg.element, 1, 180, 75));
+    map.handlePointerMove(pointerEvent(svg.element, 2, 181, 75));
+
+    expect(svg.getBoundingClientRect).not.toHaveBeenCalled();
+
+    map.handlePointerMove(pointerEvent(svg.element, 1, 181, 75));
+
+    expect(svg.getBoundingClientRect).toHaveBeenCalledOnce();
+    expect(renderMap(runtime, options).center).toEqual([15, -0.5]);
+  });
+
   it("zooms through a pinch without turning either release into a click", () => {
     const runtime = createHookRuntime();
     const onMapClick = vi.fn();
@@ -186,15 +211,19 @@ function createHookRuntime() {
   };
 }
 
-function createSvg(): { element: SVGSVGElement } {
+function createSvg(): {
+  element: SVGSVGElement;
+  getBoundingClientRect: ReturnType<typeof vi.fn>;
+} {
   const capturedPointers = new Set<number>();
+  const getBoundingClientRect = vi.fn(() => ({
+    height: 150,
+    left: 0,
+    top: 0,
+    width: 360
+  }));
   const element = {
-    getBoundingClientRect: () => ({
-      height: 150,
-      left: 0,
-      top: 0,
-      width: 360
-    }),
+    getBoundingClientRect,
     getScreenCTM: () => ({
       inverse: () => ({})
     }),
@@ -202,7 +231,7 @@ function createSvg(): { element: SVGSVGElement } {
     releasePointerCapture: (pointerId: number) => capturedPointers.delete(pointerId),
     setPointerCapture: (pointerId: number) => capturedPointers.add(pointerId)
   } as unknown as SVGSVGElement;
-  return { element };
+  return { element, getBoundingClientRect };
 }
 
 function pointerEvent(
