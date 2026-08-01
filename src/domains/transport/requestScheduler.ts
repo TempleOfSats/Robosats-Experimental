@@ -8,6 +8,7 @@ export type ScheduleRequestOptions = {
   method: string;
   priority: RequestPriority;
   source: RequestSource;
+  supersedeInFlight?: boolean;
   signal?: AbortSignal;
   timeoutMs?: number;
 };
@@ -45,6 +46,12 @@ type SchedulerTask = {
   reject: (reason: unknown) => void;
   detachExternalAbort?: () => void;
   circuitProbe?: boolean;
+  supersessionLineage?: SupersessionLineage;
+};
+
+type SupersessionLineage = {
+  origin: string;
+  tasks: Set<SchedulerTask>;
 };
 
 type OriginCircuit = {
@@ -69,6 +76,8 @@ const PRIORITY_RANK: Record<RequestPriority, number> = {
 export class CoordinatorRequestScheduler {
   private readonly queued: SchedulerTask[] = [];
   private readonly keyed = new Map<string, SchedulerTask>();
+  // Retain exact active predecessors so a failed replacement cannot make its retry wait behind stale work.
+  private readonly supersessionLineages = new Map<string, SupersessionLineage>();
   private readonly activeByOrigin = new Map<string, number>();
   private readonly circuits = new Map<string, OriginCircuit>();
   private active = 0;
@@ -81,12 +90,24 @@ export class CoordinatorRequestScheduler {
     options: ScheduleRequestOptions,
     execute: (signal: AbortSignal) => Promise<T>
   ): ScheduledRequest<T> {
+    let supersessionLineage: SupersessionLineage | undefined;
     if (options.key) {
       const existing = this.keyed.get(options.key);
-      if (existing) {
+      if (
+        existing
+        && existing.origin === options.origin
+        && (!options.supersedeInFlight || !existing.started)
+      ) {
         this.promoteTask(existing, options.priority);
         this.extendTimeout(existing, options.timeoutMs);
         return this.publicHandle<T>(existing);
+      }
+      const activeLineage = this.supersessionLineages.get(options.key);
+      if (activeLineage?.origin === options.origin) supersessionLineage = activeLineage;
+      if (existing?.started && existing.origin === options.origin && options.supersedeInFlight) {
+        supersessionLineage ??= { origin: options.origin, tasks: new Set() };
+        supersessionLineage.tasks.add(existing);
+        this.supersessionLineages.set(options.key, supersessionLineage);
       }
     }
 
@@ -109,6 +130,7 @@ export class CoordinatorRequestScheduler {
       queuedAt: performanceNow(),
       started: false,
       settled: false,
+      supersessionLineage,
       timeoutMs: options.timeoutMs,
       promise,
       resolve: resolveTask,
@@ -189,6 +211,7 @@ export class CoordinatorRequestScheduler {
     for (const task of pending) this.cancelTask(task, "Scheduler reset");
     this.queued.length = 0;
     this.keyed.clear();
+    this.supersessionLineages.clear();
     this.activeByOrigin.clear();
     this.circuits.clear();
     this.active = 0;
@@ -251,7 +274,14 @@ export class CoordinatorRequestScheduler {
   private pickNext(capacity: SchedulerCapacity): SchedulerTask | undefined {
     const waitingAction = this.queued.some((task) => task.priority === "action");
     const candidates = this.queued.filter((task) => {
-      if ((this.activeByOrigin.get(task.origin) ?? 0) >= capacity.perOrigin) return false;
+      const activeForOrigin = this.activeByOrigin.get(task.origin) ?? 0;
+      const canUseReplacementSlot =
+        activeForOrigin === capacity.perOrigin
+        && task.supersessionLineage?.origin === task.origin
+        && Array.from(task.supersessionLineage.tasks).some(
+          (superseded) => superseded.started && !superseded.settled && superseded.origin === task.origin
+        );
+      if (activeForOrigin >= capacity.perOrigin && !canUseReplacementSlot) return false;
       if (isBackground(task.priority) && this.activeBackground >= capacity.background) return false;
       if (waitingAction && task.priority !== "action") return false;
       if (!this.canAdmitThroughCircuit(task)) return false;
@@ -303,6 +333,7 @@ export class CoordinatorRequestScheduler {
       if (task.timeout !== undefined) globalThis.clearTimeout(task.timeout);
       task.detachExternalAbort?.();
       this.removeKey(task);
+      this.removeFromSupersessionLineage(task);
       this.active -= 1;
       if (isBackground(task.priority)) this.activeBackground -= 1;
       const originCount = (this.activeByOrigin.get(task.origin) ?? 1) - 1;
@@ -355,6 +386,15 @@ export class CoordinatorRequestScheduler {
 
   private removeKey(task: SchedulerTask): void {
     if (task.key && this.keyed.get(task.key) === task) this.keyed.delete(task.key);
+  }
+
+  private removeFromSupersessionLineage(task: SchedulerTask): void {
+    if (!task.key) return;
+    const lineage = this.supersessionLineages.get(task.key);
+    if (!lineage || !lineage.tasks.delete(task)) return;
+    if (lineage.tasks.size === 0 && this.supersessionLineages.get(task.key) === lineage) {
+      this.supersessionLineages.delete(task.key);
+    }
   }
 }
 

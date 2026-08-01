@@ -29,6 +29,7 @@ type OrderState = {
 
 type LoadOrderParams = {
   coordinator: CoordinatorSummary;
+  independentRead?: boolean;
   orderId: number;
   reason?: OrderLoadReason;
   slot?: RobotSlot;
@@ -85,7 +86,7 @@ export const useOrderStore = create<OrderState>((set, get) => ({
       actionError: undefined
     });
   },
-  loadOrder: async ({ coordinator, orderId, reason = "initial", slot }) => {
+  loadOrder: async ({ coordinator, independentRead = false, orderId, reason = "initial", slot }) => {
     if (get().submitting) return { status: "unchanged", order: get().order };
     const auth = getRobotAuthForCoordinator(slot, coordinator.shortAlias);
     if (!auth) {
@@ -108,7 +109,7 @@ export const useOrderStore = create<OrderState>((set, get) => ({
     set((state) => ({ loading: !state.order, refreshing: Boolean(state.order), loadFailure: undefined }));
     try {
       const order = {
-        ...(await fetchOrder(coordinator.url, orderId, auth, orderLoadRequestOptions(reason))),
+        ...(await fetchOrder(coordinator.url, orderId, auth, orderLoadRequestOptions(reason, independentRead))),
         shortAlias: coordinator.shortAlias
       };
       if (requestId !== requestSequence) return { status: "unchanged", order: get().order };
@@ -176,8 +177,8 @@ export const useOrderStore = create<OrderState>((set, get) => ({
       if (requestId !== requestSequence) return;
       if (!isCompleteOrderActionResponse(responseOrder)) {
         set({ submitting: false });
-        await get().loadOrder({ coordinator, orderId, reason: "post-action", slot });
-        snapshotApplied = Boolean(get().order);
+        const verification = await get().loadOrder({ coordinator, orderId, reason: "post-action", slot });
+        snapshotApplied = verification.status === "loaded";
         return;
       }
       syncGarageOrder(slot, coordinator.shortAlias, order);
@@ -274,14 +275,17 @@ function loadIdentity(
   };
 }
 
-export function orderLoadRequestOptions(reason: OrderLoadReason): ApiRequestOptions {
+export function orderLoadRequestOptions(reason: OrderLoadReason, independentRead = false): ApiRequestOptions {
+  const supersedeInFlight = independentRead || reason === "post-action";
+  let options: ApiRequestOptions;
   if (reason === "poll") {
-    return { timeoutProfile: "background", priority: "background", source: "order-refresh" };
+    options = { timeoutProfile: "background", priority: "background", source: "order-refresh" };
+  } else if (reason === "maintenance") {
+    options = { timeoutProfile: "background", priority: "maintenance", source: "order-refresh" };
+  } else {
+    options = { timeoutProfile: "interactive", priority: "foreground", source: "order-refresh" };
   }
-  if (reason === "maintenance") {
-    return { timeoutProfile: "background", priority: "maintenance", source: "order-refresh" };
-  }
-  return { timeoutProfile: "interactive", priority: "foreground", source: "order-refresh" };
+  return supersedeInFlight ? { ...options, supersedeInFlight: true } : options;
 }
 
 export function isAlreadyCancelledError(error: unknown): boolean {
