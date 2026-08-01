@@ -20,8 +20,7 @@ import { useGarageVaultStore } from "@/domains/pro/garageVaultStore";
 import {
   OnionIcon,
   TorConnectionDialog,
-  torStatusLabel,
-  useNativeTorConnection
+  torStatusLabel
 } from "@/domains/settings/TorConnectionSettings";
 import {
   getNativeNotificationState,
@@ -35,6 +34,7 @@ import {
   isTauriDesktop,
   setDesktopNotificationsEnabled
 } from "@/domains/transport/tauriBridge";
+import { useTorConnection } from "@/domains/transport/torConnection";
 import "@/domains/pro/proFleet.css";
 
 const GarageRobotSettingsDialog = lazy(() =>
@@ -76,7 +76,7 @@ export function SettingsPage() {
   const desktopRuntime = isTauriDesktop();
   const nativeRuntime = androidRuntime || iosRuntime || desktopRuntime;
   const [notificationState, setNotificationState] = useState<AndroidNotificationState | null>(null);
-  const torConnection = useNativeTorConnection(nativeRuntime, desktopRuntime);
+  const torConnection = useTorConnection();
   const torDiagnostics = torConnection.diagnostics;
   const [showTorDetails, setShowTorDetails] = useState(false);
   const [showRobotSettings, setShowRobotSettings] = useState(false);

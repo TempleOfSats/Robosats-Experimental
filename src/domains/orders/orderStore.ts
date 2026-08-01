@@ -6,7 +6,7 @@ import { ingestCoordinatorOrder } from "@/domains/orders/orderActivity";
 import { fetchOrder, isCompleteOrderActionResponse, submitOrderAction } from "@/domains/orders/orderApi";
 import type { OrderDto, SubmitOrderActionPayload } from "@/domains/orders/order.types";
 import type { ApiRequestOptions } from "@/domains/transport/apiClient";
-import { hasRoboSatsApiErrorCode } from "@/domains/transport/apiError";
+import { hasRoboSatsApiErrorCode, RoboSatsApiError } from "@/domains/transport/apiError";
 
 let requestSequence = 0;
 
@@ -15,9 +15,10 @@ type OrderState = {
   loading: boolean;
   refreshing: boolean;
   submitting: boolean;
-  error?: string;
+  loadFailure?: OrderLoadFailure;
+  actionError?: string;
   primeOrder: (order: OrderDto) => void;
-  loadOrder: (params: LoadOrderParams) => Promise<void>;
+  loadOrder: (params: LoadOrderParams) => Promise<OrderLoadResult>;
   submitAction: (params: SubmitActionParams) => Promise<void>;
   clearOrder: () => void;
 };
@@ -41,11 +42,25 @@ export type OrderLoadReason =
   | "poll"
   | "post-action";
 
+export type OrderLoadFailureKind = "transient" | "authentication" | "not-found" | "terminal";
+
+export type OrderLoadFailure = {
+  kind: OrderLoadFailureKind;
+  message: string;
+};
+
+export type OrderLoadResult =
+  | { status: "loaded"; order: OrderDto }
+  | { status: "unchanged"; order?: OrderDto }
+  | { status: "failed"; failure: OrderLoadFailure };
+
 export const useOrderStore = create<OrderState>((set, get) => ({
   order: undefined,
   loading: false,
   refreshing: false,
   submitting: false,
+  loadFailure: undefined,
+  actionError: undefined,
   primeOrder: (order) => {
     requestSequence += 1;
     set({
@@ -53,58 +68,66 @@ export const useOrderStore = create<OrderState>((set, get) => ({
       loading: false,
       refreshing: false,
       submitting: false,
-      error: undefined
+      loadFailure: undefined,
+      actionError: undefined
     });
   },
   loadOrder: async ({ coordinator, orderId, reason = "initial", slot }) => {
-    if (get().submitting) return;
+    if (get().submitting) return { status: "unchanged", order: get().order };
     const auth = getRobotAuthForCoordinator(slot, coordinator.shortAlias);
     if (!auth) {
-      set({ order: undefined, loading: false, refreshing: false, error: "Load a robot to fetch this private order." });
-      return;
+      const failure: OrderLoadFailure = {
+        kind: "authentication",
+        message: "Load a robot to fetch this private order."
+      };
+      set({ order: undefined, loading: false, refreshing: false, loadFailure: failure });
+      return { status: "failed", failure };
     }
 
     const requestId = ++requestSequence;
-    set((state) => ({ loading: !state.order, refreshing: Boolean(state.order), error: undefined }));
+    set((state) => ({ loading: !state.order, refreshing: Boolean(state.order), loadFailure: undefined }));
     try {
       const order = {
         ...(await fetchOrder(coordinator.url, orderId, auth, orderLoadRequestOptions(reason))),
         shortAlias: coordinator.shortAlias
       };
-      if (requestId !== requestSequence) return;
+      if (requestId !== requestSequence) return { status: "unchanged", order: get().order };
       syncGarageOrder(slot, coordinator.shortAlias, order);
-      set({ order, loading: false, refreshing: false });
+      set({ order, loading: false, refreshing: false, loadFailure: undefined });
+      return { status: "loaded", order };
     } catch (error) {
-      if (requestId !== requestSequence) return;
+      if (requestId !== requestSequence) return { status: "unchanged", order: get().order };
       const currentOrder = get().order;
       if (isAlreadyCancelledError(error) && currentOrder) {
         const order = { ...currentOrder, status: 4, status_message: "Order cancelled" };
         syncGarageOrder(slot, coordinator.shortAlias, order);
-        set({ order, loading: false, refreshing: false, error: undefined });
-        return;
+        set({ order, loading: false, refreshing: false, loadFailure: undefined });
+        return { status: "loaded", order };
       }
-      if (currentOrder && isTransientOrderLoadError(error)) {
-        set({ loading: false, refreshing: false, error: undefined });
-        return;
+      const failure = classifyOrderLoadFailure(error);
+      if (currentOrder && failure.kind === "transient") {
+        set({ loading: false, refreshing: false, loadFailure: undefined });
+        return { status: "failed", failure };
       }
       set({
         loading: false,
         refreshing: false,
-        error: toUserMessage(error, "Could not fetch the order.")
+        loadFailure: failure
       });
+      return { status: "failed", failure };
     }
   },
   submitAction: async ({ coordinator, orderId, slot, payload }) => {
     const auth = getRobotAuthForCoordinator(slot, coordinator.shortAlias);
     if (!auth) {
-      set({ error: "Load a robot before submitting order actions." });
+      set({ actionError: "Load a robot before submitting order actions." });
       return;
     }
 
     const requestId = ++requestSequence;
     const previousOrder = get().order;
     let snapshotApplied = false;
-    set({ submitting: true, refreshing: false, error: undefined });
+    set({ submitting: true, refreshing: false, actionError: undefined });
     dispatchOrderActionEvent("robosats:order-action-start", slot, coordinator.shortAlias, orderId);
     try {
       const responseOrder = await submitOrderAction(coordinator.url, orderId, payload, auth);
@@ -126,7 +149,7 @@ export const useOrderStore = create<OrderState>((set, get) => ({
         useGarageStore.getState().releaseOrderReservation(slot.token, coordinator.shortAlias, orderId);
       }
       if (requestId !== requestSequence) return;
-      set({ order, submitting: false });
+      set({ order, submitting: false, loadFailure: undefined, actionError: undefined });
     } catch (error) {
       if (requestId !== requestSequence) return;
       if (isAlreadyCancelledError(error)) {
@@ -136,12 +159,12 @@ export const useOrderStore = create<OrderState>((set, get) => ({
           syncGarageOrder(slot, coordinator.shortAlias, order);
           snapshotApplied = true;
         }
-        set({ order, submitting: false, error: undefined });
+        set({ order, submitting: false, loadFailure: undefined, actionError: undefined });
         return;
       }
       set({
         submitting: false,
-        error: toUserMessage(error, "Could not update the order.")
+        actionError: toUserMessage(error, "Could not update the order.")
       });
     } finally {
       const completedOrder = snapshotApplied ? get().order : undefined;
@@ -163,7 +186,14 @@ export const useOrderStore = create<OrderState>((set, get) => ({
   },
   clearOrder: () => {
     requestSequence += 1;
-    set({ order: undefined, error: undefined, loading: false, refreshing: false, submitting: false });
+    set({
+      order: undefined,
+      loadFailure: undefined,
+      actionError: undefined,
+      loading: false,
+      refreshing: false,
+      submitting: false
+    });
   }
 }));
 
@@ -192,10 +222,36 @@ export function isAlreadyCancelledError(error: unknown): boolean {
 }
 
 export function isTransientOrderLoadError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  return /(?:timeout|timed out|took too long|failed to fetch|networkerror|network request failed|connection refused|transport is unavailable|could not reach the coordinator|temporarily unavailable|unknownhost|connectexception|socketexception|sslhandshake|unable to resolve)/i.test(
-    error.message
-  );
+  return classifyOrderLoadFailure(error).kind === "transient";
+}
+
+export function classifyOrderLoadFailure(error: unknown): OrderLoadFailure {
+  if (error instanceof RoboSatsApiError) {
+    if (error.status === 401 || error.status === 403) {
+      return {
+        kind: "authentication",
+        message: toUserMessage(error, "This robot could not be authenticated.")
+      };
+    }
+    if (error.status === 404) {
+      return {
+        kind: "not-found",
+        message: toUserMessage(error, "This order is no longer available.")
+      };
+    }
+    if (error.status >= 500 && error.status < 600) {
+      return transientOrderLoadFailure();
+    }
+    return {
+      kind: "terminal",
+      message: toUserMessage(error, "Could not fetch the order.")
+    };
+  }
+  if (isGenericTransientOrderLoadError(error)) return transientOrderLoadFailure();
+  return {
+    kind: "terminal",
+    message: toUserMessage(error, "Could not fetch the order.")
+  };
 }
 
 function syncGarageOrder(slot: RobotSlot | undefined, shortAlias: string, order: OrderDto): void {
@@ -204,6 +260,21 @@ function syncGarageOrder(slot: RobotSlot | undefined, shortAlias: string, order:
     shortAlias,
     slot
   });
+}
+
+function isGenericTransientOrderLoadError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  if (/^(?:Abort|Network|Timeout)Error$/i.test(error.name)) return true;
+  return /(?:\btor\b|\bsocks\b|timeout|timed out|took too long|abort(?:ed|error)?|request (?:was )?(?:cancelled|canceled)|failed to fetch|networkerror|network request failed|connection (?:was )?(?:refused|reset|closed|aborted|failed)|transport (?:is )?(?:unavailable|not ready)|could not reach the coordinator|temporarily unavailable|unknownhost|connectexception|socketexception|sslhandshake|unable to resolve|background request deferred)/i.test(
+    error.message
+  );
+}
+
+function transientOrderLoadFailure(): OrderLoadFailure {
+  return {
+    kind: "transient",
+    message: "The trade is taking longer to open."
+  };
 }
 
 function isReleasedEarlyTake(
