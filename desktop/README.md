@@ -24,6 +24,12 @@ Requirements:
 4. WebKitGTK 4.1 and `patchelf` on Linux
 5. macOS 14 or newer on macOS
 
+On Arch Linux, install the AppImage patching tool with:
+
+```bash
+sudo pacman -S --needed patchelf
+```
+
 ```bash
 npm run dev:desktop
 ```
