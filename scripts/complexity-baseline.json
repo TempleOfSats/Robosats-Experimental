@@ -16,7 +16,7 @@
   "src/domains/orderbook/nostrOrderbook.ts#nostrEventToPublicOrder": 28,
   "src/domains/orders/OrderPage.tsx#ContractPanel": 22,
   "src/domains/orders/OrderPage.tsx#OrderDetailsPanel": 33,
-  "src/domains/orders/OrderPage.tsx#OrderPage": 66,
+  "src/domains/orders/OrderPage.tsx#OrderPage": 64,
   "src/domains/orders/OrderPage.tsx#PayoutSubmissionCard": 33,
   "src/domains/orders/OrderPage.tsx#TradePaymentPanel": 44,
   "src/domains/orders/orderActions.ts#getTradeActionCommands": 24,
