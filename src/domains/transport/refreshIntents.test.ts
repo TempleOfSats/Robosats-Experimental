@@ -13,16 +13,49 @@ afterEach(() => {
 });
 
 describe("refresh intents", () => {
-  it("coalesces concurrent signals for the same route resource", async () => {
+  it("returns the refresh result", async () => {
     resetRefreshIntentsForTests();
-    let resolve: (() => void) | undefined;
-    const refresh = vi.fn(() => new Promise<void>((done) => { resolve = done; }));
+
+    const result = await runRefreshIntent("order:lake:41", () => ({ status: "ready", revision: 3 }));
+
+    expect(result.status).toBe("ready");
+    expect(result.revision).toBe(3);
+  });
+
+  it("coalesces concurrent signals with the same refresh result", async () => {
+    resetRefreshIntentsForTests();
+    let resolve: ((value: string) => void) | undefined;
+    const refresh = vi.fn(() => new Promise<string>((done) => { resolve = done; }));
     const first = runRefreshIntent("order:lake:42", refresh);
     const second = runRefreshIntent("order:lake:42", refresh);
     expect(first).toBe(second);
     expect(refresh).toHaveBeenCalledOnce();
-    resolve?.();
-    await first;
+    resolve?.("updated");
+    await expect(first).resolves.toBe("updated");
+    await expect(second).resolves.toBe("updated");
+  });
+
+  it("runs a trailing refresh after active work settles", async () => {
+    resetRefreshIntentsForTests();
+    let resolveActive: ((value: string) => void) | undefined;
+    const active = runRefreshIntent(
+      "order:lake:43",
+      () => new Promise<string>((resolve) => { resolveActive = resolve; })
+    );
+    const trailingRefresh = vi.fn(() => "fresh");
+
+    const trailing = runRefreshIntent(
+      "order:lake:43",
+      trailingRefresh,
+      { afterActive: true }
+    );
+    expect(trailingRefresh).not.toHaveBeenCalled();
+
+    resolveActive?.("old");
+
+    await expect(active).resolves.toBe("old");
+    await expect(trailing).resolves.toBe("fresh");
+    expect(trailingRefresh).toHaveBeenCalledOnce();
   });
 
   it("emits one preferred lifecycle intent for overlapping foreground signals", async () => {
@@ -92,6 +125,31 @@ describe("refresh intents", () => {
 
     expect(listener).toHaveBeenCalledOnce();
     expect(listener).toHaveBeenCalledWith("notification");
+    unsubscribe();
+    cleanup();
+  });
+
+  it("suppresses a lower-priority native resume immediately after Tor reconnects", async () => {
+    vi.useFakeTimers();
+    const windowTarget = Object.assign(new EventTarget(), {
+      setTimeout: globalThis.setTimeout,
+      clearTimeout: globalThis.clearTimeout
+    });
+    const documentTarget = Object.assign(new EventTarget(), {
+      visibilityState: "visible" as DocumentVisibilityState
+    });
+    vi.stubGlobal("window", windowTarget);
+    vi.stubGlobal("document", documentTarget);
+    const cleanup = installRefreshIntentLifecycle();
+    const listener = vi.fn();
+    const unsubscribe = subscribeRefreshIntents(listener);
+
+    windowTarget.dispatchEvent(new Event("robosats:tor-reconnected"));
+    windowTarget.dispatchEvent(new Event("robosats:native-resume"));
+    await vi.advanceTimersByTimeAsync(750);
+
+    expect(listener).toHaveBeenCalledOnce();
+    expect(listener).toHaveBeenCalledWith("tor-reconnected");
     unsubscribe();
     cleanup();
   });

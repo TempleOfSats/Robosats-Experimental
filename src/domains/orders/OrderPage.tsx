@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Banknote, Check, ChevronDown, Clock, Copy, Download, ExternalLink, FileText, Link2, MapPin, Paperclip, RefreshCw, Rocket, ShieldAlert, Star, Tag, WifiOff, AlertTriangle, XCircle, Zap } from "lucide-react";
+import { Banknote, Check, ChevronDown, Clock, Copy, Download, ExternalLink, FileText, Link2, MapPin, Paperclip, RefreshCw, Rocket, RotateCw, ShieldAlert, Star, Tag, AlertTriangle, XCircle, Zap } from "lucide-react";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
 import type { CoordinatorContact, CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import { getCoordinatorAvatarUrl } from "@/domains/coordinators/coordinatorAssets";
@@ -25,7 +25,16 @@ import {
   hasFailedPayoutForCurrentRobot,
   isCompletedTradeForCurrentRobot
 } from "@/domains/orders/orderStateMachine";
-import { orderForLocator, useOrderStore } from "@/domains/orders/orderStore";
+import {
+  orderForLocator,
+  useOrderStore,
+  type OrderLoadFailure
+} from "@/domains/orders/orderStore";
+import {
+  registerLoadedOrderRefresh,
+  registerOrderLoadRecovery,
+  type OrderLoadRecoveryPhase
+} from "@/domains/orders/orderLoadRecovery";
 import { tradePreviewOrder } from "@/domains/orders/tradePreviewFixtures";
 import { isOrderReferenceSatsApproximate, orderReferenceSats, orderReferenceSatsRange } from "@/domains/orders/orderModel";
 import type { OrderDto, SubmitOrderActionPayload } from "@/domains/orders/order.types";
@@ -53,7 +62,7 @@ import { decryptChatMessage } from "@/domains/chat/chatCrypto";
 import { toUserMessage } from "@/lib/userError";
 import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
 import { isNativeApp } from "@/domains/transport/androidBridge";
-import { runRefreshIntent, subscribeRefreshIntents } from "@/domains/transport/refreshIntents";
+import { useTorConnection } from "@/domains/transport/torConnection";
 import { hasApproximateF2FLocation, paymentMethodHasF2F } from "@/domains/location/f2fLocation";
 import { registerVisibleTrade } from "@/domains/notifications/orderFeedbackVisibility";
 import { AppTransitionDialog } from "@/domains/navigation/AppTransitionFeedback";
@@ -61,6 +70,7 @@ import { AppTransitionDialog } from "@/domains/navigation/AppTransitionFeedback"
 const LazyF2FLocationDialog = lazy(() =>
   import("@/domains/location/F2FLocationDialog").then((module) => ({ default: module.F2FLocationDialog }))
 );
+const TRADE_LAB_ENABLED = import.meta.env.DEV || import.meta.env.VITE_ENABLE_TRADE_LAB === "true";
 
 export function OrderPage({
   embeddedLocator,
@@ -83,7 +93,16 @@ export function OrderPage({
   const proEnabled = useProPreferencesStore((state) => state.enabled);
   const hydrateGarage = useGarageStore((state) => state.hydrate);
   const releaseOrderReservation = useGarageStore((state) => state.releaseOrderReservation);
-  const { order: storedOrder, submitting, error, loadOrder, submitAction, clearOrder } = useOrderStore();
+  const torConnection = useTorConnection();
+  const {
+    order: storedOrder,
+    submitting,
+    loadFailure,
+    actionError,
+    loadOrder,
+    submitAction,
+    clearOrder
+  } = useOrderStore();
   const loadedOrder = orderForLocator(storedOrder, shortAlias, orderId);
   const eligibleSlots = proEnabled || embeddedLocator ? slots : selectStandardGarageSlots(slots);
   const routeSlotId = (location.state as { robotSlotId?: string } | null)?.robotSlotId;
@@ -92,14 +111,18 @@ export function OrderPage({
     : undefined;
   const currentSlot = routeSlot ?? selectCurrentSlot(eligibleSlots, currentToken);
   const coordinator = coordinators.find((item) => item.shortAlias === shortAlias) ?? coordinators.find((item) => item.shortAlias === "local");
+  const orderRefreshKey = orderRefreshIntentKey(coordinator, shortAlias, orderId, currentSlot);
   const coordinatorAuth = coordinator ? getRobotAuthForCoordinator(currentSlot, coordinator.shortAlias) : undefined;
   const signingRobot = getSigningRobot(currentSlot, shortAlias);
   const previousStatus = useRef<number | undefined>(undefined);
   const previousWasTaker = useRef(false);
-  const tradeLabEnabled = import.meta.env.DEV || import.meta.env.VITE_ENABLE_TRADE_LAB === "true";
-  const previewScenario = tradeLabEnabled ? searchParams.get("tradePreview") : null;
-  const previewOrder = tradeLabEnabled ? tradePreviewOrder(previewScenario) : undefined;
+  const previewScenario = TRADE_LAB_ENABLED ? searchParams.get("tradePreview") : null;
+  const previewOrder = TRADE_LAB_ENABLED ? tradePreviewOrder(previewScenario) : undefined;
+  const visibleOrder = previewOrder ?? loadedOrder;
   const [previewNotice, setPreviewNotice] = useState("");
+  const [loadRecoveryPhase, setLoadRecoveryPhase] = useState<OrderLoadRecoveryPhase>("loading");
+  const loadRecovery = useRef<ReturnType<typeof registerOrderLoadRecovery> | undefined>(undefined);
+  const visibleError = orderPageError(actionError, loadFailure);
 
   useEffect(() => {
     if (previewOrder || orderId < 1 || shortAlias === "local") return;
@@ -118,58 +141,31 @@ export function OrderPage({
   }, [clearOrder, orderId, previewOrder, shortAlias]);
 
   useEffect(() => {
-    if (previewOrder) return;
-    if (!coordinator || !orderId) return;
-    void loadOrder({ coordinator, orderId, reason: "initial", slot: currentSlot });
-  }, [coordinator, currentSlot?.token, loadOrder, orderId, previewOrder]);
+    if (visibleOrder || !coordinator || !orderId) return;
+    setLoadRecoveryPhase("loading");
+    const recovery = registerOrderLoadRecovery({
+      key: orderRefreshKey,
+      load: (reason) => loadOrder({ coordinator, orderId, reason, slot: currentSlot }),
+      onPhaseChange: setLoadRecoveryPhase
+    });
+    loadRecovery.current = recovery;
+    return () => {
+      recovery.dispose();
+      loadRecovery.current = undefined;
+    };
+  }, [coordinator, currentSlot?.tokenSHA256, loadOrder, orderId, orderRefreshKey, visibleOrder]);
 
   useEffect(() => {
     if (previewOrder) return;
     if (!loadedOrder || !coordinator || !currentSlot || !orderId) return;
-
-    let timer: number | undefined;
-    let disposed = false;
-    const schedule = () => {
-      if (disposed) return;
-      if (document.hidden && isNativeApp()) return;
-      const delay = document.hidden
-        ? 5 * 60_000
-        : jitterDelay(orderRefreshDelayMs(loadedOrder.status, loadedOrder.tx_queued), 0.1);
-      timer = window.setTimeout(async () => {
-        await loadOrder({
-          coordinator,
-          orderId,
-          reason: document.hidden ? "maintenance" : "poll",
-          slot: currentSlot
-        });
-        if (disposed) return;
-        schedule();
-      }, delay);
-    };
-    const onVisibilityChange = () => {
-      if (document.visibilityState !== "visible") {
-        if (timer !== undefined) window.clearTimeout(timer);
-        schedule();
-      }
-    };
-    const refreshNow = () => {
-      if (timer !== undefined) window.clearTimeout(timer);
-      void runRefreshIntent(`order:${coordinator.shortAlias}:${orderId}`, () =>
-        loadOrder({ coordinator, orderId, reason: "lifecycle", slot: currentSlot })).finally(() => {
-        if (!disposed) schedule();
-      });
-    };
-
-    schedule();
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    const stopLifecycle = subscribeRefreshIntents(refreshNow);
-    return () => {
-      disposed = true;
-      if (timer !== undefined) window.clearTimeout(timer);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-      stopLifecycle();
-    };
-  }, [coordinator, currentSlot?.token, loadedOrder?.status, loadOrder, orderId, previewOrder]);
+    return registerLoadedOrderRefresh({
+      activeDelayMs: () =>
+        jitterDelay(orderRefreshDelayMs(loadedOrder.status, loadedOrder.tx_queued), 0.1),
+      key: orderRefreshKey,
+      load: (reason) => loadOrder({ coordinator, orderId, reason, slot: currentSlot }),
+      pauseWhileHidden: isNativeApp()
+    });
+  }, [coordinator, currentSlot?.tokenSHA256, loadedOrder?.status, loadedOrder?.tx_queued, loadOrder, orderId, orderRefreshKey, previewOrder]);
 
   useEffect(() => {
     if (!loadedOrder) return;
@@ -204,48 +200,22 @@ export function OrderPage({
     onEmbeddedClose();
   }, [embeddedLocator, loadedOrder, onEmbeddedClose, previewOrder]);
 
-  const visibleOrder = previewOrder ?? loadedOrder;
-
   useEffect(() => {
     setPreviewNotice("");
   }, [previewOrder?.status, searchParams]);
 
   if (!visibleOrder) {
     return (
-      <main className="page page-trade">
-        <div className="page-heading">
-          <div>
-            <p className="app-eyebrow">Order #{orderId || "-"}</p>
-            <h2>Loading trade</h2>
-            <p>Fetching the private contract state from {shortAlias}.</p>
-          </div>
-        </div>
-        {error ? (
-          <div className="status-panel status-panel-warning order-error-panel">
-            <WifiOff size={18} />
-            <span>{error}</span>
-          </div>
-        ) : (
-          <div className="trade-loading" aria-label="Loading trade">
-            <div className="trade-loading-progress" aria-hidden>
-              {Array.from({ length: 5 }, (_, index) => <Skeleton key={index} />)}
-            </div>
-            <section className="trade-loading-card trade-loading-card-primary" aria-hidden>
-              <Skeleton className="trade-loading-card-title" />
-              <Skeleton className="trade-loading-card-line" />
-              <Skeleton className="trade-loading-card-line trade-loading-card-line-short" />
-              <Skeleton className="trade-loading-card-action" />
-            </section>
-            <section className="trade-loading-card trade-loading-card-details" aria-hidden>
-              <div>
-                <Skeleton className="trade-loading-detail-title" />
-                <Skeleton className="trade-loading-detail-copy" />
-              </div>
-              <Skeleton className="trade-loading-detail-chevron" />
-            </section>
-          </div>
-        )}
-      </main>
+      <ColdOrderLoadState
+        failure={loadFailure}
+        orderId={orderId}
+        phase={loadRecoveryPhase}
+        reconnectingTor={torConnection.reconnectState === "reconnecting"}
+        torReconnectAvailable={torConnection.canReconnect}
+        torReconnectFailed={torConnection.reconnectState === "failed"}
+        onReconnectTor={() => void torConnection.reconnect()}
+        onRetry={() => loadRecovery.current?.retry()}
+      />
     );
   }
 
@@ -285,10 +255,10 @@ export function OrderPage({
 
       <TradeProgress order={order} />
 
-      {error ? (
+      {visibleError ? (
         <div className="status-panel status-panel-warning order-error-panel">
-          <WifiOff size={18} />
-          <span>{error}</span>
+          <AlertTriangle size={18} />
+          <span>{visibleError}</span>
         </div>
       ) : null}
 
@@ -377,7 +347,7 @@ export function OrderPage({
               if (!coordinator || !currentSlot || !action.payload) return;
               await submitAction({ coordinator, orderId: order.id, slot: currentSlot, payload: action.payload });
               const updated = useOrderStore.getState();
-              if (!updated.error && shouldLeaveTradeAfterAction(action.key, updated.order)) {
+              if (!updated.actionError && shouldLeaveTradeAfterAction(action.key, updated.order)) {
                 if (onEmbeddedClose) {
                   if (shouldDismissEmbeddedTrade(updated.order)) onEmbeddedClose();
                 } else {
@@ -395,7 +365,7 @@ export function OrderPage({
               const result = useOrderStore.getState();
               if (payload.action === "update_invoice"
                 && clearInvoice
-                && !result.error
+                && !result.actionError
                 && !result.order?.bad_invoice) {
                 recordCoordinatorSettlement({
                   slotId: currentSlot.tokenSHA256,
@@ -424,6 +394,138 @@ export function OrderPage({
       </section>
     </main>
   );
+}
+
+type ColdOrderLoadStateProps = {
+  failure?: OrderLoadFailure;
+  orderId: number;
+  phase: OrderLoadRecoveryPhase;
+  reconnectingTor: boolean;
+  torReconnectAvailable: boolean;
+  torReconnectFailed: boolean;
+  onReconnectTor(): void;
+  onRetry(): void;
+};
+
+export function ColdOrderLoadState({
+  failure,
+  orderId,
+  phase,
+  reconnectingTor,
+  torReconnectAvailable,
+  torReconnectFailed,
+  onReconnectTor,
+  onRetry
+}: ColdOrderLoadStateProps) {
+  const retrying = phase === "waiting-to-retry" || phase === "retrying";
+  const loading = phase !== "idle" && !reconnectingTor;
+  const transientFailure = failure?.kind === "transient";
+  const heading = coldOrderLoadHeading(failure, loading, reconnectingTor);
+  const loadingLabel = retrying ? "Retrying private trade connection" : "Loading trade";
+
+  return (
+    <main className="page page-trade">
+      <div className="page-heading">
+        <div>
+          <p className="app-eyebrow">Order #{orderId || "-"}</p>
+          <h2>{heading}</h2>
+          {reconnectingTor ? <p>Building a fresh Tor circuit.</p> : null}
+          {loading ? <p>{retrying ? "Trying the private connection again." : "Opening the private trade."}</p> : null}
+        </div>
+      </div>
+
+      {loading ? (
+        <div
+          aria-busy="true"
+          aria-label={loadingLabel}
+          aria-live="polite"
+          className="trade-loading"
+          role="status"
+        >
+          <div className="trade-loading-progress" aria-hidden>
+            {Array.from({ length: 5 }, (_, index) => <Skeleton key={index} />)}
+          </div>
+          <section className="trade-loading-card trade-loading-card-primary" aria-hidden>
+            <Skeleton className="trade-loading-card-title" />
+            <Skeleton className="trade-loading-card-line" />
+            <Skeleton className="trade-loading-card-line trade-loading-card-line-short" />
+            <Skeleton className="trade-loading-card-action" />
+          </section>
+          <section className="trade-loading-card trade-loading-card-details" aria-hidden>
+            <div>
+              <Skeleton className="trade-loading-detail-title" />
+              <Skeleton className="trade-loading-detail-copy" />
+            </div>
+            <Skeleton className="trade-loading-detail-chevron" />
+          </section>
+        </div>
+      ) : (
+        <>
+          {failure && !transientFailure ? (
+            <div className="status-panel status-panel-warning order-error-panel" role="alert">
+              <AlertTriangle size={18} />
+              <span>{failure.message}</span>
+            </div>
+          ) : null}
+          <div
+            aria-live="polite"
+            className="order-load-recovery"
+            role="status"
+          >
+            {torReconnectFailed ? (
+              <p>Tor reconnect was not confirmed. Retry the trade or reconnect Tor.</p>
+            ) : null}
+            <div className="order-load-recovery-actions">
+              <Button
+                type="button"
+                onClick={onRetry}
+              >
+                <RotateCw size={16} />
+                Retry
+              </Button>
+              {torReconnectAvailable && (transientFailure || reconnectingTor) ? (
+                <Button
+                  loading={reconnectingTor}
+                  loadingLabel="Reconnecting Tor"
+                  type="button"
+                  variant="secondary"
+                  onClick={onReconnectTor}
+                >
+                  {!reconnectingTor ? <RefreshCw size={16} /> : null}
+                  Reconnect Tor
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        </>
+      )}
+    </main>
+  );
+}
+
+function coldOrderLoadHeading(
+  failure: OrderLoadFailure | undefined,
+  loading: boolean,
+  reconnectingTor: boolean
+): string {
+  if (reconnectingTor) return "Reconnecting Tor";
+  if (loading) return "Loading trade";
+  if (failure?.kind === "authentication") return "Robot required";
+  if (failure?.kind === "not-found") return "Trade unavailable";
+  return "Trade not loaded yet";
+}
+
+function orderRefreshIntentKey(
+  coordinator: Pick<CoordinatorSummary, "shortAlias"> | undefined,
+  routeAlias: string,
+  orderId: number,
+  slot: Pick<RobotSlot, "tokenSHA256"> | undefined
+): string {
+  return `order:${coordinator?.shortAlias ?? routeAlias}:${orderId}:${slot?.tokenSHA256 ?? "no-robot"}`;
+}
+
+function orderPageError(actionError: string | undefined, loadFailure: OrderLoadFailure | undefined): string | undefined {
+  return actionError ?? loadFailure?.message;
 }
 
 function OrderEyebrow({ order }: { order: OrderDto }) {

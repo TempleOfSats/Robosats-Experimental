@@ -1,112 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
 import { RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import {
-  getNativeTorDiagnostics,
-  requestNativeTorReconnect,
-  type AndroidTorDiagnostics
-} from "@/domains/transport/androidBridge";
-import { getDesktopTorDiagnostics, requestDesktopTorReconnect } from "@/domains/transport/tauriBridge";
+import type { AndroidTorDiagnostics } from "@/domains/transport/androidBridge";
+import type { TorConnection, TorReconnectState } from "@/domains/transport/torConnection";
 
-type TorReconnectState = "idle" | "reconnecting" | "reconnected" | "failed";
-
-type NativeTorConnection = {
-  diagnostics: AndroidTorDiagnostics | null;
-  reconnectError?: string;
-  reconnectState: TorReconnectState;
-  reconnect(): Promise<void>;
-  refresh(): Promise<void>;
-};
-
-type TorConnectionDialogProps = NativeTorConnection & {
+type TorConnectionDialogProps = TorConnection & {
   onClose(): void;
 };
-
-export function useNativeTorConnection(nativeRuntime: boolean, desktopRuntime: boolean): NativeTorConnection {
-  const [diagnostics, setDiagnostics] = useState<AndroidTorDiagnostics | null>(null);
-  const [reconnectState, setReconnectState] = useState<TorReconnectState>("idle");
-  const [reconnectError, setReconnectError] = useState<string>();
-
-  const refresh = useCallback(async () => {
-    if (!nativeRuntime) return;
-    const next = desktopRuntime ? await getDesktopTorDiagnostics() : getNativeTorDiagnostics();
-    setDiagnostics(next);
-  }, [desktopRuntime, nativeRuntime]);
-
-  useEffect(() => {
-    if (!nativeRuntime) return;
-    const handleReconnected = () => {
-      setReconnectError(undefined);
-      setReconnectState((current) => (current === "reconnecting" || current === "failed" ? "reconnected" : current));
-      void refresh();
-    };
-    void refresh();
-    window.addEventListener("robosats:tor-reconnected", handleReconnected);
-    return () => window.removeEventListener("robosats:tor-reconnected", handleReconnected);
-  }, [nativeRuntime, refresh]);
-
-  useEffect(() => {
-    if (reconnectState !== "reconnecting") return;
-    let cancelled = false;
-    let refreshInFlight = false;
-    let observedAttempt = false;
-    let completedPolls = 0;
-    const poll = async () => {
-      if (refreshInFlight) return;
-      refreshInFlight = true;
-      try {
-        const next = desktopRuntime ? await getDesktopTorDiagnostics() : getNativeTorDiagnostics();
-        if (cancelled || !next || next.connected) return;
-        if (next.state === "connecting") {
-          observedAttempt = true;
-          setDiagnostics(next);
-        }
-        if ((observedAttempt || completedPolls >= 2) && next.state === "failed") {
-          setDiagnostics(next);
-          setReconnectError("Tor could not reconnect. Check your network and try again.");
-          setReconnectState("failed");
-        }
-      } catch {
-        // Native status can briefly disappear while its Tor runtime is replaced.
-      } finally {
-        completedPolls += 1;
-        refreshInFlight = false;
-      }
-    };
-    void poll();
-    const interval = window.setInterval(() => void poll(), 750);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, [desktopRuntime, reconnectState]);
-
-  useEffect(() => {
-    if (reconnectState !== "reconnected") return;
-    const timeout = window.setTimeout(() => setReconnectState("idle"), 4_000);
-    return () => window.clearTimeout(timeout);
-  }, [reconnectState]);
-
-  const reconnect = useCallback(async () => {
-    if (reconnectState === "reconnecting") return;
-    setReconnectError(undefined);
-    setReconnectState("reconnecting");
-    setDiagnostics(markDiagnosticsConnecting);
-    try {
-      if (desktopRuntime) {
-        await requestDesktopTorReconnect();
-      } else if (!requestNativeTorReconnect()) {
-        throw new Error("Tor reconnect is unavailable");
-      }
-    } catch {
-      setReconnectError("Tor could not begin reconnecting. Please try again.");
-      setReconnectState("failed");
-    }
-  }, [desktopRuntime, reconnectState]);
-
-  return { diagnostics, reconnectError, reconnectState, reconnect, refresh };
-}
 
 export function TorConnectionDialog({
   diagnostics,
@@ -261,18 +161,6 @@ export function OnionIcon({ size = 20 }: { size?: number }) {
       <path d="M12 11.3c-.8.8-1.4 1.4-1.4 2.4a1.4 1.4 0 0 0 2.8 0c0-1-.6-1.6-1.4-2.4Z" />
     </svg>
   );
-}
-
-function markDiagnosticsConnecting(current: AndroidTorDiagnostics | null): AndroidTorDiagnostics | null {
-  if (!current) return current;
-  return {
-    ...current,
-    connected: false,
-    state: "connecting",
-    bootstrapProgress: 0,
-    proxyRunning: false,
-    error: null
-  };
 }
 
 function torHealthLabel(diagnostics: AndroidTorDiagnostics | null, state: TorReconnectState): string {
