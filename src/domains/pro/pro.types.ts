@@ -56,16 +56,6 @@ export type SlotSyncState = {
   error?: string;
 };
 
-export type OrderHint = {
-  recipientPubkey: string;
-  coordinatorPubkey: string;
-  shortAlias?: string;
-  orderId?: number;
-  status?: number;
-  eventId: string;
-  createdAt: number;
-};
-
 export function proTradeKey(locator: ProTradeLocator): ProTradeKey {
   return `${locator.slotId}:${locator.shortAlias}:${locator.orderId}`;
 }

@@ -1,25 +1,33 @@
+import {
+  orderChangeMatches,
+  subscribeOrderChangeNotifications,
+  type OrderChangeNotification
+} from "@/domains/orders/orderChangeNotifications";
 import type { OrderLoadResult } from "@/domains/orders/orderStore";
-import { runRefreshIntent, subscribeRefreshIntents, type RefreshReason } from "@/domains/transport/refreshIntents";
+import { subscribeRefreshIntents } from "@/domains/transport/refreshIntents";
 
 export type OrderLoadRecoveryPhase = "loading" | "waiting-to-retry" | "retrying" | "idle";
 
-type LoadedOrderRefreshOptions = {
-  activeDelayMs(): number;
-  key: string;
-  load(reason: "lifecycle" | "maintenance" | "poll"): Promise<OrderLoadResult>;
-  pauseWhileHidden: boolean;
+type OrderRefreshLocator = {
+  slotId?: string;
+  shortAlias: string;
+  orderId: number;
 };
 
 type OrderLoadRecoveryOptions = {
-  key: string;
-  load(reason: "initial" | "lifecycle" | "manual"): Promise<OrderLoadResult>;
+  activeDelayMs?(): number | undefined;
+  coordinatorEndpoint?: string;
+  locator: OrderRefreshLocator;
+  load(reason: "initial" | "lifecycle" | "maintenance" | "manual" | "poll"): Promise<OrderLoadResult>;
   onPhaseChange(phase: OrderLoadRecoveryPhase): void;
   autoRetryWindowMs?: number;
+  pauseWhileHidden?: boolean;
   retryDelayMs?: number;
 };
 
 type OrderLoadRecoveryRegistration = {
   retry(): void;
+  reschedule(): void;
   dispose(): void;
 };
 
@@ -27,13 +35,31 @@ const MIN_RETRY_DELAY_MS = 1_500;
 const RETRY_JITTER_MS = 1_000;
 const DEFAULT_AUTO_RETRY_WINDOW_MS = 8_000;
 const HIDDEN_REFRESH_DELAY_MS = 5 * 60_000;
+const activeColdInitialLoads = new Map<string, Promise<OrderLoadResult>>();
+
+type ColdInitialLoad = {
+  promise: Promise<OrderLoadResult>;
+  reused: boolean;
+};
+
+type HintLoadWaiter = {
+  resolve: (acknowledged: boolean) => void;
+  targetGeneration: number;
+};
 
 export function registerOrderLoadRecovery(options: OrderLoadRecoveryOptions): OrderLoadRecoveryRegistration {
-  let disposed = false;
+  let activeLoad: Promise<OrderLoadResult> | undefined;
+  let activeGeneration = 0;
   let autoRetryAvailable = true;
-  let retryTimer: number | undefined;
+  let disposed = false;
+  let freshLoadQueued = false;
+  let generation = 0;
+  let hintLoadWaiters: HintLoadWaiter[] = [];
+  let initializing = true;
   let phase: OrderLoadRecoveryPhase | undefined;
-  let runGeneration = 0;
+  let pollTimer: number | undefined;
+  let replayedOrderChange = false;
+  let retryTimer: number | undefined;
 
   const setPhase = (next: OrderLoadRecoveryPhase) => {
     if (disposed || phase === next) return;
@@ -47,117 +73,227 @@ export function registerOrderLoadRecovery(options: OrderLoadRecoveryOptions): Or
     window.clearTimeout(retryTimer);
     retryTimer = undefined;
   };
+  const waitForHintLoad = (targetGeneration: number): Promise<boolean> =>
+    new Promise((resolve) => {
+      if (disposed) {
+        resolve(false);
+        return;
+      }
+      hintLoadWaiters.push({ resolve, targetGeneration });
+    });
+  const settleHintLoads = (completedGeneration: number, acknowledged: boolean) => {
+    const pending: HintLoadWaiter[] = [];
+    for (const waiter of hintLoadWaiters) {
+      if (waiter.targetGeneration <= completedGeneration) waiter.resolve(acknowledged);
+      else pending.push(waiter);
+    }
+    hintLoadWaiters = pending;
+  };
+  const retargetHintLoads = (fromGeneration: number, toGeneration: number) => {
+    for (const waiter of hintLoadWaiters) {
+      if (waiter.targetGeneration === fromGeneration) waiter.targetGeneration = toGeneration;
+    }
+  };
+  const discardUnstartedHintLoads = () => {
+    const started: HintLoadWaiter[] = [];
+    for (const waiter of hintLoadWaiters) {
+      if (waiter.targetGeneration <= generation) started.push(waiter);
+      else waiter.resolve(false);
+    }
+    hintLoadWaiters = started;
+  };
+  const clearPoll = () => {
+    if (pollTimer !== undefined) window.clearTimeout(pollTimer);
+    pollTimer = undefined;
+  };
+  const schedule = () => {
+    clearPoll();
+    if (disposed || activeLoad) return;
+    const activeDelay = options.activeDelayMs?.();
+    if (activeDelay === undefined || (document.hidden && options.pauseWhileHidden)) return;
+    const delay = document.hidden ? HIDDEN_REFRESH_DELAY_MS : activeDelay;
+    pollTimer = window.setTimeout(() => {
+      pollTimer = undefined;
+      run(document.hidden ? "maintenance" : "poll");
+    }, delay);
+  };
 
   const run = (
-    reason: "initial" | "lifecycle" | "manual",
-    nextPhase: OrderLoadRecoveryPhase,
-    mayScheduleAutoRetry: boolean,
-    afterActive = false
-  ) => {
-    const generation = ++runGeneration;
+    reason: "initial" | "lifecycle" | "maintenance" | "manual" | "poll",
+    nextPhase?: OrderLoadRecoveryPhase,
+    mayScheduleAutoRetry = false,
+    freshAfterActive = false
+  ): { generation: number; reusedColdInitial: boolean } | undefined => {
+    if (disposed) return;
+    if (nextPhase) setPhase(nextPhase);
+    if (activeLoad) {
+      if (freshAfterActive) freshLoadQueued = true;
+      return;
+    }
+
+    const runGeneration = ++generation;
+    activeGeneration = runGeneration;
     const startedAt = Date.now();
-    setPhase(nextPhase);
-    void runRefreshIntent(options.key, () => (disposed ? unchangedOrderLoadResult() : options.load(reason)), {
-      afterActive
-    }).then(
-      (result) => {
-        if (disposed || generation !== runGeneration) return;
-        const fastTransientFailure =
-          result.status === "failed" &&
-          result.failure.kind === "transient" &&
-          Date.now() - startedAt <= (options.autoRetryWindowMs ?? DEFAULT_AUTO_RETRY_WINDOW_MS);
-        if (
-          mayScheduleAutoRetry &&
-          autoRetryAvailable &&
-          (fastTransientFailure || (result.status === "unchanged" && !result.order))
-        ) {
-          autoRetryAvailable = false;
-          setPhase("waiting-to-retry");
-          const delay = options.retryDelayMs ?? MIN_RETRY_DELAY_MS + Math.round(Math.random() * RETRY_JITTER_MS);
-          retryTimer = window.setTimeout(() => {
-            retryTimer = undefined;
-            if (disposed) return;
-            run("initial", "retrying", false);
-          }, delay);
+    const coldInitial = reason === "initial" ? coldInitialLoad(options, () => options.load(reason)) : undefined;
+    const result = coldInitial?.promise ?? startOrderLoad(() => options.load(reason));
+    activeLoad = result;
+    void result
+      .then(
+        (loadResult) => {
+          if (disposed || freshLoadQueued) return;
+          const fastTransientFailure =
+            loadResult.status === "failed" &&
+            loadResult.failure.kind === "transient" &&
+            Date.now() - startedAt <= (options.autoRetryWindowMs ?? DEFAULT_AUTO_RETRY_WINDOW_MS);
+          if (
+            mayScheduleAutoRetry &&
+            autoRetryAvailable &&
+            (fastTransientFailure || (loadResult.status === "unchanged" && !loadResult.order))
+          ) {
+            autoRetryAvailable = false;
+            setPhase("waiting-to-retry");
+            const delay = options.retryDelayMs ?? MIN_RETRY_DELAY_MS + Math.round(Math.random() * RETRY_JITTER_MS);
+            retryTimer = window.setTimeout(() => {
+              retryTimer = undefined;
+              run("initial", "retrying", false);
+            }, delay);
+            return;
+          }
+          setPhase("idle");
+        },
+        () => {
+          if (!disposed && !freshLoadQueued) setPhase("idle");
+        }
+      )
+      .finally(() => {
+        if (activeLoad === result) {
+          activeLoad = undefined;
+          activeGeneration = 0;
+        }
+        settleHintLoads(runGeneration, true);
+        if (disposed) return;
+        if (freshLoadQueued) {
+          freshLoadQueued = false;
+          run("lifecycle", "retrying");
           return;
         }
-        setPhase("idle");
-      },
-      () => {
-        if (generation !== runGeneration) return;
-        setPhase("idle");
-      }
-    );
+        schedule();
+      });
+    return { generation: runGeneration, reusedColdInitial: coldInitial?.reused ?? false };
   };
 
   const stopLifecycle = subscribeRefreshIntents((reason) => {
-    if (disposed) return;
+    clearPoll();
     cancelAutoRetry();
     run("lifecycle", "retrying", false, reason === "tor-reconnected");
   });
-
-  run("initial", "loading", true);
-
-  return {
-    retry: () => {
-      if (disposed) return;
-      cancelAutoRetry();
-      run("manual", "retrying", false);
-    },
-    dispose: () => {
-      if (disposed) return;
-      disposed = true;
-      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
-      retryTimer = undefined;
-      stopLifecycle();
+  const refreshChangedOrder = (notification: OrderChangeNotification) => {
+    if (!orderChangeMatches(notification, options.locator)) return false;
+    const targetGeneration = initializing ? 1 : activeLoad ? activeGeneration + 1 : generation + 1;
+    const acknowledged = waitForHintLoad(targetGeneration);
+    if (initializing) {
+      replayedOrderChange = true;
+      return acknowledged;
     }
-  };
-}
-
-export function registerLoadedOrderRefresh(options: LoadedOrderRefreshOptions): () => void {
-  let disposed = false;
-  let generation = 0;
-  let timer: number | undefined;
-
-  const schedule = () => {
-    if (timer !== undefined) window.clearTimeout(timer);
-    timer = undefined;
-    if (disposed || (document.hidden && options.pauseWhileHidden)) return;
-    const scheduledGeneration = generation;
-    const delay = document.hidden ? HIDDEN_REFRESH_DELAY_MS : options.activeDelayMs();
-    timer = window.setTimeout(async () => {
-      timer = undefined;
-      await runRefreshIntent(options.key, () => options.load(document.hidden ? "maintenance" : "poll"));
-      if (disposed || scheduledGeneration !== generation) return;
-      schedule();
-    }, delay);
-  };
-  const refreshNow = (reason: RefreshReason) => {
-    const refreshGeneration = ++generation;
-    if (timer !== undefined) window.clearTimeout(timer);
-    timer = undefined;
-    void runRefreshIntent(options.key, () => (disposed ? unchangedOrderLoadResult() : options.load("lifecycle")), {
-      afterActive: reason === "tor-reconnected"
-    }).finally(() => {
-      if (!disposed && refreshGeneration === generation) schedule();
-    });
+    clearPoll();
+    cancelAutoRetry();
+    run("lifecycle", "retrying", false, true);
+    return acknowledged;
   };
   const onVisibilityChange = () => {
     if (document.visibilityState !== "visible") schedule();
   };
 
-  schedule();
   document.addEventListener("visibilitychange", onVisibilityChange);
-  const stopLifecycle = subscribeRefreshIntents(refreshNow);
-  return () => {
-    disposed = true;
-    generation += 1;
-    if (timer !== undefined) window.clearTimeout(timer);
-    document.removeEventListener("visibilitychange", onVisibilityChange);
-    stopLifecycle();
+  const stopOrderChanges = subscribeOrderChangeNotifications(refreshChangedOrder, {
+    consumerId: orderLoadConsumerId(options.locator)
+  });
+  initializing = false;
+  if (options.activeDelayMs?.() === undefined) {
+    const initialRun = run("initial", "loading", true);
+    if (replayedOrderChange && initialRun?.reusedColdInitial) {
+      retargetHintLoads(initialRun.generation, initialRun.generation + 1);
+      freshLoadQueued = true;
+    }
+  } else if (replayedOrderChange) {
+    run("lifecycle", "retrying");
+  } else {
+    schedule();
+  }
+
+  return {
+    retry: () => {
+      clearPoll();
+      cancelAutoRetry();
+      run("manual", "retrying");
+    },
+    reschedule: () => {
+      clearPoll();
+      if (options.activeDelayMs?.() !== undefined) cancelAutoRetry();
+      schedule();
+    },
+    dispose: () => {
+      if (disposed) return;
+      disposed = true;
+      freshLoadQueued = false;
+      discardUnstartedHintLoads();
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+      retryTimer = undefined;
+      clearPoll();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      stopLifecycle();
+      stopOrderChanges();
+    }
   };
 }
 
-function unchangedOrderLoadResult(): OrderLoadResult {
-  return { status: "unchanged" };
+export function resetOrderLoadRecoveryForTests(): void {
+  activeColdInitialLoads.clear();
+}
+
+export function isColdOrderLoadActive(coordinatorEndpoint: string | undefined, locator: OrderRefreshLocator): boolean {
+  const key = coldInitialLoadKey({ coordinatorEndpoint, locator });
+  return key !== undefined && activeColdInitialLoads.has(key);
+}
+
+export function discardColdOrderLoad(coordinatorEndpoint: string | undefined, locator: OrderRefreshLocator): void {
+  const key = coldInitialLoadKey({ coordinatorEndpoint, locator });
+  if (key !== undefined) activeColdInitialLoads.delete(key);
+}
+
+function orderLoadConsumerId(locator: OrderRefreshLocator): string {
+  return `order-load:${locator.slotId ?? "*"}:${locator.shortAlias}:${locator.orderId}`;
+}
+
+function coldInitialLoad(
+  options: Pick<OrderLoadRecoveryOptions, "coordinatorEndpoint" | "locator">,
+  load: () => Promise<OrderLoadResult>
+): ColdInitialLoad {
+  const key = coldInitialLoadKey(options);
+  if (!key) return { promise: startOrderLoad(load), reused: false };
+  const active = activeColdInitialLoads.get(key);
+  if (active) return { promise: active, reused: true };
+  const result = startOrderLoad(load);
+  activeColdInitialLoads.set(key, result);
+  const clear = () => {
+    if (activeColdInitialLoads.get(key) === result) activeColdInitialLoads.delete(key);
+  };
+  void result.then(clear, clear);
+  return { promise: result, reused: false };
+}
+
+function coldInitialLoadKey({
+  coordinatorEndpoint,
+  locator
+}: Pick<OrderLoadRecoveryOptions, "coordinatorEndpoint" | "locator">): string | undefined {
+  if (!coordinatorEndpoint) return undefined;
+  return JSON.stringify([coordinatorEndpoint, locator.slotId ?? "*", locator.shortAlias, locator.orderId]);
+}
+
+function startOrderLoad(load: () => Promise<OrderLoadResult>): Promise<OrderLoadResult> {
+  try {
+    return Promise.resolve(load());
+  } catch (error) {
+    return Promise.reject(error);
+  }
 }

@@ -15,12 +15,13 @@ let requestSequence = 0;
 
 type OrderState = {
   order?: OrderDto;
+  orderIdentity?: OrderLoadIdentity;
   loading: boolean;
   refreshing: boolean;
   submitting: boolean;
   loadFailure?: OrderLoadFailure;
   actionError?: string;
-  primeOrder: (order: OrderDto) => void;
+  primeOrder: (order: OrderDto, identity: OrderLoadIdentity) => void;
   loadOrder: (params: LoadOrderParams) => Promise<OrderLoadResult>;
   submitAction: (params: SubmitActionParams) => Promise<void>;
   clearOrder: () => void;
@@ -52,6 +53,13 @@ export type OrderLoadFailure = {
   message: string;
 };
 
+export type OrderLoadIdentity = {
+  coordinatorEndpoint: string;
+  slotId?: string;
+  shortAlias: string;
+  orderId: number;
+};
+
 export type OrderLoadResult =
   | { status: "loaded"; order: OrderDto }
   | { status: "unchanged"; order?: OrderDto }
@@ -59,15 +67,17 @@ export type OrderLoadResult =
 
 export const useOrderStore = create<OrderState>((set, get) => ({
   order: undefined,
+  orderIdentity: undefined,
   loading: false,
   refreshing: false,
   submitting: false,
   loadFailure: undefined,
   actionError: undefined,
-  primeOrder: (order) => {
+  primeOrder: (order, identity) => {
     requestSequence += 1;
     set({
       order,
+      orderIdentity: identity,
       loading: false,
       refreshing: false,
       submitting: false,
@@ -79,11 +89,18 @@ export const useOrderStore = create<OrderState>((set, get) => ({
     if (get().submitting) return { status: "unchanged", order: get().order };
     const auth = getRobotAuthForCoordinator(slot, coordinator.shortAlias);
     if (!auth) {
+      requestSequence += 1;
       const failure: OrderLoadFailure = {
         kind: "authentication",
         message: "Load a robot to fetch this private order."
       };
-      set({ order: undefined, loading: false, refreshing: false, loadFailure: failure });
+      set({
+        order: undefined,
+        orderIdentity: undefined,
+        loading: false,
+        refreshing: false,
+        loadFailure: failure
+      });
       return { status: "failed", failure };
     }
 
@@ -96,7 +113,13 @@ export const useOrderStore = create<OrderState>((set, get) => ({
       };
       if (requestId !== requestSequence) return { status: "unchanged", order: get().order };
       syncGarageOrder(slot, coordinator.shortAlias, order);
-      set({ order, loading: false, refreshing: false, loadFailure: undefined });
+      set({
+        order,
+        orderIdentity: loadIdentity(coordinator, slot, orderId),
+        loading: false,
+        refreshing: false,
+        loadFailure: undefined
+      });
       return { status: "loaded", order };
     } catch (error) {
       if (requestId !== requestSequence) return { status: "unchanged", order: get().order };
@@ -104,7 +127,13 @@ export const useOrderStore = create<OrderState>((set, get) => ({
       if (isAlreadyCancelledError(error) && currentOrder) {
         const order = { ...currentOrder, status: 4, status_message: "Order cancelled" };
         syncGarageOrder(slot, coordinator.shortAlias, order);
-        set({ order, loading: false, refreshing: false, loadFailure: undefined });
+        set({
+          order,
+          orderIdentity: loadIdentity(coordinator, slot, orderId),
+          loading: false,
+          refreshing: false,
+          loadFailure: undefined
+        });
         return { status: "loaded", order };
       }
       const failure = classifyOrderLoadFailure(error);
@@ -157,7 +186,13 @@ export const useOrderStore = create<OrderState>((set, get) => ({
         useGarageStore.getState().releaseOrderReservation(slot.token, coordinator.shortAlias, orderId);
       }
       if (requestId !== requestSequence) return;
-      set({ order, submitting: false, loadFailure: undefined, actionError: undefined });
+      set({
+        order,
+        orderIdentity: loadIdentity(coordinator, slot, orderId),
+        submitting: false,
+        loadFailure: undefined,
+        actionError: undefined
+      });
     } catch (error) {
       if (requestId !== requestSequence) return;
       if (isAlreadyCancelledError(error)) {
@@ -167,7 +202,13 @@ export const useOrderStore = create<OrderState>((set, get) => ({
           syncGarageOrder(slot, coordinator.shortAlias, order);
           snapshotApplied = true;
         }
-        set({ order, submitting: false, loadFailure: undefined, actionError: undefined });
+        set({
+          order,
+          orderIdentity: order ? loadIdentity(coordinator, slot, orderId) : undefined,
+          submitting: false,
+          loadFailure: undefined,
+          actionError: undefined
+        });
         return;
       }
       set({
@@ -189,6 +230,7 @@ export const useOrderStore = create<OrderState>((set, get) => ({
     requestSequence += 1;
     set({
       order: undefined,
+      orderIdentity: undefined,
       loadFailure: undefined,
       actionError: undefined,
       loading: false,
@@ -198,12 +240,38 @@ export const useOrderStore = create<OrderState>((set, get) => ({
   }
 }));
 
+export function orderLoadIdentityMatches(
+  actual: OrderLoadIdentity | undefined,
+  expected: OrderLoadIdentity
+): boolean {
+  return Boolean(
+    actual &&
+    actual.coordinatorEndpoint === expected.coordinatorEndpoint &&
+    actual.slotId === expected.slotId &&
+    actual.shortAlias === expected.shortAlias &&
+    actual.orderId === expected.orderId
+  );
+}
+
 export function orderForLocator(
   order: OrderDto | undefined,
   shortAlias: string,
   orderId: number
 ): OrderDto | undefined {
   return order?.id === orderId && order.shortAlias === shortAlias ? order : undefined;
+}
+
+function loadIdentity(
+  coordinator: Pick<CoordinatorSummary, "shortAlias" | "url">,
+  slot: Pick<RobotSlot, "tokenSHA256"> | undefined,
+  orderId: number
+): OrderLoadIdentity {
+  return {
+    coordinatorEndpoint: coordinator.url,
+    slotId: slot?.tokenSHA256,
+    shortAlias: coordinator.shortAlias,
+    orderId
+  };
 }
 
 export function orderLoadRequestOptions(reason: OrderLoadReason): ApiRequestOptions {

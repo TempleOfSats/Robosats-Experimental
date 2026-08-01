@@ -534,6 +534,7 @@ export function OffersPage() {
       };
       if (proEnabled) setProLastView("trades");
       openConfirmedOrder(navigate, {
+        coordinatorEndpoint: selectedCoordinator.url,
         initialOrder: isCompleteOrderActionResponse(order) ? confirmedOrder : undefined,
         orderId,
         shortAlias: selectedCoordinator.shortAlias,

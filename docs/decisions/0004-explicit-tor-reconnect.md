@@ -25,7 +25,46 @@ reconnect bypasses the cooldown that protects automatic recovery.
 
 Transient trade-load failures receive one bounded request retry. Rebuilding Tor
 remains an explicit user action. Tor completion triggers a fresh trade request
-only after the new circuit is reported ready.
+only after the new circuit is reported ready. If a trade request is still
+active then, its owner queues exactly one fresh request after that request
+settles, whether it succeeded or failed. Disposing the trade view cancels the
+queued work.
+
+Focus, connectivity, resume, and Tor-ready events remain broad lifecycle
+refresh signals. Equivalent signals in the same foreground transition are
+coalesced, with Tor-ready and Tor-reconnected taking precedence. Order-change
+notifications use a separate typed orders-domain channel, so lifecycle
+coalescing cannot consume them. Nostr notifications include the recipient,
+coordinator, and order identity. Native notifications use the coordinator and
+order path when available; a missing or malformed native path retains the
+legacy broad reconciliation fallback.
+
+The notification broker retains a bounded, one-minute in-memory window so a
+native startup event or Pro-mode activation cannot race an asynchronously
+loaded consumer. Delivery is acknowledged per stable consumer ID, and pending
+entries are capped and expire rather than becoming durable application state.
+Distinct publishes remain distinct entries even when they identify the same
+trade; the active request owner coalesces them when appropriate. A trade owner
+acknowledges a hint after the request that covers it settles. Disposing an
+owner leaves unstarted trailing work available for the replacement owner to
+replay.
+
+A visible OrderPage owns hint-driven GETs for its trade. Pro reconciliation
+skips that locator and receives the authoritative result through the existing
+order-activity bridge. One OrderPage recovery controller remains registered
+across cold, loaded, and status-derived polling states, so a queued fresh load
+cannot be lost during a React effect handoff. Identical in-flight cold reads
+are shared across immediate controller replacement, while a hint newer than
+the shared read still schedules one trailing request.
+
+The order store records the coordinator endpoint, robot slot, coordinator
+alias, and order ID that produced each private snapshot. OrderPage renders a
+snapshot only when that full identity matches the current request. A genuine
+identity change invalidates the prior store request and discards any cold-read
+dedupe entry for the incoming identity before starting a fresh read. The
+same-identity React Strict Mode replacement still reuses its active request.
+Confirmed create and take handoffs prime the store with the same full identity,
+so their immediate transition remains smooth without weakening this check.
 
 ## Consequences
 
@@ -35,8 +74,16 @@ route becomes ready. A failure to load one trade does not imply that its
 coordinator is unavailable. Browser builds do not expose the control because
 their Tor lifecycle belongs to Tor Browser.
 
-Bridge dispatch and unsupported-runtime behavior require regression coverage.
-Native platform builds remain the final verification for lifecycle behavior.
+Known order-change identities refresh only their matching standard or Fleet
+trade. A known identity that does not match local state is ignored. Only a
+native notification without a usable order identity performs broad
+reconciliation. Concurrent standard notifications retain every notified order
+ID per coordinator rather than overwriting earlier pending work.
+
+Bridge parsing, targeted and broad notification routing, active-request
+trailing refresh, disposal, and unsupported-runtime behavior require
+regression coverage. Native platform builds remain the final verification for
+lifecycle behavior.
 
 ## Alternatives
 

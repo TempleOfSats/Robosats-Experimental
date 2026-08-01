@@ -396,6 +396,7 @@ export function CreateOrderPage() {
       const provisionalOrder = buildProvisionalMakerOrder(response.id, selectedAlias, payload, actionSlot);
       if (proEnabled) setProLastView("trades");
       openConfirmedOrder(navigate, {
+        coordinatorEndpoint: selectedCoordinator.url,
         initialOrder: provisionalOrder,
         orderId: response.id,
         shortAlias: selectedAlias,
