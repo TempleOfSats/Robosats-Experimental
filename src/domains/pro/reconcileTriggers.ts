@@ -3,8 +3,12 @@ import {
   markProOrderActionStarted,
   type GarageReconcileController
 } from "@/domains/pro/garageReconciler";
+import {
+  subscribeCoordinatorOrderActionActivity,
+  type CoordinatorOrderActionActivity
+} from "@/domains/orders/orderActivity";
 import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
-import type { OrderHint, ProTradeLocator, ReconcileReason } from "@/domains/pro/pro.types";
+import type { OrderHint, ReconcileReason } from "@/domains/pro/pro.types";
 import { subscribeRefreshIntents, type RefreshReason } from "@/domains/transport/refreshIntents";
 import { desktopBackgroundNotificationsEnabled } from "@/domains/transport/tauriBridge";
 import { hasActionableOrderDeadline } from "@/domains/orders/orderStateMachine";
@@ -38,30 +42,27 @@ export function registerReconcileTriggers(options: ReconcileTriggerOptions): () 
     const hint = validOrderHint((event as CustomEvent<unknown>).detail);
     if (hint) void options.controller.handleOrderHint(hint).catch(() => undefined);
   };
-  const onOrderActionStart = (event: Event) => {
-    const locator = validLocator((event as CustomEvent<unknown>).detail);
-    if (locator) markProOrderActionStarted(locator);
-  };
-  const onOrderActionComplete = (event: Event) => {
-    const result = validOrderActionResult((event as CustomEvent<unknown>).detail);
-    if (!result) return;
-    markProOrderActionFinished(result);
+  const onOrderAction = (activity: CoordinatorOrderActionActivity) => {
+    if (activity.phase === "start") {
+      markProOrderActionStarted(activity);
+      return;
+    }
+    markProOrderActionFinished(activity);
     // A complete foreground response has already passed through the order
     // activity bridge, which archives terminal trades before removing them.
     // Never independently remove the row here: doing so could discard the
     // only recoverable terminal snapshot when an action response was partial.
-    if (result.snapshotApplied) return;
+    if (activity.snapshotApplied) return;
     void options.controller.reconcileOrder({
-      slotId: result.slotId,
-      shortAlias: result.shortAlias,
-      orderId: result.orderId
+      slotId: activity.slotId,
+      shortAlias: activity.shortAlias,
+      orderId: activity.orderId
     }, "order-action").catch(() => undefined);
   };
 
   const stopLifecycle = subscribeRefreshIntents(onLifecycle);
+  const stopOrderActions = subscribeCoordinatorOrderActionActivity(onOrderAction);
   window.addEventListener("robosats:order-hint", onOrderHint);
-  window.addEventListener("robosats:order-action-start", onOrderActionStart);
-  window.addEventListener("robosats:order-action-complete", onOrderActionComplete);
 
   intervalTimer = window.setInterval(() => {
     if (
@@ -74,9 +75,8 @@ export function registerReconcileTriggers(options: ReconcileTriggerOptions): () 
     stopped = true;
     if (intervalTimer !== undefined) window.clearInterval(intervalTimer);
     stopLifecycle();
+    stopOrderActions();
     window.removeEventListener("robosats:order-hint", onOrderHint);
-    window.removeEventListener("robosats:order-action-start", onOrderActionStart);
-    window.removeEventListener("robosats:order-action-complete", onOrderActionComplete);
   };
 }
 
@@ -132,41 +132,6 @@ function validOrderHint(value: unknown): OrderHint | undefined {
   if (hint.orderId !== undefined && (!Number.isInteger(hint.orderId) || hint.orderId <= 0)) return undefined;
   if (hint.status !== undefined && !Number.isInteger(hint.status)) return undefined;
   return hint as OrderHint;
-}
-
-function validLocator(value: unknown): ProTradeLocator | undefined {
-  if (!value || typeof value !== "object") return undefined;
-  const locator = value as Partial<ProTradeLocator>;
-  if (!isString(locator.slotId) || !isString(locator.shortAlias)) return undefined;
-  if (!Number.isInteger(locator.orderId) || (locator.orderId ?? 0) <= 0) return undefined;
-  return locator as ProTradeLocator;
-}
-
-function validOrderActionResult(value: unknown): (ProTradeLocator & {
-  status?: number;
-  isMaker?: boolean;
-  isSeller?: boolean;
-  snapshotApplied?: boolean;
-}) | undefined {
-  const locator = validLocator(value);
-  if (!locator) return undefined;
-  const result = value as {
-    status?: unknown;
-    isMaker?: unknown;
-    isSeller?: unknown;
-    snapshotApplied?: unknown;
-  };
-  if (result.status !== undefined && !Number.isInteger(result.status)) return undefined;
-  if (result.isMaker !== undefined && typeof result.isMaker !== "boolean") return undefined;
-  if (result.isSeller !== undefined && typeof result.isSeller !== "boolean") return undefined;
-  if (result.snapshotApplied !== undefined && typeof result.snapshotApplied !== "boolean") return undefined;
-  return {
-    ...locator,
-    status: result.status as number | undefined,
-    isMaker: result.isMaker as boolean | undefined,
-    isSeller: result.isSeller as boolean | undefined,
-    snapshotApplied: result.snapshotApplied as boolean | undefined
-  };
 }
 
 function isString(value: unknown): value is string {

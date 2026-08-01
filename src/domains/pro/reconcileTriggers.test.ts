@@ -1,13 +1,27 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  publishCoordinatorOrderActionActivity,
+  resetCoordinatorOrderActivityForTests
+} from "@/domains/orders/orderActivity";
 import type { GarageReconcileController } from "@/domains/pro/garageReconciler";
 import { registerExpiryReconcileTrigger, registerReconcileTriggers } from "@/domains/pro/reconcileTriggers";
 import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
+
+const markProOrderActionFinishedMock = vi.hoisted(() => vi.fn());
+const markProOrderActionStartedMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@/domains/pro/garageReconciler", () => ({
+  markProOrderActionFinished: markProOrderActionFinishedMock,
+  markProOrderActionStarted: markProOrderActionStartedMock
+}));
 
 let windowTarget: EventTarget & Pick<typeof globalThis, "setTimeout" | "clearTimeout" | "setInterval" | "clearInterval">;
 let documentTarget: EventTarget & { visibilityState: DocumentVisibilityState };
 
 beforeEach(() => {
   vi.useFakeTimers();
+  markProOrderActionFinishedMock.mockReset();
+  markProOrderActionStartedMock.mockReset();
   windowTarget = Object.assign(new EventTarget(), {
     setTimeout: globalThis.setTimeout,
     clearTimeout: globalThis.clearTimeout,
@@ -17,6 +31,7 @@ beforeEach(() => {
   documentTarget = Object.assign(new EventTarget(), { visibilityState: "visible" as DocumentVisibilityState });
   vi.stubGlobal("window", windowTarget);
   vi.stubGlobal("document", documentTarget);
+  resetCoordinatorOrderActivityForTests();
   useProTradeIndexStore.getState().resetRuntimeCache();
 });
 
@@ -112,18 +127,45 @@ describe("reconciliation triggers", () => {
       proEnabled: () => true,
       reconcileCurrent: vi.fn(async () => undefined)
     });
-    const event = new Event("robosats:order-action-complete");
-    Object.defineProperty(event, "detail", {
-      value: { slotId: "slot", shortAlias: "lake", orderId: 42, status: 4, isMaker: true }
+    publishCoordinatorOrderActionActivity({
+      phase: "complete",
+      slotId: "slot",
+      shortAlias: "lake",
+      orderId: 42,
+      snapshotApplied: false
     });
-
-    windowTarget.dispatchEvent(event);
 
     expect(useProTradeIndexStore.getState().snapshots["slot:lake:42"]).toBeDefined();
     expect(controller.reconcileOrder).toHaveBeenCalledWith(
       { slotId: "slot", shortAlias: "lake", orderId: 42 },
       "order-action"
     );
+    cleanup();
+  });
+
+  it("marks a foreground action as started", () => {
+    const controller = fakeController();
+    const cleanup = registerReconcileTriggers({
+      controller,
+      proEnabled: () => true,
+      reconcileCurrent: vi.fn(async () => undefined)
+    });
+
+    publishCoordinatorOrderActionActivity({
+      phase: "start",
+      slotId: "slot",
+      shortAlias: "lake",
+      orderId: 42
+    });
+
+    expect(markProOrderActionStartedMock).toHaveBeenCalledWith({
+      phase: "start",
+      slotId: "slot",
+      shortAlias: "lake",
+      orderId: 42
+    });
+    expect(markProOrderActionFinishedMock).not.toHaveBeenCalled();
+    expect(controller.reconcileOrder).not.toHaveBeenCalled();
     cleanup();
   });
 
@@ -144,19 +186,13 @@ describe("reconciliation triggers", () => {
       proEnabled: () => true,
       reconcileCurrent: vi.fn(async () => undefined)
     });
-    const event = new Event("robosats:order-action-complete");
-    Object.defineProperty(event, "detail", {
-      value: {
-        slotId: "slot",
-        shortAlias: "lake",
-        orderId: 42,
-        status: 13,
-        isMaker: true,
-        isSeller: true
-      }
+    publishCoordinatorOrderActionActivity({
+      phase: "complete",
+      slotId: "slot",
+      shortAlias: "lake",
+      orderId: 42,
+      snapshotApplied: false
     });
-
-    windowTarget.dispatchEvent(event);
 
     expect(useProTradeIndexStore.getState().snapshots["slot:lake:42"]).toBeDefined();
     expect(controller.reconcileOrder).toHaveBeenCalledWith(
@@ -173,22 +209,36 @@ describe("reconciliation triggers", () => {
       proEnabled: () => true,
       reconcileCurrent: vi.fn(async () => undefined)
     });
-    const event = new Event("robosats:order-action-complete");
-    Object.defineProperty(event, "detail", {
-      value: {
-        slotId: "slot",
-        shortAlias: "lake",
-        orderId: 42,
-        status: 9,
-        isMaker: false,
-        snapshotApplied: true
-      }
+    publishCoordinatorOrderActionActivity({
+      phase: "complete",
+      slotId: "slot",
+      shortAlias: "lake",
+      orderId: 42,
+      snapshotApplied: true
     });
-
-    windowTarget.dispatchEvent(event);
 
     expect(controller.reconcileOrder).not.toHaveBeenCalled();
     cleanup();
+  });
+
+  it("stops observing foreground actions during cleanup", () => {
+    const controller = fakeController();
+    const cleanup = registerReconcileTriggers({
+      controller,
+      proEnabled: () => true,
+      reconcileCurrent: vi.fn(async () => undefined)
+    });
+    cleanup();
+
+    publishCoordinatorOrderActionActivity({
+      phase: "complete",
+      slotId: "slot",
+      shortAlias: "lake",
+      orderId: 42,
+      snapshotApplied: false
+    });
+
+    expect(controller.reconcileOrder).not.toHaveBeenCalled();
   });
 
   it("refreshes an order when its displayed deadline expires", async () => {

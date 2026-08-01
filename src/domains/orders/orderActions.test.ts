@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { getTradeActionCommands } from "@/domains/orders/orderActions";
+import {
+  getTradeActionCommands,
+  shouldLeaveTradeAfterAction
+} from "@/domains/orders/orderActions";
 import { getTradeViewState } from "@/domains/orders/orderStateMachine";
 import type { OrderDto } from "@/domains/orders/order.types";
 
@@ -81,5 +84,130 @@ describe("getTradeActionCommands", () => {
       const action = getTradeActionCommands(order, getTradeViewState(order)).find((item) => item.key === "collaborative-cancel");
       expect(action?.payload).toEqual({ action: "cancel", cancel_status: undefined });
     }
+  });
+
+  it("owns confirmation, placement, ordering and post-success semantics", () => {
+    const order = { ...baseOrder, status: 9, is_buyer: true, is_seller: false, is_maker: false };
+    const commands = getTradeActionCommands(order, getTradeViewState(order));
+
+    expect(commands.map((command) => ({
+      key: command.key,
+      displayOrder: command.displayOrder,
+      placement: command.placement,
+      postSuccess: command.postSuccess,
+      requiresConfirmation: command.requiresConfirmation
+    }))).toEqual([
+      {
+        key: "collaborative-cancel",
+        displayOrder: 1,
+        placement: "options",
+        postSuccess: "leave-if-order-inactive",
+        requiresConfirmation: true
+      },
+      {
+        key: "confirm-fiat-sent",
+        displayOrder: 0,
+        placement: "primary",
+        postSuccess: "stay",
+        requiresConfirmation: true
+      },
+      {
+        key: "open-dispute",
+        displayOrder: 2,
+        placement: "options",
+        postSuccess: "stay",
+        requiresConfirmation: true
+      }
+    ]);
+    expect(
+      [...commands]
+        .sort((left, right) => left.displayOrder - right.displayOrder)
+        .map(({ key, label, variant }) => ({ key, label, variant }))
+    ).toEqual([
+      {
+        key: "confirm-fiat-sent",
+        label: "Confirm fiat sent",
+        variant: "primary"
+      },
+      {
+        key: "collaborative-cancel",
+        label: "Collaborative cancel",
+        variant: "secondary"
+      },
+      {
+        key: "open-dispute",
+        label: "Open dispute",
+        variant: "outline"
+      }
+    ]);
+  });
+
+  it("keeps pause direct and ordered with the existing trade options", () => {
+    const commands = getTradeActionCommands(baseOrder, getTradeViewState(baseOrder));
+
+    expect(commands.map((command) => ({
+      key: command.key,
+      displayOrder: command.displayOrder,
+      placement: command.placement,
+      requiresConfirmation: command.requiresConfirmation
+    }))).toEqual([
+      {
+        key: "cancel",
+        displayOrder: 1,
+        placement: "options",
+        requiresConfirmation: true
+      },
+      {
+        key: "pause",
+        displayOrder: 1,
+        placement: "options",
+        requiresConfirmation: false
+      }
+    ]);
+    expect([...commands].sort((left, right) => left.displayOrder - right.displayOrder).map((command) => command.key))
+      .toEqual(["cancel", "pause"]);
+  });
+});
+
+describe("shouldLeaveTradeAfterAction", () => {
+  const cancellation = {
+    postSuccess: "leave-if-order-inactive"
+  } as const;
+  const stay = {
+    postSuccess: "stay"
+  } as const;
+
+  it("keeps the first peer in chat while collaborative cancellation awaits acceptance", () => {
+    expect(shouldLeaveTradeAfterAction(cancellation, {
+      status: 9,
+      is_maker: false,
+      is_taker: true
+    })).toBe(false);
+  });
+
+  it("leaves after terminal cancellation or an early take is released", () => {
+    expect(shouldLeaveTradeAfterAction(cancellation, {
+      status: 12,
+      is_maker: false,
+      is_taker: true
+    })).toBe(true);
+    expect(shouldLeaveTradeAfterAction(cancellation, {
+      status: 4,
+      is_maker: false,
+      is_taker: false
+    })).toBe(true);
+    expect(shouldLeaveTradeAfterAction(cancellation, {
+      status: 1,
+      is_maker: false,
+      is_taker: false
+    })).toBe(true);
+  });
+
+  it("never navigates for commands that remain in the trade", () => {
+    expect(shouldLeaveTradeAfterAction(stay, {
+      status: 4,
+      is_maker: false,
+      is_taker: false
+    })).toBe(false);
   });
 });

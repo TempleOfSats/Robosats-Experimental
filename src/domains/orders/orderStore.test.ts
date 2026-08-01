@@ -3,6 +3,7 @@ import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.type
 import type { RobotSlot } from "@/domains/garage/garageStore";
 import {
   resetCoordinatorOrderActivityForTests,
+  subscribeCoordinatorOrderActionActivity,
   subscribeCoordinatorOrderActivity
 } from "@/domains/orders/orderActivity";
 import type { OrderDto } from "@/domains/orders/order.types";
@@ -86,6 +87,77 @@ describe("order API propagation", () => {
       { timeoutProfile: "interactive", priority: "foreground", source: "order-refresh" }
     );
     expect(useOrderStore.getState().order?.status).toBe(2);
+  });
+
+  it("publishes typed action start and completion with the applied snapshot", async () => {
+    const listener = vi.fn();
+    const unsubscribe = subscribeCoordinatorOrderActionActivity(listener);
+    useOrderStore.setState({ order: { id: 123, status: 1, is_maker: true } as OrderDto });
+    submitOrderActionMock.mockResolvedValue({
+      id: 123,
+      status: 2,
+      is_maker: true,
+      is_seller: false
+    });
+
+    await useOrderStore.getState().submitAction({
+      coordinator,
+      orderId: 123,
+      slot,
+      payload: { action: "pause" }
+    });
+
+    expect(listener.mock.calls).toEqual([
+      [{
+        phase: "start",
+        slotId: slot.tokenSHA256,
+        shortAlias: coordinator.shortAlias,
+        orderId: 123
+      }],
+      [{
+        phase: "complete",
+        slotId: slot.tokenSHA256,
+        shortAlias: coordinator.shortAlias,
+        orderId: 123,
+        snapshotApplied: true
+      }]
+    ]);
+
+    unsubscribe();
+    await useOrderStore.getState().submitAction({
+      coordinator,
+      orderId: 123,
+      slot,
+      payload: { action: "pause" }
+    });
+    expect(listener).toHaveBeenCalledTimes(2);
+  });
+
+  it("publishes action completion without a snapshot when the action fails", async () => {
+    const listener = vi.fn();
+    subscribeCoordinatorOrderActionActivity(listener);
+    submitOrderActionMock.mockRejectedValue(new Error("The action was rejected."));
+
+    await useOrderStore.getState().submitAction({
+      coordinator,
+      orderId: 123,
+      slot,
+      payload: { action: "pause" }
+    });
+
+    expect(listener).toHaveBeenNthCalledWith(1, {
+      phase: "start",
+      slotId: slot.tokenSHA256,
+      shortAlias: coordinator.shortAlias,
+      orderId: 123
+    });
+    expect(listener).toHaveBeenNthCalledWith(2, {
+      phase: "complete",
+      slotId: slot.tokenSHA256,
+      shortAlias: coordinator.shortAlias,
+      orderId: 123,
+      snapshotApplied: false
+    });
   });
 });
 
