@@ -21,6 +21,7 @@ const bundles = {
   windows: "nsis",
   macos: "dmg"
 };
+const buildEnvironment = await packagingEnvironment();
 await rm(path.join(
   root,
   "desktop",
@@ -30,7 +31,6 @@ await rm(path.join(
   "bundle",
   bundles[requested]
 ), { recursive: true, force: true });
-const buildEnvironment = await packagingEnvironment();
 await run(process.execPath, [
   require.resolve("@tauri-apps/cli/tauri.js"),
   "build",
@@ -52,6 +52,14 @@ function platformName() {
 async function packagingEnvironment() {
   if (requested !== "linux") return process.env;
   const env = { ...process.env, NO_STRIP: "1" };
+  try {
+    await run("patchelf", ["--version"], env);
+  } catch (error) {
+    throw new Error(
+      "Linux AppImage packaging requires patchelf on PATH. Install your distribution's patchelf package and retry.",
+      { cause: error }
+    );
+  }
   const helpers = "/usr/lib/gstreamer-1.0";
   try {
     await access(path.join(helpers, "gst-plugin-scanner"));
