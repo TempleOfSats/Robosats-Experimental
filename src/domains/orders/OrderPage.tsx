@@ -131,6 +131,7 @@ export function OrderPage({
     slotId: currentSlotId
   });
   const loadedOrderRef = useRef(loadedOrder);
+  const independentInitialLoadKeyRef = useRef<string | undefined>(undefined);
   const previousLoadIdentityKey = useRef<string | undefined>(undefined);
   const coordinatorAuth = coordinator ? getRobotAuthForCoordinator(currentSlot, coordinator.shortAlias) : undefined;
   const signingRobot = getSigningRobot(currentSlot, shortAlias);
@@ -161,14 +162,15 @@ export function OrderPage({
 
   useEffect(() => {
     if (previewOrder) return;
-    const loadIdentityChanged = previousLoadIdentityKey.current !== loadIdentityKey;
+    const previousLoadIdentity = previousLoadIdentityKey.current;
+    const loadIdentityChanged = previousLoadIdentity !== loadIdentityKey;
     previousLoadIdentityKey.current = loadIdentityKey;
     const locator = {
       slotId: currentSlotId,
       shortAlias,
       orderId
     };
-    synchronizeOrderLoadIdentity({
+    const discardedIncomingLoad = synchronizeOrderLoadIdentity({
       clearOrder,
       coordinatorEndpoint: coordinator?.url,
       identityChanged: loadIdentityChanged,
@@ -176,6 +178,10 @@ export function OrderPage({
       loadedOrderRef,
       locator
     });
+    independentInitialLoadKeyRef.current =
+      !loadedOrder && (discardedIncomingLoad || (previousLoadIdentity !== undefined && loadIdentityChanged))
+        ? loadIdentityKey
+        : undefined;
     previousStatus.current = undefined;
     previousWasTaker.current = false;
   }, [
@@ -195,12 +201,18 @@ export function OrderPage({
       activeDelayMs: () => loadedOrderRefreshDelay(loadedOrderRef.current),
       coordinatorEndpoint: coordinator.url,
       locator: { slotId: currentSlotId, shortAlias, orderId },
-      load: (reason) => loadOrder({
-        coordinator: coordinatorRef.current ?? coordinator,
-        orderId,
-        reason,
-        slot: currentSlotRef.current
-      }),
+      load: (reason) => {
+        const independentRead =
+          reason === "initial" && independentInitialLoadKeyRef.current === loadIdentityKey;
+        if (independentRead) independentInitialLoadKeyRef.current = undefined;
+        return loadOrder({
+          coordinator: coordinatorRef.current ?? coordinator,
+          independentRead,
+          orderId,
+          reason,
+          slot: currentSlotRef.current
+        });
+      },
       onPhaseChange: setLoadRecoveryPhase,
       pauseWhileHidden: isNativeApp()
     });
@@ -617,14 +629,15 @@ function synchronizeOrderLoadIdentity({
   loadedOrder: OrderDto | undefined;
   loadedOrderRef: { current: OrderDto | undefined };
   locator: { slotId?: string; shortAlias: string; orderId: number };
-}): void {
+}): boolean {
   if (identityChanged && !loadedOrder) {
-    discardColdOrderLoad(coordinatorEndpoint, locator);
+    const discardedIncomingLoad = discardColdOrderLoad(coordinatorEndpoint, locator);
     loadedOrderRef.current = undefined;
     clearOrder();
-    return;
+    return discardedIncomingLoad;
   }
   if (!loadedOrder && !isColdOrderLoadActive(coordinatorEndpoint, locator)) clearOrder();
+  return false;
 }
 
 function orderRefreshCoordinatorKey(

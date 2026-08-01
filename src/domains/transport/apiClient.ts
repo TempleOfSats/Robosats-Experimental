@@ -27,6 +27,8 @@ export type RequestSource =
 
 export interface ApiRequestOptions {
   bypassCircuit?: boolean;
+  /** Replace matching work once it has reached transport without cancelling its callers. */
+  supersedeInFlight?: boolean;
   timeoutProfile?: TimeoutProfile;
   timeoutMs?: number;
   priority?: RequestPriority;

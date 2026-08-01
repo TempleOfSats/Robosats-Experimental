@@ -61,6 +61,7 @@ async function request<T>(
     method,
     priority,
     source,
+    supersedeInFlight: options.supersedeInFlight,
     signal: options.signal,
     timeoutMs
   }, async (signal) => {

@@ -256,9 +256,9 @@ export function isColdOrderLoadActive(coordinatorEndpoint: string | undefined, l
   return key !== undefined && activeColdInitialLoads.has(key);
 }
 
-export function discardColdOrderLoad(coordinatorEndpoint: string | undefined, locator: OrderRefreshLocator): void {
+export function discardColdOrderLoad(coordinatorEndpoint: string | undefined, locator: OrderRefreshLocator): boolean {
   const key = coldInitialLoadKey({ coordinatorEndpoint, locator });
-  if (key !== undefined) activeColdInitialLoads.delete(key);
+  return key !== undefined && activeColdInitialLoads.delete(key);
 }
 
 function orderLoadConsumerId(locator: OrderRefreshLocator): string {
