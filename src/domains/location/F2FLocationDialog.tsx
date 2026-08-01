@@ -1,10 +1,7 @@
 import {
   type KeyboardEvent,
-  type PointerEvent,
-  type WheelEvent as ReactWheelEvent,
   useEffect,
   useMemo,
-  useRef,
   useState
 } from "react";
 import { MapPin, Minus, Plus, Search, ShieldCheck, X } from "lucide-react";
@@ -18,24 +15,11 @@ import {
 import {
   clampMapCenter,
   clampMapPosition,
-  MAP_DEFAULT_CENTER,
-  MAP_LATITUDE_SPAN,
-  MAP_MIN_LATITUDE
+  MAP_DEFAULT_CENTER
 } from "@/domains/location/f2fMapViewport";
+import { useF2FWorldMap } from "@/domains/location/useF2FWorldMap";
 
 type Position = [number, number];
-type Coordinate = [number, number];
-type PolygonGeometry = {
-  type: "Polygon";
-  coordinates: Coordinate[][];
-};
-type MultiPolygonGeometry = {
-  type: "MultiPolygon";
-  coordinates: Coordinate[][][];
-};
-type WorldFeatureCollection = {
-  features: Array<{ geometry: PolygonGeometry | MultiPolygonGeometry | null }>;
-};
 type F2FCity = {
   n: string;
   c: string;
@@ -54,11 +38,9 @@ type F2FLocationDialogProps = {
   readOnly?: boolean;
 };
 
-const WORLD_MAP_URL = "/static/assets/geo/f2f-world.geo.json";
 const CITY_INDEX_URL = "/static/assets/geo/f2f-cities.json";
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 32;
-let worldMapRequest: Promise<WorldFeatureCollection> | undefined;
 let cityIndexRequest: Promise<F2FCity[]> | undefined;
 
 export function F2FLocationDialog({
@@ -71,51 +53,37 @@ export function F2FLocationDialog({
   const initialPosition = hasApproximateF2FLocation(latitude, longitude)
     ? clampMapPosition(approximateF2FLocation(Number(latitude), Number(longitude)))
     : undefined;
-  const [worldMap, setWorldMap] = useState<WorldFeatureCollection>();
-  const [mapError, setMapError] = useState(false);
   const [selected, setSelected] = useState<Position | undefined>(initialPosition);
-  const [center, setCenter] = useState<Position>(initialPosition ?? MAP_DEFAULT_CENTER);
-  const [zoom, setZoom] = useState(initialPosition ? 8 : 1);
   const [cities, setCities] = useState<F2FCity[]>([]);
   const [cityQuery, setCityQuery] = useState("");
   const [citySearchOpen, setCitySearchOpen] = useState(false);
   const [activeCityIndex, setActiveCityIndex] = useState(0);
   const [cityIndexError, setCityIndexError] = useState(false);
-  const svgRef = useRef<SVGSVGElement>(null);
-  const dragRef = useRef<{
-    center: Position;
-    clientX: number;
-    clientY: number;
-    moved: boolean;
-    pointerId: number;
-  } | undefined>(undefined);
-  const pointersRef = useRef(new Map<number, { x: number; y: number }>());
-  const pinchRef = useRef<{
-    anchor: Position;
-    distance: number;
-    ratioX: number;
-    ratioY: number;
-    zoom: number;
-  } | undefined>(undefined);
-
-  useEffect(() => {
-    let active = true;
-    worldMapRequest ??= fetch(WORLD_MAP_URL, { cache: "force-cache" }).then(async (response) => {
-      if (!response.ok) throw new Error(`Map request failed with ${response.status}`);
-      return response.json() as Promise<WorldFeatureCollection>;
-    });
-    void worldMapRequest
-      .then((data) => {
-        if (active) setWorldMap(data);
-      })
-      .catch(() => {
-        worldMapRequest = undefined;
-        if (active) setMapError(true);
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
+  const {
+    center,
+    changeZoom,
+    handlePointerCancel,
+    handlePointerDown,
+    handlePointerMove,
+    handlePointerUp,
+    handleWheel,
+    mapError,
+    mapLoaded,
+    mapPath,
+    setCenter,
+    setZoom,
+    svgRef,
+    viewBox,
+    zoom
+  } = useF2FWorldMap({
+    dragThreshold: 5,
+    initialCenter: initialPosition ?? MAP_DEFAULT_CENTER,
+    initialZoom: initialPosition ? 8 : 1,
+    maxZoom: MAX_ZOOM,
+    minZoom: MIN_ZOOM,
+    onMapClick: selectPosition,
+    onPointerStart: () => setCitySearchOpen(false)
+  });
 
   useEffect(() => {
     if (readOnly) return;
@@ -137,7 +105,6 @@ export function F2FLocationDialog({
     };
   }, [readOnly]);
 
-  const mapPath = useMemo(() => worldMap ? featureCollectionPath(worldMap) : "", [worldMap]);
   const cityMatches = useMemo(() => {
     const query = normalizeSearch(cityQuery);
     if (query.length < 2) return [];
@@ -156,19 +123,8 @@ export function F2FLocationDialog({
       .slice(0, 8)
       .map(({ city }) => city);
   }, [cities, cityQuery]);
-  const viewWidth = 360 / zoom;
-  const viewHeight = MAP_LATITUDE_SPAN / zoom;
-  const viewCenterX = center[1] + 180;
-  const viewCenterY = 90 - center[0];
-  const viewBox = `${viewCenterX - viewWidth / 2} ${viewCenterY - viewHeight / 2} ${viewWidth} ${viewHeight}`;
   const selectedX = selected ? selected[1] + 180 : 0;
   const selectedY = selected ? 90 - selected[0] : 0;
-
-  function updateZoom(nextZoom: number) {
-    const boundedZoom = boundZoom(nextZoom);
-    setZoom(boundedZoom);
-    setCenter((current) => clampMapCenter(current, boundedZoom));
-  }
 
   function selectPosition(position: Position) {
     if (readOnly) return;
@@ -176,134 +132,6 @@ export function F2FLocationDialog({
     setSelected(approximate);
     setCenter(approximate);
     if (zoom < 8) setZoom(8);
-  }
-
-  function positionFromPointer(event: PointerEvent<SVGSVGElement>): Position | undefined {
-    const svg = svgRef.current;
-    const matrix = svg?.getScreenCTM();
-    if (!svg || !matrix) return undefined;
-    const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse());
-    return [90 - point.y, point.x - 180];
-  }
-
-  function mapPointAtClient(clientX: number, clientY: number) {
-    const rect = svgRef.current?.getBoundingClientRect();
-    if (!rect || rect.width === 0 || rect.height === 0) return undefined;
-    const ratioX = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-    const ratioY = Math.min(1, Math.max(0, (clientY - rect.top) / rect.height));
-    return {
-      position: clampMapPosition([
-        center[0] - (ratioY - 0.5) * viewHeight,
-        center[1] + (ratioX - 0.5) * viewWidth
-      ]),
-      ratioX,
-      ratioY
-    };
-  }
-
-  function zoomAroundPoint(
-    anchor: Position,
-    ratioX: number,
-    ratioY: number,
-    nextZoom: number
-  ) {
-    const boundedZoom = boundZoom(nextZoom);
-    setZoom(boundedZoom);
-    setCenter(clampMapCenter([
-      anchor[0] + (ratioY - 0.5) * (MAP_LATITUDE_SPAN / boundedZoom),
-      anchor[1] - (ratioX - 0.5) * (360 / boundedZoom)
-    ], boundedZoom));
-  }
-
-  function handleWheel(event: ReactWheelEvent<SVGSVGElement>) {
-    event.preventDefault();
-    const point = mapPointAtClient(event.clientX, event.clientY);
-    if (!point) return;
-    const factor = event.deltaY < 0 ? 1.35 : 1 / 1.35;
-    zoomAroundPoint(point.position, point.ratioX, point.ratioY, zoom * factor);
-  }
-
-  function handlePointerDown(event: PointerEvent<SVGSVGElement>) {
-    setCitySearchOpen(false);
-    pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
-    event.currentTarget.setPointerCapture(event.pointerId);
-    if (pointersRef.current.size >= 2) {
-      const [first, second] = [...pointersRef.current.values()];
-      const midpointX = (first.x + second.x) / 2;
-      const midpointY = (first.y + second.y) / 2;
-      const point = mapPointAtClient(midpointX, midpointY);
-      if (point) {
-        pinchRef.current = {
-          anchor: point.position,
-          distance: pointerDistance(first, second),
-          ratioX: point.ratioX,
-          ratioY: point.ratioY,
-          zoom
-        };
-      }
-      dragRef.current = undefined;
-      return;
-    }
-    dragRef.current = {
-      center,
-      clientX: event.clientX,
-      clientY: event.clientY,
-      moved: false,
-      pointerId: event.pointerId
-    };
-  }
-
-  function handlePointerMove(event: PointerEvent<SVGSVGElement>) {
-    if (pointersRef.current.has(event.pointerId)) {
-      pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
-    }
-    if (pointersRef.current.size >= 2 && pinchRef.current) {
-      const [first, second] = [...pointersRef.current.values()];
-      const pinch = pinchRef.current;
-      const distance = pointerDistance(first, second);
-      if (pinch.distance > 0) {
-        zoomAroundPoint(
-          pinch.anchor,
-          pinch.ratioX,
-          pinch.ratioY,
-          pinch.zoom * (distance / pinch.distance)
-        );
-      }
-      return;
-    }
-    const drag = dragRef.current;
-    const svg = svgRef.current;
-    if (!drag || drag.pointerId !== event.pointerId || !svg) return;
-    const rect = svg.getBoundingClientRect();
-    const deltaX = event.clientX - drag.clientX;
-    const deltaY = event.clientY - drag.clientY;
-    if (Math.abs(deltaX) + Math.abs(deltaY) > 5) drag.moved = true;
-    if (!drag.moved) return;
-    setCenter(clampMapCenter([
-      drag.center[0] + (deltaY / rect.height) * viewHeight,
-      drag.center[1] - (deltaX / rect.width) * viewWidth
-    ], zoom));
-  }
-
-  function handlePointerUp(event: PointerEvent<SVGSVGElement>) {
-    const drag = dragRef.current;
-    const wasPinching = Boolean(pinchRef.current);
-    pointersRef.current.delete(event.pointerId);
-    if (pointersRef.current.size < 2) pinchRef.current = undefined;
-    dragRef.current = undefined;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-    if (!wasPinching && drag && drag.pointerId === event.pointerId && !drag.moved) {
-      const position = positionFromPointer(event);
-      if (position) selectPosition(position);
-    }
-  }
-
-  function handlePointerCancel(event: PointerEvent<SVGSVGElement>) {
-    pointersRef.current.delete(event.pointerId);
-    if (pointersRef.current.size < 2) pinchRef.current = undefined;
-    if (dragRef.current?.pointerId === event.pointerId) dragRef.current = undefined;
   }
 
   function handleMapKeyDown(event: KeyboardEvent<SVGSVGElement>) {
@@ -439,7 +267,7 @@ export function F2FLocationDialog({
       ) : null}
 
       <div className="f2f-map-shell">
-        {!worldMap && !mapError ? (
+        {!mapLoaded && !mapError ? (
           <div className="f2f-map-loading" role="status">
             <span className="ui-spinner" aria-hidden="true" />
             <span>Loading private map…</span>
@@ -450,7 +278,7 @@ export function F2FLocationDialog({
             The map could not be loaded. Close this panel and try again.
           </div>
         ) : null}
-        {worldMap ? (
+        {mapLoaded ? (
           <svg
             aria-label={readOnly
               ? "Map showing the approximate public meeting area"
@@ -479,12 +307,12 @@ export function F2FLocationDialog({
           </svg>
         ) : null}
 
-        {worldMap ? (
+        {mapLoaded ? (
           <div className="f2f-map-controls" aria-label="Map controls">
             <Button
               aria-label="Zoom in"
               disabled={zoom >= MAX_ZOOM}
-              onClick={() => updateZoom(zoom * 2)}
+              onClick={() => changeZoom(zoom * 2)}
               size="icon"
               type="button"
               variant="secondary"
@@ -494,7 +322,7 @@ export function F2FLocationDialog({
             <Button
               aria-label="Zoom out"
               disabled={zoom <= MIN_ZOOM}
-              onClick={() => updateZoom(zoom / 2)}
+              onClick={() => changeZoom(zoom / 2)}
               size="icon"
               type="button"
               variant="secondary"
@@ -528,42 +356,6 @@ export function F2FLocationDialog({
       </div>
     </Dialog>
   );
-}
-
-function featureCollectionPath(collection: WorldFeatureCollection): string {
-  return collection.features
-    .flatMap((feature) => {
-      if (!feature.geometry) return [];
-      const polygons = feature.geometry.type === "Polygon"
-        ? [feature.geometry.coordinates]
-        : feature.geometry.coordinates;
-      return polygons
-        .filter((polygon) => polygon.some((ring) => (
-          ring.some(([, latitude]) => latitude >= MAP_MIN_LATITUDE)
-        )))
-        .map((polygon) => polygonPath(polygon));
-    })
-    .join(" ");
-}
-
-function polygonPath(polygon: Coordinate[][]): string {
-  return polygon
-    .map((ring) => ring
-      .map(([longitude, latitude], index) => `${index === 0 ? "M" : "L"}${longitude + 180} ${90 - latitude}`)
-      .join(" ")
-      .concat(" Z"))
-    .join(" ");
-}
-
-function boundZoom(zoom: number): number {
-  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom));
-}
-
-function pointerDistance(
-  first: { x: number; y: number },
-  second: { x: number; y: number }
-): number {
-  return Math.hypot(second.x - first.x, second.y - first.y);
 }
 
 function normalizeSearch(value: string): string {

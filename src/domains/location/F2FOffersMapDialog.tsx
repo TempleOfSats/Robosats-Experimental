@@ -1,10 +1,6 @@
 import {
   type KeyboardEvent,
-  type PointerEvent,
-  type WheelEvent,
-  useEffect,
   useMemo,
-  useRef,
   useState
 } from "react";
 import { ArrowDownLeft, ArrowUpRight, LocateFixed, MapPinned, Minus, Plus, X } from "lucide-react";
@@ -14,23 +10,14 @@ import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.type
 import { formatApproximateF2FLocation, hasApproximateF2FLocation } from "@/domains/location/f2fLocation";
 import {
   clampMapCenter,
-  clampMapPosition,
-  MAP_DEFAULT_CENTER,
-  MAP_LATITUDE_SPAN,
-  MAP_MIN_LATITUDE
+  MAP_DEFAULT_CENTER
 } from "@/domains/location/f2fMapViewport";
 import { groupCashF2FOffers } from "@/domains/location/f2fOfferMap";
+import { useF2FWorldMap } from "@/domains/location/useF2FWorldMap";
 import { CurrencyFlag, PaymentMethodIcons } from "@/domains/orderbook/OfferMeta";
 import type { PublicOrder } from "@/domains/orderbook/orderbook.types";
 import { roleBuysBitcoin } from "@/domains/orders/orderRole";
 import { formatFiat } from "@/lib/format";
-
-type Coordinate = [number, number];
-type PolygonGeometry = { type: "Polygon"; coordinates: Coordinate[][] };
-type MultiPolygonGeometry = { type: "MultiPolygon"; coordinates: Coordinate[][][] };
-type WorldFeatureCollection = {
-  features: Array<{ geometry: PolygonGeometry | MultiPolygonGeometry | null }>;
-};
 
 type F2FOffersMapDialogProps = {
   coordinators: CoordinatorSummary[];
@@ -39,10 +26,8 @@ type F2FOffersMapDialogProps = {
   onSelectOffer: (order: PublicOrder) => void;
 };
 
-const WORLD_MAP_URL = "/static/assets/geo/f2f-world.geo.json";
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 16;
-let worldMapRequest: Promise<WorldFeatureCollection> | undefined;
 
 export function F2FOffersMapDialog({
   coordinators,
@@ -50,56 +35,35 @@ export function F2FOffersMapDialog({
   onClose,
   onSelectOffer
 }: F2FOffersMapDialogProps) {
-  const [worldMap, setWorldMap] = useState<WorldFeatureCollection>();
-  const [mapError, setMapError] = useState(false);
   const [selectedGroupKey, setSelectedGroupKey] = useState<string>();
-  const [center, setCenter] = useState<[number, number]>(MAP_DEFAULT_CENTER);
-  const [zoom, setZoom] = useState(1);
-  const svgRef = useRef<SVGSVGElement>(null);
-  const dragRef = useRef<{
-    center: [number, number];
-    clientX: number;
-    clientY: number;
-    pointerId: number;
-  } | undefined>(undefined);
-  const pointersRef = useRef(new Map<number, { x: number; y: number }>());
-  const pinchRef = useRef<{
-    anchor: [number, number];
-    distance: number;
-    ratioX: number;
-    ratioY: number;
-    zoom: number;
-  } | undefined>(undefined);
+  const {
+    changeZoom,
+    handlePointerCancel,
+    handlePointerDown,
+    handlePointerMove,
+    handlePointerUp,
+    handleWheel,
+    mapError,
+    mapLoaded,
+    mapPath,
+    setCenter,
+    setZoom,
+    svgRef,
+    viewBox,
+    zoom
+  } = useF2FWorldMap({
+    dragThreshold: 0,
+    initialCenter: MAP_DEFAULT_CENTER,
+    initialZoom: 1,
+    maxZoom: MAX_ZOOM,
+    minZoom: MIN_ZOOM
+  });
   const groups = useMemo(() => groupCashF2FOffers(offers), [offers]);
   const selectedGroup = groups.find((group) => group.key === selectedGroupKey);
   const displayedOffers = selectedGroup?.orders ?? offers;
   const unmappedCount = offers.filter((order) => (
     !hasApproximateF2FLocation(order.latitude, order.longitude)
   )).length;
-
-  useEffect(() => {
-    let active = true;
-    worldMapRequest ??= fetch(WORLD_MAP_URL, { cache: "force-cache" }).then(async (response) => {
-      if (!response.ok) throw new Error(`Map request failed with ${response.status}`);
-      return response.json() as Promise<WorldFeatureCollection>;
-    });
-    void worldMapRequest
-      .then((data) => {
-        if (active) setWorldMap(data);
-      })
-      .catch(() => {
-        worldMapRequest = undefined;
-        if (active) setMapError(true);
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  const mapPath = useMemo(() => worldMap ? featureCollectionPath(worldMap) : "", [worldMap]);
-  const viewWidth = 360 / zoom;
-  const viewHeight = MAP_LATITUDE_SPAN / zoom;
-  const viewBox = `${center[1] + 180 - viewWidth / 2} ${90 - center[0] - viewHeight / 2} ${viewWidth} ${viewHeight}`;
 
   function showAllAreas() {
     setSelectedGroupKey(undefined);
@@ -111,121 +75,6 @@ export function F2FOffersMapDialog({
     setSelectedGroupKey(key);
     setCenter(clampMapCenter([latitude, longitude], 5));
     setZoom(5);
-  }
-
-  function changeZoom(nextZoom: number) {
-    const bounded = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, nextZoom));
-    setZoom(bounded);
-    setCenter((current) => clampMapCenter(current, bounded));
-  }
-
-  function handleWheel(event: WheelEvent<SVGSVGElement>) {
-    event.preventDefault();
-    const point = mapPointAtClient(event.clientX, event.clientY);
-    if (!point) return;
-    zoomAroundPoint(
-      point.position,
-      point.ratioX,
-      point.ratioY,
-      event.deltaY < 0 ? zoom * 1.35 : zoom / 1.35
-    );
-  }
-
-  function mapPointAtClient(clientX: number, clientY: number) {
-    const rect = svgRef.current?.getBoundingClientRect();
-    if (!rect || rect.width === 0 || rect.height === 0) return undefined;
-    const ratioX = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-    const ratioY = Math.min(1, Math.max(0, (clientY - rect.top) / rect.height));
-    return {
-      position: clampMapPosition([
-        center[0] - (ratioY - 0.5) * viewHeight,
-        center[1] + (ratioX - 0.5) * viewWidth
-      ]),
-      ratioX,
-      ratioY
-    };
-  }
-
-  function zoomAroundPoint(
-    anchor: [number, number],
-    ratioX: number,
-    ratioY: number,
-    nextZoom: number
-  ) {
-    const bounded = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, nextZoom));
-    setZoom(bounded);
-    setCenter(clampMapCenter([
-      anchor[0] + (ratioY - 0.5) * (MAP_LATITUDE_SPAN / bounded),
-      anchor[1] - (ratioX - 0.5) * (360 / bounded)
-    ], bounded));
-  }
-
-  function handlePointerDown(event: PointerEvent<SVGSVGElement>) {
-    pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
-    event.currentTarget.setPointerCapture(event.pointerId);
-    if (pointersRef.current.size >= 2) {
-      const [first, second] = [...pointersRef.current.values()];
-      const point = mapPointAtClient((first.x + second.x) / 2, (first.y + second.y) / 2);
-      if (point) {
-        pinchRef.current = {
-          anchor: point.position,
-          distance: pointerDistance(first, second),
-          ratioX: point.ratioX,
-          ratioY: point.ratioY,
-          zoom
-        };
-      }
-      dragRef.current = undefined;
-      return;
-    }
-    dragRef.current = {
-      center,
-      clientX: event.clientX,
-      clientY: event.clientY,
-      pointerId: event.pointerId
-    };
-  }
-
-  function handlePointerMove(event: PointerEvent<SVGSVGElement>) {
-    if (pointersRef.current.has(event.pointerId)) {
-      pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
-    }
-    if (pointersRef.current.size >= 2 && pinchRef.current) {
-      const [first, second] = [...pointersRef.current.values()];
-      const pinch = pinchRef.current;
-      const distance = pointerDistance(first, second);
-      if (pinch.distance > 0) {
-        zoomAroundPoint(
-          pinch.anchor,
-          pinch.ratioX,
-          pinch.ratioY,
-          pinch.zoom * (distance / pinch.distance)
-        );
-      }
-      return;
-    }
-    const drag = dragRef.current;
-    const rect = svgRef.current?.getBoundingClientRect();
-    if (!drag || drag.pointerId !== event.pointerId || !rect) return;
-    setCenter(clampMapCenter([
-      drag.center[0] + ((event.clientY - drag.clientY) / rect.height) * viewHeight,
-      drag.center[1] - ((event.clientX - drag.clientX) / rect.width) * viewWidth
-    ], zoom));
-  }
-
-  function handlePointerUp(event: PointerEvent<SVGSVGElement>) {
-    pointersRef.current.delete(event.pointerId);
-    if (pointersRef.current.size < 2) pinchRef.current = undefined;
-    if (dragRef.current?.pointerId === event.pointerId) dragRef.current = undefined;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-  }
-
-  function handlePointerCancel(event: PointerEvent<SVGSVGElement>) {
-    pointersRef.current.delete(event.pointerId);
-    if (pointersRef.current.size < 2) pinchRef.current = undefined;
-    if (dragRef.current?.pointerId === event.pointerId) dragRef.current = undefined;
   }
 
   function handleMarkerKeyDown(
@@ -262,7 +111,7 @@ export function F2FOffersMapDialog({
 
       <div className="f2f-offers-map-layout">
         <div className="f2f-map-shell f2f-offers-map-shell">
-          {!worldMap && !mapError ? (
+          {!mapLoaded && !mapError ? (
             <div className="f2f-map-loading" role="status">
               <span className="ui-spinner" aria-hidden="true" />
               <span>Loading private map…</span>
@@ -273,7 +122,7 @@ export function F2FOffersMapDialog({
               The map could not be loaded. The offer list remains available.
             </div>
           ) : null}
-          {worldMap ? (
+          {mapLoaded ? (
             <svg
               aria-label={`Map with ${groups.length} approximate Cash F2F meeting ${groups.length === 1 ? "area" : "areas"}`}
               className="f2f-map f2f-offers-map"
@@ -330,7 +179,7 @@ export function F2FOffersMapDialog({
             </svg>
           ) : null}
 
-          {worldMap ? (
+          {mapLoaded ? (
             <div className="f2f-map-controls" aria-label="Map controls">
               <Button aria-label="Zoom in" disabled={zoom >= MAX_ZOOM} onClick={() => changeZoom(zoom * 2)} size="icon" type="button" variant="secondary">
                 <Plus size={17} />
@@ -426,34 +275,4 @@ function premiumClassName(value: number): string {
   if (value > 0) return "tabular offer-premium offer-premium-positive";
   if (value < 0) return "tabular offer-premium offer-premium-negative";
   return "tabular offer-premium";
-}
-
-function featureCollectionPath(collection: WorldFeatureCollection): string {
-  return collection.features
-    .flatMap((feature) => {
-      if (!feature.geometry) return [];
-      const polygons = feature.geometry.type === "Polygon"
-        ? [feature.geometry.coordinates]
-        : feature.geometry.coordinates;
-      return polygons
-        .filter((polygon) => polygon.some((ring) => (
-          ring.some(([, latitude]) => latitude >= MAP_MIN_LATITUDE)
-        )))
-        .map((polygon) => polygonPath(polygon));
-    })
-    .join(" ");
-}
-
-function polygonPath(polygon: Coordinate[][]): string {
-  return polygon
-    .map((ring) => ring
-      .map(([longitude, latitude], index) => `${index === 0 ? "M" : "L"}${longitude + 180} ${90 - latitude}`)
-      .join(" ")
-      .concat(" Z"))
-    .join(" ");
-}
-
-
-function pointerDistance(first: { x: number; y: number }, second: { x: number; y: number }): number {
-  return Math.hypot(second.x - first.x, second.y - first.y);
 }
