@@ -22,6 +22,7 @@ describe("confirmed-order navigation", () => {
     const order = { id: 321, shortAlias: "lake", status: 0 } as OrderDto;
 
     const path = openConfirmedOrder(navigate, {
+      coordinatorEndpoint: "https://lake.example",
       initialOrder: order,
       orderId: 321,
       shortAlias: "lake",
@@ -30,21 +31,34 @@ describe("confirmed-order navigation", () => {
 
     expect(path).toBe("/order/lake/321");
     expect(useOrderStore.getState().order).toEqual(order);
+    expect(useOrderStore.getState().orderIdentity).toEqual({
+      coordinatorEndpoint: "https://lake.example",
+      slotId: "slot-sha",
+      shortAlias: "lake",
+      orderId: 321
+    });
     expect(beginRouteTransitionMock).toHaveBeenCalledWith(path);
     expect(navigate).toHaveBeenCalledWith(path, { state: { robotSlotId: "slot-sha" } });
   });
 
   it("clears an unrelated stale trade when no complete handoff is available", () => {
     const navigate = vi.fn() as unknown as NavigateFunction;
-    useOrderStore.getState().primeOrder({ id: 99, shortAlias: "alice" } as OrderDto);
+    useOrderStore.getState().primeOrder({ id: 99, shortAlias: "alice" } as OrderDto, {
+      coordinatorEndpoint: "https://alice.example",
+      slotId: "old-slot",
+      shortAlias: "alice",
+      orderId: 99
+    });
 
     openConfirmedOrder(navigate, {
+      coordinatorEndpoint: "https://lake.example",
       orderId: 321,
       shortAlias: "lake",
       slotId: "slot-sha"
     });
 
     expect(useOrderStore.getState().order).toBeUndefined();
+    expect(useOrderStore.getState().orderIdentity).toBeUndefined();
     expect(navigate).toHaveBeenCalledOnce();
   });
 });

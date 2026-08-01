@@ -21,6 +21,11 @@ import { subscribeRobotDataRefresh } from "@/domains/garage/robotDataRefresh";
 import { startOrderChangeHintRuntime } from "@/domains/nostr/orderChangeHints";
 import { ingestCoordinatorOrder } from "@/domains/orders/orderActivity";
 import { fetchOrder } from "@/domains/orders/orderApi";
+import {
+  orderChangeMatches,
+  subscribeOrderChangeNotifications,
+  type OrderChangeNotification
+} from "@/domains/orders/orderChangeNotifications";
 import { useOrderbookStore } from "@/domains/orderbook/orderbookStore";
 import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
 import { getNativeTorDiagnostics, isNativeApp } from "@/domains/transport/androidBridge";
@@ -35,14 +40,27 @@ type IdleWindow = {
   cancelIdleCallback?: (id: number) => void;
 };
 
+type StandardRobotRefreshScope = {
+  orderIdsByAlias?: Map<string, Set<number>>;
+};
+
 export function scheduleAppPrewarm(): () => void {
   const stopOrderChangeHints = startOrderChangeHintRuntime();
   let foregroundRefresh: Promise<void> | undefined;
-  const refreshForegroundRobot = () => {
-    if (foregroundRefresh) return;
-    foregroundRefresh = refreshSelectedStandardRobotStatus()
+  let pendingNotificationScope: StandardRobotRefreshScope | undefined;
+  const refreshForegroundRobot = (scope?: StandardRobotRefreshScope) => {
+    if (foregroundRefresh) {
+      if (scope) pendingNotificationScope = mergeStandardRefreshScopes(pendingNotificationScope, scope);
+      return;
+    }
+    foregroundRefresh = refreshSelectedStandardRobotStatus(scope)
       .catch(() => undefined)
-      .finally(() => { foregroundRefresh = undefined; });
+      .finally(() => {
+        foregroundRefresh = undefined;
+        const pending = pendingNotificationScope;
+        pendingNotificationScope = undefined;
+        if (pending) refreshForegroundRobot(pending);
+      });
   };
   const refreshAfterLifecycle = (reason: RefreshReason) => {
     if (reason === "tor-ready") {
@@ -54,6 +72,18 @@ export function scheduleAppPrewarm(): () => void {
     refreshForegroundRobot();
   };
   const stopLifecycle = subscribeRefreshIntents(refreshAfterLifecycle);
+  const stopOrderChanges = subscribeOrderChangeNotifications((notification) => {
+    if (useProPreferencesStore.getState().enabled) return true;
+    useGarageStore.getState().hydrate();
+    const scope = standardRobotRefreshScope(notification);
+    if (!scope) return true;
+    if (
+      document.visibilityState === "visible"
+      && visibleTradeMatchesOrderChange(notification)
+    ) return true;
+    refreshForegroundRobot(scope);
+    return true;
+  }, { consumerId: "standard-prewarm" });
   const stopRobotDataRefresh = subscribeRobotDataRefresh(prewarmData);
   const refreshGarageRoute = (event: Event) => {
     const path = (event as CustomEvent<{ path?: string }>).detail?.path ?? window.location.pathname;
@@ -84,6 +114,7 @@ export function scheduleAppPrewarm(): () => void {
   return () => {
     stopOrderChangeHints();
     stopLifecycle();
+    stopOrderChanges();
     stopRobotDataRefresh();
     window.removeEventListener(ROUTE_TRANSITION_READY_EVENT, refreshGarageRoute);
     cleanups.forEach((cleanup) => cleanup());
@@ -135,27 +166,32 @@ async function refreshSecondaryData(): Promise<void> {
   }
 }
 
-async function refreshSelectedStandardRobotStatus(): Promise<void> {
+async function refreshSelectedStandardRobotStatus(scope?: StandardRobotRefreshScope): Promise<void> {
   if (useProPreferencesStore.getState().enabled) return;
   if (isNativeApp() && !getNativeTorDiagnostics()?.connected) return;
   useGarageStore.getState().hydrate();
   const federation = useFederationStore.getState();
-  await refreshSelectedStandardRobot(federation.coordinators, "visible");
+  await refreshSelectedStandardRobot(federation.coordinators, "visible", scope);
   void federation.refreshCoordinators().catch(() => undefined);
 }
 
 async function refreshSelectedStandardRobot(
   coordinators: CoordinatorSummary[],
-  priority: "background" | "visible"
+  priority: "background" | "visible",
+  scope?: StandardRobotRefreshScope
 ): Promise<void> {
   if (useProPreferencesStore.getState().enabled) return;
   const garage = useGarageStore.getState();
   const standardSlot = selectCurrentSlot(selectStandardGarageSlots(garage.slots), garage.currentToken);
   if (standardSlot) {
+    const scopedAliases = scope?.orderIdsByAlias;
+    const refreshCoordinators = scopedAliases
+      ? coordinators.filter((coordinator) => scopedAliases.has(coordinator.shortAlias))
+      : coordinators;
     const immediateOrderRefreshes: Promise<void>[] = [];
     const observedAliases = new Set<string>();
-    const result = await garage.refreshRobotSlot(standardSlot.token, coordinators, {
-      preferredAliases: preferredAliases(standardSlot),
+    const result = await garage.refreshRobotSlot(standardSlot.token, refreshCoordinators, {
+      preferredAliases: scopedAliases ? [...scopedAliases.keys()] : preferredAliases(standardSlot),
       priority,
       source: "prewarm",
       maxAgeMs: priority === "background" ? 300_000 : 60_000,
@@ -166,7 +202,13 @@ async function refreshSelectedStandardRobot(
         );
         if (refreshedSlot) {
           immediateOrderRefreshes.push(
-            refreshStandardCoordinatorOrders(refreshedSlot, robot, coordinators, priority)
+            refreshStandardCoordinatorOrders(
+              refreshedSlot,
+              robot,
+              coordinators,
+              priority,
+              scopedAliases?.get(robot.shortAlias)
+            )
           );
         }
       }
@@ -184,7 +226,8 @@ async function refreshSelectedStandardRobot(
               )
             },
             coordinators,
-            priority
+            priority,
+            scope
           )
         : Promise.resolve()
     ]);
@@ -195,10 +238,17 @@ async function refreshStandardOrders(
   slot: RobotSlot,
   result: RefreshRobotSlotResult,
   coordinators: CoordinatorSummary[],
-  priority: "background" | "visible"
+  priority: "background" | "visible",
+  scope?: StandardRobotRefreshScope
 ): Promise<void> {
   await Promise.all(result.coordinators.map((robot) =>
-    refreshStandardCoordinatorOrders(slot, robot, coordinators, priority)
+    refreshStandardCoordinatorOrders(
+      slot,
+      robot,
+      coordinators,
+      priority,
+      scope?.orderIdsByAlias?.get(robot.shortAlias)
+    )
   ));
 }
 
@@ -206,13 +256,20 @@ async function refreshStandardCoordinatorOrders(
   slot: RobotSlot,
   robot: RefreshRobotSlotResult["coordinators"][number],
   coordinators: CoordinatorSummary[],
-  priority: "background" | "visible"
+  priority: "background" | "visible",
+  notifiedOrderIds?: Set<number>
 ): Promise<void> {
   if (robot.error) return;
   const coordinator = coordinators.find((item) => item.shortAlias === robot.shortAlias);
   const auth = getRobotAuthForCoordinator(slot, robot.shortAlias);
   if (!coordinator?.url || !auth) return;
-  const orderIds = [...new Set([robot.activeOrderId, robot.renewableOrderId])]
+  const orderIds = [
+    ...new Set([
+      ...(notifiedOrderIds ?? []),
+      robot.activeOrderId,
+      robot.renewableOrderId
+    ])
+  ]
     .filter((orderId): orderId is number => Number.isSafeInteger(orderId) && Number(orderId) > 0);
   await Promise.all(orderIds.map(async (orderId) => {
     try {
@@ -277,6 +334,66 @@ function currentHostUrl(): string | undefined {
 
 function visibleTradeRoute(): boolean {
   return typeof window !== "undefined" && /^\/order(?:\/|$)/.test(window.location.pathname);
+}
+
+function visibleTradeMatchesOrderChange(notification: OrderChangeNotification): boolean {
+  if (typeof window === "undefined") return false;
+  const match = /^\/order\/([^/]+)\/(\d+)(?:\/|$)/.exec(window.location.pathname);
+  if (!match) return false;
+  return orderChangeMatches(notification, {
+    shortAlias: decodeURIComponent(match[1]),
+    orderId: Number(match[2])
+  });
+}
+
+export function standardRobotRefreshScope(
+  notification: OrderChangeNotification
+): StandardRobotRefreshScope | undefined {
+  const garage = useGarageStore.getState();
+  const slot = selectCurrentSlot(selectStandardGarageSlots(garage.slots), garage.currentToken);
+  if (!slot) return undefined;
+  if (notification.source === "nostr") {
+    if (slot.nostrPubKey.toLowerCase() !== notification.recipientPubkey.toLowerCase()) return undefined;
+    return {
+      orderIdsByAlias: new Map([[notification.shortAlias, new Set([notification.orderId])]])
+    };
+  }
+  if (!notification.orderId) return {};
+  const orderId = notification.orderId;
+  const aliases = Object.entries(slot.robots)
+    .filter(([shortAlias, robot]) => (
+      (!notification.shortAlias || shortAlias === notification.shortAlias)
+      && [
+        robot.activeOrderId,
+        robot.lastOrderId,
+        robot.renewableOrderId
+      ].includes(orderId)
+    ))
+    .map(([shortAlias]) => shortAlias);
+  if (aliases.length === 0) return undefined;
+  return {
+    orderIdsByAlias: new Map(aliases.map((shortAlias) => [shortAlias, new Set([orderId])]))
+  };
+}
+
+export function mergeStandardRefreshScopes(
+  current: StandardRobotRefreshScope | undefined,
+  next: StandardRobotRefreshScope
+): StandardRobotRefreshScope {
+  if (!current) return next;
+  if (!current.orderIdsByAlias || !next.orderIdsByAlias) return {};
+  const orderIdsByAlias = new Map(
+    [...current.orderIdsByAlias].map(([shortAlias, orderIds]) => [
+      shortAlias,
+      new Set(orderIds)
+    ])
+  );
+  for (const [shortAlias, orderIds] of next.orderIdsByAlias) {
+    const mergedOrderIds = orderIdsByAlias.get(shortAlias) ?? new Set<number>();
+    orderIds.forEach((orderId) => mergedOrderIds.add(orderId));
+    orderIdsByAlias.set(shortAlias, mergedOrderIds);
+  }
+  return { orderIdsByAlias };
 }
 
 function swallow(promise: Promise<unknown>): void {

@@ -48,6 +48,39 @@ export type AndroidTorDiagnostics = {
   error: string | null;
 };
 
+export type NativeOrderHint = {
+  shortAlias?: string;
+  orderId?: number;
+};
+
+export function subscribeNativeOrderHints(listener: (hint: NativeOrderHint) => void): () => void {
+  if (typeof window === "undefined") return () => undefined;
+  const onNativeOrderHint = (event: Event) => {
+    const detail = (event as CustomEvent<unknown>).detail;
+    const rawOrderId = detail && typeof detail === "object"
+      ? (detail as { orderId?: unknown }).orderId
+      : undefined;
+    listener(parseNativeOrderHint(rawOrderId));
+  };
+  window.addEventListener("robosats:native-order-hint", onNativeOrderHint);
+  return () => window.removeEventListener("robosats:native-order-hint", onNativeOrderHint);
+}
+
+function parseNativeOrderHint(rawOrderId: unknown): NativeOrderHint {
+  if (typeof rawOrderId === "number") {
+    return Number.isSafeInteger(rawOrderId) && rawOrderId > 0 ? { orderId: rawOrderId } : {};
+  }
+  if (typeof rawOrderId !== "string") return {};
+  const segments = rawOrderId.trim().split("/").map((segment) => segment.trim()).filter(Boolean);
+  const rawId = segments.at(-1);
+  if (!rawId || !/^\d+$/.test(rawId)) return {};
+  const orderId = Number(rawId);
+  if (!Number.isSafeInteger(orderId) || orderId <= 0) return {};
+  const preceding = segments.at(-2);
+  const shortAlias = preceding && preceding !== "order" ? preceding : undefined;
+  return shortAlias ? { shortAlias, orderId } : { orderId };
+}
+
 export function getNativeNotificationState(): AndroidNotificationState | null {
   const raw = nativeAppBridge()?.getNotificationState?.();
   if (!raw) return null;

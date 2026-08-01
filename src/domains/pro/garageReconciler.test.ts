@@ -9,6 +9,10 @@ import { useGarageStore } from "@/domains/garage/garageStore";
 import { getRobotOrderAvailability } from "@/domains/garage/robotAvailability";
 import type { OrderDto } from "@/domains/orders/order.types";
 import {
+  registerVisibleTrade,
+  resetOrderFeedbackVisibilityForTests
+} from "@/domains/notifications/orderFeedbackVisibility";
+import {
   GarageReconciler,
   markProOrderActionFinished,
   markProOrderActionStarted
@@ -42,9 +46,13 @@ beforeEach(() => {
   });
   useGarageStore.setState({ slots: [alpha, beta], currentToken: "alpha", hydrated: true });
   useProTradeIndexStore.getState().resetRuntimeCache();
+  resetOrderFeedbackVisibilityForTests();
 });
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  resetOrderFeedbackVisibilityForTests();
+  vi.unstubAllGlobals();
+});
 
 describe("GarageReconciler", () => {
   it("indexes an explicit robot trade without storing its token or changing selection", async () => {
@@ -593,6 +601,7 @@ describe("GarageReconciler", () => {
       fetchOrder
     });
     const hint = {
+      source: "nostr" as const,
       recipientPubkey: "nostr-beta",
       coordinatorPubkey: "coordinator-pubkey",
       shortAlias: "lake",
@@ -611,6 +620,36 @@ describe("GarageReconciler", () => {
     });
   });
 
+  it("leaves a visible Fleet trade fetch to its OrderPage owner", async () => {
+    const activeBeta = {
+      ...beta,
+      activeOrderId: 91234,
+      robots: {
+        lake: { ...beta.robots.lake, activeOrderId: 91234 }
+      }
+    };
+    useGarageStore.setState({ slots: [alpha, activeBeta], currentToken: "alpha", hydrated: true });
+    const fetchOrder = vi.fn(async () => order({ id: 91234, status: 9 }));
+    const reconciler = makeReconciler({
+      refreshRobotSlot: async () => robotResult(91234),
+      fetchOrder
+    });
+    const unregister = registerVisibleTrade("lake", 91234, "slot-beta");
+
+    await reconciler.handleOrderHint({
+      source: "nostr",
+      recipientPubkey: "nostr-beta",
+      coordinatorPubkey: "coordinator-pubkey",
+      shortAlias: "lake",
+      orderId: 91234,
+      eventId: "visible-hint",
+      createdAt: 1
+    });
+
+    expect(fetchOrder).not.toHaveBeenCalled();
+    unregister();
+  });
+
   it("rejects Nostr hints that are stale or do not match the coordinator identity", async () => {
     const fetchOrder = vi.fn(async () => order({ id: 91234, status: 9 }));
     const reconciler = makeReconciler({
@@ -618,6 +657,7 @@ describe("GarageReconciler", () => {
       fetchOrder
     });
     const hint = {
+      source: "nostr" as const,
       recipientPubkey: "nostr-beta",
       coordinatorPubkey: "wrong-pubkey",
       shortAlias: "lake",
@@ -634,6 +674,72 @@ describe("GarageReconciler", () => {
       createdAt: -700_000
     });
 
+    expect(fetchOrder).not.toHaveBeenCalled();
+  });
+
+  it("targets a known native order hint to the matching robot", async () => {
+    const activeBeta = {
+      ...beta,
+      activeOrderId: 91234,
+      robots: {
+        lake: { ...beta.robots.lake, activeOrderId: 91234 }
+      }
+    };
+    useGarageStore.setState({ slots: [alpha, activeBeta], currentToken: "alpha", hydrated: true });
+    const fetchOrder = vi.fn(async () => order({ id: 91234, status: 9 }));
+    const refreshRobotSlot = vi.fn(async () => robotResult(91234));
+    const reconciler = makeReconciler({ refreshRobotSlot, fetchOrder });
+
+    await reconciler.handleNativeOrderHint({
+      source: "native",
+      shortAlias: "lake",
+      orderId: 91234
+    });
+
+    expect(fetchOrder).toHaveBeenCalledOnce();
+    expect(fetchOrder).toHaveBeenCalledWith(
+      coordinator,
+      91234,
+      expect.objectContaining({ tokenSHA256: "slot-beta" }),
+      "nostr-hint"
+    );
+    expect(refreshRobotSlot).not.toHaveBeenCalled();
+  });
+
+  it("ignores a known native order hint with a nonmatching coordinator alias", async () => {
+    const activeBeta = {
+      ...beta,
+      activeOrderId: 91234,
+      robots: {
+        lake: { ...beta.robots.lake, activeOrderId: 91234 }
+      }
+    };
+    useGarageStore.setState({ slots: [alpha, activeBeta], currentToken: "alpha", hydrated: true });
+    const fetchOrder = vi.fn(async () => order({ id: 91234, status: 9 }));
+    const refreshRobotSlot = vi.fn(async () => robotResult(91234));
+    const reconciler = makeReconciler({ refreshRobotSlot, fetchOrder });
+
+    await reconciler.handleNativeOrderHint({
+      source: "native",
+      shortAlias: "temple",
+      orderId: 91234
+    });
+
+    expect(fetchOrder).not.toHaveBeenCalled();
+    expect(refreshRobotSlot).not.toHaveBeenCalled();
+  });
+
+  it("falls back to broad reconciliation when a native hint has no order id", async () => {
+    const refreshRobotSlot = vi.fn(async (token: string) => ({
+      slotId: token,
+      coordinators: [{ shortAlias: "lake", found: false }]
+    }));
+    const fetchOrder = vi.fn(async () => order({ id: 91234, status: 9 }));
+    const reconciler = makeReconciler({ refreshRobotSlot, fetchOrder });
+
+    await reconciler.handleNativeOrderHint({ source: "native" });
+
+    expect(refreshRobotSlot).toHaveBeenCalledTimes(2);
     expect(fetchOrder).not.toHaveBeenCalled();
   });
 });

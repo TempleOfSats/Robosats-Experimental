@@ -2,11 +2,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OrderDto } from "@/domains/orders/order.types";
 import type { OrderLoadFailureKind, OrderLoadResult } from "@/domains/orders/orderStore";
 import {
-  registerLoadedOrderRefresh,
+  discardColdOrderLoad,
+  isColdOrderLoadActive,
   registerOrderLoadRecovery,
+  resetOrderLoadRecoveryForTests,
   type OrderLoadRecoveryPhase
 } from "@/domains/orders/orderLoadRecovery";
-import { resetRefreshIntentsForTests, type RefreshReason } from "@/domains/transport/refreshIntents";
+import {
+  publishOrderChangeNotification,
+  resetOrderChangeNotificationsForTests
+} from "@/domains/orders/orderChangeNotifications";
+import {
+  publishRefreshIntent,
+  resetRefreshIntentLifecycleForTests,
+  type RefreshReason
+} from "@/domains/transport/refreshIntents";
 
 let windowTarget: EventTarget & Pick<typeof globalThis, "setTimeout" | "clearTimeout">;
 let documentTarget: EventTarget & {
@@ -26,11 +36,15 @@ beforeEach(() => {
   });
   vi.stubGlobal("window", windowTarget);
   vi.stubGlobal("document", documentTarget);
-  resetRefreshIntentsForTests();
+  resetRefreshIntentLifecycleForTests();
+  resetOrderChangeNotificationsForTests();
+  resetOrderLoadRecoveryForTests();
 });
 
 afterEach(() => {
-  resetRefreshIntentsForTests();
+  resetRefreshIntentLifecycleForTests();
+  resetOrderChangeNotificationsForTests();
+  resetOrderLoadRecoveryForTests();
   vi.clearAllTimers();
   vi.useRealTimers();
   vi.unstubAllGlobals();
@@ -45,7 +59,7 @@ describe("order load recovery", () => {
       .mockResolvedValueOnce(failedResult("transient"));
     const phases: OrderLoadRecoveryPhase[] = [];
     const recovery = registerOrderLoadRecovery({
-      key: "order:lake:42",
+      locator: { shortAlias: "lake", orderId: 42 },
       load,
       onPhaseChange: (phase) => phases.push(phase),
       retryDelayMs: 100
@@ -69,7 +83,7 @@ describe("order load recovery", () => {
     const load = vi.fn().mockResolvedValueOnce(failedResult("transient")).mockResolvedValueOnce(loadedResult());
     const phases: OrderLoadRecoveryPhase[] = [];
     const recovery = registerOrderLoadRecovery({
-      key: "order:lake:42",
+      locator: { shortAlias: "lake", orderId: 42 },
       load,
       onPhaseChange: (phase) => phases.push(phase),
       retryDelayMs: 100
@@ -91,7 +105,7 @@ describe("order load recovery", () => {
     );
     const phases: OrderLoadRecoveryPhase[] = [];
     const recovery = registerOrderLoadRecovery({
-      key: "order:lake:slow",
+      locator: { shortAlias: "lake", orderId: 42 },
       load,
       onPhaseChange: (phase) => phases.push(phase),
       autoRetryWindowMs: 100,
@@ -112,7 +126,7 @@ describe("order load recovery", () => {
       .mockResolvedValueOnce({ status: "unchanged" } satisfies OrderLoadResult);
     const phases: OrderLoadRecoveryPhase[] = [];
     const recovery = registerOrderLoadRecovery({
-      key: "order:lake:42",
+      locator: { shortAlias: "lake", orderId: 42 },
       load,
       onPhaseChange: (phase) => phases.push(phase),
       retryDelayMs: 100
@@ -134,7 +148,7 @@ describe("order load recovery", () => {
     } satisfies OrderLoadResult);
     const phases: OrderLoadRecoveryPhase[] = [];
     const recovery = registerOrderLoadRecovery({
-      key: "order:lake:42",
+      locator: { shortAlias: "lake", orderId: 42 },
       load,
       onPhaseChange: (phase) => phases.push(phase),
       retryDelayMs: 100
@@ -153,7 +167,7 @@ describe("order load recovery", () => {
       const load = vi.fn().mockResolvedValue(failedResult(kind));
       const phases: OrderLoadRecoveryPhase[] = [];
       const recovery = registerOrderLoadRecovery({
-        key: `order:lake:${kind}`,
+        locator: { shortAlias: "lake", orderId: 42 },
         load,
         onPhaseChange: (phase) => phases.push(phase),
         retryDelayMs: 100
@@ -170,7 +184,7 @@ describe("order load recovery", () => {
   it("refreshes on lifecycle intent before an order has loaded", async () => {
     const load = vi.fn().mockResolvedValueOnce(failedResult("transient")).mockResolvedValueOnce(loadedResult());
     const recovery = registerOrderLoadRecovery({
-      key: "order:lake:42",
+      locator: { shortAlias: "lake", orderId: 42 },
       load,
       onPhaseChange: vi.fn(),
       retryDelayMs: 100
@@ -195,7 +209,7 @@ describe("order load recovery", () => {
     });
     const load = vi.fn().mockReturnValueOnce(initial).mockResolvedValueOnce(loadedResult());
     const recovery = registerOrderLoadRecovery({
-      key: "order:lake:42",
+      locator: { shortAlias: "lake", orderId: 42 },
       load,
       onPhaseChange: vi.fn(),
       retryDelayMs: 100
@@ -216,7 +230,7 @@ describe("order load recovery", () => {
     recovery.dispose();
   });
 
-  it("runs a fresh load after Tor reconnects during an active request", async () => {
+  it("runs a fresh load after Tor reconnects during an active failed request", async () => {
     let resolveInitial!: (result: OrderLoadResult) => void;
     const initial = new Promise<OrderLoadResult>((resolve) => {
       resolveInitial = resolve;
@@ -224,7 +238,7 @@ describe("order load recovery", () => {
     const load = vi.fn().mockReturnValueOnce(initial).mockResolvedValueOnce(loadedResult());
     const phases: OrderLoadRecoveryPhase[] = [];
     const recovery = registerOrderLoadRecovery({
-      key: "order:lake:42",
+      locator: { shortAlias: "lake", orderId: 42 },
       load,
       onPhaseChange: (phase) => phases.push(phase),
       retryDelayMs: 100
@@ -242,6 +256,204 @@ describe("order load recovery", () => {
     recovery.dispose();
   });
 
+  it("runs a fresh load after Tor reconnects during an active successful request", async () => {
+    let resolveInitial!: (result: OrderLoadResult) => void;
+    const initial = new Promise<OrderLoadResult>((resolve) => {
+      resolveInitial = resolve;
+    });
+    const load = vi.fn().mockReturnValueOnce(initial).mockResolvedValueOnce(loadedResult());
+    const recovery = registerOrderLoadRecovery({
+      locator: { shortAlias: "lake", orderId: 42 },
+      load,
+      onPhaseChange: vi.fn(),
+      retryDelayMs: 100
+    });
+
+    dispatchLifecycle("tor-reconnected");
+    resolveInitial(loadedResult());
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(load).toHaveBeenNthCalledWith(2, "lifecycle");
+    recovery.dispose();
+  });
+
+  it("replays a matching notification published before the order owner registers", async () => {
+    let resolveInitial!: (result: OrderLoadResult) => void;
+    const initial = new Promise<OrderLoadResult>((resolve) => {
+      resolveInitial = resolve;
+    });
+    const load = vi.fn().mockReturnValueOnce(initial).mockResolvedValueOnce(loadedResult());
+    publishOrderChangeNotification(nostrHint(42, "lake"));
+
+    const recovery = registerOrderLoadRecovery({
+      locator: { shortAlias: "lake", orderId: 42 },
+      load,
+      onPhaseChange: vi.fn()
+    });
+    resolveInitial(loadedResult());
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(load).toHaveBeenCalledOnce();
+    expect(load).toHaveBeenCalledWith("initial");
+    recovery.dispose();
+  });
+
+  it("queues one lifecycle load for a matching hint published after the initial request begins", async () => {
+    let resolveInitial!: (result: OrderLoadResult) => void;
+    const initial = new Promise<OrderLoadResult>((resolve) => {
+      resolveInitial = resolve;
+    });
+    const load = vi.fn().mockReturnValueOnce(initial).mockResolvedValueOnce(loadedResult());
+    const recovery = registerOrderLoadRecovery({
+      locator: { shortAlias: "lake", orderId: 42 },
+      load,
+      onPhaseChange: vi.fn()
+    });
+
+    publishOrderChangeNotification(nostrHint(42, "lake"));
+    resolveInitial(loadedResult());
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(load).toHaveBeenNthCalledWith(2, "lifecycle");
+    recovery.dispose();
+  });
+
+  it("replays an unstarted hint load to a replacement order owner", async () => {
+    let resolveActive!: (result: OrderLoadResult) => void;
+    const active = new Promise<OrderLoadResult>((resolve) => {
+      resolveActive = resolve;
+    });
+    const load = vi.fn().mockReturnValueOnce(active).mockResolvedValue(loadedResult());
+    const first = registerOrderLoadRecovery({
+      activeDelayMs: () => 100,
+      locator: { shortAlias: "lake", orderId: 42 },
+      load,
+      onPhaseChange: vi.fn()
+    });
+    dispatchLifecycle("online");
+    publishOrderChangeNotification(nostrHint(42, "lake"));
+
+    first.dispose();
+    const second = registerOrderLoadRecovery({
+      activeDelayMs: () => 100,
+      locator: { shortAlias: "lake", orderId: 42 },
+      load,
+      onPhaseChange: vi.fn()
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(load).toHaveBeenNthCalledWith(2, "lifecycle");
+    resolveActive(loadedResult());
+    await vi.advanceTimersByTimeAsync(0);
+    second.dispose();
+  });
+
+  it("coalesces repeated reconnects and matching hints into one trailing fresh load", async () => {
+    let resolveInitial!: (result: OrderLoadResult) => void;
+    const initial = new Promise<OrderLoadResult>((resolve) => {
+      resolveInitial = resolve;
+    });
+    const load = vi.fn().mockReturnValueOnce(initial).mockResolvedValueOnce(loadedResult());
+    const recovery = registerOrderLoadRecovery({
+      locator: { shortAlias: "lake", orderId: 42 },
+      load,
+      onPhaseChange: vi.fn(),
+      retryDelayMs: 100
+    });
+
+    dispatchLifecycle("tor-reconnected");
+    dispatchLifecycle("tor-reconnected");
+    publishOrderChangeNotification({ source: "native", orderId: 42 });
+    publishOrderChangeNotification(nostrHint(42, "lake"));
+    resolveInitial(loadedResult());
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(load).toHaveBeenNthCalledWith(2, "lifecycle");
+    recovery.dispose();
+  });
+
+  it("keeps one queued fresh load through the cold-to-loaded reschedule handoff", async () => {
+    let activeDelay: number | undefined;
+    let resolveInitial!: (result: OrderLoadResult) => void;
+    const initial = new Promise<OrderLoadResult>((resolve) => {
+      resolveInitial = resolve;
+    });
+    const load = vi.fn().mockReturnValueOnce(initial).mockResolvedValue(loadedResult());
+    const recovery = registerOrderLoadRecovery({
+      activeDelayMs: () => activeDelay,
+      locator: { shortAlias: "lake", orderId: 42 },
+      load,
+      onPhaseChange: vi.fn()
+    });
+
+    dispatchLifecycle("tor-reconnected");
+    publishOrderChangeNotification(nostrHint(42, "lake"));
+    activeDelay = 100;
+    recovery.reschedule();
+    resolveInitial(loadedResult());
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(load).toHaveBeenNthCalledWith(2, "lifecycle");
+
+    recovery.reschedule();
+    await vi.advanceTimersByTimeAsync(99);
+    expect(load).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(load).toHaveBeenCalledTimes(3);
+    expect(load).toHaveBeenLastCalledWith("poll");
+    recovery.dispose();
+  });
+
+  it("cancels a cold auto-retry when loaded polling takes ownership", async () => {
+    let activeDelay: number | undefined;
+    const load = vi.fn().mockResolvedValueOnce(failedResult("transient")).mockResolvedValue(loadedResult());
+    const recovery = registerOrderLoadRecovery({
+      activeDelayMs: () => activeDelay,
+      locator: { shortAlias: "lake", orderId: 42 },
+      load,
+      onPhaseChange: vi.fn(),
+      retryDelayMs: 100
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    activeDelay = 200;
+    recovery.reschedule();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(load).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(100);
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(load).toHaveBeenLastCalledWith("poll");
+    recovery.dispose();
+  });
+
+  it("ignores known nonmatching hints and keeps unknown native hints as a broad fallback", async () => {
+    const load = vi.fn().mockResolvedValue(loadedResult());
+    const recovery = registerOrderLoadRecovery({
+      locator: { shortAlias: "lake", orderId: 42 },
+      load,
+      onPhaseChange: vi.fn(),
+      retryDelayMs: 100
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    publishOrderChangeNotification({ source: "native", orderId: 41 });
+    publishOrderChangeNotification(nostrHint(42, "temple"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(load).toHaveBeenCalledOnce();
+
+    publishOrderChangeNotification({ source: "native" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(load).toHaveBeenLastCalledWith("lifecycle");
+    recovery.dispose();
+  });
+
   it("does not run a queued Tor refresh after disposal", async () => {
     let resolveInitial!: (result: OrderLoadResult) => void;
     const initial = new Promise<OrderLoadResult>((resolve) => {
@@ -249,7 +461,7 @@ describe("order load recovery", () => {
     });
     const load = vi.fn().mockReturnValueOnce(initial).mockResolvedValueOnce(loadedResult());
     const recovery = registerOrderLoadRecovery({
-      key: "order:lake:42",
+      locator: { shortAlias: "lake", orderId: 42 },
       load,
       onPhaseChange: vi.fn(),
       retryDelayMs: 100
@@ -263,10 +475,176 @@ describe("order load recovery", () => {
     expect(load).toHaveBeenCalledOnce();
   });
 
+  it("shares one cold initial request across an immediate controller replacement", async () => {
+    let resolveInitial!: (result: OrderLoadResult) => void;
+    const initial = new Promise<OrderLoadResult>((resolve) => {
+      resolveInitial = resolve;
+    });
+    const load = vi.fn().mockReturnValue(initial);
+    const first = registerOrderLoadRecovery({
+      coordinatorEndpoint: "https://lake.example",
+      locator: { slotId: "slot", shortAlias: "lake", orderId: 42 },
+      load,
+      onPhaseChange: vi.fn()
+    });
+    first.dispose();
+    const secondPhases: OrderLoadRecoveryPhase[] = [];
+    const second = registerOrderLoadRecovery({
+      coordinatorEndpoint: "https://lake.example",
+      locator: { slotId: "slot", shortAlias: "lake", orderId: 42 },
+      load,
+      onPhaseChange: (phase) => secondPhases.push(phase)
+    });
+
+    expect(load).toHaveBeenCalledOnce();
+    resolveInitial(loadedResult());
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(secondPhases).toEqual(["loading", "idle"]);
+    second.dispose();
+  });
+
+  it("reports an active cold load only for its exact endpoint and locator", async () => {
+    let resolveInitial!: (result: OrderLoadResult) => void;
+    const initial = new Promise<OrderLoadResult>((resolve) => {
+      resolveInitial = resolve;
+    });
+    const locator = { slotId: "slot", shortAlias: "lake", orderId: 42 };
+    const recovery = registerOrderLoadRecovery({
+      coordinatorEndpoint: "https://lake.example",
+      locator,
+      load: vi.fn().mockReturnValue(initial),
+      onPhaseChange: vi.fn()
+    });
+
+    expect(isColdOrderLoadActive("https://lake.example", locator)).toBe(true);
+    expect(isColdOrderLoadActive("https://other.example", locator)).toBe(false);
+    expect(isColdOrderLoadActive("https://lake.example", { ...locator, slotId: "other-slot" })).toBe(false);
+    expect(isColdOrderLoadActive("https://lake.example", { ...locator, shortAlias: "temple" })).toBe(false);
+    expect(isColdOrderLoadActive("https://lake.example", { ...locator, orderId: 43 })).toBe(false);
+
+    recovery.dispose();
+    expect(isColdOrderLoadActive("https://lake.example", locator)).toBe(true);
+    resolveInitial(loadedResult());
+    await vi.advanceTimersByTimeAsync(0);
+    expect(isColdOrderLoadActive("https://lake.example", locator)).toBe(false);
+  });
+
+  it("discards a stale cold load without affecting its eventual settlement", async () => {
+    let resolveInitial!: (result: OrderLoadResult) => void;
+    const initial = new Promise<OrderLoadResult>((resolve) => {
+      resolveInitial = resolve;
+    });
+    const locator = { slotId: "slot", shortAlias: "lake", orderId: 42 };
+    const recovery = registerOrderLoadRecovery({
+      coordinatorEndpoint: "https://lake.example",
+      locator,
+      load: vi.fn().mockReturnValue(initial),
+      onPhaseChange: vi.fn()
+    });
+
+    discardColdOrderLoad("https://lake.example", locator);
+    expect(isColdOrderLoadActive("https://lake.example", locator)).toBe(false);
+
+    resolveInitial(loadedResult());
+    await vi.advanceTimersByTimeAsync(0);
+    recovery.dispose();
+  });
+
+  it("does not reuse a cold request after the coordinator endpoint changes", async () => {
+    const resolvers: Array<(result: OrderLoadResult) => void> = [];
+    const load = vi.fn(
+      () =>
+        new Promise<OrderLoadResult>((resolve) => {
+          resolvers.push(resolve);
+        })
+    );
+    const first = registerOrderLoadRecovery({
+      coordinatorEndpoint: "https://old-lake.example",
+      locator: { slotId: "slot", shortAlias: "lake", orderId: 42 },
+      load,
+      onPhaseChange: vi.fn()
+    });
+    first.dispose();
+    const second = registerOrderLoadRecovery({
+      coordinatorEndpoint: "https://new-lake.example",
+      locator: { slotId: "slot", shortAlias: "lake", orderId: 42 },
+      load,
+      onPhaseChange: vi.fn()
+    });
+
+    expect(load).toHaveBeenCalledTimes(2);
+    for (const resolve of resolvers) resolve(loadedResult());
+    await vi.advanceTimersByTimeAsync(0);
+    second.dispose();
+  });
+
+  it("acks a pre-published hint from the shared cold request after replacement", async () => {
+    let resolveInitial!: (result: OrderLoadResult) => void;
+    const initial = new Promise<OrderLoadResult>((resolve) => {
+      resolveInitial = resolve;
+    });
+    const load = vi.fn().mockReturnValue(initial);
+    publishOrderChangeNotification(nostrHint(42, "lake"));
+    const first = registerOrderLoadRecovery({
+      coordinatorEndpoint: "https://lake.example",
+      locator: { slotId: "slot", shortAlias: "lake", orderId: 42 },
+      load,
+      onPhaseChange: vi.fn()
+    });
+    first.dispose();
+    const secondPhases: OrderLoadRecoveryPhase[] = [];
+    const second = registerOrderLoadRecovery({
+      coordinatorEndpoint: "https://lake.example",
+      locator: { slotId: "slot", shortAlias: "lake", orderId: 42 },
+      load,
+      onPhaseChange: (phase) => secondPhases.push(phase)
+    });
+
+    expect(load).toHaveBeenCalledOnce();
+    resolveInitial(loadedResult());
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(load).toHaveBeenCalledOnce();
+    expect(secondPhases).toEqual(["loading", "idle"]);
+    second.dispose();
+  });
+
+  it("runs one lifecycle load for a hint published after the shared cold request began", async () => {
+    let resolveInitial!: (result: OrderLoadResult) => void;
+    const initial = new Promise<OrderLoadResult>((resolve) => {
+      resolveInitial = resolve;
+    });
+    const load = vi.fn().mockReturnValueOnce(initial).mockResolvedValue(loadedResult());
+    const first = registerOrderLoadRecovery({
+      coordinatorEndpoint: "https://lake.example",
+      locator: { slotId: "slot", shortAlias: "lake", orderId: 42 },
+      load,
+      onPhaseChange: vi.fn()
+    });
+    first.dispose();
+    publishOrderChangeNotification(nostrHint(42, "lake"));
+
+    const second = registerOrderLoadRecovery({
+      coordinatorEndpoint: "https://lake.example",
+      locator: { slotId: "slot", shortAlias: "lake", orderId: 42 },
+      load,
+      onPhaseChange: vi.fn()
+    });
+
+    expect(load).toHaveBeenCalledOnce();
+    resolveInitial(loadedResult());
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(load).toHaveBeenNthCalledWith(2, "lifecycle");
+    second.dispose();
+  });
+
   it("clears a scheduled retry and lifecycle subscription when disposed", async () => {
     const load = vi.fn().mockResolvedValue(failedResult("transient"));
     const recovery = registerOrderLoadRecovery({
-      key: "order:lake:42",
+      locator: { shortAlias: "lake", orderId: 42 },
       load,
       onPhaseChange: vi.fn(),
       retryDelayMs: 100
@@ -288,7 +666,7 @@ describe("order load recovery", () => {
     const load = vi.fn().mockReturnValue(initial);
     const onPhaseChange = vi.fn();
     const recovery = registerOrderLoadRecovery({
-      key: "order:lake:42",
+      locator: { shortAlias: "lake", orderId: 42 },
       load,
       onPhaseChange,
       retryDelayMs: 100
@@ -307,7 +685,7 @@ describe("order load recovery", () => {
     vi.spyOn(Math, "random").mockReturnValue(0.5);
     const load = vi.fn().mockResolvedValueOnce(failedResult("transient")).mockResolvedValueOnce(loadedResult());
     const recovery = registerOrderLoadRecovery({
-      key: "order:lake:42",
+      locator: { shortAlias: "lake", orderId: 42 },
       load,
       onPhaseChange: vi.fn()
     });
@@ -323,11 +701,54 @@ describe("order load recovery", () => {
 });
 
 describe("loaded order refresh", () => {
+  it("coalesces pending matching notifications into one late-owner refresh", async () => {
+    publishOrderChangeNotification(nostrHint(42, "lake"));
+    publishOrderChangeNotification(nostrHint(42, "lake"));
+    const load = vi.fn().mockResolvedValue(loadedResult());
+
+    const stop = registerLoadedOrderRefresh({
+      activeDelayMs: () => 100,
+      locator: { shortAlias: "lake", orderId: 42 },
+      load,
+      pauseWhileHidden: false
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(load).toHaveBeenCalledOnce();
+    expect(load).toHaveBeenCalledWith("lifecycle");
+    stop();
+  });
+
+  it("refreshes only matching order notifications and accepts the unknown native fallback", async () => {
+    const load = vi.fn().mockResolvedValue(loadedResult());
+    const stop = registerLoadedOrderRefresh({
+      activeDelayMs: () => 100,
+      locator: { shortAlias: "lake", orderId: 42 },
+      load,
+      pauseWhileHidden: false
+    });
+
+    publishOrderChangeNotification({ source: "native", orderId: 41 });
+    publishOrderChangeNotification(nostrHint(42, "temple"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(load).not.toHaveBeenCalled();
+
+    publishOrderChangeNotification(nostrHint(42, "lake"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(load).toHaveBeenCalledOnce();
+    expect(load).toHaveBeenLastCalledWith("lifecycle");
+
+    publishOrderChangeNotification({ source: "native" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(load).toHaveBeenCalledTimes(2);
+    stop();
+  });
+
   it("restarts native polling after returning from the background", async () => {
     const load = vi.fn().mockResolvedValue(loadedResult());
     const stop = registerLoadedOrderRefresh({
       activeDelayMs: () => 100,
-      key: "order:lake:42",
+      locator: { shortAlias: "lake", orderId: 42 },
       load,
       pauseWhileHidden: true
     });
@@ -357,7 +778,7 @@ describe("loaded order refresh", () => {
     const load = vi.fn().mockResolvedValue(loadedResult());
     const stop = registerLoadedOrderRefresh({
       activeDelayMs: () => 100,
-      key: "order:lake:42",
+      locator: { shortAlias: "lake", orderId: 42 },
       load,
       pauseWhileHidden: false
     });
@@ -384,7 +805,7 @@ describe("loaded order refresh", () => {
     const load = vi.fn().mockReturnValueOnce(poll).mockResolvedValueOnce(loadedResult());
     const stop = registerLoadedOrderRefresh({
       activeDelayMs: () => 100,
-      key: "order:lake:42",
+      locator: { shortAlias: "lake", orderId: 42 },
       load,
       pauseWhileHidden: false
     });
@@ -410,7 +831,7 @@ describe("loaded order refresh", () => {
     const load = vi.fn().mockReturnValueOnce(poll).mockResolvedValueOnce(loadedResult());
     const stop = registerLoadedOrderRefresh({
       activeDelayMs: () => 100,
-      key: "order:lake:42",
+      locator: { shortAlias: "lake", orderId: 42 },
       load,
       pauseWhileHidden: false
     });
@@ -428,7 +849,7 @@ describe("loaded order refresh", () => {
     const load = vi.fn().mockResolvedValue(loadedResult());
     const stop = registerLoadedOrderRefresh({
       activeDelayMs: () => 100,
-      key: "order:lake:42",
+      locator: { shortAlias: "lake", orderId: 42 },
       load,
       pauseWhileHidden: false
     });
@@ -458,8 +879,34 @@ function loadedResult(): OrderLoadResult {
   };
 }
 
+function nostrHint(orderId: number, shortAlias: string) {
+  return {
+    source: "nostr" as const,
+    recipientPubkey: "robot",
+    coordinatorPubkey: "coordinator",
+    shortAlias,
+    orderId,
+    eventId: `${shortAlias}:${orderId}`,
+    createdAt: 1
+  };
+}
+
 function dispatchLifecycle(reason: RefreshReason): void {
-  const event = new Event("robosats:refresh-intent");
-  Object.defineProperty(event, "detail", { value: { reason } });
-  windowTarget.dispatchEvent(event);
+  publishRefreshIntent(reason);
+}
+
+function registerLoadedOrderRefresh(options: {
+  activeDelayMs(): number;
+  locator: { shortAlias: string; orderId: number };
+  load(reason: "lifecycle" | "maintenance" | "poll"): Promise<OrderLoadResult>;
+  pauseWhileHidden: boolean;
+}): () => void {
+  const recovery = registerOrderLoadRecovery({
+    activeDelayMs: options.activeDelayMs,
+    locator: options.locator,
+    load: (reason) => options.load(reason as "lifecycle" | "maintenance" | "poll"),
+    onPhaseChange: vi.fn(),
+    pauseWhileHidden: options.pauseWhileHidden
+  });
+  return () => recovery.dispose();
 }

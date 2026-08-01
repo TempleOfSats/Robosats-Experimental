@@ -11,6 +11,54 @@ describe("Native transport bridge", () => {
     await expect(import("./androidBridge")).resolves.toBeDefined();
   });
 
+  it("parses a coordinator/order native hint and supports unsubscribe", async () => {
+    const windowTarget = new EventTarget();
+    vi.stubGlobal("window", windowTarget);
+    const { subscribeNativeOrderHints } = await import("./androidBridge");
+    const listener = vi.fn();
+    const unsubscribe = subscribeNativeOrderHints(listener);
+    const hint = new Event("robosats:native-order-hint");
+    Object.defineProperty(hint, "detail", { value: { orderId: "lake/91330" } });
+
+    windowTarget.dispatchEvent(hint);
+    unsubscribe();
+    windowTarget.dispatchEvent(hint);
+
+    expect(listener).toHaveBeenCalledOnce();
+    expect(listener).toHaveBeenCalledWith({ shortAlias: "lake", orderId: 91330 });
+  });
+
+  it("accepts a positive numeric native order hint without an alias", async () => {
+    const windowTarget = new EventTarget();
+    vi.stubGlobal("window", windowTarget);
+    const { subscribeNativeOrderHints } = await import("./androidBridge");
+    const listener = vi.fn();
+    subscribeNativeOrderHints(listener);
+    const hint = new Event("robosats:native-order-hint");
+    Object.defineProperty(hint, "detail", { value: { orderId: 91330 } });
+
+    windowTarget.dispatchEvent(hint);
+
+    expect(listener).toHaveBeenCalledWith({ orderId: 91330 });
+  });
+
+  it("preserves a missing or invalid native order id as a broad hint", async () => {
+    const windowTarget = new EventTarget();
+    vi.stubGlobal("window", windowTarget);
+    const { subscribeNativeOrderHints } = await import("./androidBridge");
+    const listener = vi.fn();
+    subscribeNativeOrderHints(listener);
+    const missing = new Event("robosats:native-order-hint");
+    Object.defineProperty(missing, "detail", { value: { orderId: null } });
+    const invalid = new Event("robosats:native-order-hint");
+    Object.defineProperty(invalid, "detail", { value: { orderId: "not-an-order" } });
+
+    windowTarget.dispatchEvent(missing);
+    windowTarget.dispatchEvent(invalid);
+
+    expect(listener.mock.calls).toEqual([[{}], [{}]]);
+  });
+
   it("resolves native HTTP responses through the JNI callback", async () => {
     const bridgeWindow = {
       AndroidAppRobosats: {

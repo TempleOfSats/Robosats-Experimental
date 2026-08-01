@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Banknote, Check, ChevronDown, Clock, Copy, Download, ExternalLink, FileText, Link2, MapPin, Paperclip, RefreshCw, Rocket, RotateCw, ShieldAlert, Star, Tag, AlertTriangle, XCircle, Zap } from "lucide-react";
@@ -30,12 +30,15 @@ import {
   isCompletedTradeForCurrentRobot
 } from "@/domains/orders/orderStateMachine";
 import {
+  orderLoadIdentityMatches,
   orderForLocator,
   useOrderStore,
-  type OrderLoadFailure
+  type OrderLoadFailure,
+  type OrderLoadIdentity
 } from "@/domains/orders/orderStore";
 import {
-  registerLoadedOrderRefresh,
+  discardColdOrderLoad,
+  isColdOrderLoadActive,
   registerOrderLoadRecovery,
   type OrderLoadRecoveryPhase
 } from "@/domains/orders/orderLoadRecovery";
@@ -100,6 +103,7 @@ export function OrderPage({
   const torConnection = useTorConnection();
   const {
     order: storedOrder,
+    orderIdentity: storedOrderIdentity,
     submitting,
     loadFailure,
     actionError,
@@ -107,15 +111,27 @@ export function OrderPage({
     submitAction,
     clearOrder
   } = useOrderStore();
-  const loadedOrder = orderForLocator(storedOrder, shortAlias, orderId);
   const eligibleSlots = proEnabled || embeddedLocator ? slots : selectStandardGarageSlots(slots);
   const routeSlotId = (location.state as { robotSlotId?: string } | null)?.robotSlotId;
   const routeSlot = routeSlotId
     ? eligibleSlots.find((slot) => slot.tokenSHA256 === routeSlotId)
     : undefined;
   const currentSlot = routeSlot ?? selectCurrentSlot(eligibleSlots, currentToken);
+  const currentSlotId = currentSlot?.tokenSHA256;
   const coordinator = coordinators.find((item) => item.shortAlias === shortAlias) ?? coordinators.find((item) => item.shortAlias === "local");
-  const orderRefreshKey = orderRefreshIntentKey(coordinator, shortAlias, orderId, currentSlot);
+  const coordinatorRef = useRef(coordinator);
+  const coordinatorRefreshKey = orderRefreshCoordinatorKey(coordinator);
+  const currentSlotRef = useRef(currentSlot);
+  const { identityKey: loadIdentityKey, loadedOrder } = orderPageLoadContext({
+    coordinator,
+    order: storedOrder,
+    orderId,
+    orderIdentity: storedOrderIdentity,
+    shortAlias,
+    slotId: currentSlotId
+  });
+  const loadedOrderRef = useRef(loadedOrder);
+  const previousLoadIdentityKey = useRef<string | undefined>(undefined);
   const coordinatorAuth = coordinator ? getRobotAuthForCoordinator(currentSlot, coordinator.shortAlias) : undefined;
   const signingRobot = getSigningRobot(currentSlot, shortAlias);
   const previousStatus = useRef<number | undefined>(undefined);
@@ -128,10 +144,16 @@ export function OrderPage({
   const loadRecovery = useRef<ReturnType<typeof registerOrderLoadRecovery> | undefined>(undefined);
   const visibleError = orderPageError(actionError, loadFailure);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (previewOrder || orderId < 1 || shortAlias === "local") return;
-    return registerVisibleTrade(shortAlias, orderId);
-  }, [orderId, previewOrder, shortAlias]);
+    return registerVisibleTrade(shortAlias, orderId, currentSlotId);
+  }, [currentSlotId, orderId, previewOrder, shortAlias]);
+
+  useEffect(() => {
+    loadedOrderRef.current = loadedOrder;
+    coordinatorRef.current = coordinator;
+    currentSlotRef.current = currentSlot;
+  }, [coordinator, currentSlot, loadedOrder]);
 
   useEffect(() => {
     hydrateGarage();
@@ -139,37 +161,66 @@ export function OrderPage({
 
   useEffect(() => {
     if (previewOrder) return;
-    if (!orderForLocator(useOrderStore.getState().order, shortAlias, orderId)) clearOrder();
+    const loadIdentityChanged = previousLoadIdentityKey.current !== loadIdentityKey;
+    previousLoadIdentityKey.current = loadIdentityKey;
+    const locator = {
+      slotId: currentSlotId,
+      shortAlias,
+      orderId
+    };
+    synchronizeOrderLoadIdentity({
+      clearOrder,
+      coordinatorEndpoint: coordinator?.url,
+      identityChanged: loadIdentityChanged,
+      loadedOrder,
+      loadedOrderRef,
+      locator
+    });
     previousStatus.current = undefined;
     previousWasTaker.current = false;
-  }, [clearOrder, orderId, previewOrder, shortAlias]);
+  }, [
+    clearOrder,
+    coordinatorRefreshKey,
+    currentSlotId,
+    loadIdentityKey,
+    orderId,
+    previewOrder,
+    shortAlias
+  ]);
 
   useEffect(() => {
-    if (visibleOrder || !coordinator || !orderId) return;
-    setLoadRecoveryPhase("loading");
+    if (previewOrder || !coordinator || !orderId) return;
+    if (!loadedOrderRef.current) setLoadRecoveryPhase("loading");
     const recovery = registerOrderLoadRecovery({
-      key: orderRefreshKey,
-      load: (reason) => loadOrder({ coordinator, orderId, reason, slot: currentSlot }),
-      onPhaseChange: setLoadRecoveryPhase
+      activeDelayMs: () => loadedOrderRefreshDelay(loadedOrderRef.current),
+      coordinatorEndpoint: coordinator.url,
+      locator: { slotId: currentSlotId, shortAlias, orderId },
+      load: (reason) => loadOrder({
+        coordinator: coordinatorRef.current ?? coordinator,
+        orderId,
+        reason,
+        slot: currentSlotRef.current
+      }),
+      onPhaseChange: setLoadRecoveryPhase,
+      pauseWhileHidden: isNativeApp()
     });
     loadRecovery.current = recovery;
     return () => {
       recovery.dispose();
       loadRecovery.current = undefined;
     };
-  }, [coordinator, currentSlot?.tokenSHA256, loadOrder, orderId, orderRefreshKey, visibleOrder]);
+  }, [
+    coordinatorRefreshKey,
+    currentSlotId,
+    loadOrder,
+    orderId,
+    previewOrder,
+    shortAlias
+  ]);
 
   useEffect(() => {
-    if (previewOrder) return;
-    if (!loadedOrder || !coordinator || !currentSlot || !orderId) return;
-    return registerLoadedOrderRefresh({
-      activeDelayMs: () =>
-        jitterDelay(orderRefreshDelayMs(loadedOrder.status, loadedOrder.tx_queued), 0.1),
-      key: orderRefreshKey,
-      load: (reason) => loadOrder({ coordinator, orderId, reason, slot: currentSlot }),
-      pauseWhileHidden: isNativeApp()
-    });
-  }, [coordinator, currentSlot?.tokenSHA256, loadedOrder?.status, loadedOrder?.tx_queued, loadOrder, orderId, orderRefreshKey, previewOrder]);
+    loadRecovery.current?.reschedule();
+  }, [loadedOrder?.status, loadedOrder?.tx_queued]);
 
   useEffect(() => {
     if (!loadedOrder) return;
@@ -519,13 +570,67 @@ function coldOrderLoadHeading(
   return "Trade not loaded yet";
 }
 
-function orderRefreshIntentKey(
-  coordinator: Pick<CoordinatorSummary, "shortAlias"> | undefined,
-  routeAlias: string,
-  orderId: number,
-  slot: Pick<RobotSlot, "tokenSHA256"> | undefined
+function loadedOrderRefreshDelay(order: OrderDto | undefined): number | undefined {
+  return order
+    ? jitterDelay(orderRefreshDelayMs(order.status, order.tx_queued), 0.1)
+    : undefined;
+}
+
+function orderPageLoadContext({
+  coordinator,
+  order,
+  orderId,
+  orderIdentity,
+  shortAlias,
+  slotId
+}: {
+  coordinator: Pick<CoordinatorSummary, "url"> | undefined;
+  order: OrderDto | undefined;
+  orderId: number;
+  orderIdentity: OrderLoadIdentity | undefined;
+  shortAlias: string;
+  slotId: string | undefined;
+}): { identityKey: string; loadedOrder?: OrderDto } {
+  const identityKey = JSON.stringify([coordinator?.url ?? null, slotId ?? null, shortAlias, orderId]);
+  if (!coordinator) return { identityKey };
+  const expectedIdentity = {
+    coordinatorEndpoint: coordinator.url,
+    slotId,
+    shortAlias,
+    orderId
+  };
+  if (!orderLoadIdentityMatches(orderIdentity, expectedIdentity)) return { identityKey };
+  return { identityKey, loadedOrder: orderForLocator(order, shortAlias, orderId) };
+}
+
+function synchronizeOrderLoadIdentity({
+  clearOrder,
+  coordinatorEndpoint,
+  identityChanged,
+  loadedOrder,
+  loadedOrderRef,
+  locator
+}: {
+  clearOrder(): void;
+  coordinatorEndpoint: string | undefined;
+  identityChanged: boolean;
+  loadedOrder: OrderDto | undefined;
+  loadedOrderRef: { current: OrderDto | undefined };
+  locator: { slotId?: string; shortAlias: string; orderId: number };
+}): void {
+  if (identityChanged && !loadedOrder) {
+    discardColdOrderLoad(coordinatorEndpoint, locator);
+    loadedOrderRef.current = undefined;
+    clearOrder();
+    return;
+  }
+  if (!loadedOrder && !isColdOrderLoadActive(coordinatorEndpoint, locator)) clearOrder();
+}
+
+function orderRefreshCoordinatorKey(
+  coordinator: Pick<CoordinatorSummary, "shortAlias" | "url"> | undefined
 ): string {
-  return `order:${coordinator?.shortAlias ?? routeAlias}:${orderId}:${slot?.tokenSHA256 ?? "no-robot"}`;
+  return coordinator ? `${coordinator.shortAlias}:${coordinator.url}` : "";
 }
 
 function orderPageError(actionError: string | undefined, loadFailure: OrderLoadFailure | undefined): string | undefined {
