@@ -202,8 +202,9 @@ export function useF2FWorldMap({
       return;
     }
     const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
     const rect = svgRef.current?.getBoundingClientRect();
-    if (!drag || drag.pointerId !== event.pointerId || !rect) return;
+    if (!rect) return;
     const deltaX = event.clientX - drag.clientX;
     const deltaY = event.clientY - drag.clientY;
     if (hasDraggedBeyondThreshold(deltaX, deltaY, dragThreshold)) drag.moved = true;
