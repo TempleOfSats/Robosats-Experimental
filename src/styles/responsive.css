@@ -102,13 +102,13 @@
 
   .orderbook-secondary-filters {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     align-items: end;
   }
 
   .orderbook-secondary-filters .filter-select-field-wide {
-    grid-column: 1 / -1;
-    width: 100%;
+    grid-column: auto;
+    width: auto;
     margin-left: 0;
   }
 
@@ -142,7 +142,7 @@
 
   .orderbook-secondary-filters {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     align-items: end;
   }
 
@@ -180,7 +180,7 @@
 
   .offer-mobile-sort {
     display: grid;
-    grid-template-columns: auto repeat(2, minmax(0, 1fr));
+    grid-template-columns: auto repeat(3, minmax(0, 1fr));
     align-items: center;
     gap: 0.3rem;
     margin: 0.55rem 0 0.65rem;
@@ -626,6 +626,16 @@
 
   .settings-link-row > * {
     width: 100%;
+  }
+}
+
+@media (min-width: 601px) and (max-width: 900px) {
+  .offer-method-line-has-icon .offer-method-text {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
 

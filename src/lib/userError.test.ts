@@ -16,4 +16,11 @@ describe("toUserMessage", () => {
     expect(toUserMessage(new Error('RoboSats API 500: {"broken"'), "Could not save the order."))
       .toBe("Could not save the order.");
   });
+
+  it("does not expose authentication headers or PGP keys", () => {
+    const error = new Error(
+      "Header 'Authorization' has invalid value: 'Token secret | Private -----BEGIN PGP PRIVATE KEY BLOCK-----'"
+    );
+    expect(toUserMessage(error, "Could not load the order.")).toBe("Could not load the order.");
+  });
 });

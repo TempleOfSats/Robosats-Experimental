@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { generateRobotToken, validateTokenEntropy } from "@/domains/garage/token";
+import { generateRobotToken, isProFleetToken, validateTokenEntropy } from "@/domains/garage/token";
 
 describe("generateRobotToken", () => {
   afterEach(() => {
@@ -34,5 +34,13 @@ describe("validateTokenEntropy", () => {
 
   it("rejects low-entropy tokens with enough characters", () => {
     expect(validateTokenEntropy("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").hasEnoughEntropy).toBe(false);
+  });
+});
+
+describe("isProFleetToken", () => {
+  it("recognizes the Fleet key namespace without treating robot tokens as Fleet keys", () => {
+    expect(isProFleetToken("  rsgarage1fleetkey  ")).toBe(true);
+    expect(isProFleetToken("RSGARAGE1FLEETKEY")).toBe(true);
+    expect(isProFleetToken("regularRobotToken123456789")).toBe(false);
   });
 });

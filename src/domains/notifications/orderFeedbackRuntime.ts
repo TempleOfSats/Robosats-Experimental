@@ -9,6 +9,8 @@ import {
 import { tradeStatusLabel } from "@/domains/orders/orderStatus";
 import type { OrderDto } from "@/domains/orders/order.types";
 import { shouldPlayOrderFeedbackAudio } from "@/domains/notifications/orderFeedbackVisibility";
+import { useGarageStore } from "@/domains/garage/garageStore";
+import { disputeOutcomeForCurrentRobot } from "@/domains/orders/orderStateMachine";
 
 type FeedbackSnapshot = Pick<
   OrderDto,
@@ -35,6 +37,9 @@ function handleObservation(observation: CoordinatorOrderObservation): void {
   const key = `${observation.slotId}:${observation.shortAlias}:${observation.order.id}`;
   const next = feedbackSnapshot(observation.order);
   const previous = snapshots.get(key);
+  const robotHashId = useGarageStore.getState().slots.find(
+    (slot) => slot.tokenSHA256 === observation.slotId
+  )?.hashId;
   snapshots.set(key, next);
   if (!previous) return;
 
@@ -42,6 +47,7 @@ function handleObservation(observation: CoordinatorOrderObservation): void {
     deliverChatFeedback({
       lastIndex: next.chat_last_index ?? 0,
       orderId: observation.order.id,
+      robotHashId,
       shortAlias: observation.shortAlias
     });
   }
@@ -55,7 +61,8 @@ function handleObservation(observation: CoordinatorOrderObservation): void {
   void showDesktopOrderNotification(
     observation.order.id,
     observation.shortAlias,
-    message
+    message,
+    robotHashId
   );
 }
 
@@ -75,6 +82,11 @@ function orderFeedbackMessage(previous: FeedbackSnapshot, order: OrderDto): stri
   if (!previous.invoice_expired && order.invoice_expired) {
     return "A new payout invoice is required";
   }
-  if (previous.status !== order.status) return tradeStatusLabel(order);
+  if (previous.status !== order.status) {
+    const disputeOutcome = disputeOutcomeForCurrentRobot(order);
+    if (disputeOutcome === "won") return "Dispute resolved in your favor";
+    if (disputeOutcome === "lost") return "Dispute resolved in favor of your peer";
+    return tradeStatusLabel(order);
+  }
   return undefined;
 }

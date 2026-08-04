@@ -62,7 +62,10 @@ import {
   type ArchiveTradeInput,
   type TradeHistoryManifest
 } from "@/domains/pro/tradeHistory";
-import { classifyOrderLifecycleForCurrentRobot } from "@/domains/orders/orderStateMachine";
+import {
+  classifyOrderLifecycleForCurrentRobot,
+  disputeOutcomeForCurrentRobot
+} from "@/domains/orders/orderStateMachine";
 
 const DEVICE_ID_KEY = "robosats_exp_garage_device_v3";
 const ENVELOPE_KEY = "robosats_exp_garage_envelope_v3";
@@ -155,10 +158,14 @@ export const useGarageVaultStore = create<GarageVaultState>((set, get) => ({
       setEnvelopeState(set, envelope, {
         status: systemClient.getItem(BACKUP_CONFIRMED_KEY) === "true" ? "ready" : "needs-backup"
       });
-    })().catch((error) => {
+    })()
+      .catch((error) => {
       garageSecret = undefined;
       set({ status: "error", error: error instanceof Error ? error.message : "Could not open Fleet." });
-    }).finally(() => { initialization = undefined; });
+      })
+      .finally(() => {
+        initialization = undefined;
+      });
     return initialization;
   },
   setup: async () => {
@@ -188,9 +195,7 @@ export const useGarageVaultStore = create<GarageVaultState>((set, get) => ({
     const secret = decodeGarageToken(token);
     const encodedToken = encodeGarageToken(secret);
     const deviceId = currentDeviceId();
-    const envelope = snapshot
-      ? envelopeFromSnapshot(snapshot, deviceId)
-      : createLocalEnvelope(deviceId);
+    const envelope = snapshot ? envelopeFromSnapshot(snapshot, deviceId) : createLocalEnvelope(deviceId);
     validateEnvelope(envelope, secret);
     const previousSecret = garageSecret?.slice();
     const previousToken = await garageSecretStore.load();
@@ -226,7 +231,8 @@ export const useGarageVaultStore = create<GarageVaultState>((set, get) => ({
     });
   },
   createDerivedRobot: async (nickname = "Robot") => {
-    if (!garageSecret || get().status !== "ready" || !get().envelope) throw new Error("Set up the Fleet before adding a robot.");
+    if (!garageSecret || get().status !== "ready" || !get().envelope)
+      throw new Error("Set up the Fleet before adding a robot.");
     if (!hasGarageRobotCapacity(get().envelope!.garage)) throw new Error(FLEET_ROBOT_LIMIT_MESSAGE);
     const id = createGarageEntryId();
     const token = deriveGarageRobotToken(garageSecret, id);
@@ -247,11 +253,7 @@ export const useGarageVaultStore = create<GarageVaultState>((set, get) => ({
     const slot = useGarageStore.getState().slots.find((item) => item.token === token);
     if (slot) {
       const tradeIndex = useProTradeIndexStore.getState();
-      const lifecycle = deriveProRobotLifecycle(
-        slot,
-        tradeIndex.snapshots,
-        tradeIndex.syncBySlot[slot.tokenSHA256]
-      );
+      const lifecycle = deriveProRobotLifecycle(slot, tradeIndex.snapshots, tradeIndex.syncBySlot[slot.tokenSHA256]);
       if (!lifecycle.canRemove) {
         throw new Error(lifecycle.availability.message ?? "Finish this robot's order before removing it.");
       }
@@ -293,7 +295,8 @@ export const useGarageVaultStore = create<GarageVaultState>((set, get) => ({
     }
     for (const preset of settings.presets) {
       const previous = current.presets.find((candidate) => candidate.id === preset.id);
-      if (!previous || JSON.stringify(previous) !== JSON.stringify(preset)) envelope = queueRecord(envelope, presetToSyncRecord(preset));
+      if (!previous || JSON.stringify(previous) !== JSON.stringify(preset))
+        envelope = queueRecord(envelope, presetToSyncRecord(preset));
     }
     commitEnvelope(envelope, set);
   },
@@ -303,7 +306,13 @@ export const useGarageVaultStore = create<GarageVaultState>((set, get) => ({
       isMaker: input.order.is_maker,
       isSeller: input.order.is_seller
     });
-    if (lifecycle !== "completed" && lifecycle !== "collaboratively-cancelled") return "ineligible";
+    if (
+      lifecycle !== "completed"
+      && lifecycle !== "collaboratively-cancelled"
+      && !disputeOutcomeForCurrentRobot(input.order)
+    ) {
+      return "ineligible";
+    }
     if (!garageSecret || !get().envelope) return "deferred";
     const envelope = get().envelope!;
     const entry = tradeHistoryEntryFromOrder(input, envelope.deviceId);
@@ -358,9 +367,9 @@ export const useGarageVaultStore = create<GarageVaultState>((set, get) => ({
   deferOutbox: (key, revision, nextAttemptAt) => {
     if (!garageSecret || !get().envelope) return;
     if (!get().envelope!.outbox.some((item) => item.key === key && item.revision === revision)) return;
-    const outbox = get().envelope!.outbox.map((item) => item.key === key && item.revision === revision
-      ? { ...item, attempts: item.attempts + 1, nextAttemptAt }
-      : item);
+    const outbox = get().envelope!.outbox.map((item) =>
+      item.key === key && item.revision === revision ? { ...item, attempts: item.attempts + 1, nextAttemptAt } : item
+    );
     const next = updateEnvelope(get().envelope!, { outbox });
     persistEnvelope(garageSecret, next);
     setEnvelopeState(set, next);
@@ -374,7 +383,8 @@ export const useGarageVaultStore = create<GarageVaultState>((set, get) => ({
     for (const entry of envelope.history.entries) envelope = queueRecord(envelope, tradeHistoryToSyncRecord(entry));
     commitEnvelope(envelope, set);
   },
-  setSyncState: (syncStatus, lastSyncAt, error, lastPublicationAt) => set((state) => ({
+  setSyncState: (syncStatus, lastSyncAt, error, lastPublicationAt) =>
+    set((state) => ({
     syncStatus,
     lastSyncAt,
     error,
@@ -452,12 +462,15 @@ function envelopeFromSnapshot(snapshot: GarageRecoverySnapshot, deviceId: string
   const normalized = normalizeRecoverySnapshot(snapshot, deviceId);
   validateRecoverySnapshot(normalized);
   const garage = mergeGarageManifests([createGarageManifest(deviceId), normalized.garage], deviceId);
-  const settings = mergePortableSettings([
+  const settings = mergePortableSettings(
+    [
     createPortableSettingsManifest(deviceId, {
       theme: normalized.settings.theme.value
     }),
     normalized.settings
-  ], deviceId);
+    ],
+    deviceId
+  );
   const history = pruneTradeHistoryManifest(normalized.history);
   let envelope = updateEnvelope(createLocalEnvelope(deviceId), { garage, settings, history });
   for (const entry of garage.entries) envelope = queueRecord(envelope, robotEntryToSyncRecord(entry));
@@ -495,12 +508,25 @@ function mergeObservedRecords(
     if (item.record.type === "robot" || item.record.type === "robot-tombstone") {
       const entry = syncRecordToRobotEntry(secret, item.record);
       const existing = garage.entries.find((candidate) => candidate.id === entry.id);
-      const mayApply = !existing
-        || (!existing.deleted && entry.deleted)
-        || (!existing.deleted && !entry.deleted
-          && compareRobotEntries(entry, existing, item.eventId, observed[syncRecordKey(robotEntryToSyncRecord(existing))]?.eventId) > 0)
-        || (existing.deleted && entry.deleted
-          && compareRobotEntries(entry, existing, item.eventId, observed[syncRecordKey(robotEntryToSyncRecord(existing))]?.eventId) > 0);
+      const mayApply =
+        !existing ||
+        (!existing.deleted && entry.deleted) ||
+        (!existing.deleted &&
+          !entry.deleted &&
+          compareRobotEntries(
+            entry,
+            existing,
+            item.eventId,
+            observed[syncRecordKey(robotEntryToSyncRecord(existing))]?.eventId
+          ) > 0) ||
+        (existing.deleted &&
+          entry.deleted &&
+          compareRobotEntries(
+            entry,
+            existing,
+            item.eventId,
+            observed[syncRecordKey(robotEntryToSyncRecord(existing))]?.eventId
+          ) > 0);
       if (mayApply) {
         garage = entry.deleted
           ? forceGarageEntry(garage, entry)
@@ -525,7 +551,10 @@ function mergeObservedRecords(
         }
       }
     } else {
-      if (item.record.type === "preset" && settings.presets.some((preset) => preset.id === item.record.id && preset.deleted)) {
+      if (
+        item.record.type === "preset" &&
+        settings.presets.some((preset) => preset.id === item.record.id && preset.deleted)
+      ) {
         observed[key] = {
           eventId: item.eventId,
           publishedAt: item.publishedAt,
@@ -535,7 +564,8 @@ function mergeObservedRecords(
         continue;
       }
       const remoteSettings = settingsFromRecord(settings, item.record);
-      const merged = item.record.type === "preset-tombstone"
+      const merged =
+        item.record.type === "preset-tombstone"
         ? forcePreset(settings, remoteSettings.presets[0])
         : mergePortableSettings([settings, remoteSettings], settings.deviceId);
       if (JSON.stringify(merged) !== JSON.stringify(settings)) {
@@ -560,7 +590,8 @@ function mergeObservedRecords(
       return Boolean(pendingRecord && compareSyncRecords(pendingRecord, item.record) >= 0);
     });
   }
-  if (!changed && outbox === envelope.outbox && JSON.stringify(observed) === JSON.stringify(envelope.observed)) return envelope;
+  if (!changed && outbox === envelope.outbox && JSON.stringify(observed) === JSON.stringify(envelope.observed))
+    return envelope;
   return updateEnvelope(envelope, { garage, settings, history, outbox, observed });
 }
 
@@ -575,9 +606,13 @@ function settingsFromRecord(current: PortableSettingsManifest, record: GarageSyn
   if (record.type !== "preset" && record.type !== "preset-tombstone") return current;
   const preset = syncRecordToPreset(record);
   return {
-    ...createPortableSettingsManifest(record.writerDeviceId, {
+    ...createPortableSettingsManifest(
+      record.writerDeviceId,
+      {
       theme: current.theme.value
-    }, record.updatedAt),
+      },
+      record.updatedAt
+    ),
     revision: record.revision,
     theme: current.theme,
     presets: [preset]
@@ -631,8 +666,10 @@ function forceGarageEntry(manifest: GarageManifest, entry: GarageRobotEntry): Ga
     ...manifest,
     revision: Math.max(manifest.revision, entry.revision) + 1,
     updatedAt: Math.max(manifest.updatedAt, entry.updatedAt),
-    entries: [...manifest.entries.filter((candidate) => candidate.id !== entry.id && candidate.tokenId !== entry.tokenId), entry]
-      .sort((left, right) => left.id.localeCompare(right.id))
+    entries: [
+      ...manifest.entries.filter((candidate) => candidate.id !== entry.id && candidate.tokenId !== entry.tokenId),
+      entry
+    ].sort((left, right) => left.id.localeCompare(right.id))
   };
   validateGarageManifest(next);
   return next;
@@ -643,14 +680,20 @@ function forcePreset(settings: PortableSettingsManifest, preset: OfferPreset): P
     ...settings,
     revision: Math.max(settings.revision, preset.revision) + 1,
     updatedAt: Math.max(settings.updatedAt, preset.updatedAt),
-    presets: [...settings.presets.filter((candidate) => candidate.id !== preset.id), preset]
-      .sort((left, right) => left.id.localeCompare(right.id))
+    presets: [...settings.presets.filter((candidate) => candidate.id !== preset.id), preset].sort((left, right) =>
+      left.id.localeCompare(right.id)
+    )
   };
   validatePortableSettings(next);
   return next;
 }
 
-function compareRobotEntries(left: GarageRobotEntry, right: GarageRobotEntry, leftEventId = "", rightEventId = ""): number {
+function compareRobotEntries(
+  left: GarageRobotEntry,
+  right: GarageRobotEntry,
+  leftEventId = "",
+  rightEventId = ""
+): number {
   return compareSyncRecords(robotEntryToSyncRecord(left), robotEntryToSyncRecord(right), leftEventId, rightEventId);
 }
 
@@ -671,21 +714,27 @@ function queueOutboxItem(outbox: GarageOutboxItem[], record: GarageSyncRecord, n
   const key = syncRecordKey(record);
   const current = outbox.find((item) => item.key === key && item.revision === record.revision);
   if (current) {
-    return outbox.map((item) => item === current
-      ? { ...item, nextAttemptAt: Math.min(item.nextAttemptAt, now) }
-      : item);
+    return outbox.map((item) =>
+      item === current ? { ...item, nextAttemptAt: Math.min(item.nextAttemptAt, now) } : item
+    );
   }
-  return [...outbox.filter((item) => item.key !== key), {
+  return [
+    ...outbox.filter((item) => item.key !== key),
+    {
     key,
     revision: record.revision,
     queuedAt: now,
     attempts: 0,
     nextAttemptAt: now,
     acceptedRelays: []
-  }].sort((left, right) => left.queuedAt - right.queuedAt);
+    }
+  ].sort((left, right) => left.queuedAt - right.queuedAt);
 }
 
-function currentSettingsRecord(settings: PortableSettingsManifest, incoming: GarageSyncRecord): GarageSyncRecord | undefined {
+function currentSettingsRecord(
+  settings: PortableSettingsManifest,
+  incoming: GarageSyncRecord
+): GarageSyncRecord | undefined {
   if (incoming.type === "preferences") return preferencesToSyncRecord(settings);
   if (incoming.type === "preset" || incoming.type === "preset-tombstone") {
     const preset = settings.presets.find((candidate) => candidate.id === incoming.id);
@@ -724,10 +773,7 @@ function loadLocalEnvelope(secret: Uint8Array, deviceId: string): GarageLocalEnv
   return envelope;
 }
 
-function commitEnvelope(
-  envelope: GarageLocalEnvelope,
-  set: (value: Partial<GarageVaultState>) => void
-): void {
+function commitEnvelope(envelope: GarageLocalEnvelope, set: (value: Partial<GarageVaultState>) => void): void {
   if (!garageSecret) throw new Error("Fleet is not set up.");
   persistEnvelope(garageSecret, envelope);
   setEnvelopeState(set, envelope, { syncStatus: "idle" });
@@ -754,27 +800,48 @@ function persistEnvelope(secret: Uint8Array, envelope: GarageLocalEnvelope): voi
 function validateEnvelope(value: unknown, secret: Uint8Array): asserts value is GarageLocalEnvelope {
   if (!value || typeof value !== "object") throw new Error("Invalid Garage envelope.");
   const envelope = value as Partial<GarageLocalEnvelope>;
-  const fields = new Set(["format", "version", "deviceId", "revision", "updatedAt", "garage", "settings", "history", "outbox", "observed"]);
+  const fields = new Set([
+    "format",
+    "version",
+    "deviceId",
+    "revision",
+    "updatedAt",
+    "garage",
+    "settings",
+    "history",
+    "outbox",
+    "observed"
+  ]);
   if (Object.keys(envelope).some((key) => !fields.has(key))) throw new Error("Garage envelope has unknown fields.");
-  if (envelope.format !== "robosats-exp-garage-envelope" || envelope.version !== 3) throw new Error("Unsupported Garage envelope.");
+  if (envelope.format !== "robosats-exp-garage-envelope" || envelope.version !== 3)
+    throw new Error("Unsupported Garage envelope.");
   if (!/^[0-9a-f]{32}$/.test(envelope.deviceId ?? "")) throw new Error("Invalid Garage device.");
-  if (!Number.isSafeInteger(envelope.revision) || Number(envelope.revision) < 0) throw new Error("Invalid Garage envelope revision.");
+  if (!Number.isSafeInteger(envelope.revision) || Number(envelope.revision) < 0)
+    throw new Error("Invalid Garage envelope revision.");
   validateGarageManifestForSecret(envelope.garage, secret);
   validatePortableSettings(envelope.settings);
   validateTradeHistoryManifest(envelope.history);
-  if (!Array.isArray(envelope.outbox) || envelope.outbox.length > GARAGE_SYNC_LIMITS.outbox) throw new Error("Invalid Garage outbox.");
+  if (!Array.isArray(envelope.outbox) || envelope.outbox.length > GARAGE_SYNC_LIMITS.outbox)
+    throw new Error("Invalid Garage outbox.");
   for (const item of envelope.outbox) {
-    if (typeof item.key !== "string" || !Number.isSafeInteger(item.revision) || item.revision < 1
-      || !Number.isSafeInteger(item.queuedAt) || item.queuedAt < 0
-      || !Number.isSafeInteger(item.attempts) || item.attempts < 0
-      || !Number.isSafeInteger(item.nextAttemptAt) || item.nextAttemptAt < 0
-      || !Array.isArray(item.acceptedRelays)
-      || item.acceptedRelays.length > 32
-      || item.acceptedRelays.some((relay) => typeof relay !== "string" || !/^wss?:\/\//.test(relay))
-      || new Set(item.acceptedRelays).size !== item.acceptedRelays.length
-      || (item.acceptedEventId !== undefined && !/^[0-9a-f]{64}$/.test(item.acceptedEventId))
-      || (item.acceptedPublishedAt !== undefined
-        && (!Number.isSafeInteger(item.acceptedPublishedAt) || item.acceptedPublishedAt < 0))) {
+    if (
+      typeof item.key !== "string" ||
+      !Number.isSafeInteger(item.revision) ||
+      item.revision < 1 ||
+      !Number.isSafeInteger(item.queuedAt) ||
+      item.queuedAt < 0 ||
+      !Number.isSafeInteger(item.attempts) ||
+      item.attempts < 0 ||
+      !Number.isSafeInteger(item.nextAttemptAt) ||
+      item.nextAttemptAt < 0 ||
+      !Array.isArray(item.acceptedRelays) ||
+      item.acceptedRelays.length > 32 ||
+      item.acceptedRelays.some((relay) => typeof relay !== "string" || !/^wss?:\/\//.test(relay)) ||
+      new Set(item.acceptedRelays).size !== item.acceptedRelays.length ||
+      (item.acceptedEventId !== undefined && !/^[0-9a-f]{64}$/.test(item.acceptedEventId)) ||
+      (item.acceptedPublishedAt !== undefined &&
+        (!Number.isSafeInteger(item.acceptedPublishedAt) || item.acceptedPublishedAt < 0))
+    ) {
       throw new Error("Invalid Garage outbox item.");
     }
     if (item.acceptedRelays.length > 0 && item.acceptedEventId === undefined) {
@@ -783,7 +850,8 @@ function validateEnvelope(value: unknown, secret: Uint8Array): asserts value is 
     if ((item.acceptedEventId === undefined) !== (item.acceptedPublishedAt === undefined)) {
       throw new Error("Invalid Garage outbox acknowledgement.");
     }
-    if (!recordForOutboxItem(envelope as GarageLocalEnvelope, item)) throw new Error("Garage outbox record is missing.");
+    if (!recordForOutboxItem(envelope as GarageLocalEnvelope, item))
+      throw new Error("Garage outbox record is missing.");
   }
   if (!envelope.observed || typeof envelope.observed !== "object") throw new Error("Invalid Garage observations.");
 }
@@ -793,7 +861,8 @@ function validateRecoverySnapshot(value: unknown): asserts value is GarageRecove
   const snapshot = value as Partial<GarageRecoverySnapshot>;
   const fields = new Set(["format", "version", "createdAt", "garage", "settings", "history"]);
   if (Object.keys(snapshot).some((key) => !fields.has(key))) throw new Error("Garage snapshot has unknown fields.");
-  if (snapshot.format !== "robosats-exp-garage-snapshot" || snapshot.version !== 3) throw new Error("Unsupported Garage snapshot.");
+  if (snapshot.format !== "robosats-exp-garage-snapshot" || snapshot.version !== 3)
+    throw new Error("Unsupported Garage snapshot.");
   validateGarageManifest(snapshot.garage);
   validatePortableSettings(snapshot.settings);
   validateTradeHistoryManifest(snapshot.history);

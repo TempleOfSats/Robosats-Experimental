@@ -9,9 +9,10 @@ import {
   upsertTradeHistoryEntry,
   validateTradeHistoryManifest
 } from "@/domains/pro/tradeHistory";
+import { hexToBase91 } from "@/lib/hexToBase91";
 
 const deviceId = "00112233445566778899aabbccddeeff";
-const slotId = "a".repeat(64);
+const slotId = hexToBase91("a".repeat(64));
 const now = Date.UTC(2026, 6, 26);
 
 describe("Fleet trade history", () => {
@@ -20,12 +21,14 @@ describe("Fleet trade history", () => {
     expect(entryFor(order({ status: 4 }))).toBeUndefined();
     expect(entryFor(order({ status: 5 }))).toBeUndefined();
 
-    const entry = entryFor(order({
-      status: 14,
-      address: "bc1-sensitive",
-      bond_invoice: "ln-sensitive",
-      maker_pubkey: "peer-pubkey"
-    }));
+    const entry = entryFor(
+      order({
+        status: 14,
+        address: "bc1-sensitive",
+        bond_invoice: "ln-sensitive",
+        maker_pubkey: "peer-pubkey"
+      })
+    );
     expect(entry).toMatchObject({
       role: "buyer",
       origin: "taker",
@@ -38,84 +41,163 @@ describe("Fleet trade history", () => {
     expect(JSON.stringify(entry)).not.toContain("peer-pubkey");
   });
 
-  it("does not archive dispute outcomes", () => {
-    expect(entryFor(order({ status: 17, is_maker: false, is_taker: true }))).toBeUndefined();
-    expect(entryFor(order({ status: 17, is_maker: true, is_taker: false }))).toBeUndefined();
-    expect(entryFor(order({ status: 18, is_maker: true, is_taker: false }))).toBeUndefined();
-    expect(entryFor(order({ status: 18, is_maker: false, is_taker: true }))).toBeUndefined();
+  it("validates production Base91 slot IDs while retaining legacy hex history", () => {
+    const current = entryFor(order())!;
+    const legacy = { ...current, slotId: "a".repeat(64) };
+
+    expect(slotId).toHaveLength(40);
+    expect(() =>
+      validateTradeHistoryManifest({
+        ...createTradeHistoryManifest(deviceId, now),
+        entries: [current]
+      })
+    ).not.toThrow();
+    expect(() =>
+      validateTradeHistoryManifest({
+        ...createTradeHistoryManifest(deviceId, now),
+        entries: [legacy]
+      })
+    ).not.toThrow();
+  });
+
+  it("archives resolved disputes from the current robot's perspective", () => {
+    expect(entryFor(order({ status: 17, is_maker: false, is_taker: true }))).toMatchObject({ outcome: "dispute-won" });
+    expect(entryFor(order({ status: 17, is_maker: true, is_taker: false }))).toMatchObject({ outcome: "dispute-lost" });
+    expect(entryFor(order({ status: 18, is_maker: true, is_taker: false }))).toMatchObject({ outcome: "dispute-won" });
+    expect(entryFor(order({ status: 18, is_maker: false, is_taker: true }))).toMatchObject({ outcome: "dispute-lost" });
   });
 
   it("archives a seller when payout routing becomes the buyer's concern", () => {
-    expect(entryFor(order({
-      status: 13,
-      is_buyer: false,
-      is_seller: true,
-      is_maker: true,
-      is_taker: false
-    }))).toMatchObject({ outcome: "completed", role: "seller" });
+    expect(
+      entryFor(
+        order({
+          status: 13,
+          is_buyer: false,
+          is_seller: true,
+          is_maker: true,
+          is_taker: false
+        })
+      )
+    ).toMatchObject({ outcome: "completed", role: "seller" });
+  });
+
+  it("archives the current robot's exact final bitcoin amount from the backend summary", () => {
+    expect(
+      entryFor(
+        order({
+          trade_satoshis: 18_958,
+          taker_summary: { is_buyer: true, received_sats: 18_915 }
+        })
+      )
+    ).toMatchObject({ role: "buyer", satoshis: 18_915 });
+
+    expect(
+      entryFor(
+        order({
+          is_buyer: false,
+          is_seller: true,
+          is_maker: true,
+          is_taker: false,
+          trade_satoshis: 18_958,
+          maker_summary: { is_buyer: false, sent_sats: 18_991 }
+        })
+      )
+    ).toMatchObject({ role: "seller", satoshis: 18_991 });
   });
 
   it("stores only the invoice matching the robot's settlement role", () => {
     const buyerInvoice = "lnbc1000n1buyerinvoice0123456789";
-    const buyer = tradeHistoryEntryFromOrder({
-      slotId,
-      robotName: "Buyer",
-      robotHashId: "buyer-hash",
-      coordinatorShortAlias: "lake",
-      order: order({ is_buyer: true, is_seller: false }),
-      settlementInvoice: buyerInvoice,
-      settlementInvoicePurpose: "payout-received",
-      observedAt: now
-    }, deviceId);
+    const buyer = tradeHistoryEntryFromOrder(
+      {
+        slotId,
+        robotName: "Buyer",
+        robotHashId: "buyer-hash",
+        coordinatorShortAlias: "lake",
+        order: order({ is_buyer: true, is_seller: false }),
+        settlementInvoice: buyerInvoice,
+        settlementInvoicePurpose: "payout-received",
+        observedAt: now
+      },
+      deviceId
+    );
     expect(buyer).toMatchObject({
       settlementInvoice: buyerInvoice,
       settlementInvoicePurpose: "payout-received"
     });
 
     const sellerInvoice = "lnbc2000n1sellerinvoice0123456789";
-    const seller = tradeHistoryEntryFromOrder({
-      slotId,
-      robotName: "Seller",
-      robotHashId: "seller-hash",
-      coordinatorShortAlias: "lake",
-      order: order({
-        status: 15,
-        is_buyer: false,
-        is_seller: true,
-        is_maker: true,
-        is_taker: false
-      }),
-      settlementInvoice: sellerInvoice,
-      settlementInvoicePurpose: "escrow-paid",
-      observedAt: now
-    }, deviceId);
+    const seller = tradeHistoryEntryFromOrder(
+      {
+        slotId,
+        robotName: "Seller",
+        robotHashId: "seller-hash",
+        coordinatorShortAlias: "lake",
+        order: order({
+          status: 15,
+          is_buyer: false,
+          is_seller: true,
+          is_maker: true,
+          is_taker: false
+        }),
+        settlementInvoice: sellerInvoice,
+        settlementInvoicePurpose: "escrow-paid",
+        observedAt: now
+      },
+      deviceId
+    );
     expect(seller).toMatchObject({
       outcome: "completed",
       settlementInvoice: sellerInvoice,
       settlementInvoicePurpose: "escrow-paid"
     });
 
-    expect(tradeHistoryEntryFromOrder({
-      slotId,
-      robotName: "Buyer",
-      robotHashId: "buyer-hash",
-      coordinatorShortAlias: "lake",
-      order: order(),
-      settlementInvoice: sellerInvoice,
-      settlementInvoicePurpose: "escrow-paid",
-      observedAt: now
-    }, deviceId)).not.toHaveProperty("settlementInvoice");
+    expect(
+      tradeHistoryEntryFromOrder(
+        {
+          slotId,
+          robotName: "Buyer",
+          robotHashId: "buyer-hash",
+          coordinatorShortAlias: "lake",
+          order: order(),
+          settlementInvoice: sellerInvoice,
+          settlementInvoicePurpose: "escrow-paid",
+          observedAt: now
+        },
+        deviceId
+      )
+    ).not.toHaveProperty("settlementInvoice");
 
-    expect(tradeHistoryEntryFromOrder({
-      slotId,
-      robotName: "Cancelled buyer",
-      robotHashId: "buyer-hash",
-      coordinatorShortAlias: "lake",
-      order: order({ status: 12 }),
-      settlementInvoice: buyerInvoice,
-      settlementInvoicePurpose: "payout-received",
-      observedAt: now
-    }, deviceId)).not.toHaveProperty("settlementInvoice");
+    expect(
+      tradeHistoryEntryFromOrder(
+        {
+          slotId,
+          robotName: "Cancelled buyer",
+          robotHashId: "buyer-hash",
+          coordinatorShortAlias: "lake",
+          order: order({ status: 12 }),
+          settlementInvoice: buyerInvoice,
+          settlementInvoicePurpose: "payout-received",
+          observedAt: now
+        },
+        deviceId
+      )
+    ).not.toHaveProperty("settlementInvoice");
+
+    expect(
+      tradeHistoryEntryFromOrder(
+        {
+          slotId,
+          robotName: "Cancelled seller",
+          robotHashId: "seller-hash",
+          coordinatorShortAlias: "lake",
+          order: order({ status: 12, is_buyer: false, is_seller: true }),
+          settlementInvoice: sellerInvoice,
+          settlementInvoicePurpose: "escrow-paid",
+          observedAt: now
+        },
+        deviceId
+      )
+    ).not.toHaveProperty("settlementInvoice");
   });
 
   it("deduplicates trades and keeps only 100 entries for twelve months", () => {
@@ -146,18 +228,22 @@ describe("Fleet trade history", () => {
 
   it("preserves validated settlement evidence across equal-revision merges", () => {
     const invoice = "lnbc1000n1buyerinvoice0123456789";
-    const richer = tradeHistoryEntryFromOrder({
-      slotId,
-      robotName: "History Robot",
-      robotHashId: "robot-hash",
-      coordinatorShortAlias: "lake",
-      order: order(),
-      settlementInvoice: invoice,
-      settlementInvoicePurpose: "payout-received",
-      observedAt: now
-    }, deviceId)!;
+    const richer = tradeHistoryEntryFromOrder(
+      {
+        slotId,
+        robotName: "History Robot",
+        robotHashId: "robot-hash",
+        coordinatorShortAlias: "lake",
+        order: order(),
+        settlementInvoice: invoice,
+        settlementInvoicePurpose: "payout-received",
+        observedAt: now
+      },
+      deviceId
+    )!;
     const stale = {
       ...richer,
+      satoshis: 0,
       settlementInvoice: undefined,
       settlementInvoicePurpose: undefined,
       deviceId: "f".repeat(32),
@@ -166,8 +252,12 @@ describe("Fleet trade history", () => {
     const left = upsertTradeHistoryEntry(createTradeHistoryManifest(deviceId, now), richer, now);
     const right = upsertTradeHistoryEntry(createTradeHistoryManifest("f".repeat(32), now), stale, now);
 
-    for (const manifests of [[left, right], [right, left]]) {
+    for (const manifests of [
+      [left, right],
+      [right, left]
+    ]) {
       expect(mergeTradeHistoryManifests(manifests, deviceId, now + 1).entries[0]).toMatchObject({
+        satoshis: 200_000,
         settlementInvoice: invoice,
         settlementInvoicePurpose: "payout-received"
       });
@@ -211,14 +301,17 @@ describe("Fleet trade history", () => {
 });
 
 function entryFor(value: OrderDto, observedAt = now) {
-  return tradeHistoryEntryFromOrder({
-    slotId,
-    robotName: "History Robot",
-    robotHashId: "robot-hash",
-    coordinatorShortAlias: "lake",
-    order: value,
-    observedAt
-  }, deviceId);
+  return tradeHistoryEntryFromOrder(
+    {
+      slotId,
+      robotName: "History Robot",
+      robotHashId: "robot-hash",
+      coordinatorShortAlias: "lake",
+      order: value,
+      observedAt
+    },
+    deviceId
+  );
 }
 
 function order(overrides: Partial<OrderDto> = {}): OrderDto {

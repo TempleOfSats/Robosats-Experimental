@@ -9,6 +9,8 @@ export type CurrentRobotOrderLifecycle =
   | "collaboratively-cancelled"
   | "terminal";
 
+export type DisputeOutcome = "won" | "lost";
+
 export function getTradeViewState(order: OrderDto): TradeViewState {
   const view = viewForOrder(order);
   return { status: order.status, ...view };
@@ -18,6 +20,20 @@ export function hasFailedPayoutForCurrentRobot(
   order: Pick<OrderDto, "status" | "is_buyer">
 ): boolean {
   return order.status === 15 && order.is_buyer;
+}
+
+export function disputeOutcomeForCurrentRobot(
+  order: Pick<OrderDto, "status" | "is_maker" | "is_taker">
+): DisputeOutcome | undefined {
+  if (order.status === 17) {
+    if (order.is_maker) return "lost";
+    if (order.is_taker) return "won";
+  }
+  if (order.status === 18) {
+    if (order.is_taker) return "lost";
+    if (order.is_maker) return "won";
+  }
+  return undefined;
 }
 
 export function classifyOrderLifecycleForCurrentRobot({
@@ -136,8 +152,12 @@ function viewForOrder(order: OrderDto): ViewOverrides {
         "Waiting for the coordinator's resolution", "The coordinator is reviewing both participants' statements and evidence.", "No further action is required unless the coordinator contacts you.");
     case 17:
     case 18: {
-      const lost = (order.status === 17 && order.is_maker) || (order.status === 18 && order.is_taker);
-      return lost
+      const outcome = disputeOutcomeForCurrentRobot(order);
+      if (!outcome) {
+        return view("Dispute resolved", "muted", "none", "settled", "dispute_resolution",
+          "Dispute resolved", "The coordinator returned a final dispute decision.", "Open the order with one of its participants to see the result.");
+      }
+      return outcome === "lost"
         ? view("You have lost the dispute", "danger", "none", "settled", "dispute_lost",
             "Dispute resolved", "The coordinator resolved the dispute in favor of your peer.", "Review the final order state and contact the coordinator only if clarification is needed.")
         : view("You have won the dispute", "success", "none", "settled", "dispute_won",

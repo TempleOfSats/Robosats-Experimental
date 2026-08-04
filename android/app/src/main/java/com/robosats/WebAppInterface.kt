@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.ConnectivityManager
+import android.util.Base64
 import android.util.Log
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
@@ -122,6 +123,11 @@ class WebAppInterface(
     @JavascriptInterface
     fun reconnectTorTransport() {
         context.reconnectTorTransport()
+    }
+
+    @JavascriptInterface
+    fun resetTorTransport() {
+        context.resetTorTransport()
     }
 
     @JavascriptInterface
@@ -349,6 +355,14 @@ class WebAppInterface(
         runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
     }
 
+    @JavascriptInterface
+    fun saveFile(filename: String, mimeType: String, contentBase64: String): Boolean {
+        if (contentBase64.length > MAX_BASE64_BYTES || mimeType.length > 128) return false
+        val content = runCatching { Base64.decode(contentBase64, Base64.DEFAULT) }.getOrNull() ?: return false
+        if (content.size > MAX_FILE_BYTES) return false
+        return context.requestFileSave(sanitizeFilename(filename), content)
+    }
+
     fun closeAll() {
         transportGeneration.incrementAndGet()
         httpCalls.values.forEach { it.cancel() }
@@ -407,7 +421,18 @@ class WebAppInterface(
     private fun isHttpUrl(value: String) = runCatching { value.toUri().scheme in setOf("http", "https") }.getOrDefault(false)
     private fun isWebSocketUrl(value: String) = runCatching { value.toUri().scheme in setOf("ws", "wss") }.getOrDefault(false)
 
+    private fun sanitizeFilename(value: String): String {
+        val leaf = value.substringAfterLast('/').substringAfterLast('\\')
+        val safe = leaf
+            .replace(Regex("[\\u0000-\\u001f<>:\"/\\\\|?*]"), "-")
+            .trim()
+            .trimEnd('.', ' ')
+        return safe.take(160).ifBlank { "robosats-export" }
+    }
+
     companion object {
         private const val TAG = "RoboSatsBridge"
+        private const val MAX_FILE_BYTES = 8 * 1024 * 1024
+        private const val MAX_BASE64_BYTES = ((MAX_FILE_BYTES + 2) / 3) * 4
     }
 }

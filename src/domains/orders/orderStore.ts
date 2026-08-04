@@ -212,6 +212,27 @@ export const useOrderStore = create<OrderState>((set, get) => ({
         });
         return;
       }
+      const verifiedOrder = await verifyRejectedPayoutAction({
+        auth,
+        coordinator,
+        error,
+        orderId,
+        payload,
+        previousOrder
+      });
+      if (requestId !== requestSequence) return;
+      if (verifiedOrder) {
+        syncGarageOrder(slot, coordinator.shortAlias, verifiedOrder);
+        snapshotApplied = true;
+        set({
+          order: verifiedOrder,
+          orderIdentity: loadIdentity(coordinator, slot, orderId),
+          submitting: false,
+          loadFailure: undefined,
+          actionError: undefined
+        });
+        return;
+      }
       set({
         submitting: false,
         actionError: toUserMessage(error, "Could not update the order.")
@@ -360,4 +381,61 @@ function isReleasedEarlyTake(
     && !previousOrder.is_maker
     && order.status === 1
     && !order.is_maker;
+}
+
+function payoutActionCouldHaveAdvanced(
+  previousOrder: OrderDto | undefined,
+  payload: SubmitOrderActionPayload
+): previousOrder is OrderDto {
+  return (
+    Boolean(previousOrder?.is_buyer) &&
+    (payload.action === "update_invoice" || payload.action === "update_address") &&
+    payoutInputStatuses.has(previousOrder?.status ?? -1)
+  );
+}
+
+function payoutActionAdvanced(previousOrder: OrderDto | undefined, currentOrder: OrderDto): boolean {
+  return Boolean(
+    previousOrder &&
+      payoutInputStatuses.has(previousOrder.status) &&
+      (!payoutInputStatuses.has(currentOrder.status) ||
+        (previousOrder.status === 15 &&
+          previousOrder.invoice_expired === true &&
+          currentOrder.status === 15 &&
+          currentOrder.invoice_expired !== true))
+  );
+}
+
+const payoutInputStatuses = new Set([6, 8, 15]);
+
+async function verifyRejectedPayoutAction({
+  auth,
+  coordinator,
+  error,
+  orderId,
+  payload,
+  previousOrder
+}: {
+  auth: NonNullable<ReturnType<typeof getRobotAuthForCoordinator>>;
+  coordinator: CoordinatorSummary;
+  error: unknown;
+  orderId: number;
+  payload: SubmitOrderActionPayload;
+  previousOrder: OrderDto | undefined;
+}): Promise<OrderDto | undefined> {
+  if (!hasRoboSatsApiErrorCode(error, 1048) || !payoutActionCouldHaveAdvanced(previousOrder, payload)) {
+    return undefined;
+  }
+  try {
+    const order = await fetchOrder(
+      coordinator.url,
+      orderId,
+      auth,
+      orderLoadRequestOptions("post-action")
+    );
+    return payoutActionAdvanced(previousOrder, order) ? { ...order, shortAlias: coordinator.shortAlias } : undefined;
+  } catch {
+    // Keep the original signed-payout error when its outcome cannot be verified.
+    return undefined;
+  }
 }

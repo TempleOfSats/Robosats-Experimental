@@ -172,6 +172,7 @@
 }
 
 .pro-workspace-surface {
+  min-width: 0;
   overflow: visible;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);

@@ -69,22 +69,28 @@ fn fallback_get(app: &AppHandle, key: &str) -> Result<Option<String>, String> {
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error.to_string()),
     };
-    let value: EncryptedValue = serde_json::from_str(&encoded).map_err(|error| error.to_string())?;
+    let value: EncryptedValue =
+        serde_json::from_str(&encoded).map_err(|error| error.to_string())?;
     if value.version != 1 {
         return Err("Unsupported secure-storage version".into());
     }
-    let nonce = STANDARD.decode(value.nonce).map_err(|error| error.to_string())?;
+    let nonce = STANDARD
+        .decode(value.nonce)
+        .map_err(|error| error.to_string())?;
     let ciphertext = STANDARD
         .decode(value.ciphertext)
         .map_err(|error| error.to_string())?;
     if nonce.len() != 24 {
         return Err("Invalid secure-storage nonce".into());
     }
-    let cipher = XChaCha20Poly1305::new_from_slice(&fallback_key(app)?).map_err(|error| error.to_string())?;
+    let cipher = XChaCha20Poly1305::new_from_slice(&fallback_key(app)?)
+        .map_err(|error| error.to_string())?;
     let plaintext = cipher
         .decrypt(XNonce::from_slice(&nonce), ciphertext.as_ref())
         .map_err(|_| "Could not decrypt secure storage".to_owned())?;
-    String::from_utf8(plaintext).map(Some).map_err(|error| error.to_string())
+    String::from_utf8(plaintext)
+        .map(Some)
+        .map_err(|error| error.to_string())
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -94,7 +100,8 @@ fn fallback_get(_app: &AppHandle, _key: &str) -> Result<Option<String>, String> 
 
 #[cfg(target_os = "linux")]
 fn fallback_set(app: &AppHandle, key: &str, value: &str) -> Result<(), String> {
-    let cipher = XChaCha20Poly1305::new_from_slice(&fallback_key(app)?).map_err(|error| error.to_string())?;
+    let cipher = XChaCha20Poly1305::new_from_slice(&fallback_key(app)?)
+        .map_err(|error| error.to_string())?;
     let mut nonce = [0_u8; 24];
     OsRng.fill_bytes(&mut nonce);
     let ciphertext = cipher
@@ -175,5 +182,8 @@ fn write_private(path: PathBuf, value: &[u8]) -> io::Result<()> {
 #[cfg(target_os = "linux")]
 fn set_private_permissions(path: &std::path::Path, directory: bool) -> io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(path, fs::Permissions::from_mode(if directory { 0o700 } else { 0o600 }))
+    fs::set_permissions(
+        path,
+        fs::Permissions::from_mode(if directory { 0o700 } else { 0o600 }),
+    )
 }

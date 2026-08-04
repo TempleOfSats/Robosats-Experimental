@@ -8,6 +8,7 @@ import { RobotAvatar } from "@/domains/identity/RobotAvatar";
 import { RobotGlyph } from "@/domains/pro/ProWorkspaceIcons";
 import type { OfferReadyRobots } from "@/domains/pro/proRobotLifecycle";
 import { GARAGE_LIMITS } from "@/domains/pro/garageVault";
+import "@/domains/pro/proRobotPicker.css";
 
 export function CreateOfferRobotPicker({
   addingRobot = false,

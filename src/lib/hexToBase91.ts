@@ -34,3 +34,10 @@ export function hexToBase91(hex: string): string {
 
   return output;
 }
+
+export function isBase91Sha256(value: unknown): value is string {
+  return typeof value === "string"
+    && value.length >= 39
+    && value.length <= 40
+    && [...value].every((character) => alphabet.includes(character));
+}

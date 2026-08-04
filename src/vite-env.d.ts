@@ -12,11 +12,13 @@ interface RoboSatsNativeBridge {
     cancelHttpRequest?(requestId: string): void;
     recoverTorTransport?(): void;
     reconnectTorTransport?(): void;
+    resetTorTransport?(): void;
     openWebSocket(socketId: string, url: string, protocolsJson: string): void;
     sendWebSocket(socketId: string, message: string): boolean;
     closeWebSocket(socketId: string, code: number, reason: string): void;
     copyToClipboard(value: string): void;
     openExternal(url: string): void;
+    saveFile?(filename: string, mimeType: string, contentBase64: string): boolean;
     clientLog?(message: string): void;
 }
 

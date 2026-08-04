@@ -33,6 +33,54 @@
   font-weight: 600;
 }
 
+.pro-reward-action-group {
+  display: grid;
+}
+
+.pro-reward-action-row {
+  min-height: 4rem;
+  display: grid;
+  grid-template-columns: minmax(12rem, 1fr) minmax(13rem, 1fr) auto;
+  align-items: center;
+  gap: 1rem;
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 0.65rem 1rem;
+}
+
+.pro-reward-action-robot,
+.pro-reward-action-amount {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.pro-reward-action-robot > span,
+.pro-reward-action-amount > span {
+  min-width: 0;
+  display: grid;
+  gap: 0.08rem;
+}
+
+.pro-reward-action-robot strong,
+.pro-reward-action-amount strong {
+  overflow-wrap: anywhere;
+  font-size: var(--type-compact-size);
+  font-weight: 600;
+}
+
+.pro-reward-action-robot small,
+.pro-reward-action-amount small {
+  color: var(--text-supporting);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
+}
+
+.pro-reward-action-amount > svg {
+  flex: 0 0 auto;
+  color: var(--warning);
+}
+
 .pro-trade-header,
 .pro-trade-row-open {
   display: grid;
@@ -183,6 +231,11 @@
   color: var(--muted-foreground);
   font-size: var(--type-compact-size);
   white-space: nowrap;
+}
+
+.pro-trade-status {
+  display: flex;
+  justify-self: start;
 }
 
 .pro-history-list {
@@ -454,69 +507,6 @@
 
 .pro-robot-create-button {
   gap: 0.4rem;
-}
-
-.pro-create-robot-picker {
-  width: min(100%, 30rem);
-}
-
-.pro-create-robot-picker .garage-switcher-header > span {
-  min-width: 0;
-  display: grid;
-  gap: 0.15rem;
-}
-
-.pro-create-robot-picker .garage-switcher-header small {
-  color: var(--text-supporting);
-  font-size: var(--type-caption-size);
-  line-height: var(--type-caption-line);
-}
-
-.pro-create-robot-option > svg {
-  color: var(--text-supporting);
-}
-
-.pro-create-robot-option:hover > svg,
-.pro-create-robot-option:focus-visible > svg {
-  color: var(--primary);
-}
-
-.pro-reused-robot-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  color: var(--warning-foreground);
-}
-
-.pro-reused-robot-note {
-  margin: 0;
-  padding: 0.75rem 1rem;
-  border-top: 1px solid var(--border);
-  color: var(--text-supporting);
-  font-size: var(--type-caption-size);
-  line-height: var(--type-caption-line);
-}
-
-.pro-create-robot-empty {
-  min-height: 12rem;
-  display: grid;
-  place-items: center;
-  align-content: center;
-  gap: 0.4rem;
-  padding: 1.5rem;
-  color: var(--text-supporting);
-  text-align: center;
-}
-
-.pro-create-robot-empty strong {
-  color: var(--foreground);
-}
-
-.pro-create-robot-empty p {
-  max-width: 34ch;
-  margin: 0;
-  font-size: var(--type-compact-size);
-  line-height: var(--type-compact-line);
 }
 
 .pro-robot-added-notice {

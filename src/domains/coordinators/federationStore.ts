@@ -187,7 +187,7 @@ export const useFederationStore = create<FederationState>((set, get) => ({
       if (state.lastRefreshed && Date.now() - state.lastRefreshed < FEDERATION_REFRESH_MIN_INTERVAL_MS) return;
     }
 
-    const refresh = refreshFederation(settings, set, get, options.force).finally(() => {
+    const refresh = refreshFederation(settings, set, get, options.force, options.priority).finally(() => {
       if (refreshInFlight === refresh) {
         refreshInFlight = undefined;
         refreshInFlightKey = "";
@@ -280,7 +280,8 @@ async function refreshFederation(
   settings: FederationSettings,
   set: FederationSet,
   get: FederationGet,
-  force = false
+  force = false,
+  priority: "background" | "visible" = force ? "visible" : "background"
 ): Promise<void> {
   set((state) => ({
     refreshing: true,
@@ -296,7 +297,7 @@ async function refreshFederation(
       settings,
       coordinator,
       force,
-      force ? "visible" : "background",
+      priority,
       (available) => {
         if (!sameFederationSettings(currentFederationSettings(get()), settings)) return;
         set((state) => ({
@@ -330,7 +331,7 @@ async function refreshCoordinatorSummary(
   settings: FederationSettings,
   previous?: CoordinatorSummary,
   force = false,
-  priority: "background" | "visible" = "background",
+  priority: "background" | "visible" = force ? "visible" : "background",
   onAvailable?: (summary: CoordinatorSummary) => void
 ): Promise<CoordinatorSummary> {
   const summary = buildCoordinatorSummary(definition, {

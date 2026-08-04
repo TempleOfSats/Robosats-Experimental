@@ -3,9 +3,9 @@ import {
   orderRefreshDelayMs,
   jitterDelay,
   shouldDismissEmbeddedTrade,
-  shouldOpenOrderDetailsByDefault,
   shouldReturnExpiredTakeToOffers
 } from "@/domains/orders/OrderPage";
+import { shouldOpenOrderDetailsByDefault } from "@/domains/orders/OrderDetailsPanel";
 import { isAlreadyCancelledError, isTransientOrderLoadError } from "@/domains/orders/orderStore";
 import { RoboSatsApiError } from "@/domains/transport/apiError";
 

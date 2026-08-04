@@ -1,3 +1,4 @@
+import { X } from "lucide-react";
 import { Dialog } from "@/components/ui/dialog";
 import { cn } from "@/lib/cn";
 
@@ -25,16 +26,33 @@ export function AppTransitionFeedback({ title, message, compact = false }: AppTr
   );
 }
 
-export function AppTransitionDialog({ title, message }: Omit<AppTransitionFeedbackProps, "compact">) {
+type AppTransitionDialogProps = Omit<AppTransitionFeedbackProps, "compact"> & {
+  closeLabel?: string;
+  onClose?: () => void;
+};
+
+export function AppTransitionDialog({ closeLabel, message, onClose, title }: AppTransitionDialogProps) {
   return (
     <Dialog
       ariaLabel={title}
-      closeOnEscape={false}
-      onClose={() => undefined}
+      closeOnEscape={Boolean(onClose)}
+      onClose={onClose ?? ignoreClose}
       overlayClassName="confirm-overlay app-transition-overlay"
       panelClassName="confirm-sheet app-transition-dialog"
     >
+      {onClose ? (
+        <button
+          aria-label={closeLabel ?? `Close ${title.toLowerCase()}`}
+          className="take-modal-close"
+          onClick={onClose}
+          type="button"
+        >
+          <X size={18} />
+        </button>
+      ) : null}
       <AppTransitionFeedback title={title} message={message} />
     </Dialog>
   );
 }
+
+function ignoreClose() {}
