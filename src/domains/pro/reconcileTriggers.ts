@@ -41,7 +41,7 @@ export function registerReconcileTriggers(options: ReconcileTriggerOptions): () 
   };
 
   const onLifecycle = (reason: RefreshReason) => {
-    if (reason === "tor-reconnected") options.controller.invalidateEpoch();
+    if (reason === "tor-reconnected") options.controller.resetAfterTransportReconnect();
     run(reconcileReason(reason));
   };
   const onOrderHint = (notification: OrderChangeNotification) => {

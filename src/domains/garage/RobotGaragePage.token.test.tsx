@@ -1,0 +1,91 @@
+// @vitest-environment happy-dom
+
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { MemoryRouter } from "react-router-dom";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const { downloadRobotTokenBackupMock, writeClipboardMock } = vi.hoisted(() => ({
+  downloadRobotTokenBackupMock: vi.fn(),
+  writeClipboardMock: vi.fn()
+}));
+
+vi.mock("@/domains/garage/tokenBackup", () => ({
+  downloadRobotTokenBackup: downloadRobotTokenBackupMock
+}));
+
+vi.mock("@/lib/clipboard", () => ({
+  writeClipboard: writeClipboardMock
+}));
+
+vi.mock("@/domains/identity/RobotAvatar", () => ({
+  RobotAvatar: () => <span aria-label="Robot avatar" />
+}));
+
+import { RobotGaragePage } from "@/domains/garage/RobotGaragePage";
+import { useGarageStore } from "@/domains/garage/garageStore";
+import { deriveRobotIdentity } from "@/domains/identity/robotIdentity";
+
+const token = "GarageTokenControlsAa0Bb1Cc2Dd3Ee4Ff5Gg6";
+let root: Root | undefined;
+
+beforeEach(() => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  document.body.innerHTML = '<div id="root"></div>';
+  downloadRobotTokenBackupMock.mockReset();
+  writeClipboardMock.mockReset().mockResolvedValue(undefined);
+  useGarageStore.setState({
+    slots: [{ ...deriveRobotIdentity(token), nickname: "Patient robot", earnedRewards: 0, robots: {} }],
+    currentToken: token,
+    hydrated: true
+  });
+});
+
+afterEach(async () => {
+  if (root) await act(async () => root?.unmount());
+  root = undefined;
+  document.body.innerHTML = "";
+});
+
+describe("Garage robot token controls", () => {
+  it("keeps the token out of the DOM while masked and preserves common actions", async () => {
+    root = createRoot(document.querySelector("#root")!);
+    await act(async () => {
+      root?.render(
+        <MemoryRouter>
+          <RobotGaragePage />
+        </MemoryRouter>
+      );
+    });
+
+    expect(document.querySelector('input[aria-label="Robot token"]')).toBeNull();
+    expect(document.body.innerHTML).not.toContain(token);
+    await clickButton("Download Patient robot token backup as JSON");
+    await clickButton("Copy token");
+
+    expect(downloadRobotTokenBackupMock).toHaveBeenCalledWith(token, "Patient robot");
+    expect(writeClipboardMock).toHaveBeenCalledWith(token);
+
+    await clickButton("Show token");
+    expect(document.querySelector<HTMLInputElement>('input[aria-label="Robot token"]')?.value).toBe(token);
+
+    await clickButton("Download Patient robot token backup as JSON");
+    await clickButton("Copied");
+    expect(downloadRobotTokenBackupMock).toHaveBeenCalledTimes(2);
+    expect(writeClipboardMock).toHaveBeenCalledTimes(2);
+
+    await clickButton("Hide token");
+    expect(document.querySelector('input[aria-label="Robot token"]')).toBeNull();
+  });
+});
+
+async function clickButton(label: string): Promise<void> {
+  const button = [...document.querySelectorAll("button")].find(
+    (candidate) => candidate.getAttribute("aria-label") === label || candidate.getAttribute("title") === label
+  );
+  expect(button).toBeDefined();
+  await act(async () => {
+    button?.click();
+    await Promise.resolve();
+  });
+}

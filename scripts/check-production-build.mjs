@@ -10,6 +10,7 @@ const forbiddenContent = /__dev\/trade-lab/;
 const indexHtml = await readFile(resolve(distRoot, "index.html"), "utf8");
 const files = await listFiles(distRoot);
 const staticMatch = indexHtml.match(/["'(]\/static\/([0-9a-f]{16})\//);
+const referencedStaticAssets = new Set();
 
 if (!/["']\/assets\/[^/"']+\/robosats-exp\.[^"']+\.js["']/.test(indexHtml)) {
   throw new Error("Production entry assets must be namespaced by build revision.");
@@ -46,7 +47,8 @@ const routeBudgets = [
   ["OffersPage", 20],
   ["SettingsPage", 12],
   ["ProWorkspacePage", 36],
-  ["CreateOrderPage", 20]
+  ["CreateOrderPage", 20],
+  ["OrderPage", 20]
 ];
 const routeGraphCounts = [];
 for (const [name, budget] of routeBudgets) {
@@ -76,6 +78,18 @@ for (const path of files) {
     if (/["'`]\/static(?:["'`]|\/(?![0-9a-f]{16}\/))/.test(content)) {
       throw new Error(`Unversioned static asset URL emitted in production build: ${path}`);
     }
+    for (const match of content.matchAll(/\/static\/[0-9a-f]{16}\/[^\s"'`()<>\\]+/g)) {
+      referencedStaticAssets.add(match[0].split(/[?#]/, 1)[0]);
+    }
+  }
+}
+
+for (const assetUrl of referencedStaticAssets) {
+  if (assetUrl.includes("${") || !/\.(?:avif|gif|jpe?g|png|svg|webp)$/i.test(assetUrl)) continue;
+  try {
+    await stat(resolve(distRoot, assetUrl.slice(1)));
+  } catch {
+    throw new Error(`Production bundle references a missing static asset: ${assetUrl}`);
   }
 }
 

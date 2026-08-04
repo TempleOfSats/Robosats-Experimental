@@ -3,12 +3,12 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import type { GarageKeyDomain } from "@/domains/pro/garageCrypto";
 import { deriveGarageDomainKey } from "@/domains/pro/garageCrypto";
+import { deriveGarageRobotToken, garageTokenId, type GarageRobotEntry } from "@/domains/pro/garageVault";
 import {
-  deriveGarageRobotToken,
-  garageTokenId,
-  type GarageRobotEntry
-} from "@/domains/pro/garageVault";
-import { validatePortableSettings, type OfferPreset, type PortableSettingsManifest } from "@/domains/pro/portableSettings";
+  validatePortableSettings,
+  type OfferPreset,
+  type PortableSettingsManifest
+} from "@/domains/pro/portableSettings";
 import { validateTradeHistoryEntry, type TradeHistoryEntry } from "@/domains/pro/tradeHistory";
 import type { UiTheme } from "@/domains/settings/uiPreferences";
 
@@ -117,7 +117,10 @@ export function robotEntryToSyncRecord(entry: GarageRobotEntry): GarageRobotReco
   };
 }
 
-export function syncRecordToRobotEntry(secret: Uint8Array, record: GarageRobotRecord | GarageRobotTombstone): GarageRobotEntry {
+export function syncRecordToRobotEntry(
+  secret: Uint8Array,
+  record: GarageRobotRecord | GarageRobotTombstone
+): GarageRobotEntry {
   if (record.type === "robot-tombstone") {
     return {
       id: record.id,
@@ -233,9 +236,16 @@ export function compareSyncRecords(
 export function validateGarageSyncRecord(value: unknown): asserts value is GarageSyncRecord {
   if (!value || typeof value !== "object") throw new Error("Invalid synchronized record.");
   const record = value as Partial<GarageSyncRecord>;
-  if (record.version !== 1 || !record.type || !record.id) throw new Error("Unsupported synchronized record.");
+  if (record.version !== 1 || !record.type || !record.id) {
+    throw new Error("Unsupported synchronized record.");
+  }
   const fields = new Set([
-    "type", "version", "id", "revision", "writerDeviceId", "updatedAt",
+    "type",
+    "version",
+    "id",
+    "revision",
+    "writerDeviceId",
+    "updatedAt",
     ...(record.type === "robot" ? ["tokenId", "nickname"] : []),
     ...(record.type === "robot-tombstone" ? ["tokenId"] : []),
     ...(record.type === "preset" ? ["value"] : []),
@@ -244,13 +254,17 @@ export function validateGarageSyncRecord(value: unknown): asserts value is Garag
   ]);
   if (Object.keys(record).some((key) => !fields.has(key))) throw new Error("Synchronized record has unknown fields.");
   const opaqueId = record.type === "preferences" ? record.id === "preferences" : /^[0-9a-f]{32}$/.test(record.id);
-  if (!opaqueId || !/^[0-9a-f]{32}$/.test(record.writerDeviceId ?? "")) throw new Error("Invalid synchronized record identity.");
-  if (!Number.isSafeInteger(record.revision) || Number(record.revision) < 1) throw new Error("Invalid synchronized revision.");
-  if (!Number.isSafeInteger(record.updatedAt) || Number(record.updatedAt) < 0) throw new Error("Invalid synchronized timestamp.");
+  if (!opaqueId || !/^[0-9a-f]{32}$/.test(record.writerDeviceId ?? ""))
+    throw new Error("Invalid synchronized record identity.");
+  if (!Number.isSafeInteger(record.revision) || Number(record.revision) < 1)
+    throw new Error("Invalid synchronized revision.");
+  if (!Number.isSafeInteger(record.updatedAt) || Number(record.updatedAt) < 0)
+    throw new Error("Invalid synchronized timestamp.");
   if (record.type === "robot" || record.type === "robot-tombstone") {
     if (!/^[0-9a-f]{64}$/.test(record.tokenId ?? "")) throw new Error("Invalid synchronized robot.");
     if (record.type === "robot") {
-      if (typeof record.nickname !== "string" || record.nickname.length > 64) throw new Error("Invalid synchronized robot name.");
+      if (typeof record.nickname !== "string" || record.nickname.length > 64)
+        throw new Error("Invalid synchronized robot name.");
     }
   } else if (record.type === "preset") {
     if (!record.value || typeof record.value !== "object") throw new Error("Invalid synchronized preset.");
@@ -260,20 +274,24 @@ export function validateGarageSyncRecord(value: unknown): asserts value is Garag
       throw new Error("Invalid synchronized theme.");
     }
   } else if (record.type === "trade-history") {
-    if (!record.value || typeof record.value !== "object") throw new Error("Invalid synchronized trade history.");
-    validateTradeHistoryEntry({
-      ...record.value,
-      id: record.id,
-      revision: record.revision,
-      deviceId: record.writerDeviceId,
-      updatedAt: record.updatedAt
-    });
+    validateTradeHistorySyncRecord(record as GarageTradeHistoryRecord);
   } else if (record.type !== "preset-tombstone") {
     throw new Error("Unsupported synchronized record.");
   }
   if (encoder.encode(JSON.stringify(record)).length > GARAGE_SYNC_LIMITS.plaintextBytes) {
     throw new Error("Synchronized record is too large.");
   }
+}
+
+function validateTradeHistorySyncRecord(record: GarageTradeHistoryRecord): void {
+  if (!record.value || typeof record.value !== "object") throw new Error("Invalid synchronized trade history.");
+  validateTradeHistoryEntry({
+    ...record.value,
+    id: record.id,
+    revision: record.revision,
+    deviceId: record.writerDeviceId,
+    updatedAt: record.updatedAt
+  });
 }
 
 function validatePresetRecord(record: GaragePresetRecord): void {
@@ -284,13 +302,15 @@ function validatePresetRecord(record: GaragePresetRecord): void {
     revision: record.revision,
     updatedAt: record.updatedAt,
     theme: { value: "dark", revision: 1, deviceId: record.writerDeviceId },
-    presets: [{
+    presets: [
+      {
       ...record.value,
       id: record.id,
       revision: record.revision,
       deviceId: record.writerDeviceId,
       deleted: false,
       updatedAt: record.updatedAt
-    }]
+      }
+    ]
   });
 }

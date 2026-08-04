@@ -9,11 +9,13 @@ export function deliverChatFeedback({
   lastIndex,
   orderId,
   peerName,
+  robotHashId,
   shortAlias
 }: {
   lastIndex: number;
   orderId: number;
   peerName?: string;
+  robotHashId?: string;
   shortAlias: string;
 }): void {
   if (!Number.isSafeInteger(lastIndex) || lastIndex <= 0) return;
@@ -34,7 +36,8 @@ export function deliverChatFeedback({
   void showDesktopOrderNotification(
     orderId,
     shortAlias,
-    peerName ? `New message from ${peerName}` : "New trade chat message"
+    peerName ? `New message from ${peerName}` : "New trade chat message",
+    robotHashId
   );
 }
 

@@ -64,10 +64,7 @@ pub extern "C" fn Java_com_robosats_tor_ArtiNative_getVersion(
         }
     }
 
-    let version = format!(
-        "Arti {} (custom build with rustls)",
-        env!("CARGO_PKG_VERSION")
-    );
+    let version = "Arti 0.44.0 (custom build with rustls)";
     let output = env
         .new_string(version)
         .expect("Couldn't create java string!");
@@ -375,12 +372,7 @@ async fn handle_socks_connection(
     let mut tor_stream = match client.connect((target_host.as_str(), target_port)).await {
         Ok(s) => s,
         Err(e) => {
-            log_error!(
-                "Failed to connect through Tor to {}:{}: {:?}",
-                target_host,
-                target_port,
-                e
-            );
+            log_error!("Failed to connect through Tor");
             stream
                 .write_all(&[0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0])
                 .await?;

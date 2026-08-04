@@ -1,3 +1,5 @@
+import { downloadTextFile } from "@/domains/transport/downloadFile";
+
 export interface RobotTokenBackup {
   format: "robosats-exp-robot-token";
   version: 1;
@@ -24,10 +26,5 @@ export function robotTokenBackupFilename(robotName: string): string {
 
 export function downloadRobotTokenBackup(token: string, robotName: string): void {
   const backup = buildRobotTokenBackup(token, robotName);
-  const url = URL.createObjectURL(new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" }));
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = robotTokenBackupFilename(robotName);
-  anchor.click();
-  URL.revokeObjectURL(url);
+  downloadTextFile(robotTokenBackupFilename(robotName), JSON.stringify(backup, null, 2), "application/json");
 }

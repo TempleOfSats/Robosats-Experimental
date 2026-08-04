@@ -32,6 +32,7 @@ import android.widget.Button
 import android.widget.ImageView
 import android.widget.ProgressBar
 import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -41,6 +42,7 @@ import com.robosats.models.EncryptedStorage
 import com.robosats.services.NotificationsService
 import com.robosats.tor.ArtiTorManager
 import com.robosats.tor.TorStatus
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -61,6 +63,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var loadingProgressBar: ProgressBar
     private lateinit var retryTorButton: Button
     private var bridge: WebAppInterface? = null
+    @Volatile
+    private var pendingFileContent: ByteArray? = null
     private var pendingOrderPath: String? = null
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
     private var observedNetwork: Network? = null
@@ -82,6 +86,25 @@ class MainActivity : AppCompatActivity() {
     private val filePicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         filePathCallback?.onReceiveValue(uri?.let { arrayOf(it) })
         filePathCallback = null
+    }
+
+    private val fileSaver = registerForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+        val content = pendingFileContent
+        pendingFileContent = null
+        if (uri == null || content == null) return@registerForActivityResult
+        lifecycleScope.launch(Dispatchers.IO) {
+            val result = runCatching {
+                contentResolver.openOutputStream(uri)?.use { output -> output.write(content) }
+                    ?: error("Could not open destination")
+            }
+            runOnUiThread {
+                Toast.makeText(
+                    this@MainActivity,
+                    if (result.isSuccess) "File saved" else "Could not save file",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
     }
 
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -438,11 +461,11 @@ class MainActivity : AppCompatActivity() {
 
     fun recoverTransportAfterFailure(forceRebuild: Boolean = false) {
         lifecycleScope.launch {
+            if (manualReconnectRunning || resumeRecoveryRunning) return@launch
             val now = SystemClock.elapsedRealtime()
             if (now - lastFailureHealthCheckAt < FAILURE_HEALTH_CHECK_COOLDOWN_MS) return@launch
             lastFailureHealthCheckAt = now
             if (forceRebuild) {
-                if (resumeRecoveryRunning) return@launch
                 resumeRecoveryRunning = true
                 try {
                     applyRebuiltTransport(
@@ -458,13 +481,21 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun reconnectTorTransport() {
+        rebuildTorTransport(clearState = false)
+    }
+
+    fun resetTorTransport() {
+        rebuildTorTransport(clearState = true)
+    }
+
+    private fun rebuildTorTransport(clearState: Boolean) {
         lifecycleScope.launch {
             if (manualReconnectRunning) return@launch
             manualReconnectRunning = true
             try {
                 updateStatusAnimated(getString(R.string.rebuilding_tor_circuits))
                 applyRebuiltTransport(
-                    ArtiTorManager.reset(applicationContext, clearState = false)
+                    ArtiTorManager.reset(applicationContext, clearState = clearState)
                 )
             } finally {
                 manualReconnectRunning = false
@@ -480,7 +511,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun runTransportHealthCheck(backgroundDurationMs: Long) {
-        if (resumeRecoveryRunning) return
+        if (manualReconnectRunning || resumeRecoveryRunning) return
         resumeRecoveryRunning = true
         lifecycleScope.launch {
             try {
@@ -571,6 +602,20 @@ class MainActivity : AppCompatActivity() {
             .onFailure { Log.w("RoboSatsWebView", "No app can open $uri", it) }
     }
 
+    fun requestFileSave(filename: String, content: ByteArray): Boolean {
+        if (pendingFileContent != null || isFinishing || isDestroyed) return false
+        pendingFileContent = content
+        runOnUiThread {
+            if (pendingFileContent !== content || isFinishing || isDestroyed) return@runOnUiThread
+            runCatching { fileSaver.launch(filename) }
+                .onFailure {
+                    pendingFileContent = null
+                    Toast.makeText(this, "Could not open save dialog", Toast.LENGTH_SHORT).show()
+                }
+        }
+        return true
+    }
+
     private fun blockedResponse() = WebResourceResponse(
         "text/plain",
         "UTF-8",
@@ -640,6 +685,7 @@ class MainActivity : AppCompatActivity() {
                 .unregisterNetworkCallback(networkCallback)
         }
         bridge?.closeAll()
+        pendingFileContent = null
         webView.removeJavascriptInterface("AndroidAppRobosats")
         webView.stopLoading()
         webView.destroy()

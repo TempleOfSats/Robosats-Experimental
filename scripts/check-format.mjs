@@ -107,23 +107,34 @@ function reportSkippedLegacy() {
 }
 
 function gitLines(args) {
-  const result = spawnSync("git", args, { encoding: "utf8", shell: false });
-  if (result.error || result.status !== 0) return [];
+  const result = runGit(args, { encoding: "utf8", shell: false });
+  if (result.status !== 0) throw gitExitError(args, result.status);
   return result.stdout.split(/\r?\n/).filter(Boolean);
 }
 
 function gitText(args) {
-  const result = spawnSync("git", args, { encoding: "utf8", shell: false });
-  return result.error || result.status !== 0 ? undefined : result.stdout;
+  const result = runGit(args, { encoding: "utf8", shell: false });
+  return result.status !== 0 ? undefined : result.stdout;
 }
 
 function revisionExists(revision) {
-  return (
-    spawnSync("git", ["rev-parse", "--verify", "--quiet", `${revision}^{commit}`], {
-      stdio: "ignore",
-      shell: false
-    }).status === 0
-  );
+  const args = ["rev-parse", "--verify", "--quiet", `${revision}^{commit}`];
+  return runGit(args, { stdio: "ignore", shell: false }).status === 0;
+}
+
+function runGit(args, options) {
+  const result = spawnSync("git", args, options);
+  if (result.error) {
+    throw new Error(`Unable to run git ${args[0] ?? "command"}: ${result.error.message}`);
+  }
+  if (result.status === null) {
+    throw new Error(`git ${args[0] ?? "command"} did not complete`);
+  }
+  return result;
+}
+
+function gitExitError(args, status) {
+  return new Error(`git ${args[0] ?? "command"} exited with code ${status}`);
 }
 
 function extension(path) {

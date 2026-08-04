@@ -1,15 +1,31 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
-import { getRobotAuthForCoordinator, selectCurrentSlot, selectFleetManagedSlots, selectStandardGarageSlots, type RobotSlot, useGarageStore } from "@/domains/garage/garageStore";
+import {
+  getRobotAuthForCoordinator,
+  selectCurrentSlot,
+  selectFleetManagedSlots,
+  selectStandardGarageSlots,
+  type RobotSlot,
+  useGarageStore
+} from "@/domains/garage/garageStore";
 
 let storage: Map<string, string>;
 let storageSetItem: ReturnType<typeof vi.fn>;
 
 const fetchRobotMock = vi.hoisted(() => vi.fn());
+const pgpMocks = vi.hoisted(() => ({
+  generatePgpKeyPair: vi.fn(),
+  isCoordinatorCompatiblePgpKeyPair: vi.fn()
+}));
 
 vi.mock("@/domains/garage/robotApi", () => ({
   fetchRobot: fetchRobotMock
 }));
+
+vi.mock("@/domains/crypto/pgp", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/domains/crypto/pgp")>();
+  return { ...actual, ...pgpMocks };
+});
 
 beforeEach(() => {
   storage = new Map();
@@ -25,6 +41,15 @@ beforeEach(() => {
     crypto: globalThis.crypto
   });
   fetchRobotMock.mockReset();
+  pgpMocks.generatePgpKeyPair.mockReset().mockResolvedValue({
+    publicKeyArmored: "generated-public-key",
+    encryptedPrivateKeyArmored: "generated-private-key"
+  });
+  pgpMocks.isCoordinatorCompatiblePgpKeyPair.mockReset().mockImplementation(
+    async (pubKey: string, encPrivKey: string) =>
+      (pubKey === "public-key" && encPrivKey === "private-key") ||
+      (pubKey === "generated-public-key" && encPrivKey === "generated-private-key")
+  );
   useGarageStore.setState({ slots: [], currentToken: undefined, hydrated: false });
 });
 
@@ -90,14 +115,17 @@ describe("garage selectors", () => {
 
 describe("garage order sync", () => {
   it("hydrates stored robots before adding a new one", () => {
-    storage.set("robosats_exp_garage_slots_v1", JSON.stringify({
+    storage.set(
+      "robosats_exp_garage_slots_v1",
+      JSON.stringify({
       format: "robosats-exp-garage-slots",
       version: 1,
       slots: [
         { token: "alpha", nickname: "Alpha", robots: {} },
         { token: "beta", nickname: "Beta", robots: {} }
       ]
-    }));
+      })
+    );
 
     useGarageStore.getState().addSlot(makeSlot("gamma"));
 
@@ -105,11 +133,7 @@ describe("garage order sync", () => {
     expect(JSON.parse(storage.get("robosats_exp_garage_slots_v1") ?? "{}")).toMatchObject({
       format: "robosats-exp-garage-slots",
       version: 1,
-      slots: [
-        { token: "alpha" },
-        { token: "beta" },
-        { token: "gamma" }
-      ]
+      slots: [{ token: "alpha" }, { token: "beta" }, { token: "gamma" }]
     });
   });
 
@@ -125,15 +149,35 @@ describe("garage order sync", () => {
     expect(storage.get("robosats_exp_garage_current_slot")).toBe(standard.token);
   });
 
+  it("makes an individually recovered Fleet robot visible and persistent in the standard Garage", () => {
+    const fleet = { ...makeSlot("fleet-robot"), managedBy: "fleet" as const };
+    useGarageStore.setState({ slots: [fleet], currentToken: fleet.token, hydrated: true });
+
+    useGarageStore.getState().addSlot({
+      ...makeSlot(fleet.token),
+      nickname: "Recovered robot",
+      managedBy: undefined
+    });
+
+    const recovered = useGarageStore.getState().slots[0];
+    expect(recovered).toMatchObject({ token: fleet.token, nickname: "Recovered robot" });
+    expect(recovered.managedBy).toBeUndefined();
+    expect(selectStandardGarageSlots(useGarageStore.getState().slots)).toEqual([recovered]);
+    expect(storage.get("robosats_exp_garage_slots_v1")).toContain(fleet.token);
+  });
+
   it("removes previously persisted Fleet identities while hydrating web storage", () => {
-    storage.set("robosats_exp_garage_slots_v1", JSON.stringify({
+    storage.set(
+      "robosats_exp_garage_slots_v1",
+      JSON.stringify({
       format: "robosats-exp-garage-slots",
       version: 1,
       slots: [
         { token: "standard", nickname: "Standard", robots: {} },
         { token: "fleet", nickname: "Fleet", managedBy: "fleet", robots: { local: { token: "fleet" } } }
       ]
-    }));
+      })
+    );
     storage.set("robosats_exp_garage_current_slot", "fleet");
 
     useGarageStore.getState().hydrate();
@@ -455,9 +499,11 @@ describe("garage order sync", () => {
   it("shares a robot refresh across foreground and background callers", async () => {
     useGarageStore.setState({ slots: [slotWithCoordinatorKeys()], currentToken: "token", hydrated: true });
     let resolveRobot: ((snapshot: ReturnType<typeof robotSnapshot>) => void) | undefined;
-    fetchRobotMock.mockReturnValue(new Promise((resolve) => {
+    fetchRobotMock.mockReturnValue(
+      new Promise((resolve) => {
       resolveRobot = resolve;
-    }));
+      })
+    );
 
     const background = useGarageStore.getState().refreshRobotSlot("token", [coordinator], {
       priority: "background"
@@ -471,6 +517,151 @@ describe("garage order sync", () => {
 
     expect(fetchRobotMock).toHaveBeenCalledOnce();
   }, 30000);
+
+  it("starts a post-event read instead of joining an older robot refresh", async () => {
+    useGarageStore.setState({ slots: [slotWithCoordinatorKeys()], currentToken: "token", hydrated: true });
+    const resolvers: Array<(snapshot: ReturnType<typeof robotSnapshot>) => void> = [];
+    fetchRobotMock.mockImplementation(() => new Promise((resolve) => resolvers.push(resolve)));
+
+    const older = useGarageStore.getState().refreshRobotSlot("token", [coordinator], {
+      priority: "background"
+    });
+    await vi.waitFor(() => expect(fetchRobotMock).toHaveBeenCalledOnce());
+    const postEvent = useGarageStore.getState().refreshRobotSlot("token", [coordinator], {
+      priority: "background",
+      supersedeInFlight: true
+    });
+    await vi.waitFor(() => expect(fetchRobotMock).toHaveBeenCalledTimes(2));
+
+    resolvers[0](robotSnapshot({ earnedRewards: 0 }));
+    const olderResult = await older;
+    resolvers[1](robotSnapshot({ earnedRewards: 2_100 }));
+    await postEvent;
+
+    expect(olderResult.coordinators).toEqual([]);
+    expect(fetchRobotMock.mock.calls[1][3]).toMatchObject({ supersedeInFlight: true });
+    expect(useGarageStore.getState().slots[0].earnedRewards).toBe(2_100);
+  });
+
+  it("invalidates an older balance before replacement key preparation settles", async () => {
+    const rewardSlot = slotWithCoordinatorKeys();
+    rewardSlot.robots.lake.earnedRewards = 1_200;
+    rewardSlot.earnedRewards = 1_200;
+    rewardSlot.availableRewards = "lake";
+    useGarageStore.setState({ slots: [rewardSlot], currentToken: "token", hydrated: true });
+    const olderResponse = deferred<ReturnType<typeof robotSnapshot>>();
+    const replacementResponse = deferred<ReturnType<typeof robotSnapshot>>();
+    const replacementKeys = deferred<{ publicKeyArmored: string; encryptedPrivateKeyArmored: string }>();
+    fetchRobotMock.mockReturnValueOnce(olderResponse.promise).mockReturnValueOnce(replacementResponse.promise);
+
+    const older = useGarageStore.getState().refreshRobotSlot("token", [coordinator], {
+      priority: "background"
+    });
+    await vi.waitFor(() => expect(fetchRobotMock).toHaveBeenCalledOnce());
+    useGarageStore.getState().acknowledgeRewardClaim("token", "lake");
+    removeCoordinatorKeys("lake");
+    pgpMocks.generatePgpKeyPair.mockReturnValueOnce(replacementKeys.promise);
+
+    const replacement = useGarageStore.getState().refreshRobotSlot("token", [coordinator], {
+      priority: "background",
+      supersedeInFlight: true
+    });
+    await vi.waitFor(() => expect(pgpMocks.generatePgpKeyPair).toHaveBeenCalledOnce());
+
+    olderResponse.resolve(robotSnapshot({ earnedRewards: 1_200 }));
+    await older;
+    expect(useGarageStore.getState().slots[0].earnedRewards).toBe(0);
+
+    replacementKeys.resolve({
+      publicKeyArmored: "generated-public-key",
+      encryptedPrivateKeyArmored: "generated-private-key"
+    });
+    await vi.waitFor(() => expect(fetchRobotMock).toHaveBeenCalledTimes(2));
+    replacementResponse.resolve(robotSnapshot({ earnedRewards: 0 }));
+    await replacement;
+
+    expect(useGarageStore.getState().slots[0].earnedRewards).toBe(0);
+    expect(useGarageStore.getState().slots[0].loading).toBe(false);
+  });
+
+  it("shares key preparation and only lets the newest refresh continue", async () => {
+    useGarageStore.setState({ slots: [slotWithoutCoordinatorKeys()], currentToken: "token", hydrated: true });
+    const replacementKeys = deferred<{ publicKeyArmored: string; encryptedPrivateKeyArmored: string }>();
+    pgpMocks.generatePgpKeyPair.mockReturnValueOnce(replacementKeys.promise);
+    fetchRobotMock.mockResolvedValue(robotSnapshot({ earnedRewards: 2_100 }));
+
+    const older = useGarageStore.getState().refreshRobotSlot("token", [coordinator], {
+      priority: "background"
+    });
+    await vi.waitFor(() => expect(pgpMocks.generatePgpKeyPair).toHaveBeenCalledOnce());
+    const replacement = useGarageStore.getState().refreshRobotSlot("token", [coordinator], {
+      priority: "background",
+      supersedeInFlight: true
+    });
+
+    replacementKeys.resolve({
+      publicKeyArmored: "generated-public-key",
+      encryptedPrivateKeyArmored: "generated-private-key"
+    });
+    const [olderResult] = await Promise.all([older, replacement]);
+
+    expect(pgpMocks.generatePgpKeyPair).toHaveBeenCalledOnce();
+    expect(fetchRobotMock).toHaveBeenCalledOnce();
+    expect(fetchRobotMock.mock.calls[0][3]).toMatchObject({ supersedeInFlight: true });
+    expect(olderResult.coordinators).toEqual([]);
+    expect(useGarageStore.getState().slots[0].earnedRewards).toBe(2_100);
+    expect(useGarageStore.getState().slots[0].loading).toBe(false);
+  });
+
+  it("cleans up a replacement session when key preparation fails", async () => {
+    const rewardSlot = slotWithCoordinatorKeys();
+    rewardSlot.robots.lake.earnedRewards = 1_200;
+    rewardSlot.earnedRewards = 1_200;
+    rewardSlot.availableRewards = "lake";
+    useGarageStore.setState({ slots: [rewardSlot], currentToken: "token", hydrated: true });
+    const olderResponse = deferred<ReturnType<typeof robotSnapshot>>();
+    fetchRobotMock.mockReturnValueOnce(olderResponse.promise);
+
+    const older = useGarageStore.getState().refreshRobotSlot("token", [coordinator], {
+      priority: "background"
+    });
+    await vi.waitFor(() => expect(fetchRobotMock).toHaveBeenCalledOnce());
+    useGarageStore.getState().acknowledgeRewardClaim("token", "lake");
+    removeCoordinatorKeys("lake");
+    pgpMocks.generatePgpKeyPair.mockRejectedValueOnce(new Error("fixture key failure"));
+
+    const replacement = useGarageStore.getState().refreshRobotSlot("token", [coordinator], {
+      priority: "background",
+      supersedeInFlight: true
+    });
+    await expect(replacement).rejects.toThrow("fixture key failure");
+
+    expect(useGarageStore.getState().slots[0].loading).toBe(false);
+    expect(useGarageStore.getState().slots[0].robots.lake.loading).toBe(false);
+    olderResponse.resolve(robotSnapshot({ earnedRewards: 1_200 }));
+    await older;
+    expect(useGarageStore.getState().slots[0].earnedRewards).toBe(0);
+  });
+
+  it("clears only the coordinator balance accepted for withdrawal", () => {
+    const rewardSlot = slotWithCoordinatorKeys();
+    rewardSlot.robots.lake.earnedRewards = 1_200;
+    rewardSlot.robots.temple = {
+      token: "token",
+      tokenSHA256: "temple-token",
+      shortAlias: "temple",
+      earnedRewards: 800
+    };
+    useGarageStore.setState({ slots: [rewardSlot], currentToken: "token", hydrated: true });
+
+    useGarageStore.getState().acknowledgeRewardClaim("token", "lake");
+
+    const refreshed = useGarageStore.getState().slots[0];
+    expect(refreshed.robots.lake.earnedRewards).toBe(0);
+    expect(refreshed.robots.temple.earnedRewards).toBe(800);
+    expect(refreshed.earnedRewards).toBe(800);
+    expect(refreshed.availableRewards).toBe("temple");
+  });
 
   it("reuses a recent successful robot result for background reconciliation", async () => {
     const checkedAt = Date.now() - 10_000;
@@ -486,12 +677,14 @@ describe("garage order sync", () => {
     });
 
     expect(fetchRobotMock).not.toHaveBeenCalled();
-    expect(result.coordinators).toEqual([expect.objectContaining({
+    expect(result.coordinators).toEqual([
+      expect.objectContaining({
       shortAlias: "lake",
       cached: true,
       activeOrderId: 91234,
       lastOrderId: 91234
-    })]);
+      })
+    ]);
     expect(observer).toHaveBeenCalledOnce();
     expect(useGarageStore.getState().slots[0].loading).toBeFalsy();
   });
@@ -522,18 +715,14 @@ describe("garage order sync", () => {
     const resolvers: Array<(value: ReturnType<typeof robotSnapshot>) => void> = [];
     fetchRobotMock.mockImplementation(() => new Promise((resolve) => resolvers.push(resolve)));
 
-    const background = useGarageStore.getState().refreshRobotSlot(
-      "token",
-      [coordinator, temple],
-      { maxAgeMs: 300_000, priority: "background" }
-    );
+    const background = useGarageStore
+      .getState()
+      .refreshRobotSlot("token", [coordinator, temple], { maxAgeMs: 300_000, priority: "background" });
     await vi.waitFor(() => expect(fetchRobotMock).toHaveBeenCalledTimes(1));
 
-    const foreground = useGarageStore.getState().refreshRobotSlot(
-      "token",
-      [coordinator, temple],
-      { priority: "foreground" }
-    );
+    const foreground = useGarageStore
+      .getState()
+      .refreshRobotSlot("token", [coordinator, temple], { priority: "foreground" });
     await vi.waitFor(() => expect(fetchRobotMock).toHaveBeenCalledTimes(3));
     resolvers.forEach((resolve) => resolve(robotSnapshot()));
     await Promise.all([background, foreground]);
@@ -549,10 +738,13 @@ describe("garage order sync", () => {
     useGarageStore.setState({ slots: [slotWithCoordinatorKeys()], currentToken: "token", hydrated: true });
     let resolveLake: ((value: ReturnType<typeof robotSnapshot>) => void) | undefined;
     let resolveTemple: ((value: ReturnType<typeof robotSnapshot>) => void) | undefined;
-    fetchRobotMock.mockImplementation((url: string) => new Promise((resolve) => {
+    fetchRobotMock.mockImplementation(
+      (url: string) =>
+        new Promise((resolve) => {
       if (url.includes("temple")) resolveTemple = resolve;
       else resolveLake = resolve;
-    }));
+        })
+    );
 
     const refresh = useGarageStore.getState().refreshRobotSlot("token", [temple, coordinator], {
       preferredAliases: ["lake"]
@@ -577,10 +769,13 @@ describe("garage order sync", () => {
     useGarageStore.setState({ slots: [slotWithCoordinatorKeys()], currentToken: "token", hydrated: true });
     let resolveLake: ((value: ReturnType<typeof robotSnapshot>) => void) | undefined;
     let resolveTemple: ((value: ReturnType<typeof robotSnapshot>) => void) | undefined;
-    fetchRobotMock.mockImplementation((url: string) => new Promise((resolve) => {
+    fetchRobotMock.mockImplementation(
+      (url: string) =>
+        new Promise((resolve) => {
       if (url.includes("temple")) resolveTemple = resolve;
       else resolveLake = resolve;
-    }));
+        })
+    );
     const observer = vi.fn();
 
     const refresh = useGarageStore.getState().refreshRobotSlot("token", [temple, coordinator], {
@@ -590,11 +785,15 @@ describe("garage order sync", () => {
     await vi.waitFor(() => expect(fetchRobotMock).toHaveBeenCalledTimes(2));
     resolveLake?.(robotSnapshot({ activeOrderId: 91234, lastOrderId: 91234 }));
 
-    await vi.waitFor(() => expect(observer).toHaveBeenCalledWith(expect.objectContaining({
+    await vi.waitFor(() =>
+      expect(observer).toHaveBeenCalledWith(
+        expect.objectContaining({
       shortAlias: "lake",
       activeOrderId: 91234,
       transportFailed: false
-    })));
+        })
+      )
+    );
     expect(observer).toHaveBeenCalledTimes(1);
 
     resolveTemple?.(robotSnapshot());
@@ -621,14 +820,12 @@ describe("garage order sync", () => {
     storageSetItem.mockClear();
     resolvers[0](robotSnapshot());
     await vi.waitFor(() => expect(observer).toHaveBeenCalledTimes(1));
-    expect(storageSetItem.mock.calls.filter(([key]) => key === "robosats_exp_garage_slots_v1"))
-      .toHaveLength(0);
+    expect(storageSetItem.mock.calls.filter(([key]) => key === "robosats_exp_garage_slots_v1")).toHaveLength(0);
 
     resolvers[1](robotSnapshot());
     await refresh;
 
-    expect(storageSetItem.mock.calls.filter(([key]) => key === "robosats_exp_garage_slots_v1"))
-      .toHaveLength(1);
+    expect(storageSetItem.mock.calls.filter(([key]) => key === "robosats_exp_garage_slots_v1")).toHaveLength(1);
   });
 
   it("does not resurrect a released reservation from a stale robot snapshot", async () => {
@@ -649,9 +846,11 @@ describe("garage order sync", () => {
     const activeSlot = slotWithCoordinatorKeys({ activeOrderId: 89895, lastOrderId: 89895 });
     useGarageStore.setState({ slots: [activeSlot], currentToken: "token", hydrated: true });
     let resolveRobot: ((snapshot: ReturnType<typeof robotSnapshot>) => void) | undefined;
-    fetchRobotMock.mockReturnValue(new Promise((resolve) => {
+    fetchRobotMock.mockReturnValue(
+      new Promise((resolve) => {
       resolveRobot = resolve;
-    }));
+      })
+    );
 
     const refresh = useGarageStore.getState().refreshRobots([coordinator]);
     await vi.waitFor(() => expect(fetchRobotMock).toHaveBeenCalledOnce());
@@ -668,9 +867,11 @@ describe("garage order sync", () => {
   it("does not clear a new reservation created while its robot refresh is in flight", async () => {
     useGarageStore.setState({ slots: [slotWithCoordinatorKeys()], currentToken: "token", hydrated: true });
     let resolveRobot: ((snapshot: ReturnType<typeof robotSnapshot>) => void) | undefined;
-    fetchRobotMock.mockReturnValue(new Promise((resolve) => {
+    fetchRobotMock.mockReturnValue(
+      new Promise((resolve) => {
       resolveRobot = resolve;
-    }));
+      })
+    );
 
     const refresh = useGarageStore.getState().refreshRobots([coordinator]);
     await vi.waitFor(() => expect(fetchRobotMock).toHaveBeenCalledOnce());
@@ -734,6 +935,13 @@ function slotWithCoordinatorKeys(
   };
 }
 
+function slotWithoutCoordinatorKeys(): RobotSlot {
+  const keylessSlot = slotWithCoordinatorKeys();
+  keylessSlot.robots.lake.pubKey = undefined;
+  keylessSlot.robots.lake.encPrivKey = undefined;
+  return keylessSlot;
+}
+
 function robotSnapshot(overrides: Record<string, unknown> = {}) {
   return {
     nickname: "Robot",
@@ -745,6 +953,33 @@ function robotSnapshot(overrides: Record<string, unknown> = {}) {
     webhookEnabled: false,
     ...overrides
   };
+}
+
+function removeCoordinatorKeys(shortAlias: string): void {
+  const current = useGarageStore.getState().slots[0];
+  const robot = current.robots[shortAlias];
+  useGarageStore.setState({
+    slots: [
+      {
+        ...current,
+        robots: {
+          ...current.robots,
+          [shortAlias]: { ...robot, pubKey: undefined, encPrivKey: undefined }
+        }
+      }
+    ]
+  });
+}
+
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+} {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((settle) => {
+    resolve = settle;
+  });
+  return { promise, resolve };
 }
 
 function makeSlot(token: string): RobotSlot {

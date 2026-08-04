@@ -1,4 +1,5 @@
-import { RefreshCw, X } from "lucide-react";
+import { useState } from "react";
+import { AlertTriangle, RefreshCw, RotateCcw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import type { AndroidTorDiagnostics } from "@/domains/transport/androidBridge";
@@ -10,12 +11,17 @@ type TorConnectionDialogProps = TorConnection & {
 
 export function TorConnectionDialog({
   diagnostics,
+  canReset,
+  operation,
   reconnect,
   reconnectError,
   reconnectState,
+  reset,
   onClose
 }: TorConnectionDialogProps) {
+  const [confirmReset, setConfirmReset] = useState(false);
   const reconnecting = reconnectState === "reconnecting";
+  const resetting = reconnecting && operation === "reset";
   const healthClass = reconnecting
     ? "settings-tor-health reconnecting"
     : `settings-tor-health ${diagnostics?.connected ? "connected" : ""}`;
@@ -35,7 +41,7 @@ export function TorConnectionDialog({
         </span>
         <span>
           <h3 id="tor-details-title">Tor connection</h3>
-          <p>{reconnecting ? "Reconnecting..." : torStatusLabel(diagnostics)}</p>
+          <p>{resetting ? "Resetting..." : reconnecting ? "Reconnecting..." : torStatusLabel(diagnostics)}</p>
         </span>
         <Button size="icon" variant="ghost" aria-label="Close Tor details" onClick={onClose}>
           <X size={18} />
@@ -57,16 +63,66 @@ export function TorConnectionDialog({
           {error}
         </p>
       ) : null}
-      <Button
-        variant="outline"
-        className="full-width"
-        loading={reconnecting}
-        loadingLabel="Reconnecting Tor"
-        onClick={() => void reconnect()}
-      >
-        {!reconnecting ? <RefreshCw size={16} aria-hidden="true" /> : null}
-        {torReconnectButtonLabel(diagnostics, reconnectState)}
-      </Button>
+      <div className={`settings-tor-actions ${canReset ? "settings-tor-actions-reset" : ""}`}>
+        <Button
+          variant="outline"
+          loading={reconnecting && !resetting}
+          loadingLabel="Reconnecting Tor"
+          disabled={reconnecting}
+          onClick={() => void reconnect()}
+        >
+          {!reconnecting ? <RefreshCw size={16} aria-hidden="true" /> : null}
+          {resetting ? "Reconnect Tor" : torReconnectButtonLabel(diagnostics, reconnectState)}
+        </Button>
+        {canReset ? (
+          <Button
+            variant="destructive"
+            loading={resetting}
+            loadingLabel="Resetting Tor"
+            disabled={reconnecting}
+            onClick={() => setConfirmReset(true)}
+          >
+            {!resetting ? <RotateCcw size={16} aria-hidden="true" /> : null}
+            Reset
+          </Button>
+        ) : null}
+      </div>
+      {confirmReset ? (
+        <Dialog
+          ariaDescribedby="reset-tor-description"
+          ariaLabelledby="reset-tor-title"
+          onClose={() => setConfirmReset(false)}
+          overlayClassName="confirm-overlay"
+          panelClassName="confirm-sheet"
+        >
+          <div className="confirm-header">
+            <span className="confirm-icon-shell" aria-hidden="true">
+              <AlertTriangle size={24} />
+            </span>
+            <h3 id="reset-tor-title">Reset Tor data?</h3>
+          </div>
+          <p className="confirm-body" id="reset-tor-description">
+            This deletes Arti's cached network data and guard state. Tor will choose new guards and bootstrap again.
+            Robots, trades and settings are unchanged.
+          </p>
+          <div className="confirm-actions">
+            <Button variant="secondary" type="button" onClick={() => setConfirmReset(false)}>
+              Keep current Tor data
+            </Button>
+            <Button
+              variant="destructive"
+              type="button"
+              onClick={() => {
+                setConfirmReset(false);
+                void reset();
+              }}
+            >
+              <RotateCcw size={16} aria-hidden="true" />
+              Reset Tor
+            </Button>
+          </div>
+        </Dialog>
+      ) : null}
     </Dialog>
   );
 }

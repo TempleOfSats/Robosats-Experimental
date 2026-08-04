@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import {
   appImageArchitecture,
   appImagePluginPath,
+  configureAdaptiveGtkBackend,
   removeBundledWaylandLibraries
 } from "./appimage.mjs";
 
@@ -112,7 +113,8 @@ async function repackLinuxAppImage() {
   }
 
   const removed = await removeBundledWaylandLibraries(appDirectories[0]);
-  if (removed.length === 0) return;
+  const backendConfigured = await configureAdaptiveGtkBackend(appDirectories[0]);
+  if (removed.length === 0 && !backendConfigured) return;
 
   const plugin = appImagePluginPath();
   await access(plugin);
@@ -127,6 +129,7 @@ async function repackLinuxAppImage() {
   await access(replacement);
   await rename(replacement, appImages[0]);
   console.log(`Excluded ${removed.length} host-sensitive Wayland libraries`);
+  console.log("Configured adaptive GTK Wayland/X11 selection");
 }
 
 async function collectArtifacts(platform) {

@@ -82,16 +82,8 @@ export function normalizeOrderDto(data: OrderApiResponse): OrderDto {
 }
 
 export function orderReferenceSats(order: OrderDto): number {
-  const directCandidates = [
-    order.trade_satoshis,
-    order.invoice_amount,
-    order.escrow_satoshis,
-    order.satoshis_now,
-    order.satoshis
-  ];
-  for (const candidate of directCandidates) {
-    if (typeof candidate === "number" && Number.isFinite(candidate) && candidate > 0) return candidate;
-  }
+  const directAmount = directOrderReferenceSats(order);
+  if (directAmount !== undefined) return directAmount;
 
   // Before the taker bond locks, RoboSats may not return a final trade amount.
   // The bond was calculated from the same pre-take estimate, so it is the most
@@ -104,14 +96,11 @@ export function orderReferenceSats(order: OrderDto): number {
 }
 
 export function isOrderReferenceSatsApproximate(order: OrderDto): boolean {
-  const hasDirectAmount = [
-    order.trade_satoshis,
-    order.invoice_amount,
-    order.escrow_satoshis,
-    order.satoshis_now,
-    order.satoshis
-  ].some((candidate) => typeof candidate === "number" && Number.isFinite(candidate) && candidate > 0);
-  return !hasDirectAmount && order.bond_satoshis > 0 && Boolean(order.bond_size && order.bond_size > 0);
+  return (
+    directOrderReferenceSats(order) === undefined &&
+    order.bond_satoshis > 0 &&
+    Boolean(order.bond_size && order.bond_size > 0)
+  );
 }
 
 export function orderReferenceSatsRange(order: OrderDto): { minimum: number; maximum: number } | undefined {
@@ -144,6 +133,15 @@ function toNullableNumber(value: unknown): number | null {
 
 function positiveNumber(value: number | null | undefined): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+function directOrderReferenceSats(order: OrderDto): number | undefined {
+  const candidates = order.is_seller
+    ? [order.escrow_satoshis, order.trade_satoshis, order.satoshis_now, order.satoshis]
+    : order.is_buyer
+      ? [order.invoice_amount, order.trade_satoshis, order.sent_satoshis, order.satoshis_now, order.satoshis]
+      : [order.trade_satoshis, order.invoice_amount, order.escrow_satoshis, order.satoshis_now, order.satoshis];
+  return candidates.find((candidate) => positiveNumber(candidate)) as number | undefined;
 }
 
 function toBoolean(value: unknown): boolean {

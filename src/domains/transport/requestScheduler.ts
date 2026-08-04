@@ -275,13 +275,25 @@ export class CoordinatorRequestScheduler {
     const waitingAction = this.queued.some((task) => task.priority === "action");
     const candidates = this.queued.filter((task) => {
       const activeForOrigin = this.activeByOrigin.get(task.origin) ?? 0;
-      const canUseReplacementSlot =
-        activeForOrigin === capacity.perOrigin
-        && task.supersessionLineage?.origin === task.origin
+      const replacesActiveRequest =
+        task.supersessionLineage?.origin === task.origin
         && Array.from(task.supersessionLineage.tasks).some(
           (superseded) => superseded.started && !superseded.settled && superseded.origin === task.origin
         );
-      if (activeForOrigin >= capacity.perOrigin && !canUseReplacementSlot) return false;
+      const canUseReplacementSlot =
+        activeForOrigin === capacity.perOrigin
+        && replacesActiveRequest;
+      // Background work cannot consume the globally reserved action slot. Let
+      // that action briefly use the same bounded overflow already available to
+      // a freshness replacement, without reducing normal refresh concurrency.
+      const canUseActionSlot =
+        activeForOrigin === capacity.perOrigin
+        && task.priority === "action";
+      if (
+        activeForOrigin >= capacity.perOrigin
+        && !canUseReplacementSlot
+        && !canUseActionSlot
+      ) return false;
       if (isBackground(task.priority) && this.activeBackground >= capacity.background) return false;
       if (waitingAction && task.priority !== "action") return false;
       if (!this.canAdmitThroughCircuit(task)) return false;

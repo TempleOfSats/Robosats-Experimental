@@ -270,6 +270,34 @@ describe("Native transport bridge", () => {
     expect(recoverTorTransport).not.toHaveBeenCalled();
   });
 
+  it("requests a destructive native Tor reset only when explicitly supported", async () => {
+    const resetTorTransport = vi.fn();
+    vi.stubGlobal("window", {
+      AndroidAppRobosats: {
+        httpRequest: vi.fn(),
+        resetTorTransport
+      }
+    });
+
+    const { requestNativeTorReset } = await import("./androidBridge");
+
+    expect(requestNativeTorReset()).toBe(true);
+    expect(resetTorTransport).toHaveBeenCalledOnce();
+  });
+
+  it("reports when destructive native Tor reset is unavailable", async () => {
+    vi.stubGlobal("window", {
+      IOSAppRobosats: {
+        httpRequest: vi.fn(),
+        reconnectTorTransport: vi.fn()
+      }
+    });
+
+    const { requestNativeTorReset } = await import("./androidBridge");
+
+    expect(requestNativeTorReset()).toBe(false);
+  });
+
   it("requests an explicit iOS Tor reconnect when supported", async () => {
     const reconnectTorTransport = vi.fn();
     vi.stubGlobal("window", {

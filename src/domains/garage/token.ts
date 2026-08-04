@@ -10,6 +10,10 @@ export function generateRobotToken(length = 36): string {
     .substring(0, length);
 }
 
+export function isProFleetToken(token: string): boolean {
+  return token.trim().toLowerCase().startsWith("rsgarage1");
+}
+
 export interface TokenEntropy {
   hasEnoughEntropy: boolean;
   bitsEntropy: number;

@@ -4,18 +4,28 @@ import {
   isNativeApp,
   nativeAppBridge,
   requestNativeTorReconnect,
+  requestNativeTorReset,
   type AndroidTorDiagnostics
 } from "@/domains/transport/androidBridge";
-import { getDesktopTorDiagnostics, isTauriDesktop, requestDesktopTorReconnect } from "@/domains/transport/tauriBridge";
+import {
+  getDesktopTorDiagnostics,
+  isTauriDesktop,
+  requestDesktopTorReconnect,
+  requestDesktopTorReset
+} from "@/domains/transport/tauriBridge";
 
 export type TorReconnectState = "idle" | "reconnecting" | "reconnected" | "failed";
+type TorConnectionOperation = "reconnect" | "reset";
 
 export type TorConnection = {
   canReconnect: boolean;
+  canReset: boolean;
   diagnostics: AndroidTorDiagnostics | null;
+  operation?: TorConnectionOperation;
   reconnectError?: string;
   reconnectState: TorReconnectState;
   reconnect(): Promise<void>;
+  reset(): Promise<void>;
   refresh(): Promise<void>;
 };
 
@@ -37,9 +47,11 @@ export function useTorConnection(): TorConnection {
   const desktopRuntime = isTauriDesktop();
   const available = desktopRuntime || isNativeApp();
   const canReconnect = desktopRuntime || typeof nativeAppBridge()?.reconnectTorTransport === "function";
+  const canReset = desktopRuntime || typeof nativeAppBridge()?.resetTorTransport === "function";
   const [diagnostics, setDiagnostics] = useState<AndroidTorDiagnostics | null>(null);
   const [reconnectState, setReconnectState] = useState<TorReconnectState>("idle");
   const [reconnectError, setReconnectError] = useState<string>();
+  const [operation, setOperation] = useState<TorConnectionOperation>();
 
   const refresh = useCallback(async () => {
     if (!available) return;
@@ -79,31 +91,54 @@ export function useTorConnection(): TorConnection {
 
   useEffect(() => {
     if (reconnectState !== "reconnected") return;
-    const timeout = window.setTimeout(() => setReconnectState("idle"), 4_000);
+    const timeout = window.setTimeout(() => {
+      setReconnectState("idle");
+      setOperation(undefined);
+    }, 4_000);
     return () => window.clearTimeout(timeout);
   }, [reconnectState]);
 
-  const reconnect = useCallback(async () => {
-    if (reconnectState === "reconnecting") return;
-    setReconnectError(undefined);
-    setReconnectState("reconnecting");
-    setDiagnostics(markDiagnosticsConnecting);
-    try {
-      if (!canReconnect) throw new Error("Tor reconnect is unavailable");
-      if (desktopRuntime) await requestDesktopTorReconnect();
-      else if (!requestNativeTorReconnect()) throw new Error("Tor reconnect is unavailable");
-    } catch {
-      setReconnectError("Tor could not begin reconnecting. Please try again.");
-      setReconnectState("failed");
-    }
-  }, [canReconnect, desktopRuntime, reconnectState]);
+  const runOperation = useCallback(
+    async (nextOperation: TorConnectionOperation) => {
+      if (reconnectState === "reconnecting") return;
+      setReconnectError(undefined);
+      setOperation(nextOperation);
+      setReconnectState("reconnecting");
+      setDiagnostics(markDiagnosticsConnecting);
+      try {
+        if (nextOperation === "reset") {
+          if (!canReset) throw new Error("Tor reset is unavailable");
+          if (desktopRuntime) await requestDesktopTorReset();
+          else if (!requestNativeTorReset()) throw new Error("Tor reset is unavailable");
+        } else {
+          if (!canReconnect) throw new Error("Tor reconnect is unavailable");
+          if (desktopRuntime) await requestDesktopTorReconnect();
+          else if (!requestNativeTorReconnect()) throw new Error("Tor reconnect is unavailable");
+        }
+      } catch {
+        setReconnectError(
+          nextOperation === "reset"
+            ? "Tor data could not be reset. Please try again."
+            : "Tor could not begin reconnecting. Please try again."
+        );
+        setReconnectState("failed");
+      }
+    },
+    [canReconnect, canReset, desktopRuntime, reconnectState]
+  );
+
+  const reconnect = useCallback(() => runOperation("reconnect"), [runOperation]);
+  const reset = useCallback(() => runOperation("reset"), [runOperation]);
 
   return {
     canReconnect,
+    canReset,
     diagnostics,
+    operation,
     reconnect,
     reconnectError,
     reconnectState,
+    reset,
     refresh
   };
 }

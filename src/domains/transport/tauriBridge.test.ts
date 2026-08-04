@@ -8,7 +8,13 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: mocks.invoke
 }));
 
-import { isTauriDesktop, requestDesktopTorReconnect } from "@/domains/transport/tauriBridge";
+import {
+  getDesktopTransportDiagnostics,
+  isTauriDesktop,
+  requestDesktopTorReconnect,
+  requestDesktopTorReset,
+  saveDesktopFile
+} from "@/domains/transport/tauriBridge";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -35,5 +41,44 @@ describe("Tauri desktop detection", () => {
     await requestDesktopTorReconnect();
 
     expect(mocks.invoke).toHaveBeenCalledWith("desktop_reconnect_transport", undefined);
+  });
+
+  it("invokes the destructive desktop Tor reset command explicitly", async () => {
+    vi.stubGlobal("window", { RobosatsSettings: "desktop-basic" });
+    mocks.invoke.mockResolvedValue(undefined);
+
+    await requestDesktopTorReset();
+
+    expect(mocks.invoke).toHaveBeenCalledWith("desktop_reset_transport", undefined);
+  });
+
+  it("routes exports to the desktop Downloads handler", async () => {
+    vi.stubGlobal("window", { RobosatsSettings: "desktop-basic" });
+    mocks.invoke.mockResolvedValue(undefined);
+
+    await saveDesktopFile("trade.json", "{}");
+
+    expect(mocks.invoke).toHaveBeenCalledWith("desktop_save_file", {
+      filename: "trade.json",
+      content: "{}"
+    });
+  });
+
+  it("reads only structured desktop transport diagnostics", async () => {
+    vi.stubGlobal("window", { RobosatsSettings: "desktop-basic" });
+    mocks.invoke.mockResolvedValue([
+      {
+        phase: "tor-connect",
+        outcome: "timeout",
+        durationMs: 1200,
+        attempt: 2,
+        artiVersion: "0.1.0"
+      }
+    ]);
+
+    await expect(getDesktopTransportDiagnostics()).resolves.toEqual([
+      expect.objectContaining({ phase: "tor-connect", outcome: "timeout", attempt: 2 })
+    ]);
+    expect(mocks.invoke).toHaveBeenCalledWith("desktop_transport_diagnostics", undefined);
   });
 });

@@ -18,10 +18,18 @@ import { activeOfferPresets } from "@/domains/pro/portableSettings";
 
 type RecoveryStage = "idle" | "searching" | "saving" | "complete";
 
-export function GarageRecoveryDialog({ onClose, onRestored }: { onClose: () => void; onRestored?: () => void }) {
+export function GarageRecoveryDialog({
+  initialFleetKey = "",
+  onClose,
+  onRestored
+}: {
+  initialFleetKey?: string;
+  onClose: () => void;
+  onRestored?: () => void;
+}) {
   const coordinators = useFederationStore((state) => state.coordinators);
   const restore = useGarageVaultStore((state) => state.restore);
-  const [fleetKey, setFleetKey] = useState("");
+  const [fleetKey, setFleetKey] = useState(initialFleetKey);
   const [working, setWorking] = useState(false);
   const [finishing, setFinishing] = useState(false);
   const [stage, setStage] = useState<RecoveryStage>("idle");

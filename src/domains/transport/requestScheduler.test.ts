@@ -38,6 +38,68 @@ describe("CoordinatorRequestScheduler", () => {
     await Promise.all([first.promise, second.promise, queued.promise]);
   });
 
+  it("admits a same-origin action while background recovery uses the normal slots", async () => {
+    vi.stubGlobal("window", { AndroidAppRobosats: { httpRequest: vi.fn() } });
+    const scheduler = new CoordinatorRequestScheduler();
+    const origin = "http://same.onion";
+    const firstRelease = deferred<void>();
+    const secondRelease = deferred<void>();
+    const started: string[] = [];
+
+    const first = scheduler.schedule(
+      { ...request("first", "background"), origin },
+      async () => { started.push("first"); await firstRelease.promise; }
+    );
+    const second = scheduler.schedule(
+      { ...request("second", "maintenance"), origin },
+      async () => { started.push("second"); await secondRelease.promise; }
+    );
+
+    await vi.waitFor(() => expect(started).toEqual(["first", "second"]));
+    const action = scheduler.schedule(
+      { ...request("action", "action"), origin, method: "POST" },
+      async () => { started.push("action"); return "done"; }
+    );
+
+    await expect(action.promise).resolves.toBe("done");
+    expect(started).toEqual(["first", "second", "action"]);
+    firstRelease.resolve();
+    secondRelease.resolve();
+    await Promise.all([first.promise, second.promise]);
+  });
+
+  it("preserves the bounded replacement slot for a fresh background read", async () => {
+    const scheduler = new CoordinatorRequestScheduler();
+    const origin = "http://same.onion";
+    const staleRelease = deferred<string>();
+    const freshRelease = deferred<string>();
+    const started: string[] = [];
+    const sharedRequest = {
+      ...request("shared", "background"),
+      key: "shared",
+      origin
+    };
+
+    const stale = scheduler.schedule(sharedRequest, async () => {
+      started.push("stale");
+      return staleRelease.promise;
+    });
+    await vi.waitFor(() => expect(started).toEqual(["stale"]));
+    const fresh = scheduler.schedule(
+      { ...sharedRequest, supersedeInFlight: true },
+      async () => {
+        started.push("fresh");
+        return freshRelease.promise;
+      }
+    );
+
+    await vi.waitFor(() => expect(started).toEqual(["stale", "fresh"]));
+    freshRelease.resolve("fresh");
+    await expect(fresh.promise).resolves.toBe("fresh");
+    staleRelease.resolve("stale");
+    await expect(stale.promise).resolves.toBe("stale");
+  });
+
   it("enforces two concurrent requests per origin", async () => {
     const scheduler = new CoordinatorRequestScheduler();
     const release = deferred<void>();
