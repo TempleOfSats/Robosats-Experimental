@@ -16,6 +16,26 @@
       "minOSVersion": "16.0",
       "versions": [
         {
+          "version": "0.2.2",
+          "buildVersion": "2021001",
+          "date": "2026-08-04",
+          "localizedDescription": "RoboSats Exp. v0.2.2-alpha.1\nAdd order panel components (CompletedTradePanel, OrderDetailsPanel, TradeProgress) with tests; update Android tor-native and Desktop Tauri builds; improve Fleet actions and Tor circuit recovery; consolidate release infrastructure.\nVerify the signer is actually TempleOfSats: https://github.com/RoboSats/robosats/blob/main/frontend/static/federation/pgp/25791752E9661C1DE118A8C6F78CD3D6471B6789.asc\n* [Android universal APK](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.2.2-alpha.1/robosats-exp-0.2.2-alpha.1-universal.apk)\n* [iOS unsigned IPA](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.2.2-alpha.1/robosats-exp-0.2.2-alpha.1-unsigned.ipa)\n* [Linux AppImage](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.2.2-alpha.1/RoboSats.Exp_0.2.2-alpha.1_amd64.AppImage)\n* [Windows installer](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.2.2-alpha.1/RoboSats.Exp_0.2.2-alpha.1_x64-setup.exe)\n* [macOS DMG](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.2.2-alpha.1/RoboSats.Exp_0.2.2-alpha.1_aarch64.dmg)\nDetached signatures and checksums are available in the release assets.\n<!-- Release notes generated using configuration in .github/release.yml at v0.2.2-alpha.1 -->\n**Full Changelog**: https://github.com/TempleOfSats/Robosats-Experimental/compare/v0.1.2-alpha.1...v0.2.2-alpha.1",
+          "size": 6464720,
+          "minOSVersion": "16.0"
+        }
+      ]
+    },
+    {
+      "name": "RoboSats Exp.",
+      "bundleIdentifier": "com.robosats.exp.ios",
+      "developerName": "RoboSats",
+      "subtitle": "Peer-to-peer Bitcoin wallet",
+      "localizedDescription": "RoboSats is a peer-to-peer Bitcoin wallet with built-in Tor routing.\n\nFeatures:\n• Privacy-first P2P trading\n• Built-in Tor (Arti) for coordinator traffic\n• Encrypted trade chat via Nostr\n• Open source (AGPLv3)",
+      "iconURL": "https://raw.githubusercontent.com/TempleOfSats/Robosats-Experimental/main/ios/RoboSatsExp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
+      "tintColor": "FF6600",
+      "minOSVersion": "16.0",
+      "versions": [
+        {
           "version": "0.2.1",
           "buildVersion": "2011001",
           "date": "2026-07-31",
@@ -99,26 +119,6 @@
           "version": "0.1.3",
           "buildVersion": "1031001",
           "date": "2026-07-20",
-          "localizedDescription": "RoboSats Exp. 0.1.3-alpha.1\nOrder creation and loading UI refinements. Native order, chat, audio, reconnect, and request timeout reliability.\n* [Android universal APK](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.1.3-alpha.1/robosats-exp-0.1.3-alpha.1-universal.apk)\n* [iOS unsigned IPA](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.1.3-alpha.1/robosats-exp-0.1.3-alpha.1-unsigned.ipa)\n* [Linux AppImage](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.1.3-alpha.1/RoboSats.Exp_0.1.3-alpha.1_amd64.AppImage)\n* [Windows installer](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.1.3-alpha.1/RoboSats.Exp_0.1.3-alpha.1_x64-setup.exe)\n* [macOS DMG](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.1.3-alpha.1/RoboSats.Exp_0.1.3-alpha.1_aarch64.dmg)\nDetached signatures and checksums are available in the release assets.\n<!-- Release notes generated using configuration in .github/release.yml at v0.1.3-alpha.1 -->\n**Full Changelog**: https://github.com/TempleOfSats/Robosats-Experimental/commits/v0.1.3-alpha.1",
-          "size": 13101275,
-          "minOSVersion": "16.0"
-        }
-      ]
-    },
-    {
-      "name": "RoboSats Exp.",
-      "bundleIdentifier": "com.robosats.exp.ios",
-      "developerName": "RoboSats",
-      "subtitle": "Peer-to-peer Bitcoin wallet",
-      "localizedDescription": "RoboSats is a peer-to-peer Bitcoin wallet with built-in Tor routing.\n\nFeatures:\n• Privacy-first P2P trading\n• Built-in Tor (Arti) for coordinator traffic\n• Encrypted trade chat via Nostr\n• Open source (AGPLv3)",
-      "iconURL": "https://raw.githubusercontent.com/TempleOfSats/Robosats-Experimental/main/ios/RoboSatsExp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
-      "tintColor": "FF6600",
-      "minOSVersion": "16.0",
-      "versions": [
-        {
-          "version": "0.1.3",
-          "buildVersion": "1031001",
-          "date": "0001-01-01",
           "localizedDescription": "RoboSats Exp. 0.1.3-alpha.1\nOrder creation and loading UI refinements. Native order, chat, audio, reconnect, and request timeout reliability.\n* [Android universal APK](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.1.3-alpha.1/robosats-exp-0.1.3-alpha.1-universal.apk)\n* [iOS unsigned IPA](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.1.3-alpha.1/robosats-exp-0.1.3-alpha.1-unsigned.ipa)\n* [Linux AppImage](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.1.3-alpha.1/RoboSats.Exp_0.1.3-alpha.1_amd64.AppImage)\n* [Windows installer](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.1.3-alpha.1/RoboSats.Exp_0.1.3-alpha.1_x64-setup.exe)\n* [macOS DMG](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.1.3-alpha.1/RoboSats.Exp_0.1.3-alpha.1_aarch64.dmg)\nDetached signatures and checksums are available in the release assets.\n<!-- Release notes generated using configuration in .github/release.yml at v0.1.3-alpha.1 -->\n**Full Changelog**: https://github.com/TempleOfSats/Robosats-Experimental/commits/v0.1.3-alpha.1",
           "size": 13101275,
           "minOSVersion": "16.0"
