@@ -17,7 +17,12 @@ vi.mock("@/domains/orders/orderApi", () => ({
   fetchOrder: fetchOrderMock
 }));
 
-import { mergeStandardRefreshScopes, scheduleAppPrewarm, standardRobotRefreshScope } from "@/app/prewarm";
+import {
+  coordinatorNeedsHealthRecovery,
+  mergeStandardRefreshScopes,
+  scheduleAppPrewarm,
+  standardRobotRefreshScope
+} from "@/app/prewarm";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
 import {
@@ -30,6 +35,7 @@ import {
   publishOrderChangeNotification,
   resetOrderChangeNotificationsForTests
 } from "@/domains/orders/orderChangeNotifications";
+import { publishRefreshIntent } from "@/domains/transport/refreshIntents";
 
 const slot: RobotSlot = {
   token: "robot-token",
@@ -70,6 +76,7 @@ const coordinator: CoordinatorSummary = {
 
 const originalRefreshRobotSlot = useGarageStore.getState().refreshRobotSlot;
 const originalCoordinators = useFederationStore.getState().coordinators;
+const originalRefreshCoordinator = useFederationStore.getState().refreshCoordinator;
 const originalRefreshCoordinators = useFederationStore.getState().refreshCoordinators;
 
 beforeEach(() => {
@@ -99,10 +106,12 @@ afterEach(() => {
   });
   useFederationStore.setState({
     coordinators: originalCoordinators,
+    refreshCoordinator: originalRefreshCoordinator,
     refreshCoordinators: originalRefreshCoordinators
   });
   resetOrderChangeNotificationsForTests();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 describe("standard robot order notification targeting", () => {
@@ -276,6 +285,164 @@ describe("standard robot pending notification scope", () => {
     }
   });
 });
+
+describe("Tor recovery prewarm", () => {
+  it("recognizes cached offline coordinators as needing a startup health refresh", () => {
+    expect(coordinatorNeedsHealthRecovery({ ...coordinator, online: false })).toBe(true);
+    expect(coordinatorNeedsHealthRecovery({ ...coordinator, loading: true })).toBe(true);
+    expect(coordinatorNeedsHealthRecovery(coordinator)).toBe(false);
+  });
+
+  it("forces stale coordinator health through the background lane", async () => {
+    vi.useFakeTimers();
+    const refreshCoordinators = vi.fn(async () => undefined);
+    useFederationStore.setState({
+      coordinators: [{ ...coordinator, online: false }],
+      refreshCoordinators
+    });
+    stubRecoveryBrowser();
+
+    const stop = scheduleAppPrewarm();
+    try {
+      publishRefreshIntent("tor-reconnected");
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      expect(refreshCoordinators).toHaveBeenCalledWith({
+        force: true,
+        priority: "background"
+      });
+    } finally {
+      stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it("forces all cached coordinator health on Tor startup", async () => {
+    vi.useFakeTimers();
+    const refreshCoordinators = vi.fn(async () => undefined);
+    const refreshCoordinator = vi.fn(async (shortAlias: string) => {
+      if (refreshCoordinator.mock.calls.length === 2) {
+        useFederationStore.setState((state) => ({
+          coordinators: state.coordinators.map((item) =>
+            item.shortAlias === shortAlias ? { ...item, online: true, error: undefined } : item
+          )
+        }));
+      }
+      return true;
+    });
+    useFederationStore.setState({
+      coordinators: [
+        { ...coordinator, online: true, error: "Coordinator unavailable." },
+        {
+          ...coordinator,
+          shortAlias: "temple",
+          longAlias: "Temple",
+          url: "https://temple.invalid"
+        }
+      ],
+      refreshCoordinator,
+      refreshCoordinators
+    });
+    stubRecoveryBrowser();
+
+    const stop = scheduleAppPrewarm();
+    try {
+      publishRefreshIntent("tor-ready");
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      expect(refreshCoordinators).toHaveBeenCalledWith({
+        force: true,
+        priority: "background"
+      });
+      expect(refreshCoordinator).toHaveBeenCalledWith("lake", {
+        force: true,
+        priority: "background"
+      });
+    } finally {
+      stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops after two retries when a coordinator remains unavailable", async () => {
+    vi.useFakeTimers();
+    const refreshCoordinator = vi.fn(async () => true);
+    useFederationStore.setState({
+      coordinators: [{ ...coordinator, online: false, error: "Coordinator unavailable." }],
+      refreshCoordinator,
+      refreshCoordinators: vi.fn(async () => undefined)
+    });
+    stubRecoveryBrowser();
+
+    const stop = scheduleAppPrewarm();
+    try {
+      publishRefreshIntent("tor-reconnected");
+      await vi.advanceTimersByTimeAsync(1_000 + 15_000 + 45_000 + 5 * 60_000);
+
+      expect(refreshCoordinator).toHaveBeenCalledTimes(2);
+    } finally {
+      stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it("prevents an older in-flight recovery from scheduling retries after a newer Tor event", async () => {
+    vi.useFakeTimers();
+    let finishInitialRefresh: (() => void) | undefined;
+    const refreshCoordinator = vi.fn(async () => true);
+    const refreshCoordinators = vi.fn(() => {
+      if (finishInitialRefresh) return Promise.resolve();
+      return new Promise<void>((resolve) => {
+        finishInitialRefresh = resolve;
+      });
+    });
+    useFederationStore.setState({
+      coordinators: [{ ...coordinator, online: false, error: "Coordinator unavailable." }],
+      refreshCoordinator,
+      refreshCoordinators
+    });
+    stubRecoveryBrowser();
+
+    const stop = scheduleAppPrewarm();
+    try {
+      publishRefreshIntent("tor-reconnected");
+      await vi.advanceTimersByTimeAsync(1_000);
+      useFederationStore.setState({
+        coordinators: [{ ...coordinator, online: true, error: undefined }]
+      });
+
+      publishRefreshIntent("tor-ready");
+      finishInitialRefresh!();
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(15_000);
+
+      expect(refreshCoordinator).not.toHaveBeenCalled();
+    } finally {
+      stop();
+      vi.useRealTimers();
+    }
+  });
+});
+
+function stubRecoveryBrowser(): void {
+  vi.stubGlobal(
+    "window",
+    Object.assign(new EventTarget(), {
+      location: {
+        pathname: "/settings",
+        host: "client.invalid",
+        hostname: "client.invalid"
+      },
+      setTimeout: globalThis.setTimeout.bind(globalThis),
+      clearTimeout: globalThis.clearTimeout.bind(globalThis),
+      setInterval: globalThis.setInterval.bind(globalThis),
+      clearInterval: globalThis.clearInterval.bind(globalThis),
+      requestIdleCallback: vi.fn(() => 1),
+      cancelIdleCallback: vi.fn()
+    })
+  );
+  vi.stubGlobal("document", { visibilityState: "hidden" });
+}
 
 function publishNostrOrderChange(orderId: number, eventId: string): void {
   publishOrderChangeNotification({

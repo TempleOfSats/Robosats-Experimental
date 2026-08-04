@@ -87,6 +87,17 @@ describe("normalizeOrderDto", () => {
     expect(isOrderReferenceSatsApproximate(order)).toBe(false);
   });
 
+  it("keeps seller escrow and buyer payout estimates role-specific", () => {
+    const shared = {
+      trade_satoshis: "18958",
+      invoice_amount: "18958",
+      escrow_satoshis: "18991"
+    };
+
+    expect(orderReferenceSats(normalizeOrderDto({ ...shared, is_seller: true }))).toBe(18_991);
+    expect(orderReferenceSats(normalizeOrderDto({ ...shared, is_buyer: true }))).toBe(18_958);
+  });
+
   it("prefers the selected range amount over the order's static maximum", () => {
     const order = normalizeOrderDto({ satoshis: "300000", satoshis_now: "148933" });
     expect(orderReferenceSats(order)).toBe(148933);

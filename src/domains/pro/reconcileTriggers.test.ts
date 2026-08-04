@@ -98,7 +98,7 @@ describe("reconciliation triggers", () => {
     cleanup();
   });
 
-  it("invalidates old requests before reconciling a restored Tor connection", () => {
+  it("resets stale transport state before reconciling a restored Tor connection", () => {
     const controller = fakeController();
     const cleanup = registerReconcileTriggers({
       controller,
@@ -107,7 +107,7 @@ describe("reconciliation triggers", () => {
     });
 
     dispatchLifecycle("tor-reconnected");
-    expect(controller.invalidateEpoch).toHaveBeenCalledOnce();
+    expect(controller.resetAfterTransportReconnect).toHaveBeenCalledOnce();
     expect(controller.reconcileAll).toHaveBeenCalledWith("tor-reconnected");
     cleanup();
   });
@@ -361,7 +361,7 @@ function fakeController(): GarageReconcileController {
     reconcileOrder: vi.fn(async () => undefined),
     handleOrderHint: vi.fn(async () => true),
     handleNativeOrderHint: vi.fn(async () => true),
-    invalidateEpoch: vi.fn()
+    resetAfterTransportReconnect: vi.fn()
   };
 }
 

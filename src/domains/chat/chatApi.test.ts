@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { escapeChatPayload, fetchChatMessages, normalizeChatResponse, postChatMessage } from "@/domains/chat/chatApi";
+import {
+  escapeChatPayload,
+  fetchChatMessages,
+  isDisplayableChatPayload,
+  normalizeChatResponse,
+  postChatMessage
+} from "@/domains/chat/chatApi";
 import type { ApiClient, Auth } from "@/domains/transport/apiClient";
 
 const auth: Auth = { tokenSHA256: "robot-token" };
@@ -27,6 +33,13 @@ describe("chatApi", () => {
         messages: [{ index: 1, message: "# payment reference \\ stays literal", nick: "Robot" }]
       }).messages[0]?.encryptedMessage
     ).toBe("# payment reference \\ stays literal");
+  });
+
+  it("distinguishes chat content from WebSocket presence controls", () => {
+    expect(isDisplayableChatPayload("-----BEGIN PGP MESSAGE-----\narmored")).toBe(true);
+    expect(isDisplayableChatPayload("# payment reference")).toBe(true);
+    expect(isDisplayableChatPayload("peer-disconnected")).toBe(false);
+    expect(isDisplayableChatPayload("-----BEGIN PGP PUBLIC KEY BLOCK-----\nkey")).toBe(false);
   });
 
   it("fetches chat messages with order id and offset", async () => {

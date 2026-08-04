@@ -1004,6 +1004,20 @@
   line-height: 1.5;
 }
 
+.settings-tor-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.65rem;
+}
+
+.settings-tor-actions-reset {
+  grid-template-columns: minmax(0, 1fr) minmax(7.5rem, auto);
+}
+
+.settings-tor-actions .ui-button {
+  min-width: 0;
+}
+
 .settings-control-icon {
   color: var(--foreground);
   justify-self: center;
@@ -1255,6 +1269,12 @@
 .trade-action-status p {
   margin: 0;
   line-height: 1.55;
+}
+
+.trade-reward-action {
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 0.75rem;
 }
 
 .trade-public-wait-notice {

@@ -14,6 +14,7 @@ import {
 } from "@/domains/pro/garageVault";
 import { createPortableSettingsManifest } from "@/domains/pro/portableSettings";
 import { createTradeHistoryManifest } from "@/domains/pro/tradeHistory";
+import { hexToBase91 } from "@/lib/hexToBase91";
 import {
   resetGarageVaultRuntimeForTests,
   selectProGarageSlots,
@@ -72,8 +73,9 @@ describe("Garage vault persistence", () => {
     };
     failNextManifestWrite = true;
 
-    await expect(useGarageVaultStore.getState().restore(encodeGarageToken(nextSecret), snapshot))
-      .rejects.toThrow("simulated persistence failure");
+    await expect(useGarageVaultStore.getState().restore(encodeGarageToken(nextSecret), snapshot)).rejects.toThrow(
+      "simulated persistence failure"
+    );
 
     expect(useGarageVaultStore.getState().exportToken()).toBe(previousToken);
     expect(storage.get(ENVELOPE_KEY)).toBe(previousEnvelope);
@@ -83,8 +85,7 @@ describe("Garage vault persistence", () => {
   it("leaves no partial Garage when first setup persistence fails", async () => {
     failNextManifestWrite = true;
 
-    await expect(useGarageVaultStore.getState().setup())
-      .rejects.toThrow("simulated persistence failure");
+    await expect(useGarageVaultStore.getState().setup()).rejects.toThrow("simulated persistence failure");
 
     expect(await garageSecretStore.load()).toBeNull();
     expect(storage.get(ENVELOPE_KEY)).toBeUndefined();
@@ -95,7 +96,7 @@ describe("Garage vault persistence", () => {
     await useGarageVaultStore.getState().setup();
     useGarageVaultStore.getState().markBackedUp();
     useGarageVaultStore.getState().archiveTrade({
-      slotId: "a".repeat(64),
+      slotId: hexToBase91("a".repeat(64)),
       robotName: "Finished Robot",
       robotHashId: "robot-hash",
       coordinatorShortAlias: "lake",
@@ -115,6 +116,26 @@ describe("Garage vault persistence", () => {
     expect(useGarageVaultStore.getState().history?.entries[0]?.orderId).toBe(42);
   });
 
+  it.each([
+    [17, "dispute-won"],
+    [18, "dispute-lost"]
+  ] as const)("stores resolved dispute status %i in Fleet history", async (status, outcome) => {
+    await useGarageVaultStore.getState().setup();
+    useGarageVaultStore.getState().markBackedUp();
+
+    const result = useGarageVaultStore.getState().archiveTrade({
+      slotId: hexToBase91("b".repeat(64)),
+      robotName: "Resolved Robot",
+      robotHashId: "resolved-robot-hash",
+      coordinatorShortAlias: "lake",
+      order: { ...completedOrder(), id: 40 + status, status },
+      observedAt: Date.now()
+    });
+
+    expect(result).toBe("archived");
+    expect(useGarageVaultStore.getState().history?.entries[0]).toMatchObject({ outcome });
+  });
+
   it("restores an unacknowledged mutation from the encrypted envelope", async () => {
     await useGarageVaultStore.getState().setup();
     useGarageVaultStore.getState().markBackedUp();
@@ -126,8 +147,9 @@ describe("Garage vault persistence", () => {
     resetGarageVaultRuntimeForTests();
     await useGarageVaultStore.getState().initialize();
 
-    expect(useGarageVaultStore.getState().pendingOutbox())
-      .toEqual(expect.arrayContaining([expect.objectContaining({ record: expect.objectContaining({ id: robot.id }) })]));
+    expect(useGarageVaultStore.getState().pendingOutbox()).toEqual(
+      expect.arrayContaining([expect.objectContaining({ record: expect.objectContaining({ id: robot.id }) })])
+    );
   });
 
   it("marks a newly derived robot ready without a coordinator request", async () => {
@@ -152,30 +174,32 @@ describe("Garage vault persistence", () => {
     await useGarageVaultStore.getState().setup();
     useGarageVaultStore.getState().markBackedUp();
     await useGarageVaultStore.getState().createDerivedRobot("Replicating robot");
-    const pending = useGarageVaultStore.getState().pendingOutbox().find(({ record }) => record.type === "robot")!;
-    useGarageVaultStore.getState().recordOutboxAcknowledgements(
-      pending.item.key,
-      pending.item.revision,
-      ["wss://first.example/relay/"],
-      {
+    const pending = useGarageVaultStore
+      .getState()
+      .pendingOutbox()
+      .find(({ record }) => record.type === "robot")!;
+    useGarageVaultStore
+      .getState()
+      .recordOutboxAcknowledgements(pending.item.key, pending.item.revision, ["wss://first.example/relay/"], {
         eventId: "a".repeat(64),
         publishedAt: 1_000,
         revision: pending.record.revision,
         writerDeviceId: pending.record.writerDeviceId
-      }
-    );
+      });
 
     resetGarageVaultRuntimeForTests();
     await useGarageVaultStore.getState().initialize();
 
-    expect(useGarageVaultStore.getState().pendingOutbox()).toEqual(expect.arrayContaining([
+    expect(useGarageVaultStore.getState().pendingOutbox()).toEqual(
+      expect.arrayContaining([
       expect.objectContaining({
         item: expect.objectContaining({
           acceptedRelays: ["wss://first.example/relay/"],
           acceptedEventId: "a".repeat(64)
         })
       })
-    ]));
+      ])
+    );
   });
 
   it("projects only robots derived by the active Garage", async () => {
@@ -188,10 +212,10 @@ describe("Garage vault persistence", () => {
       { ...deriveRobotIdentity(importedToken), nickname: "Imported", earnedRewards: 0, robots: {} }
     ];
 
-    expect(selectProGarageSlots(slots, useGarageVaultStore.getState().manifest).map((slot) => slot.token))
-      .toEqual([derived.token]);
-    expect(selectProGarageSlots(slots, createGarageManifest("ffeeddccbbaa99887766554433221100")))
-      .toEqual([]);
+    expect(selectProGarageSlots(slots, useGarageVaultStore.getState().manifest).map((slot) => slot.token)).toEqual([
+      derived.token
+    ]);
+    expect(selectProGarageSlots(slots, createGarageManifest("ffeeddccbbaa99887766554433221100"))).toEqual([]);
   });
 
   it("enforces the active robot limit and restores capacity after removal", async () => {
@@ -203,17 +227,16 @@ describe("Garage vault persistence", () => {
       tokens.push(robot.token);
     }
 
-    expect(activeGarageEntries(useGarageVaultStore.getState().manifest!))
-      .toHaveLength(GARAGE_LIMITS.activeRobots);
-    await expect(useGarageVaultStore.getState().createDerivedRobot("One too many"))
-      .rejects.toThrow(`A Fleet can hold up to ${GARAGE_LIMITS.activeRobots} robots`);
+    expect(activeGarageEntries(useGarageVaultStore.getState().manifest!)).toHaveLength(GARAGE_LIMITS.activeRobots);
+    await expect(useGarageVaultStore.getState().createDerivedRobot("One too many")).rejects.toThrow(
+      `A Fleet can hold up to ${GARAGE_LIMITS.activeRobots} robots`
+    );
 
     await useGarageVaultStore.getState().removeRobot(tokens[0]);
     await expect(useGarageVaultStore.getState().createDerivedRobot("Replacement")).resolves.toMatchObject({
       nickname: "Replacement"
     });
-    expect(activeGarageEntries(useGarageVaultStore.getState().manifest!))
-      .toHaveLength(GARAGE_LIMITS.activeRobots);
+    expect(activeGarageEntries(useGarageVaultStore.getState().manifest!)).toHaveLength(GARAGE_LIMITS.activeRobots);
   });
 
   it("abandons the Fleet without leaving its local key or envelope", async () => {
@@ -232,7 +255,6 @@ describe("Garage vault persistence", () => {
       manifest: undefined
     });
   });
-
 });
 
 function completedOrder(): OrderDto {

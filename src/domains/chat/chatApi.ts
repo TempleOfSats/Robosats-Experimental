@@ -60,6 +60,10 @@ export function normalizeChatMessage(data: ChatApiMessage): ChatMessage {
   };
 }
 
+export function isDisplayableChatPayload(value: string): boolean {
+  return value.startsWith("-----BEGIN PGP MESSAGE-----") || value.startsWith("#");
+}
+
 export function escapeChatPayload(value: string): string {
   if (value.startsWith("#")) return value;
   return value.split("\n").join("\\");

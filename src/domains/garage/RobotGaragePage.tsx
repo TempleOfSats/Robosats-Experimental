@@ -1,8 +1,24 @@
-import { AlertTriangle, Copy, Download, Eye, EyeOff, Hash, Home, KeyRound, Plus, Search, Send, Settings, Trash2, Trophy, X } from "lucide-react";
+import {
+  AlertTriangle,
+  Copy,
+  Download,
+  Eye,
+  EyeOff,
+  Hash,
+  Home,
+  KeyRound,
+  Plus,
+  Search,
+  Send,
+  Settings,
+  Trash2,
+  Trophy,
+  X
+} from "lucide-react";
 import { lazy, Suspense, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { AppTransitionFeedback } from "@/domains/navigation/AppTransitionFeedback";
+import { AppTransitionDialog, AppTransitionFeedback } from "@/domains/navigation/AppTransitionFeedback";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
@@ -11,20 +27,30 @@ import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.type
 import { compareCoordinatorsByEstablished } from "@/domains/coordinators/coordinatorOrder";
 import type { CoordinatorRating } from "@/domains/coordinators/coordinatorRatings";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
-import { getRobotAuthForCoordinator, selectCurrentSlot, selectStandardGarageSlots, type RobotRecord, type RobotSlot, useGarageStore } from "@/domains/garage/garageStore";
+import {
+  getRobotAuthForCoordinator,
+  selectCurrentSlot,
+  selectStandardGarageSlots,
+  type RobotRecord,
+  type RobotSlot,
+  useGarageStore
+} from "@/domains/garage/garageStore";
 import { requestRobotDataRefresh } from "@/domains/garage/robotDataRefresh";
+import { isProFleetToken } from "@/domains/garage/token";
 import { downloadRobotTokenBackup } from "@/domains/garage/tokenBackup";
 import { CreateRobotPanel } from "@/domains/garage/CreateRobotPanel";
 import { RobotAvatar } from "@/domains/identity/RobotAvatar";
 import { deriveRobotIdentity } from "@/domains/identity/robotIdentity";
 import { ingestCoordinatorOrder } from "@/domains/orders/orderActivity";
 import { fetchOrder } from "@/domains/orders/orderApi";
+import { disputeOutcomeForCurrentRobot } from "@/domains/orders/orderStateMachine";
 import type { OrderDto } from "@/domains/orders/order.types";
 import { currencyIdFromCode, currencyOptions } from "@/domains/orderbook/currencies";
 import type { GuidedTradeCriteria } from "@/domains/orderbook/guidedTrade";
 import { useOrderbookStore } from "@/domains/orderbook/orderbookStore";
 import type { PublicOrder } from "@/domains/orderbook/orderbook.types";
 import { CurrencyFlag, PaymentMethodIcons } from "@/domains/orderbook/OfferMeta";
+import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
 import { formatFiat, formatSats } from "@/lib/format";
 import { toUserMessage } from "@/lib/userError";
 import { writeClipboard } from "@/lib/clipboard";
@@ -38,14 +64,17 @@ const LazyBeginnerTradeWizard = lazy(() =>
 const LazyCoordinatorDetailDialog = lazy(() =>
   import("@/domains/coordinators/CoordinatorsPage").then((module) => ({ default: module.CoordinatorDetailDialog }))
 );
-const LazyRewardWithdrawalPanel = lazy(() =>
-  import("@/domains/rewards/RewardWithdrawalPanel").then((module) => ({ default: module.RewardWithdrawalPanel }))
+const LazyRewardWithdrawalDialog = lazy(() =>
+  import("@/domains/rewards/RewardWithdrawalDialog").then((module) => ({ default: module.RewardWithdrawalDialog }))
 );
 const LazyRobotTokenBackupDialog = lazy(() =>
   import("@/domains/garage/RobotTokenBackupDialog").then((module) => ({ default: module.RobotTokenBackupDialog }))
 );
 const LazyTelegramSetupDialog = lazy(() =>
   import("@/domains/garage/TelegramSetupDialog").then((module) => ({ default: module.TelegramSetupDialog }))
+);
+const LazyGarageRecoveryDialog = lazy(() =>
+  import("@/domains/pro/GarageRecoveryDialog").then((module) => ({ default: module.GarageRecoveryDialog }))
 );
 
 export function RobotGaragePage() {
@@ -74,21 +103,26 @@ export function RobotGaragePage() {
   const [showSettingsTokenBackup, setShowSettingsTokenBackup] = useState(false);
   const [showLastOrder, setShowLastOrder] = useState(false);
   const [showRecovery, setShowRecovery] = useState(false);
+  const [fleetKeyCandidate, setFleetKeyCandidate] = useState<string>();
+  const [fleetRecoveryKey, setFleetRecoveryKey] = useState<string>();
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
   const [removeError, setRemoveError] = useState("");
   const [removingRobot, setRemovingRobot] = useState(false);
   const [selectedAlias, setSelectedAlias] = useState<string | undefined>();
   const [showGuidedTrade, setShowGuidedTrade] = useState(false);
   const selectedCoordinator = displayCoordinators.find((coordinator) => coordinator.shortAlias === selectedAlias);
-  const selectedRobot = selectedCoordinator && activeSlot ? activeSlot.robots[selectedCoordinator.shortAlias] : undefined;
+  const selectedRobot =
+    selectedCoordinator && activeSlot ? activeSlot.robots[selectedCoordinator.shortAlias] : undefined;
   const checkingExistingOrders = Boolean(
-    activeSlot?.loading
-    || Object.values(activeSlot?.robots ?? {}).some((robot) => robot.loading)
+    activeSlot?.loading || Object.values(activeSlot?.robots ?? {}).some((robot) => robot.loading)
   );
   const guidedOrders = useOrderbookStore((state) => state.orders);
   const guidedOrdersLoading = useOrderbookStore((state) => state.loading);
   const guidedOrdersRefreshing = useOrderbookStore((state) => state.refreshing);
   const refreshOrderbook = useOrderbookStore((state) => state.refreshOrderbook);
+  const setProEnabled = useProPreferencesStore((state) => state.setEnabled);
+  const markProSetupSeen = useProPreferencesStore((state) => state.markSetupSeen);
+  const setProLastView = useProPreferencesStore((state) => state.setLastView);
 
   useEffect(() => {
     hydrate();
@@ -175,13 +209,34 @@ export function RobotGaragePage() {
     });
   }
 
+  function offerFleetRecovery(fleetKey: string) {
+    setShowRecovery(false);
+    setFleetKeyCandidate(fleetKey);
+  }
+
+  const fleetRecoveryDialogs = (
+    <FleetRecoveryDialogs
+      candidate={fleetKeyCandidate}
+      recoveryKey={fleetRecoveryKey}
+      onCancelCandidate={() => setFleetKeyCandidate(undefined)}
+      onConfirmCandidate={() => {
+        setFleetRecoveryKey(fleetKeyCandidate);
+        setFleetKeyCandidate(undefined);
+      }}
+      onCloseRecovery={() => setFleetRecoveryKey(undefined)}
+      onRestored={() => {
+        markProSetupSeen();
+        setProLastView("robots");
+        setProEnabled(true);
+        navigate("/pro");
+      }}
+    />
+  );
+
   if (!hydrated) {
     return (
       <main className="page page-narrow garage-page">
-        <AppTransitionFeedback
-          title="Preparing your robot"
-          message="Restoring its private identity..."
-        />
+        <AppTransitionFeedback title="Preparing your robot" message="Restoring its private identity..." />
       </main>
     );
   }
@@ -197,8 +252,9 @@ export function RobotGaragePage() {
           </div>
         </div>
         <div className="start-card start-card-unframed">
-          <CreateRobotPanel onProfile={() => setShowFirstRunWizard(false)} />
+          <CreateRobotPanel onFleetRecovery={offerFleetRecovery} onProfile={() => setShowFirstRunWizard(false)} />
         </div>
+        {fleetRecoveryDialogs}
       </main>
     );
   }
@@ -206,10 +262,7 @@ export function RobotGaragePage() {
   if (!activeSlot) {
     return (
       <main className="page page-narrow garage-page">
-        <AppTransitionFeedback
-          title="Preparing your robot"
-          message="Restoring its private identity..."
-        />
+        <AppTransitionFeedback title="Preparing your robot" message="Restoring its private identity..." />
       </main>
     );
   }
@@ -235,19 +288,26 @@ export function RobotGaragePage() {
             <RobotAvatar hashId={activeSlot.hashId} label={activeSlot.nickname} size="xl" />
           </div>
 
-          <div className="garage-robot-status">
-            {activeSlot.activeOrderId ? (
-              <Link to={orderPath(activeSlot, activeSlot.activeOrderId)}>Active order #{activeSlot.activeOrderId}</Link>
-            ) : activeSlot.lastOrderId ? (
-              <button type="button" onClick={() => setShowLastOrder(true)}>Last order #{activeSlot.lastOrderId}</button>
-            ) : checkingExistingOrders ? (
-              <span className="garage-robot-status-loading" role="status" aria-live="polite">
-                <span className="ui-spinner" aria-hidden="true" />
-                Checking coordinators...
-              </span>
-            ) : (
-              <span>No existing orders found</span>
-            )}
+          <div className="garage-robot-status-stack">
+            <div className="garage-robot-status">
+              {activeSlot.activeOrderId ? (
+                <Link to={orderPath(activeSlot, activeSlot.activeOrderId)}>
+                  Active order #{activeSlot.activeOrderId}
+                </Link>
+              ) : activeSlot.lastOrderId ? (
+                <button type="button" onClick={() => setShowLastOrder(true)}>
+                  Last order #{activeSlot.lastOrderId}
+                </button>
+              ) : checkingExistingOrders ? (
+                <span className="garage-robot-status-loading" role="status" aria-live="polite">
+                  <span className="ui-spinner" aria-hidden="true" />
+                  Checking coordinators...
+                </span>
+              ) : (
+                <span>No existing orders found</span>
+              )}
+            </div>
+            <GarageRewardClaim coordinators={displayCoordinators} slot={activeSlot} />
           </div>
 
           <div className="garage-robot-token">
@@ -265,39 +325,36 @@ export function RobotGaragePage() {
                 {showToken ? <EyeOff size={15} /> : <Eye size={15} />}
               </button>
             </div>
-            {showToken ? (
-              <div className="input-shell input-shell-compact">
-                <input value={activeSlot.token} disabled aria-readonly aria-label="Robot token" className="garage-token-value" />
-                <button
-                  className="icon-button"
-                  type="button"
-                  onClick={() => downloadRobotTokenBackup(activeSlot.token, activeSlot.nickname)}
-                  title="Download JSON backup"
-                  aria-label={`Download ${activeSlot.nickname} token backup as JSON`}
-                >
-                  <Download size={15} />
-                </button>
-                <button className="icon-button" type="button" onClick={copyToken} title={copied ? "Copied" : "Copy token"}>
-                  <Copy size={15} />
-                </button>
-              </div>
-            ) : (
-              <div className="garage-token-masked">
+            <div className={showToken ? "input-shell input-shell-compact" : "garage-token-masked"}>
+              {showToken ? (
+                <input
+                  value={activeSlot.token}
+                  disabled
+                  aria-readonly
+                  aria-label="Robot token"
+                  className="garage-token-value"
+                />
+              ) : (
                 <span>{"••••••••••••••••••••••••••••••"}</span>
-                <button
-                  className="icon-button"
-                  type="button"
-                  onClick={() => downloadRobotTokenBackup(activeSlot.token, activeSlot.nickname)}
-                  title="Download JSON backup"
-                  aria-label={`Download ${activeSlot.nickname} token backup as JSON`}
-                >
-                  <Download size={15} />
-                </button>
-                <button className="icon-button" type="button" onClick={copyToken} title={copied ? "Copied" : "Copy token"}>
-                  <Copy size={15} />
-                </button>
-              </div>
-            )}
+              )}
+              <button
+                className="icon-button"
+                type="button"
+                onClick={() => downloadRobotTokenBackup(activeSlot.token, activeSlot.nickname)}
+                title="Download JSON backup"
+                aria-label={`Download ${activeSlot.nickname} token backup as JSON`}
+              >
+                <Download size={15} />
+              </button>
+              <button
+                className="icon-button"
+                type="button"
+                onClick={copyToken}
+                title={copied ? "Copied" : "Copy token"}
+              >
+                <Copy size={15} />
+              </button>
+            </div>
             <p className="garage-privacy-note">Reusing a trading identity degrades your privacy.</p>
           </div>
         </Card>
@@ -320,12 +377,22 @@ export function RobotGaragePage() {
         </div>
 
         <div className="garage-utility-bar">
-          <button className="garage-utility-btn" onClick={() => setShowRobotSwitcher(true)} type="button" title="Switch robot">
+          <button
+            className="garage-utility-btn"
+            onClick={() => setShowRobotSwitcher(true)}
+            type="button"
+            title="Switch robot"
+          >
             <Home size={18} />
             <span>Garage</span>
           </button>
 
-          <button className="garage-utility-btn" onClick={() => setShowFirstRunWizard(true)} type="button" title="Add a new robot">
+          <button
+            className="garage-utility-btn"
+            onClick={() => setShowFirstRunWizard(true)}
+            type="button"
+            title="Add a new robot"
+          >
             <Plus size={18} />
             <span>Add Robot</span>
           </button>
@@ -357,13 +424,13 @@ export function RobotGaragePage() {
 
       {showGuidedTrade ? (
         <Suspense
-          fallback={(
-            <DeferredGarageDialog
+          fallback={
+            <AppTransitionDialog
               message="Loading the guided trade steps..."
               onClose={() => setShowGuidedTrade(false)}
               title="Preparing trade finder"
             />
-          )}
+          }
         >
           <LazyBeginnerTradeWizard
             coordinators={displayCoordinators}
@@ -400,6 +467,7 @@ export function RobotGaragePage() {
       {showRecovery ? (
         <RobotRecoveryDialog
           onClose={() => setShowRecovery(false)}
+          onFleetRecovery={offerFleetRecovery}
           onRecover={(token) => {
             recoverRobotToken(token, addSlot, updateSlotIdentityDetails);
             setShowRecovery(false);
@@ -407,6 +475,8 @@ export function RobotGaragePage() {
           }}
         />
       ) : null}
+
+      {fleetRecoveryDialogs}
 
       {showDeleteConfirmation ? (
         <Dialog
@@ -418,24 +488,37 @@ export function RobotGaragePage() {
           overlayClassName="confirm-overlay"
           panelClassName="confirm-sheet"
         >
-            <div className="confirm-header">
-              <span className="confirm-icon-shell" aria-hidden="true"><AlertTriangle size={24} /></span>
-              <h3 id="delete-robot-title">Remove {activeSlot.nickname}?</h3>
-            </div>
-            <p className="confirm-body">This removes the robot from your Garage. This cannot be undone.</p>
-            {removeError ? <p className="field-error" role="alert">{removeError}</p> : null}
-            <div className="confirm-actions">
-              <Button variant="secondary" type="button" disabled={removingRobot} onClick={() => setShowDeleteConfirmation(false)}>Keep robot</Button>
-              <Button
-                variant="destructive"
-                type="button"
-                loading={removingRobot}
-                onClick={() => void removeRobotFromGarage(activeSlot)}
-              >
-                <Trash2 size={16} />
-                Remove from Garage
-              </Button>
-            </div>
+          <div className="confirm-header">
+            <span className="confirm-icon-shell" aria-hidden="true">
+              <AlertTriangle size={24} />
+            </span>
+            <h3 id="delete-robot-title">Remove {activeSlot.nickname}?</h3>
+          </div>
+          <p className="confirm-body">This removes the robot from your Garage. This cannot be undone.</p>
+          {removeError ? (
+            <p className="field-error" role="alert">
+              {removeError}
+            </p>
+          ) : null}
+          <div className="confirm-actions">
+            <Button
+              variant="secondary"
+              type="button"
+              disabled={removingRobot}
+              onClick={() => setShowDeleteConfirmation(false)}
+            >
+              Keep robot
+            </Button>
+            <Button
+              variant="destructive"
+              type="button"
+              loading={removingRobot}
+              onClick={() => void removeRobotFromGarage(activeSlot)}
+            >
+              <Trash2 size={16} />
+              Remove from Garage
+            </Button>
+          </div>
         </Dialog>
       ) : null}
 
@@ -461,13 +544,13 @@ export function RobotGaragePage() {
 
       {showSettingsTokenBackup ? (
         <Suspense
-          fallback={(
-            <DeferredGarageDialog
+          fallback={
+            <AppTransitionDialog
               message="Loading the local backup controls..."
               onClose={() => setShowSettingsTokenBackup(false)}
               title="Preparing token backup"
             />
-          )}
+          }
         >
           <LazyRobotTokenBackupDialog
             onClose={() => setShowSettingsTokenBackup(false)}
@@ -489,31 +572,69 @@ export function RobotGaragePage() {
   );
 }
 
-function DeferredGarageDialog({
-  message,
-  onClose,
-  title
+function FleetRecoveryDialogs({
+  candidate,
+  recoveryKey,
+  onCancelCandidate,
+  onConfirmCandidate,
+  onCloseRecovery,
+  onRestored
 }: {
-  message: string;
-  onClose: () => void;
-  title: string;
+  candidate?: string;
+  recoveryKey?: string;
+  onCancelCandidate: () => void;
+  onConfirmCandidate: () => void;
+  onCloseRecovery: () => void;
+  onRestored: () => void;
 }) {
   return (
-    <Dialog
-      ariaLabel={title}
-      onClose={onClose}
-      overlayClassName="confirm-overlay app-transition-overlay"
-      panelClassName="confirm-sheet app-transition-dialog"
-    >
-      <button className="take-modal-close" onClick={onClose} type="button" aria-label={`Close ${title.toLowerCase()}`}>
-        <X size={18} />
-      </button>
-      <AppTransitionFeedback title={title} message={message} />
-    </Dialog>
+    <>
+      {candidate ? (
+        <FleetRecoveryConfirmationDialog onCancel={onCancelCandidate} onConfirm={onConfirmCandidate} />
+      ) : null}
+      {recoveryKey ? (
+        <Suspense
+          fallback={
+            <AppTransitionDialog title="Preparing Fleet restore" message="Opening the private recovery tool..." />
+          }
+        >
+          <LazyGarageRecoveryDialog initialFleetKey={recoveryKey} onClose={onCloseRecovery} onRestored={onRestored} />
+        </Suspense>
+      ) : null}
+    </>
   );
 }
 
-function RobotRecoveryDialog({ onClose, onRecover }: { onClose: () => void; onRecover: (token: string) => void }) {
+function GarageRewardClaim({ coordinators, slot }: { coordinators: CoordinatorSummary[]; slot: RobotSlot }) {
+  const [open, setOpen] = useState(false);
+  const rewardsAvailable = slot.earnedRewards > 0;
+  if (!rewardsAvailable && !open) return null;
+  return (
+    <>
+      {rewardsAvailable ? (
+        <button className="garage-reward-status" onClick={() => setOpen(true)} type="button">
+          <Trophy size={15} aria-hidden="true" />
+          {formatSats(slot.earnedRewards)} ready to claim
+        </button>
+      ) : null}
+      {open ? (
+        <Suspense fallback={<AppTransitionDialog title="Preparing rewards" message="Loading the claim controls..." />}>
+          <LazyRewardWithdrawalDialog coordinators={coordinators} onClose={() => setOpen(false)} slot={slot} />
+        </Suspense>
+      ) : null}
+    </>
+  );
+}
+
+function RobotRecoveryDialog({
+  onClose,
+  onFleetRecovery,
+  onRecover
+}: {
+  onClose: () => void;
+  onFleetRecovery: (fleetKey: string) => void;
+  onRecover: (token: string) => void;
+}) {
   const [token, setToken] = useState("");
   const [error, setError] = useState("");
   const cleanToken = token.trim();
@@ -528,6 +649,10 @@ function RobotRecoveryDialog({ onClose, onRecover }: { onClose: () => void; onRe
       setError("This token is too short to be a RoboSats robot token.");
       return;
     }
+    if (isProFleetToken(cleanToken)) {
+      onFleetRecovery(cleanToken);
+      return;
+    }
     onRecover(cleanToken);
   };
 
@@ -538,41 +663,84 @@ function RobotRecoveryDialog({ onClose, onRecover }: { onClose: () => void; onRe
       overlayClassName="garage-switcher-overlay"
       panelClassName="garage-recovery-dialog"
     >
-        <header>
-          <div className="garage-recovery-heading">
-            <span className="garage-recovery-icon" aria-hidden="true"><KeyRound size={20} /></span>
-            <div>
-              <h3 id="robot-recovery-title">Recover a robot</h3>
-              <p>Use the token you saved when this robot was created.</p>
-            </div>
+      <header>
+        <div className="garage-recovery-heading">
+          <span className="garage-recovery-icon" aria-hidden="true">
+            <KeyRound size={20} />
+          </span>
+          <div>
+            <h3 id="robot-recovery-title">Recover a robot</h3>
+            <p>Use the token you saved when this robot was created.</p>
           </div>
-          <button className="icon-button" type="button" onClick={onClose} aria-label="Close recovery"><X size={18} /></button>
-        </header>
-        <form onSubmit={submit}>
-          <label className="garage-recovery-field">
-            <span>Robot token</span>
-            <textarea
-              aria-describedby={error ? "robot-recovery-error" : undefined}
-              aria-invalid={Boolean(error)}
-              autoFocus
-              autoCapitalize="none"
-              autoComplete="off"
-              onChange={(event) => {
-                setToken(event.target.value);
-                setError("");
-              }}
-              placeholder="Paste your token"
-              rows={3}
-              spellCheck={false}
-              value={token}
-            />
-          </label>
-          {error ? <p className="field-error" id="robot-recovery-error" role="alert">{error}</p> : null}
-          <div className="garage-recovery-actions">
-            <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
-            <Button type="submit" disabled={!cleanToken}><KeyRound size={16} />Recover robot</Button>
-          </div>
-        </form>
+        </div>
+        <button className="icon-button" type="button" onClick={onClose} aria-label="Close recovery">
+          <X size={18} />
+        </button>
+      </header>
+      <form onSubmit={submit}>
+        <label className="garage-recovery-field">
+          <span>Robot token</span>
+          <textarea
+            aria-describedby={error ? "robot-recovery-error" : undefined}
+            aria-invalid={Boolean(error)}
+            autoFocus
+            autoCapitalize="none"
+            autoComplete="off"
+            onChange={(event) => {
+              setToken(event.target.value);
+              setError("");
+            }}
+            placeholder="Paste your token"
+            rows={3}
+            spellCheck={false}
+            value={token}
+          />
+        </label>
+        {error ? (
+          <p className="field-error" id="robot-recovery-error" role="alert">
+            {error}
+          </p>
+        ) : null}
+        <div className="garage-recovery-actions">
+          <Button type="button" variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={!cleanToken}>
+            <KeyRound size={16} />
+            Recover robot
+          </Button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
+function FleetRecoveryConfirmationDialog({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
+  return (
+    <Dialog
+      ariaLabelledby="fleet-recovery-confirmation-title"
+      onClose={onCancel}
+      overlayClassName="confirm-overlay"
+      panelClassName="confirm-sheet"
+    >
+      <div className="confirm-header">
+        <span className="confirm-icon-shell" aria-hidden="true">
+          <KeyRound size={24} />
+        </span>
+        <h3 id="fleet-recovery-confirmation-title">Restore a Pro Robot Fleet?</h3>
+      </div>
+      <p className="confirm-body">
+        This is a Pro Mode Robot Fleet key, not a single-robot token. Continue to restore its synced robots, then open
+        them in Pro Mode.
+      </p>
+      <div className="confirm-actions">
+        <Button variant="secondary" type="button" onClick={onCancel}>
+          Stay in Garage
+        </Button>
+        <Button type="button" onClick={onConfirm}>
+          Continue to Fleet recovery
+        </Button>
+      </div>
     </Dialog>
   );
 }
@@ -587,6 +755,7 @@ function recoverRobotToken(
   addSlot({
     ...identity,
     nickname: fallbackName,
+    managedBy: undefined,
     earnedRewards: 0,
     robots: {
       local: {
@@ -608,12 +777,14 @@ function recoverRobotToken(
 
   void import("@/domains/crypto/pgp")
     .then(({ generatePgpKeyPair }) => generatePgpKeyPair(token))
-    .then((keyPair) => updateSlotIdentityDetails(token, {
-      keys: {
-        pubKey: keyPair.publicKeyArmored,
-        encPrivKey: keyPair.encryptedPrivateKeyArmored
-      }
-    }))
+    .then((keyPair) =>
+      updateSlotIdentityDetails(token, {
+        keys: {
+          pubKey: keyPair.publicKeyArmored,
+          encPrivKey: keyPair.encryptedPrivateKeyArmored
+        }
+      })
+    )
     .catch(() => undefined);
 }
 
@@ -648,62 +819,75 @@ export function RobotSettingsDialog({
       overlayClassName="garage-settings-overlay"
       panelClassName="garage-settings-panel garage-settings-dialog"
     >
-        <button className="take-modal-close" onClick={onClose} type="button" aria-label="Close robot settings">
-          <X size={20} />
-        </button>
+      <button className="take-modal-close" onClick={onClose} type="button" aria-label="Close robot settings">
+        <X size={20} />
+      </button>
 
-        <h2 id="robot-settings-title">Your Robot</h2>
+      <h2 id="robot-settings-title">Your Robot</h2>
 
-        <VisualSelect
-          ariaLabel="Select robot"
-          className="garage-robot-select"
-          onChange={onTokenChange}
-          options={slots.map((item) => ({
-            value: item.token,
-            label: item.nickname,
-            description: item.activeOrderId ? `Order #${item.activeOrderId}` : item.lastOrderId ? `Last #${item.lastOrderId}` : "No orders",
-            icon: <RobotAvatar hashId={item.hashId} label={item.nickname} size="md" />
-          }))}
-          value={activeToken}
-        />
+      <VisualSelect
+        ariaLabel="Select robot"
+        className="garage-robot-select"
+        onChange={onTokenChange}
+        options={slots.map((item) => ({
+          value: item.token,
+          label: item.nickname,
+          description: item.activeOrderId
+            ? `Order #${item.activeOrderId}`
+            : item.lastOrderId
+              ? `Last #${item.lastOrderId}`
+              : "No orders",
+          icon: <RobotAvatar hashId={item.hashId} label={item.nickname} size="md" />
+        }))}
+        value={activeToken}
+      />
 
-        <div className="garage-settings-security-actions">
-          <Button className="garage-security-button" type="button" variant="secondary" onClick={onTokenBackup}>
-            <Download size={18} />
-            Token backup
-          </Button>
-          <Button className="garage-security-button garage-keys-button" type="button" variant="secondary" onClick={toggleKeys}>
-            <KeyRound size={18} />
-            PGP / NOSTR keys
-          </Button>
+      <div className="garage-settings-security-actions">
+        <Button className="garage-security-button" type="button" variant="secondary" onClick={onTokenBackup}>
+          <Download size={18} />
+          Token backup
+        </Button>
+        <Button
+          className="garage-security-button garage-keys-button"
+          type="button"
+          variant="secondary"
+          onClick={toggleKeys}
+        >
+          <KeyRound size={18} />
+          PGP / NOSTR keys
+        </Button>
+      </div>
+
+      {showKeys ? (
+        <Suspense
+          fallback={
+            <AppTransitionFeedback compact title="Preparing robot keys" message="Loading local credentials..." />
+          }
+        >
+          <RobotKeysDialog slot={slot} onClose={toggleKeys} />
+        </Suspense>
+      ) : null}
+
+      <section className="garage-known-coordinators">
+        <h3>Coordinators that know your robot:</h3>
+        <div className="garage-known-list">
+          {coordinators.map((coordinator) => (
+            <button
+              className="garage-known-row"
+              key={coordinator.shortAlias}
+              type="button"
+              aria-label={`Open ${coordinator.longAlias}: ${coordinatorStatus(slot.robots[coordinator.shortAlias])}`}
+              onClick={() => onCoordinatorSelect(coordinator.shortAlias)}
+            >
+              <img className="coordinator-avatar coordinator-avatar-lg" src={coordinator.avatarUrl} alt="" />
+              <span>
+                <strong>{coordinator.longAlias}</strong>
+                <small>{coordinatorStatus(slot.robots[coordinator.shortAlias])}</small>
+              </span>
+            </button>
+          ))}
         </div>
-
-        {showKeys ? (
-          <Suspense fallback={<AppTransitionFeedback compact title="Preparing robot keys" message="Loading local credentials..." />}>
-            <RobotKeysDialog slot={slot} onClose={toggleKeys} />
-          </Suspense>
-        ) : null}
-
-        <section className="garage-known-coordinators">
-          <h3>Coordinators that know your robot:</h3>
-          <div className="garage-known-list">
-            {coordinators.map((coordinator) => (
-              <button
-                className="garage-known-row"
-                key={coordinator.shortAlias}
-                type="button"
-                aria-label={`Open ${coordinator.longAlias}: ${coordinatorStatus(slot.robots[coordinator.shortAlias])}`}
-                onClick={() => onCoordinatorSelect(coordinator.shortAlias)}
-              >
-                <img className="coordinator-avatar coordinator-avatar-lg" src={coordinator.avatarUrl} alt="" />
-                <span>
-                  <strong>{coordinator.longAlias}</strong>
-                  <small>{coordinatorStatus(slot.robots[coordinator.shortAlias])}</small>
-                </span>
-              </button>
-            ))}
-          </div>
-        </section>
+      </section>
     </Dialog>
   );
 }
@@ -726,30 +910,34 @@ function RobotSwitcher({
       overlayClassName="garage-switcher-overlay"
       panelClassName="garage-switcher-panel"
     >
-        <div className="garage-switcher-header">
-          <h3 id="robot-switcher-title">Select robot</h3>
-          <button className="icon-button" onClick={onClose} type="button" aria-label="Close robot switcher">
-            <X size={18} />
+      <div className="garage-switcher-header">
+        <h3 id="robot-switcher-title">Select robot</h3>
+        <button className="icon-button" onClick={onClose} type="button" aria-label="Close robot switcher">
+          <X size={18} />
+        </button>
+      </div>
+      <div className="garage-switcher-list">
+        {slots.map((slot) => (
+          <button
+            key={slot.token}
+            className={`garage-switcher-item ${slot.token === activeToken ? "active" : ""}`}
+            onClick={() => onSelect(slot.token)}
+            type="button"
+          >
+            <RobotAvatar hashId={slot.hashId} label={slot.nickname} size="md" />
+            <div className="garage-switcher-item-info">
+              <span className="garage-switcher-item-name">{slot.nickname}</span>
+              <span className="garage-switcher-item-status">
+                {slot.activeOrderId
+                  ? `Order #${slot.activeOrderId}`
+                  : slot.lastOrderId
+                    ? `Last #${slot.lastOrderId}`
+                    : "No orders"}
+              </span>
+            </div>
           </button>
-        </div>
-        <div className="garage-switcher-list">
-          {slots.map((slot) => (
-            <button
-              key={slot.token}
-              className={`garage-switcher-item ${slot.token === activeToken ? "active" : ""}`}
-              onClick={() => onSelect(slot.token)}
-              type="button"
-            >
-              <RobotAvatar hashId={slot.hashId} label={slot.nickname} size="md" />
-              <div className="garage-switcher-item-info">
-                <span className="garage-switcher-item-name">{slot.nickname}</span>
-                <span className="garage-switcher-item-status">
-                  {slot.activeOrderId ? `Order #${slot.activeOrderId}` : slot.lastOrderId ? `Last #${slot.lastOrderId}` : "No orders"}
-                </span>
-              </div>
-            </button>
-          ))}
-        </div>
+        ))}
+      </div>
     </Dialog>
   );
 }
@@ -766,14 +954,15 @@ export function RobotCoordinatorDialog({
   slot: NonNullable<ReturnType<typeof selectCurrentSlot>>;
 }) {
   const activeOrderText = robot?.activeOrderId ? `Active order #${robot.activeOrderId}` : "No active orders";
-  const previousOrderText = robot?.lastOrderId ? `Previous order #${robot.lastOrderId}` : "You do not have previous orders";
+  const previousOrderText = robot?.lastOrderId
+    ? `Previous order #${robot.lastOrderId}`
+    : "You do not have previous orders";
   const rewards = robot?.earnedRewards ?? 0;
   const canSetUpTelegram = Boolean(robot?.tgBotName && robot.tgToken);
   const [showTelegramSetup, setShowTelegramSetup] = useState(false);
   const [showRewardWithdrawal, setShowRewardWithdrawal] = useState(false);
   const [showCoordinatorDetails, setShowCoordinatorDetails] = useState(false);
   const [coordinatorRating, setCoordinatorRating] = useState<CoordinatorRating>({ score: 0, count: 0 });
-  const refreshRobots = useGarageStore((state) => state.refreshRobots);
   const network = useFederationStore((state) => state.network);
   const lastRefreshed = useFederationStore((state) => state.lastRefreshed);
 
@@ -793,7 +982,12 @@ export function RobotCoordinatorDialog({
         overlayClassName="garage-robot-dialog-overlay"
         panelClassName="garage-robot-dialog"
       >
-        <button className="take-modal-close" onClick={onClose} type="button" aria-label="Close coordinator robot details">
+        <button
+          className="take-modal-close"
+          onClick={onClose}
+          type="button"
+          aria-label="Close coordinator robot details"
+        >
           <X size={20} />
         </button>
         <header>
@@ -822,7 +1016,12 @@ export function RobotCoordinatorDialog({
             Enable Telegram Notifications
           </button>
         ) : (
-          <button className="garage-dialog-command" disabled title="Telegram setup token is not available for this robot." type="button">
+          <button
+            className="garage-dialog-command"
+            disabled
+            title="Telegram setup token is not available for this robot."
+            type="button"
+          >
             <Send size={22} />
             Enable Telegram Notifications
           </button>
@@ -834,12 +1033,7 @@ export function RobotCoordinatorDialog({
             <strong>{rewards.toLocaleString()} Sats</strong>
             <small>Your compensations</small>
           </span>
-          <Button
-            disabled={rewards <= 0}
-            onClick={() => setShowRewardWithdrawal(true)}
-            size="sm"
-            type="button"
-          >
+          <Button disabled={rewards <= 0} onClick={() => setShowRewardWithdrawal(true)} size="sm" type="button">
             Claim
           </Button>
         </div>
@@ -851,27 +1045,31 @@ export function RobotCoordinatorDialog({
 
       {showTelegramSetup && robot?.tgBotName && robot.tgToken ? (
         <Suspense
-          fallback={(
-            <DeferredGarageDialog
+          fallback={
+            <AppTransitionDialog
               message="Loading the notification setup..."
               onClose={() => setShowTelegramSetup(false)}
               title="Preparing Telegram"
             />
-          )}
+          }
         >
-          <LazyTelegramSetupDialog botName={robot.tgBotName} token={robot.tgToken} onClose={() => setShowTelegramSetup(false)} />
+          <LazyTelegramSetupDialog
+            botName={robot.tgBotName}
+            token={robot.tgToken}
+            onClose={() => setShowTelegramSetup(false)}
+          />
         </Suspense>
       ) : null}
 
       {showCoordinatorDetails ? (
         <Suspense
-          fallback={(
-            <DeferredGarageDialog
+          fallback={
+            <AppTransitionDialog
               message={`Loading ${coordinator.longAlias}...`}
               onClose={() => setShowCoordinatorDetails(false)}
               title="Preparing coordinator details"
             />
-          )}
+          }
         >
           <LazyCoordinatorDetailDialog
             compact
@@ -884,40 +1082,25 @@ export function RobotCoordinatorDialog({
         </Suspense>
       ) : null}
 
-      {showRewardWithdrawal && rewards > 0 ? (
-        <Dialog
-          ariaLabelledby="reward-withdrawal-title"
-          onClose={() => setShowRewardWithdrawal(false)}
-          overlayClassName="garage-reward-dialog-overlay"
-          panelClassName="garage-reward-dialog"
-        >
-            <button className="take-modal-close" onClick={() => setShowRewardWithdrawal(false)} type="button" aria-label="Close reward withdrawal">
-              <X size={20} />
-            </button>
-            <header>
-              <Trophy size={21} />
-              <div>
-                <span className="app-eyebrow">Compensation</span>
-                <h2 id="reward-withdrawal-title">Reward withdrawal</h2>
-              </div>
-            </header>
-            <Suspense fallback={<AppTransitionFeedback compact title="Preparing withdrawal" message="Loading the claim controls..." />}>
-              <LazyRewardWithdrawalPanel
-                coordinators={[coordinator]}
-                onClaimed={async () => {
-                  await refreshRobots([coordinator]);
-                  setShowRewardWithdrawal(false);
-                }}
-                slot={slot}
-              />
-            </Suspense>
-        </Dialog>
+      {showRewardWithdrawal ? (
+        <Suspense fallback={<AppTransitionDialog title="Preparing rewards" message="Loading the claim controls..." />}>
+          <LazyRewardWithdrawalDialog
+            coordinators={[coordinator]}
+            onClose={() => setShowRewardWithdrawal(false)}
+            slot={slot}
+          />
+        </Suspense>
       ) : null}
     </>
   );
 }
 
-function LatestOrderDialog({ coordinators, onClose, orderId, slot }: {
+function LatestOrderDialog({
+  coordinators,
+  onClose,
+  orderId,
+  slot
+}: {
   coordinators: CoordinatorSummary[];
   onClose: () => void;
   orderId: number;
@@ -942,21 +1125,31 @@ function LatestOrderDialog({ coordinators, onClose, orderId, slot }: {
     void fetchOrder(coordinator.url, orderId, auth)
       .then((value) => {
         if (disposed) return;
-        setOrder(ingestCoordinatorOrder({
-          order: value,
-          orderId,
-          shortAlias: robot.shortAlias!,
-          slot
-        }));
+        setOrder(
+          ingestCoordinatorOrder({
+            order: value,
+            orderId,
+            shortAlias: robot.shortAlias!,
+            slot
+          })
+        );
       })
-      .catch((reason) => { if (!disposed) setError(toUserMessage(reason, "Could not load the order.")); });
-    return () => { disposed = true; };
+      .catch((reason) => {
+        if (!disposed) setError(toUserMessage(reason, "Could not load the order."));
+      });
+    return () => {
+      disposed = true;
+    };
   }, [coordinator, orderId, robot?.shortAlias, slot]);
 
-  const currency = currencyOptions().find((item) => item.code === order?.currency)?.label ?? String(order?.currency ?? "");
-  const amount = order?.currency === 1000
-    ? `Approx. ${formatSats(order.satoshis)}`
-    : order ? formatFiat(order.amount, currency) : "";
+  const currency =
+    currencyOptions().find((item) => item.code === order?.currency)?.label ?? String(order?.currency ?? "");
+  const amount =
+    order?.currency === 1000
+      ? `Approx. ${formatSats(order.satoshis)}`
+      : order
+        ? formatFiat(order.amount, currency)
+        : "";
 
   return (
     <Dialog
@@ -965,41 +1158,66 @@ function LatestOrderDialog({ coordinators, onClose, orderId, slot }: {
       overlayClassName="garage-switcher-overlay"
       panelClassName="garage-last-order-dialog"
     >
-        <header>
+      <header>
+        <div>
+          <span className="app-eyebrow">Last order</span>
+          <h3 id="last-order-title">Order #{orderId}</h3>
+        </div>
+        <button className="icon-button" type="button" onClick={onClose} aria-label="Close order details">
+          <X size={18} />
+        </button>
+      </header>
+      {coordinator ? (
+        <div className="garage-last-order-host">
+          <img className="coordinator-avatar coordinator-avatar-sm" src={coordinator.smallAvatarUrl} alt="" />
+          <span>
+            <strong>{coordinator.longAlias}</strong>
+            <small>Order host</small>
+          </span>
+        </div>
+      ) : null}
+      {!order && !error ? (
+        <div className="garage-last-order-loading" role="status" aria-live="polite">
+          <span className="ui-spinner" aria-hidden="true" />
+          <span>Loading order details...</span>
+        </div>
+      ) : null}
+      {error ? <p className="status-panel status-panel-warning">{error}</p> : null}
+      {order ? (
+        <dl className="garage-last-order-summary">
           <div>
-            <span className="app-eyebrow">Last order</span>
-            <h3 id="last-order-title">Order #{orderId}</h3>
+            <dt>Status</dt>
+            <dd>{orderStatusLabel(order)}</dd>
           </div>
-          <button className="icon-button" type="button" onClick={onClose} aria-label="Close order details"><X size={18} /></button>
-        </header>
-        {coordinator ? (
-          <div className="garage-last-order-host">
-            <img className="coordinator-avatar coordinator-avatar-sm" src={coordinator.smallAvatarUrl} alt="" />
-            <span><strong>{coordinator.longAlias}</strong><small>Order host</small></span>
+          <div>
+            <dt>Amount</dt>
+            <dd>
+              <CurrencyFlag code={currency} size={18} /> {amount}
+            </dd>
           </div>
-        ) : null}
-        {!order && !error ? (
-          <div className="garage-last-order-loading" role="status" aria-live="polite">
-            <span className="ui-spinner" aria-hidden="true" />
-            <span>Loading order details...</span>
+          <div>
+            <dt>Method</dt>
+            <dd>
+              <PaymentMethodIcons text={order.payment_method} size={18} /> {order.payment_method}
+            </dd>
           </div>
-        ) : null}
-        {error ? <p className="status-panel status-panel-warning">{error}</p> : null}
-        {order ? (
-          <dl className="garage-last-order-summary">
-            <div><dt>Status</dt><dd>{orderStatusLabel(order)}</dd></div>
-            <div><dt>Amount</dt><dd><CurrencyFlag code={currency} size={18} /> {amount}</dd></div>
-            <div><dt>Method</dt><dd><PaymentMethodIcons text={order.payment_method} size={18} /> {order.payment_method}</dd></div>
-            <div><dt>Premium</dt><dd>{order.premium.toFixed(2)}%</dd></div>
-          </dl>
-        ) : null}
-        <Button type="button" variant="secondary" onClick={onClose}>Close</Button>
+          <div>
+            <dt>Premium</dt>
+            <dd>{order.premium.toFixed(2)}%</dd>
+          </div>
+        </dl>
+      ) : null}
+      <Button type="button" variant="secondary" onClick={onClose}>
+        Close
+      </Button>
     </Dialog>
   );
 }
 
 function orderPath(slot: NonNullable<ReturnType<typeof selectCurrentSlot>>, orderId: number): string {
-  const robot = Object.values(slot.robots).find((item) => item.activeOrderId === orderId || item.lastOrderId === orderId);
+  const robot = Object.values(slot.robots).find(
+    (item) => item.activeOrderId === orderId || item.lastOrderId === orderId
+  );
   return `/order/${robot?.shortAlias ?? "local"}/${orderId}`;
 }
 
@@ -1007,7 +1225,10 @@ function orderStatusLabel(order: OrderDto): string {
   if (order.status === 14) return "Completed";
   if (order.status === 4) return "Cancelled";
   if (order.status === 5) return "Expired";
-  if ([12, 17, 18].includes(order.status)) return "Closed";
+  if (order.status === 12) return "Cancelled together";
+  const disputeOutcome = disputeOutcomeForCurrentRobot(order);
+  if (disputeOutcome) return disputeOutcome === "won" ? "Dispute won" : "Dispute lost";
+  if ([17, 18].includes(order.status)) return "Dispute resolved";
   return order.status_message || "Inactive";
 }
 

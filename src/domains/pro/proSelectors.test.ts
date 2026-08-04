@@ -60,6 +60,15 @@ describe("PRO trade selectors", () => {
     expect(matchesFilter(actionableActive, "active")).toBe(false);
   });
 
+  it("counts each robot with rewards as one claim action", () => {
+    expect(summaryCounts([], 2)).toEqual({
+      "needs-action": 2,
+      active: 0,
+      public: 0,
+      renewable: 0
+    });
+  });
+
   it("maps every coordinator order status to a stable desk group", () => {
     const groups = new Set(["needs-action", "in-progress", "waiting", "renewable", "stale"]);
     for (let status = 0; status <= 18; status += 1) {

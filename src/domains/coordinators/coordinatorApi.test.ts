@@ -37,6 +37,22 @@ describe("coordinator API request priority", () => {
     });
   });
 
+  it("keeps a forced lifecycle probe out of the visible request lane", async () => {
+    const get = vi.spyOn(apiClient, "get").mockResolvedValue({});
+
+    await fetchCoordinatorInfo("http://coordinator.onion", {
+      force: true,
+      priority: "background"
+    });
+
+    expect(get).toHaveBeenCalledWith("http://coordinator.onion", "/api/info/", undefined, {
+      bypassCircuit: true,
+      priority: "maintenance",
+      source: "federation",
+      timeoutProfile: "background"
+    });
+  });
+
   it("uses the short background profile for opportunistic orderbook warm-up", async () => {
     const get = vi.spyOn(apiClient, "get").mockResolvedValue([]);
 

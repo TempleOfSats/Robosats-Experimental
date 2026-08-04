@@ -24,5 +24,20 @@ describe("AppTransitionFeedback", () => {
     expect(html).toContain('aria-modal="true"');
     expect(html).toContain('aria-label="Preparing Pro Fleet"');
     expect(html).toContain("Opening Fleet setup...");
+    expect(html).not.toContain("take-modal-close");
+  });
+
+  it("renders an accessible close control for dismissible transitions", () => {
+    const html = renderToStaticMarkup(
+      <AppTransitionDialog
+        closeLabel="Close trade finder"
+        message="Loading the guided trade steps..."
+        onClose={() => undefined}
+        title="Preparing trade finder"
+      />
+    );
+
+    expect(html).toContain('class="take-modal-close"');
+    expect(html).toContain('aria-label="Close trade finder"');
   });
 });

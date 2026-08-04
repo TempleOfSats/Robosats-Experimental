@@ -21,6 +21,7 @@ import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.type
 import { currencyCodeFromId, orderCurrencyCodes } from "@/domains/orderbook/currencies";
 import { orderSatsPreview } from "@/domains/orderbook/offerDisplay";
 import { CurrencyFlag, PaymentMethodIcons } from "@/domains/orderbook/OfferMeta";
+import { downloadTextFile } from "@/domains/transport/downloadFile";
 import { useOrderbookStore } from "@/domains/orderbook/orderbookStore";
 import type { PublicOrder } from "@/domains/orderbook/orderbook.types";
 import { roleBuysBitcoin } from "@/domains/orders/orderRole";
@@ -1154,12 +1155,11 @@ function exportTicks(ticks: MarketTick[], coordinatorByAlias: Map<string, Coordi
     })
   ];
   const csv = rows.map((row) => row.map(csvCell).join(",")).join("\n");
-  const href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-  const anchor = document.createElement("a");
-  anchor.href = href;
-  anchor.download = `robosats-market-activity-${new Date().toISOString().slice(0, 10)}.csv`;
-  anchor.click();
-  URL.revokeObjectURL(href);
+  downloadTextFile(
+    `robosats-market-activity-${new Date().toISOString().slice(0, 10)}.csv`,
+    csv,
+    "text/csv;charset=utf-8"
+  );
 }
 
 function csvCell(value: unknown): string {

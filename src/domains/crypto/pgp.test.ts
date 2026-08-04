@@ -9,6 +9,7 @@ import {
 describe("pgp helpers", () => {
   it("escapes armored keys for current auth headers", () => {
     expect(escapeArmoredKeyForHeader("line 1\nline 2")).toBe("line 1\\line 2");
+    expect(escapeArmoredKeyForHeader("line 1\r\nline 2\rline 3")).toBe("line 1\\line 2\\line 3");
   });
 
   it("generates current armored PGP keys", async () => {

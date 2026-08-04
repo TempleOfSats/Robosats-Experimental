@@ -2,11 +2,16 @@ mod preferences;
 mod runtime;
 mod secure_storage;
 
-use notify_rust::{Notification, NotificationResponse};
+use base64::Engine;
+use notify_rust::{Notification, NotificationResponse, Timeout};
 use preferences::Preferences;
-use runtime::{DesktopRuntime, RuntimeStatus};
+use runtime::{DesktopRuntime, RuntimeStatus, TransportDiagnostic};
 use serde::{Deserialize, Serialize};
-use std::sync::Mutex;
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    sync::Mutex,
+};
 use tauri::menu::MenuBuilder;
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State, WindowEvent};
@@ -29,11 +34,24 @@ struct NotificationRequest {
     title: String,
     body: String,
     route: Option<String>,
+    avatar: Option<NotificationAvatar>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NotificationAvatar {
+    cache_key: String,
+    data_url: String,
 }
 
 #[tauri::command]
 fn desktop_runtime_status(runtime: State<'_, DesktopRuntime>) -> RuntimeStatus {
     runtime.status()
+}
+
+#[tauri::command]
+fn desktop_transport_diagnostics(runtime: State<'_, DesktopRuntime>) -> Vec<TransportDiagnostic> {
+    runtime.diagnostics()
 }
 
 #[tauri::command]
@@ -66,6 +84,7 @@ fn desktop_set_notifications_enabled(
             &app,
             "RoboSats notifications",
             "Trade updates will appear here.",
+            None,
             None,
         ) {
             let disabled = Preferences {
@@ -118,7 +137,11 @@ fn desktop_show_notification(
     {
         return Err("Invalid notification route".into());
     }
-    show_native_notification(&app, &title, &body, request.route)?;
+    let avatar_path = request
+        .avatar
+        .as_ref()
+        .and_then(|avatar| cache_notification_avatar(&app, avatar).ok());
+    show_native_notification(&app, &title, &body, request.route, avatar_path.as_deref())?;
     Ok(true)
 }
 
@@ -144,6 +167,27 @@ fn desktop_recover_transport(app: AppHandle, runtime: State<'_, DesktopRuntime>)
 #[tauri::command]
 fn desktop_reconnect_transport(app: AppHandle, runtime: State<'_, DesktopRuntime>) {
     runtime.reconnect_transport(app);
+}
+
+#[tauri::command]
+fn desktop_reset_transport(app: AppHandle, runtime: State<'_, DesktopRuntime>) {
+    runtime.reset_transport(app);
+}
+
+#[tauri::command]
+fn desktop_save_file(app: AppHandle, filename: String, content: String) -> Result<(), String> {
+    const MAX_FILE_BYTES: usize = 8 * 1024 * 1024;
+    if content.len() > MAX_FILE_BYTES {
+        return Err("Export is too large to save".into());
+    }
+    let filename = sanitize_download_filename(&filename)?;
+    let directory = app
+        .path()
+        .download_dir()
+        .map_err(|error| error.to_string())?;
+    fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+    let path = next_download_path(&directory, &filename)?;
+    fs::write(path, content).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -241,6 +285,7 @@ pub fn run() {
         .manage(PendingNotificationRoute(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             desktop_runtime_status,
+            desktop_transport_diagnostics,
             desktop_notification_state,
             desktop_set_notifications_enabled,
             desktop_show_notification,
@@ -248,6 +293,8 @@ pub fn run() {
             desktop_retry,
             desktop_recover_transport,
             desktop_reconnect_transport,
+            desktop_reset_transport,
+            desktop_save_file,
             desktop_boot_stage,
             desktop_app_ready,
             desktop_network_changed,
@@ -285,6 +332,62 @@ pub fn run() {
     });
 }
 
+fn sanitize_download_filename(filename: &str) -> Result<String, String> {
+    if filename.is_empty()
+        || filename.len() > 160
+        || filename.contains('/')
+        || filename.contains('\\')
+    {
+        return Err("Invalid export filename".into());
+    }
+    let sanitized = filename
+        .chars()
+        .map(|character| {
+            if character.is_control()
+                || matches!(character, '<' | '>' | ':' | '"' | '|' | '?' | '*')
+            {
+                '-'
+            } else {
+                character
+            }
+        })
+        .collect::<String>();
+    let sanitized = sanitized
+        .trim()
+        .trim_end_matches(|character| character == '.' || character == ' ')
+        .to_string();
+    if sanitized.is_empty() || sanitized == "." || sanitized == ".." {
+        return Err("Invalid export filename".into());
+    }
+    Ok(sanitized)
+}
+
+fn next_download_path(directory: &Path, filename: &str) -> Result<PathBuf, String> {
+    let source = Path::new(filename);
+    let stem = source
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or(filename);
+    let extension = source
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("");
+    for suffix in 0..1000 {
+        let candidate_name = if suffix == 0 {
+            filename.to_string()
+        } else if extension.is_empty() {
+            format!("{stem} ({suffix})")
+        } else {
+            format!("{stem} ({suffix}).{extension}")
+        };
+        let candidate = directory.join(candidate_name);
+        if !candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+    Err("Could not choose a free export filename".into())
+}
+
 fn notifications_enabled(app: &AppHandle) -> bool {
     app.state::<PreferenceState>()
         .0
@@ -298,6 +401,7 @@ fn show_native_notification(
     title: &str,
     body: &str,
     route: Option<String>,
+    avatar_path: Option<&std::path::Path>,
 ) -> Result<(), String> {
     let mut notification = Notification::new();
     notification
@@ -305,7 +409,11 @@ fn show_native_notification(
         .body(body)
         .appname("RoboSats Exp.")
         .auto_icon()
+        .timeout(Timeout::Milliseconds(12_000))
         .action("default", "Open");
+    if let Some(path) = avatar_path.and_then(|path| path.to_str()) {
+        notification.image_path(path);
+    }
 
     #[cfg(windows)]
     configure_windows_notification(app, &mut notification);
@@ -335,6 +443,48 @@ fn show_native_notification(
         });
     }
     Ok(())
+}
+
+fn cache_notification_avatar(
+    app: &AppHandle,
+    avatar: &NotificationAvatar,
+) -> Result<PathBuf, String> {
+    if avatar.cache_key.len() != 64
+        || !avatar
+            .cache_key
+            .chars()
+            .all(|character| character.is_ascii_hexdigit())
+    {
+        return Err("Invalid notification avatar key".into());
+    }
+    let png = decode_notification_avatar(&avatar.data_url)?;
+    let directory = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| error.to_string())?
+        .join("notification-avatars");
+    fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+    let path = directory.join(format!("{}.png", avatar.cache_key.to_ascii_lowercase()));
+    fs::write(&path, png).map_err(|error| error.to_string())?;
+    Ok(path)
+}
+
+fn decode_notification_avatar(data_url: &str) -> Result<Vec<u8>, String> {
+    const PREFIX: &str = "data:image/png;base64,";
+    const MAX_ENCODED_BYTES: usize = 350_000;
+    let encoded = data_url
+        .strip_prefix(PREFIX)
+        .ok_or("Invalid notification avatar format")?;
+    if encoded.len() > MAX_ENCODED_BYTES {
+        return Err("Notification avatar is too large".into());
+    }
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .map_err(|_| "Invalid notification avatar encoding")?;
+    if !decoded.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return Err("Invalid notification avatar image".into());
+    }
+    Ok(decoded)
 }
 
 #[cfg(windows)]
@@ -408,9 +558,49 @@ mod tests {
     }
 
     #[test]
+    fn notification_avatars_require_bounded_png_data() {
+        let png = "data:image/png;base64,iVBORw0KGgo=";
+        assert_eq!(
+            decode_notification_avatar(png).unwrap(),
+            b"\x89PNG\r\n\x1a\n"
+        );
+        assert!(decode_notification_avatar("data:image/svg+xml;base64,PHN2Zz4=").is_err());
+        assert!(decode_notification_avatar("data:image/png;base64,bm90LXBuZw==").is_err());
+    }
+
+    #[test]
     fn external_urls_reject_script_schemes() {
         assert!(valid_external_url("https://learn.robosats.com/"));
         assert!(valid_external_url("lightning:lnbc1example"));
         assert!(!valid_external_url("javascript:alert(1)"));
+    }
+
+    #[test]
+    fn download_names_are_leaf_only_and_safe() {
+        assert_eq!(
+            sanitize_download_filename("trade.json").unwrap(),
+            "trade.json"
+        );
+        assert!(sanitize_download_filename("../trade.json").is_err());
+        assert_eq!(
+            sanitize_download_filename("trade<1>.json").unwrap(),
+            "trade-1-.json"
+        );
+    }
+
+    #[test]
+    fn download_paths_do_not_overwrite_existing_exports() {
+        let directory =
+            std::env::temp_dir().join(format!("robosats-download-test-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(directory.join("trade.json"), "existing").unwrap();
+        assert_eq!(
+            next_download_path(&directory, "trade.json")
+                .unwrap()
+                .file_name()
+                .and_then(|value| value.to_str()),
+            Some("trade (1).json")
+        );
+        let _ = std::fs::remove_dir_all(directory);
     }
 }
