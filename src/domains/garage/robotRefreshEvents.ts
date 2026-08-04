@@ -15,6 +15,11 @@ export type RefreshRobotSlotResult = {
   coordinators: RefreshRobotCoordinatorResult[];
 };
 
+export function didRobotCoordinatorRefreshSucceed(result: RefreshRobotSlotResult, shortAlias: string): boolean {
+  const coordinator = result.coordinators.find((item) => item.shortAlias === shortAlias);
+  return Boolean(coordinator && !coordinator.transportFailed && !coordinator.error);
+}
+
 type RobotRefreshListener = (result: RefreshRobotSlotResult) => void;
 
 const listeners = new Set<RobotRefreshListener>();

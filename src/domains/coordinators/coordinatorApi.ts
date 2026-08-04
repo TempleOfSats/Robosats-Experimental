@@ -8,12 +8,12 @@ export async function fetchCoordinatorInfo(
   baseUrl: string,
   options: { force?: boolean; priority?: "background" | "visible" } = {}
 ): Promise<CoordinatorInfo> {
-  const visible = options.force || options.priority === "visible";
+  const visible = options.priority === "visible" || (options.force && options.priority === undefined);
   return apiClient.get<CoordinatorInfo>(baseUrl, apiRoutes.info, undefined, {
     bypassCircuit: options.force,
     timeoutProfile: visible ? "interactive" : "background",
     priority: visible ? "visible" : "maintenance",
-    source: options.force ? "manual" : "federation"
+    source: options.force && visible ? "manual" : "federation"
   });
 }
 
@@ -21,12 +21,12 @@ export async function fetchCoordinatorLimits(
   baseUrl: string,
   options: { force?: boolean; priority?: "background" | "visible" } = {}
 ): Promise<CoordinatorLimitList> {
-  const visible = options.force || options.priority === "visible";
+  const visible = options.priority === "visible" || (options.force && options.priority === undefined);
   return apiClient.get<CoordinatorLimitList>(baseUrl, apiRoutes.limits, undefined, {
     bypassCircuit: options.force,
     timeoutProfile: visible ? "interactive" : "background",
     priority: visible ? "visible" : "maintenance",
-    source: options.force ? "manual" : "federation"
+    source: options.force && visible ? "manual" : "federation"
   });
 }
 

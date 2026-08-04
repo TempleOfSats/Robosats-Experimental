@@ -1,3 +1,3 @@
 export function escapeArmoredKeyForHeader(key: string): string {
-  return key.split("\n").join("\\");
+  return key.replace(/\r\n?/g, "\n").replace(/\n/g, "\\");
 }

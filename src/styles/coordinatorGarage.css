@@ -1312,6 +1312,67 @@
   cursor: not-allowed;
 }
 
+.reward-claim-result {
+  display: grid;
+  justify-items: center;
+  gap: 0.65rem;
+  padding: 1rem 0 0.25rem;
+  text-align: center;
+}
+
+.reward-claim-result > p {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.reward-claim-result-icon {
+  width: 2.75rem;
+  height: 2.75rem;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+}
+
+.reward-claim-result-icon-warning {
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+}
+
+.reward-claim-reconciliation {
+  width: 100%;
+  min-height: 2.6rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.65rem 0.75rem;
+  color: var(--muted-foreground);
+  background: var(--surface-subtle);
+  font-size: 0.8rem;
+}
+
+.reward-claim-reconciliation-ready {
+  color: var(--success);
+}
+
+.reward-claim-reconciliation-unavailable {
+  color: var(--warning);
+}
+
+.reward-claim-result-actions {
+  width: 100%;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
 @media (max-width: 520px) {
   .settings-stack .setting-row {
     flex-direction: row;
@@ -1609,7 +1670,9 @@
 }
 
 @keyframes coordinator-spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .maker-coordinator-fees {

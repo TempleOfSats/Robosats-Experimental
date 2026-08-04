@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Bot } from "lucide-react";
+import { RobotIcon } from "@/components/ui/robotIcon";
 import { cn } from "@/lib/cn";
 
 export function RobotAvatar({
@@ -55,7 +55,7 @@ export function RobotAvatar({
         <img src={avatarSrc} alt="" />
       ) : (
         <span className="robot-avatar-placeholder" aria-hidden="true">
-          <Bot className="robot-avatar-placeholder-icon" strokeWidth={1.7} />
+          <RobotIcon className="robot-avatar-placeholder-icon" />
         </span>
       )}
     </div>

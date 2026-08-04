@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { hexToBase91 } from "@/lib/hexToBase91";
 import { getPublicKey } from "nostr-tools/pure";
 import type { SimplePool } from "nostr-tools/pool";
 import {
@@ -89,7 +90,7 @@ describe("Garage NIP-78 records", () => {
 
   it("publishes finished trades under an independent encrypted history identity", () => {
     const entry = tradeHistoryEntryFromOrder({
-      slotId: "b".repeat(64),
+      slotId: hexToBase91("b".repeat(64)),
       robotName: "Robot",
       robotHashId: "hash",
       coordinatorShortAlias: "lake",

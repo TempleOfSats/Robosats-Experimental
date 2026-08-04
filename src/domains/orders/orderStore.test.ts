@@ -359,6 +359,137 @@ describe("order load outcomes", () => {
       loadFailure: undefined
     });
   });
+
+  it("accepts a payout action when a follow-up read proves a stale signature error arrived after success", async () => {
+    useOrderStore.setState({
+      order: { id: 123, status: 6, is_buyer: true, is_maker: true } as OrderDto
+    });
+    submitOrderActionMock.mockRejectedValue(
+      new RoboSatsApiError(
+        400,
+        { error_code: 1048, message: "The PGP signed cleartext message is not valid." },
+        "Request failed"
+      )
+    );
+    fetchOrderMock.mockResolvedValue({ id: 123, status: 7, is_buyer: true, is_maker: true });
+
+    await useOrderStore.getState().submitAction({
+      coordinator,
+      orderId: 123,
+      slot,
+      payload: { action: "update_invoice", invoice: "signed" }
+    });
+
+    expect(fetchOrderMock).toHaveBeenCalledWith(
+      coordinator.url,
+      123,
+      expect.any(Object),
+      {
+        timeoutProfile: "interactive",
+        priority: "foreground",
+        source: "order-refresh",
+        supersedeInFlight: true
+      }
+    );
+    expect(useOrderStore.getState()).toMatchObject({
+      order: { status: 7 },
+      submitting: false,
+      actionError: undefined
+    });
+  });
+
+  it("keeps a signed-payout error when the authoritative order still needs payout info", async () => {
+    useOrderStore.setState({
+      order: { id: 123, status: 6, is_buyer: true, is_maker: true } as OrderDto
+    });
+    submitOrderActionMock.mockRejectedValue(
+      new RoboSatsApiError(
+        400,
+        { error_code: 1048, message: "The PGP signed cleartext message is not valid." },
+        "Request failed"
+      )
+    );
+    fetchOrderMock.mockResolvedValue({ id: 123, status: 6, is_buyer: true, is_maker: true });
+
+    await useOrderStore.getState().submitAction({
+      coordinator,
+      orderId: 123,
+      slot,
+      payload: { action: "update_invoice", invoice: "signed" }
+    });
+
+    expect(useOrderStore.getState()).toMatchObject({
+      order: { status: 6 },
+      submitting: false,
+      actionError: "The PGP signed cleartext message is not valid."
+    });
+  });
+
+  it("accepts a replacement invoice that clears expiry while routing remains at status 15", async () => {
+    useOrderStore.setState({
+      order: {
+        id: 123,
+        status: 15,
+        invoice_expired: true,
+        is_buyer: true,
+        is_maker: true
+      } as OrderDto
+    });
+    submitOrderActionMock.mockRejectedValue(
+      new RoboSatsApiError(
+        400,
+        { error_code: 1048, message: "The PGP signed cleartext message is not valid." },
+        "Request failed"
+      )
+    );
+    fetchOrderMock.mockResolvedValue({
+      id: 123,
+      status: 15,
+      invoice_expired: false,
+      is_buyer: true,
+      is_maker: true
+    });
+
+    await useOrderStore.getState().submitAction({
+      coordinator,
+      orderId: 123,
+      slot,
+      payload: { action: "update_invoice", invoice: "signed" }
+    });
+
+    expect(useOrderStore.getState()).toMatchObject({
+      order: { status: 15, invoice_expired: false },
+      submitting: false,
+      actionError: undefined
+    });
+  });
+
+  it("keeps the original signed-payout error when its follow-up read fails", async () => {
+    useOrderStore.setState({
+      order: { id: 123, status: 6, is_buyer: true, is_maker: true } as OrderDto
+    });
+    submitOrderActionMock.mockRejectedValue(
+      new RoboSatsApiError(
+        400,
+        { error_code: 1048, message: "The PGP signed cleartext message is not valid." },
+        "Request failed"
+      )
+    );
+    fetchOrderMock.mockRejectedValue(new Error("Tor request failed"));
+
+    await useOrderStore.getState().submitAction({
+      coordinator,
+      orderId: 123,
+      slot,
+      payload: { action: "update_invoice", invoice: "signed" }
+    });
+
+    expect(useOrderStore.getState()).toMatchObject({
+      order: { status: 6 },
+      submitting: false,
+      actionError: "The PGP signed cleartext message is not valid."
+    });
+  });
 });
 
 describe("order load failure classification", () => {

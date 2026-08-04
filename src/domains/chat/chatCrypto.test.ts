@@ -3,7 +3,7 @@ import { generatePgpKeyPair } from "@/domains/crypto/pgp";
 import { decryptChatMessage, encryptChatMessage } from "@/domains/chat/chatCrypto";
 
 describe("chatCrypto", () => {
-  it("encrypts signed chat messages that both peers can decrypt", async () => {
+  it("derives the sender recipient from the private key so both peers can decrypt", async () => {
     const aliceToken = "alice-token-with-enough-entropy-1234567890";
     const bobToken = "bob-token-with-enough-entropy-1234567890";
     const alice = await generatePgpKeyPair(aliceToken);
@@ -12,7 +12,6 @@ describe("chatCrypto", () => {
     const encrypted = await encryptChatMessage({
       message: "Fiat sent at 10:00",
       ownPrivateKeyArmored: alice.encryptedPrivateKeyArmored,
-      ownPublicKeyArmored: alice.publicKeyArmored,
       passphrase: aliceToken,
       peerPublicKeyArmored: bob.publicKeyArmored
     });

@@ -1,4 +1,5 @@
 import { decodeGarageToken } from "@/domains/pro/garageVault";
+import { downloadTextFile } from "@/domains/transport/downloadFile";
 
 export type FleetKeyBackup = {
   format: "robosats-exp-fleet-key";
@@ -18,10 +19,5 @@ export function buildFleetKeyBackup(fleetKey: string): FleetKeyBackup {
 
 export function downloadFleetKeyBackup(fleetKey: string): void {
   const payload = JSON.stringify(buildFleetKeyBackup(fleetKey), null, 2);
-  const href = URL.createObjectURL(new Blob([payload], { type: "application/json" }));
-  const anchor = document.createElement("a");
-  anchor.href = href;
-  anchor.download = "robosats-pro-fleet-key.json";
-  anchor.click();
-  URL.revokeObjectURL(href);
+  downloadTextFile("robosats-pro-fleet-key.json", payload, "application/json");
 }

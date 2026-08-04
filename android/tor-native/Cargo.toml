@@ -9,11 +9,12 @@ crate-type = ["cdylib"]
 [workspace]
 
 [dependencies]
-arti-client = { version = "0.44", default-features = false, features = [
+arti-client = { version = "=0.44.0", default-features = false, features = [
     "tokio",
     "rustls",
     "compression",
     "flowctl-cc",
+    "hs-pow-full",
     "onion-service-client",
     "static-sqlite",
 ] }

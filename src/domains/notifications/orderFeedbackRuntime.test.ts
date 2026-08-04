@@ -66,21 +66,23 @@ describe("desktop trade feedback", () => {
     observe({ status: 2, chat_last_index: 2 });
     expect(playTradeAudioMock).toHaveBeenCalledOnce();
     expect(showDesktopOrderNotificationMock).toHaveBeenCalledOnce();
-    expect(showDesktopOrderNotificationMock).toHaveBeenLastCalledWith(123, "lake", "Taker found");
+    expect(showDesktopOrderNotificationMock).toHaveBeenLastCalledWith(123, "lake", "Taker found", "hash");
 
     observe({ status: 2, chat_last_index: 3 });
     expect(playTradeAudioMock).toHaveBeenLastCalledWith("chat-open");
     expect(showDesktopOrderNotificationMock).toHaveBeenLastCalledWith(
       123,
       "lake",
-      "New trade chat message"
+      "New trade chat message",
+      "hash"
     );
 
     observe({ status: 2, chat_last_index: 3, pending_cancel: true });
     expect(showDesktopOrderNotificationMock).toHaveBeenLastCalledWith(
       123,
       "lake",
-      "Your peer requested collaborative cancellation"
+      "Your peer requested collaborative cancellation",
+      "hash"
     );
   });
 
@@ -111,6 +113,27 @@ describe("desktop trade feedback", () => {
     expect(playTradeAudioMock).toHaveBeenCalledOnce();
     expect(showDesktopOrderNotificationMock).toHaveBeenCalledTimes(3);
     unregister();
+  });
+
+  it("reports dispute results from the current robot perspective", () => {
+    startOrderFeedbackRuntime();
+    observe({ status: 16, is_maker: true, is_taker: false });
+    observe({ status: 18, is_maker: true, is_taker: false });
+    expect(showDesktopOrderNotificationMock).toHaveBeenLastCalledWith(
+      123,
+      "lake",
+      "Dispute resolved in your favor",
+      "hash"
+    );
+
+    observe({ status: 16, is_maker: true, is_taker: false });
+    observe({ status: 17, is_maker: true, is_taker: false });
+    expect(showDesktopOrderNotificationMock).toHaveBeenLastCalledWith(
+      123,
+      "lake",
+      "Dispute resolved in favor of your peer",
+      "hash"
+    );
   });
 });
 

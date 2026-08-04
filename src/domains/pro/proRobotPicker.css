@@ -1,0 +1,62 @@
+.pro-create-robot-picker {
+  width: min(100%, 30rem);
+}
+
+.pro-create-robot-picker .garage-switcher-header > span {
+  min-width: 0;
+  display: grid;
+  gap: 0.15rem;
+}
+
+.pro-create-robot-picker .garage-switcher-header small {
+  color: var(--text-supporting);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
+}
+
+.pro-create-robot-option > svg {
+  color: var(--text-supporting);
+}
+
+.pro-create-robot-option:hover > svg,
+.pro-create-robot-option:focus-visible > svg {
+  color: var(--primary);
+}
+
+.pro-reused-robot-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--warning-foreground);
+}
+
+.pro-reused-robot-note {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--border);
+  color: var(--text-supporting);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
+}
+
+.pro-create-robot-empty {
+  min-height: 12rem;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 0.4rem;
+  padding: 1.5rem;
+  color: var(--text-supporting);
+  text-align: center;
+}
+
+.pro-create-robot-empty strong {
+  color: var(--foreground);
+}
+
+.pro-create-robot-empty p {
+  max-width: 34ch;
+  margin: 0;
+  font-size: var(--type-compact-size);
+  line-height: var(--type-compact-line);
+}

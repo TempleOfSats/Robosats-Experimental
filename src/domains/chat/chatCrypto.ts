@@ -1,13 +1,11 @@
 export async function encryptChatMessage({
   message,
   ownPrivateKeyArmored,
-  ownPublicKeyArmored,
   passphrase,
   peerPublicKeyArmored
 }: {
   message: string;
   ownPrivateKeyArmored: string;
-  ownPublicKeyArmored: string;
   passphrase: string;
   peerPublicKeyArmored: string;
 }): Promise<string> {
@@ -16,16 +14,16 @@ export async function encryptChatMessage({
     privateKey: await readPrivateKey({ armoredKey: ownPrivateKeyArmored }),
     passphrase
   });
-  const encryptionKeys = await Promise.all(
-    uniqueArmoredKeys([peerPublicKeyArmored, ownPublicKeyArmored])
-      .map((armoredKey) => readKey({ armoredKey }))
-  );
+  const peerEncryptionKey = await readKey({ armoredKey: peerPublicKeyArmored });
+  const date = new Date();
+  date.setDate(date.getDate() - 1);
 
   return String(
     await encrypt({
       message: await createMessage({ text: message }),
-      encryptionKeys,
-      signingKeys: signingKey
+      encryptionKeys: [peerEncryptionKey, signingKey.toPublic()],
+      signingKeys: signingKey,
+      date
     })
   );
 }
@@ -49,8 +47,7 @@ export async function decryptChatMessage({
     passphrase
   });
   const verificationKeys = await Promise.all(
-    uniqueArmoredKeys([peerPublicKeyArmored, ownPublicKeyArmored])
-      .map((armoredKey) => readKey({ armoredKey }))
+    uniqueArmoredKeys([peerPublicKeyArmored, ownPublicKeyArmored]).map((armoredKey) => readKey({ armoredKey }))
   );
   const { data } = await decrypt({
     message: await readMessage({ armoredMessage }),

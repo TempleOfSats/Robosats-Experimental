@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   WAYLAND_RUNTIME_LIBRARIES,
   appImageArchitecture,
   appImagePluginPath,
+  configureAdaptiveGtkBackend,
   removeBundledWaylandLibraries
 } from "./appimage.mjs";
 
@@ -46,6 +47,21 @@ describe("AppImage packaging", () => {
     expect(appImageArchitecture("x64")).toBe("x86_64");
     expect(appImageArchitecture("arm64")).toBe("aarch64");
     expect(() => appImageArchitecture("riscv64")).toThrow(/Unsupported/);
+  });
+
+  it("uses Wayland when available while preserving overrides and X11 fallback", async () => {
+    const appDirectory = await temporaryDirectory();
+    const hooks = path.join(appDirectory, "apprun-hooks");
+    const hook = path.join(hooks, "linuxdeploy-plugin-gtk.sh");
+    await mkdir(hooks, { recursive: true });
+    await writeFile(hook, "#!/bin/sh\nexport GDK_BACKEND=x11 # linuxdeploy default\nexec app\n");
+
+    await expect(configureAdaptiveGtkBackend(appDirectory)).resolves.toBe(true);
+    const configured = await readFile(hook, "utf8");
+    expect(configured).toContain('[ -z "${GDK_BACKEND:-}" ]');
+    expect(configured).toContain("GDK_BACKEND=wayland,x11");
+    expect(configured).toContain("GDK_BACKEND=x11");
+    await expect(configureAdaptiveGtkBackend(appDirectory)).resolves.toBe(false);
   });
 });
 

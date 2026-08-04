@@ -5,20 +5,38 @@ use futures::StreamExt;
 use serde::Serialize;
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tor_rtcompat::PreferredRuntime;
 
 const BOOTSTRAP_TIMEOUT: Duration = Duration::from_secs(600);
+const MAX_DIAGNOSTIC_DURATION_MS: u64 = 10 * 60 * 1000;
+const ARTI_VERSION: &str = "0.44.0";
 
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum HostMessage<'a> {
-    Progress { progress: u8, stage: &'a str },
-    Ready { port: u16, version: &'a str },
-    Error { message: &'a str },
+    Progress {
+        progress: u8,
+        stage: &'a str,
+    },
+    Ready {
+        port: u16,
+        version: &'a str,
+    },
+    Diagnostic {
+        phase: &'a str,
+        outcome: &'a str,
+        duration_ms: u64,
+        attempt: u32,
+        version: &'a str,
+    },
+    Error {
+        message: &'a str,
+    },
 }
 
 #[tokio::main]
@@ -72,12 +90,25 @@ async fn run() -> Result<()> {
         }
     });
 
+    let bootstrap_started = Instant::now();
     let bootstrap = tokio::time::timeout(BOOTSTRAP_TIMEOUT, client.bootstrap()).await;
     progress_task.abort();
     match bootstrap {
-        Ok(Ok(())) => {}
-        Ok(Err(error)) => return Err(error).context("Tor bootstrap failed"),
-        Err(_) => return Err(anyhow::anyhow!("Tor bootstrap timed out")),
+        Ok(Ok(())) => emit_diagnostic("bootstrap", "ready", bootstrap_started, 1),
+        Ok(Err(error)) => {
+            let error = anyhow::Error::new(error).context("Tor bootstrap failed");
+            emit_diagnostic(
+                "bootstrap",
+                diagnostic_outcome(&error),
+                bootstrap_started,
+                1,
+            );
+            return Err(error);
+        }
+        Err(_) => {
+            emit_diagnostic("bootstrap", "timeout", bootstrap_started, 1);
+            return Err(anyhow::anyhow!("Tor bootstrap timed out"));
+        }
     }
 
     let listener = TcpListener::bind(("127.0.0.1", arguments.socks_port))
@@ -86,15 +117,24 @@ async fn run() -> Result<()> {
     let port = listener.local_addr()?.port();
     emit(&HostMessage::Ready {
         port,
-        version: env!("CARGO_PKG_VERSION"),
+        version: ARTI_VERSION,
     });
 
+    let connection_attempts = Arc::new(AtomicU32::new(0));
     loop {
         let (stream, _) = listener.accept().await?;
         let client = Arc::clone(&client);
+        let attempt = next_attempt(&connection_attempts);
         tokio::spawn(async move {
-            if let Err(error) = handle_socks_connection(stream, client).await {
-                eprintln!("SOCKS connection failed: {error}");
+            let started = Instant::now();
+            match handle_socks_connection(stream, client).await {
+                Ok(()) => emit_diagnostic("stream", "completed", started, attempt),
+                Err(error) => {
+                    let phase = diagnostic_phase(&error);
+                    let outcome = diagnostic_outcome(&error);
+                    emit_diagnostic(phase, outcome, started, attempt);
+                    eprintln!("SOCKS connection failed ({phase}/{outcome})");
+                }
             }
         });
     }
@@ -145,6 +185,61 @@ fn emit(message: &HostMessage<'_>) {
     }
 }
 
+fn emit_diagnostic(phase: &str, outcome: &str, started: Instant, attempt: u32) {
+    emit(&HostMessage::Diagnostic {
+        phase,
+        outcome,
+        duration_ms: diagnostic_duration_ms(started),
+        attempt,
+        version: ARTI_VERSION,
+    });
+}
+
+fn diagnostic_duration_ms(started: Instant) -> u64 {
+    started
+        .elapsed()
+        .as_millis()
+        .min(MAX_DIAGNOSTIC_DURATION_MS.into()) as u64
+}
+
+fn next_attempt(attempts: &AtomicU32) -> u32 {
+    attempts
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+            Some(value.saturating_add(1).min(9_999))
+        })
+        .unwrap_or(9_999)
+        .saturating_add(1)
+        .min(9_999)
+}
+
+fn diagnostic_phase(error: &anyhow::Error) -> &'static str {
+    if error
+        .chain()
+        .any(|cause| cause.to_string() == "Tor connect")
+    {
+        "tor-connect"
+    } else if error.chain().any(|cause| cause.to_string() == "Tor stream") {
+        "stream"
+    } else {
+        "socks"
+    }
+}
+
+fn diagnostic_outcome(error: &anyhow::Error) -> &'static str {
+    let message = format!("{error:#}").to_ascii_lowercase();
+    if message.contains("timed out") || message.contains("timeout") {
+        "timeout"
+    } else if message.contains("circuit") {
+        "circuit-failed"
+    } else if message.contains("not connected") || message.contains("closed") {
+        "stream-closed"
+    } else if message.contains("unsupported") || message.contains("required") {
+        "rejected"
+    } else {
+        "failed"
+    }
+}
+
 async fn handle_socks_connection(
     mut stream: TcpStream,
     client: Arc<TorClient<PreferredRuntime>>,
@@ -174,13 +269,15 @@ async fn handle_socks_connection(
     let mut tor_stream = match client.connect((host.as_str(), port)).await {
         Ok(value) => value,
         Err(error) => {
-            reply(&mut stream, 0x05).await?;
-            return Err(error.into());
+            let _ = reply(&mut stream, 0x05).await;
+            return Err(anyhow::Error::new(error).context("Tor connect"));
         }
     };
 
     reply(&mut stream, 0x00).await?;
-    tokio::io::copy_bidirectional(&mut stream, &mut tor_stream).await?;
+    tokio::io::copy_bidirectional(&mut stream, &mut tor_stream)
+        .await
+        .context("Tor stream")?;
     Ok(())
 }
 
@@ -237,6 +334,37 @@ mod tests {
         })
         .expect("message serializes");
         assert_eq!(value, r#"{"type":"ready","port":19050,"version":"test"}"#);
+    }
+
+    #[test]
+    fn diagnostics_are_bounded_and_contain_no_destination() {
+        let value = serde_json::to_string(&HostMessage::Diagnostic {
+            phase: "tor-connect",
+            outcome: "timeout",
+            duration_ms: 12_345,
+            attempt: 3,
+            version: "test",
+        })
+        .expect("message serializes");
+        assert_eq!(
+            value,
+            r#"{"type":"diagnostic","phase":"tor-connect","outcome":"timeout","duration_ms":12345,"attempt":3,"version":"test"}"#
+        );
+        assert!(!value.contains("host"));
+        assert!(!value.contains("onion"));
+    }
+
+    #[test]
+    fn diagnostics_classify_only_redacted_categories() {
+        let timeout = anyhow::anyhow!("Failed to obtain hidden service circuit")
+            .context("tor operation timed out")
+            .context("Tor connect");
+        assert_eq!(diagnostic_phase(&timeout), "tor-connect");
+        assert_eq!(diagnostic_outcome(&timeout), "timeout");
+
+        let closed = anyhow::anyhow!("Stream not connected").context("Tor stream");
+        assert_eq!(diagnostic_phase(&closed), "stream");
+        assert_eq!(diagnostic_outcome(&closed), "stream-closed");
     }
 
     #[test]

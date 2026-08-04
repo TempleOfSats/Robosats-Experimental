@@ -7,6 +7,7 @@ import { Tabs, tabId } from "@/components/ui/tabs";
 import type { RobotSlot } from "@/domains/garage/garageStore";
 import { deriveRobotIdentity } from "@/domains/identity/robotIdentity";
 import { writeClipboard } from "@/lib/clipboard";
+import { downloadTextFile } from "@/domains/transport/downloadFile";
 
 type KeyTab = "nostr" | "pgp";
 
@@ -148,10 +149,5 @@ export function robotCredentials(slot: RobotSlot) {
 }
 
 function downloadCredentials(filename: string, credentials: object) {
-  const url = URL.createObjectURL(new Blob([JSON.stringify(credentials, null, 2)], { type: "application/json" }));
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.click();
-  URL.revokeObjectURL(url);
+  downloadTextFile(filename, JSON.stringify(credentials, null, 2), "application/json");
 }

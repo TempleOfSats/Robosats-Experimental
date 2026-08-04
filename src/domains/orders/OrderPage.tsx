@@ -1,11 +1,22 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Banknote, Check, ChevronDown, Clock, Copy, Download, ExternalLink, FileText, Link2, MapPin, Paperclip, RefreshCw, Rocket, RotateCw, ShieldAlert, Star, Tag, AlertTriangle, XCircle, Zap } from "lucide-react";
+import {
+  Check,
+  Clock,
+  Copy,
+  FileText,
+  Link2,
+  Paperclip,
+  RefreshCw,
+  ShieldAlert,
+  AlertTriangle,
+  Trophy,
+  XCircle,
+  Zap
+} from "lucide-react";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
 import type { CoordinatorContact, CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
-import { getCoordinatorAvatarUrl } from "@/domains/coordinators/coordinatorAssets";
-import { CurrencyFlag, PaymentMethodIcons } from "@/domains/orderbook/OfferMeta";
 import { currencyCodeFromId } from "@/domains/orderbook/currencies";
 import {
   getRobotAuthForCoordinator,
@@ -25,9 +36,8 @@ import {
   type TradeActionCommand
 } from "@/domains/orders/orderActions";
 import {
-  getTradeViewState,
-  hasFailedPayoutForCurrentRobot,
-  isCompletedTradeForCurrentRobot
+  disputeOutcomeForCurrentRobot,
+  getTradeViewState
 } from "@/domains/orders/orderStateMachine";
 import {
   orderLoadIdentityMatches,
@@ -43,7 +53,7 @@ import {
   type OrderLoadRecoveryPhase
 } from "@/domains/orders/orderLoadRecovery";
 import { tradePreviewOrder } from "@/domains/orders/tradePreviewFixtures";
-import { isOrderReferenceSatsApproximate, orderReferenceSats, orderReferenceSatsRange } from "@/domains/orders/orderModel";
+import { orderReferenceSats } from "@/domains/orders/orderModel";
 import type { OrderDto, SubmitOrderActionPayload } from "@/domains/orders/order.types";
 import { buildProvisionalMakerOrder, buildRenewOrderPayload, createOrder } from "@/domains/maker/makerApi";
 import { ingestCoordinatorOrder, recordCoordinatorSettlement } from "@/domains/orders/orderActivity";
@@ -51,17 +61,18 @@ import { tradeStatusLabel } from "@/domains/orders/orderStatus";
 import type { Auth } from "@/domains/transport/apiClient";
 import { tradeMotionClass } from "@/domains/motion/tradeMotion";
 import { PaymentQrCard } from "@/domains/payments/PaymentQrCard";
-import { lightningPayoutAmount, lightningRoutingBudgetSats, onchainPayoutBreakdown } from "@/domains/payments/payoutAmounts";
+import {
+  lightningPayoutAmount,
+  lightningRoutingBudgetSats,
+  onchainPayoutBreakdown
+} from "@/domains/payments/payoutAmounts";
 import { availableLnProxyServers, wrapLnProxyInvoice } from "@/domains/payments/lnProxy";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, tabId } from "@/components/ui/tabs";
 import { formatFiat, formatSats } from "@/lib/format";
 import { deriveRobotIdentity } from "@/domains/identity/robotIdentity";
 import { writeClipboard } from "@/lib/clipboard";
-import { RobotAvatar } from "@/domains/identity/RobotAvatar";
 import { requestReviewToken } from "@/domains/reviews/reviewApi";
 import { publishCoordinatorRating } from "@/domains/coordinators/coordinatorRatings";
 import { fetchChatMessages } from "@/domains/chat/chatApi";
@@ -70,12 +81,19 @@ import { toUserMessage } from "@/lib/userError";
 import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
 import { isNativeApp } from "@/domains/transport/androidBridge";
 import { useTorConnection } from "@/domains/transport/torConnection";
-import { hasApproximateF2FLocation, paymentMethodHasF2F } from "@/domains/location/f2fLocation";
 import { registerVisibleTrade } from "@/domains/notifications/orderFeedbackVisibility";
 import { AppTransitionDialog } from "@/domains/navigation/AppTransitionFeedback";
+import { ColdOrderLoadState } from "@/domains/orders/OrderLoadState";
+import {
+  OrderDetailsPanel,
+  OrderEyebrow,
+  shouldOpenOrderDetailsByDefault
+} from "@/domains/orders/OrderDetailsPanel";
+import { TradeProgress } from "@/domains/orders/TradeProgress";
+import { CompletedTradePanel } from "@/domains/orders/CompletedTradePanel";
 
-const LazyF2FLocationDialog = lazy(() =>
-  import("@/domains/location/F2FLocationDialog").then((module) => ({ default: module.F2FLocationDialog }))
+const LazyRewardWithdrawalDialog = lazy(() =>
+  import("@/domains/rewards/RewardWithdrawalDialog").then((module) => ({ default: module.RewardWithdrawalDialog }))
 );
 const TRADE_LAB_ENABLED = import.meta.env.DEV || import.meta.env.VITE_ENABLE_TRADE_LAB === "true";
 
@@ -113,12 +131,12 @@ export function OrderPage({
   } = useOrderStore();
   const eligibleSlots = proEnabled || embeddedLocator ? slots : selectStandardGarageSlots(slots);
   const routeSlotId = (location.state as { robotSlotId?: string } | null)?.robotSlotId;
-  const routeSlot = routeSlotId
-    ? eligibleSlots.find((slot) => slot.tokenSHA256 === routeSlotId)
-    : undefined;
+  const routeSlot = routeSlotId ? eligibleSlots.find((slot) => slot.tokenSHA256 === routeSlotId) : undefined;
   const currentSlot = routeSlot ?? selectCurrentSlot(eligibleSlots, currentToken);
   const currentSlotId = currentSlot?.tokenSHA256;
-  const coordinator = coordinators.find((item) => item.shortAlias === shortAlias) ?? coordinators.find((item) => item.shortAlias === "local");
+  const coordinator =
+    coordinators.find((item) => item.shortAlias === shortAlias) ??
+    coordinators.find((item) => item.shortAlias === "local");
   const coordinatorRef = useRef(coordinator);
   const coordinatorRefreshKey = orderRefreshCoordinatorKey(coordinator);
   const currentSlotRef = useRef(currentSlot);
@@ -184,15 +202,7 @@ export function OrderPage({
         : undefined;
     previousStatus.current = undefined;
     previousWasTaker.current = false;
-  }, [
-    clearOrder,
-    coordinatorRefreshKey,
-    currentSlotId,
-    loadIdentityKey,
-    orderId,
-    previewOrder,
-    shortAlias
-  ]);
+  }, [clearOrder, coordinatorRefreshKey, currentSlotId, loadIdentityKey, orderId, previewOrder, shortAlias]);
 
   useEffect(() => {
     if (previewOrder || !coordinator || !orderId) return;
@@ -202,8 +212,7 @@ export function OrderPage({
       coordinatorEndpoint: coordinator.url,
       locator: { slotId: currentSlotId, shortAlias, orderId },
       load: (reason) => {
-        const independentRead =
-          reason === "initial" && independentInitialLoadKeyRef.current === loadIdentityKey;
+        const independentRead = reason === "initial" && independentInitialLoadKeyRef.current === loadIdentityKey;
         if (independentRead) independentInitialLoadKeyRef.current = undefined;
         return loadOrder({
           coordinator: coordinatorRef.current ?? coordinator,
@@ -221,14 +230,7 @@ export function OrderPage({
       recovery.dispose();
       loadRecovery.current = undefined;
     };
-  }, [
-    coordinatorRefreshKey,
-    currentSlotId,
-    loadOrder,
-    orderId,
-    previewOrder,
-    shortAlias
-  ]);
+  }, [coordinatorRefreshKey, currentSlotId, loadOrder, orderId, previewOrder, shortAlias]);
 
   useEffect(() => {
     loadRecovery.current?.reschedule();
@@ -240,7 +242,12 @@ export function OrderPage({
     const wasTaker = previousWasTaker.current;
     previousStatus.current = loadedOrder.status;
     previousWasTaker.current = loadedOrder.is_taker;
-    if (!previewOrder && lastStatus !== undefined && ![4, 12].includes(lastStatus) && [4, 12].includes(loadedOrder.status)) {
+    if (
+      !previewOrder &&
+      lastStatus !== undefined &&
+      ![4, 12].includes(lastStatus) &&
+      [4, 12].includes(loadedOrder.status)
+    ) {
       if (!embeddedLocator) navigate("/offers", { replace: true });
       return;
     }
@@ -252,18 +259,29 @@ export function OrderPage({
       else navigate("/offers", { replace: true });
       return;
     }
-  }, [currentSlot, embeddedLocator, loadedOrder, navigate, onEmbeddedClose, orderId, previewOrder, releaseOrderReservation, shortAlias]);
+  }, [
+    currentSlot,
+    embeddedLocator,
+    loadedOrder,
+    navigate,
+    onEmbeddedClose,
+    orderId,
+    previewOrder,
+    releaseOrderReservation,
+    shortAlias
+  ]);
 
   useEffect(() => {
     if (
-      previewOrder
-      || !embeddedLocator
-      || !onEmbeddedClose
-      || !loadedOrder
-      || loadedOrder.status !== 1
-      || loadedOrder.is_maker
-      || loadedOrder.is_taker
-    ) return;
+      previewOrder ||
+      !embeddedLocator ||
+      !onEmbeddedClose ||
+      !loadedOrder ||
+      loadedOrder.status !== 1 ||
+      loadedOrder.is_maker ||
+      loadedOrder.is_taker
+    )
+      return;
     onEmbeddedClose();
   }, [embeddedLocator, loadedOrder, onEmbeddedClose, previewOrder]);
 
@@ -294,13 +312,16 @@ export function OrderPage({
   const motionClass = tradeMotionClass(view);
   const actions = getTradeActionCommands(order, view);
   const currentRobotName = robotDisplayName(order, currentSlot);
-  const currentRobotHashId = currentSlot?.hashId
-    || (order.is_maker ? order.maker_hash_id : order.is_taker ? order.taker_hash_id : "");
+  const currentRobotHashId =
+    currentSlot?.hashId || (order.is_maker ? order.maker_hash_id : order.is_taker ? order.taker_hash_id : "");
   const isPayoutRoutingState = view.panel === "sending_sats" || view.panel === "routing_failed";
-  const isQuietPaymentState = view.panel === "sending_sats" || view.panel === "routing_failed" || view.panel === "success";
+  const isQuietPaymentState =
+    view.panel === "sending_sats" || view.panel === "routing_failed" || view.panel === "success";
 
   return (
-    <main className={`page page-trade${embeddedLocator ? " page-trade-embedded" : ""}${isPayoutRoutingState ? " page-trade-routing" : ""}`}>
+    <main
+      className={`page page-trade${embeddedLocator ? " page-trade-embedded" : ""}${isPayoutRoutingState ? " page-trade-routing" : ""}`}
+    >
       {!isQuietPaymentState ? (
         <div className="page-heading">
           <div>
@@ -343,7 +364,11 @@ export function OrderPage({
             canSubmit={Boolean(previewOrder || (loadedOrder && coordinator && currentSlot))}
             chatAuth={previewOrder ? undefined : coordinatorAuth}
             coordinatorUrl={previewOrder ? undefined : coordinator?.url}
-            coordinatorContact={previewOrder ? { email: "fixture", telegram: "fixture", simplex: "fixture", nostr: "fixture" } : coordinator?.contact}
+            coordinatorContact={
+              previewOrder
+                ? { email: "fixture", telegram: "fixture", simplex: "fixture", nostr: "fixture" }
+                : coordinator?.contact
+            }
             coordinatorName={coordinator?.longAlias || coordinator?.shortAlias || order.shortAlias || "Coordinator"}
             loading={submitting}
             myNick={currentRobotName}
@@ -354,6 +379,15 @@ export function OrderPage({
             signingRobot={previewOrder ? undefined : signingRobot}
             slotToken={previewOrder ? undefined : currentSlot?.token}
             view={view}
+            rewardClaim={
+              <DisputeRewardClaim
+                coordinator={coordinator}
+                order={order}
+                previewMode={Boolean(previewOrder)}
+                shortAlias={shortAlias}
+                slot={currentSlot}
+              />
+            }
             onRenew={async (password) => {
               if (previewOrder) {
                 setPreviewNotice("Renew offer simulated locally. No route change or request was made.");
@@ -365,10 +399,8 @@ export function OrderPage({
 
               const renewalPayload = buildRenewOrderPayload(order, password);
               const response = await createOrder(coordinator.url, renewalPayload, coordinatorAuth);
-              const backendError = response.bad_request
-                ?? response.bad_amount
-                ?? response.bad_payment_method
-                ?? response.bad_password;
+              const backendError =
+                response.bad_request ?? response.bad_amount ?? response.bad_payment_method ?? response.bad_password;
               if (backendError) throw new Error(backendError);
               if (!response.id) throw new Error("Coordinator did not return a renewed order id.");
 
@@ -392,12 +424,22 @@ export function OrderPage({
               onEmbeddedClose?.();
               navigate("/create");
             }}
-            onPublishRating={previewOrder || !coordinator || !coordinatorAuth || !currentSlot ? undefined : async (rating) => {
-              const identity = deriveRobotIdentity(currentSlot.token);
-              const review = await requestReviewToken(coordinator.url, identity.nostrPubKey, coordinatorAuth);
-              if (!review.token) throw new Error("Coordinator did not issue a review token.");
-              await publishCoordinatorRating({ coordinator, orderId: order.id, rating, reviewToken: review.token, secretKey: identity.nostrSecKey });
-            }}
+            onPublishRating={
+              previewOrder || !coordinator || !coordinatorAuth || !currentSlot
+                ? undefined
+                : async (rating) => {
+                    const identity = deriveRobotIdentity(currentSlot.token);
+                    const review = await requestReviewToken(coordinator.url, identity.nostrPubKey, coordinatorAuth);
+                    if (!review.token) throw new Error("Coordinator did not issue a review token.");
+                    await publishCoordinatorRating({
+                      coordinator,
+                      orderId: order.id,
+                      rating,
+                      reviewToken: review.token,
+                      secretKey: identity.nostrSecKey
+                    });
+                  }
+            }
             onSubmitAction={async (payload) => {
               if (previewOrder) {
                 setPreviewNotice(`${previewActionLabel(payload.action)} simulated locally. No request was sent.`);
@@ -430,10 +472,12 @@ export function OrderPage({
               if (!coordinator || !currentSlot) return;
               await submitAction({ coordinator, orderId: order.id, slot: currentSlot, payload });
               const result = useOrderStore.getState();
-              if (payload.action === "update_invoice"
-                && clearInvoice
-                && !result.actionError
-                && !result.order?.bad_invoice) {
+              if (
+                payload.action === "update_invoice" &&
+                clearInvoice &&
+                !result.actionError &&
+                !result.order?.bad_invoice
+              ) {
                 recordCoordinatorSettlement({
                   slotId: currentSlot.tokenSHA256,
                   shortAlias: coordinator.shortAlias,
@@ -463,129 +507,8 @@ export function OrderPage({
   );
 }
 
-type ColdOrderLoadStateProps = {
-  failure?: OrderLoadFailure;
-  orderId: number;
-  phase: OrderLoadRecoveryPhase;
-  reconnectingTor: boolean;
-  torReconnectAvailable: boolean;
-  torReconnectFailed: boolean;
-  onReconnectTor(): void;
-  onRetry(): void;
-};
-
-export function ColdOrderLoadState({
-  failure,
-  orderId,
-  phase,
-  reconnectingTor,
-  torReconnectAvailable,
-  torReconnectFailed,
-  onReconnectTor,
-  onRetry
-}: ColdOrderLoadStateProps) {
-  const retrying = phase === "waiting-to-retry" || phase === "retrying";
-  const loading = phase !== "idle" && !reconnectingTor;
-  const transientFailure = failure?.kind === "transient";
-  const heading = coldOrderLoadHeading(failure, loading, reconnectingTor);
-  const loadingLabel = retrying ? "Retrying private trade connection" : "Loading trade";
-
-  return (
-    <main className="page page-trade">
-      <div className="page-heading">
-        <div>
-          <p className="app-eyebrow">Order #{orderId || "-"}</p>
-          <h2>{heading}</h2>
-          {reconnectingTor ? <p>Building a fresh Tor circuit.</p> : null}
-          {loading ? <p>{retrying ? "Trying the private connection again." : "Opening the private trade."}</p> : null}
-        </div>
-      </div>
-
-      {loading ? (
-        <div
-          aria-busy="true"
-          aria-label={loadingLabel}
-          aria-live="polite"
-          className="trade-loading"
-          role="status"
-        >
-          <div className="trade-loading-progress" aria-hidden>
-            {Array.from({ length: 5 }, (_, index) => <Skeleton key={index} />)}
-          </div>
-          <section className="trade-loading-card trade-loading-card-primary" aria-hidden>
-            <Skeleton className="trade-loading-card-title" />
-            <Skeleton className="trade-loading-card-line" />
-            <Skeleton className="trade-loading-card-line trade-loading-card-line-short" />
-            <Skeleton className="trade-loading-card-action" />
-          </section>
-          <section className="trade-loading-card trade-loading-card-details" aria-hidden>
-            <div>
-              <Skeleton className="trade-loading-detail-title" />
-              <Skeleton className="trade-loading-detail-copy" />
-            </div>
-            <Skeleton className="trade-loading-detail-chevron" />
-          </section>
-        </div>
-      ) : (
-        <>
-          {failure && !transientFailure ? (
-            <div className="status-panel status-panel-warning order-error-panel" role="alert">
-              <AlertTriangle size={18} />
-              <span>{failure.message}</span>
-            </div>
-          ) : null}
-          <div
-            aria-live="polite"
-            className="order-load-recovery"
-            role="status"
-          >
-            {torReconnectFailed ? (
-              <p>Tor reconnect was not confirmed. Retry the trade or reconnect Tor.</p>
-            ) : null}
-            <div className="order-load-recovery-actions">
-              <Button
-                type="button"
-                onClick={onRetry}
-              >
-                <RotateCw size={16} />
-                Retry
-              </Button>
-              {torReconnectAvailable && (transientFailure || reconnectingTor) ? (
-                <Button
-                  loading={reconnectingTor}
-                  loadingLabel="Reconnecting Tor"
-                  type="button"
-                  variant="secondary"
-                  onClick={onReconnectTor}
-                >
-                  {!reconnectingTor ? <RefreshCw size={16} /> : null}
-                  Reconnect Tor
-                </Button>
-              ) : null}
-            </div>
-          </div>
-        </>
-      )}
-    </main>
-  );
-}
-
-function coldOrderLoadHeading(
-  failure: OrderLoadFailure | undefined,
-  loading: boolean,
-  reconnectingTor: boolean
-): string {
-  if (reconnectingTor) return "Reconnecting Tor";
-  if (loading) return "Loading trade";
-  if (failure?.kind === "authentication") return "Robot required";
-  if (failure?.kind === "not-found") return "Trade unavailable";
-  return "Trade not loaded yet";
-}
-
 function loadedOrderRefreshDelay(order: OrderDto | undefined): number | undefined {
-  return order
-    ? jitterDelay(orderRefreshDelayMs(order.status, order.tx_queued), 0.1)
-    : undefined;
+  return order ? jitterDelay(orderRefreshDelayMs(order.status, order.tx_queued), 0.1) : undefined;
 }
 
 function orderPageLoadContext({
@@ -640,27 +563,15 @@ function synchronizeOrderLoadIdentity({
   return false;
 }
 
-function orderRefreshCoordinatorKey(
-  coordinator: Pick<CoordinatorSummary, "shortAlias" | "url"> | undefined
-): string {
+function orderRefreshCoordinatorKey(coordinator: Pick<CoordinatorSummary, "shortAlias" | "url"> | undefined): string {
   return coordinator ? `${coordinator.shortAlias}:${coordinator.url}` : "";
 }
 
-function orderPageError(actionError: string | undefined, loadFailure: OrderLoadFailure | undefined): string | undefined {
+function orderPageError(
+  actionError: string | undefined,
+  loadFailure: OrderLoadFailure | undefined
+): string | undefined {
   return actionError ?? loadFailure?.message;
-}
-
-function OrderEyebrow({ order }: { order: OrderDto }) {
-  const currencyCode = currencyCodeFromId(order.currency) ?? String(order.currency);
-  return (
-    <p className="app-eyebrow trade-order-eyebrow">
-      <span>Order #{order.id || "preview"}</span>
-      <span aria-hidden="true">·</span>
-      <small className="trade-order-summary-order">
-        {formatOrderAmount(order, currencyCode)} · {order.payment_method || "Method not specified"}
-      </small>
-    </p>
-  );
 }
 
 export function orderRefreshDelayMs(status: number, txQueued = false): number {
@@ -701,17 +612,58 @@ export function shouldReturnExpiredTakeToOffers(
   return lastStatus === 3 && wasTaker && order.status === 1 && !order.is_maker;
 }
 
-export function shouldDismissEmbeddedTrade(
-  order?: Pick<OrderDto, "status" | "is_maker" | "is_taker">
-): boolean {
+export function shouldDismissEmbeddedTrade(order?: Pick<OrderDto, "status" | "is_maker" | "is_taker">): boolean {
   return Boolean(order?.status === 1 && !order.is_maker && !order.is_taker);
 }
 
 function previewActionLabel(action?: string): string {
   if (!action) return "Action";
-  return action
-    .replaceAll("_", " ")
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+  return action.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+export function DisputeRewardClaim({
+  coordinator,
+  order,
+  previewMode,
+  shortAlias,
+  slot
+}: {
+  coordinator?: CoordinatorSummary;
+  order: OrderDto;
+  previewMode: boolean;
+  shortAlias: string;
+  slot?: RobotSlot;
+}) {
+  const [open, setOpen] = useState(false);
+  const rewardSats = slot?.robots[shortAlias]?.earnedRewards ?? 0;
+  const canClaim =
+    !previewMode &&
+    disputeOutcomeForCurrentRobot(order) === "won" &&
+    rewardSats > 0 &&
+    Boolean(slot) &&
+    coordinator?.shortAlias === shortAlias;
+
+  useEffect(() => {
+    if (previewMode) setOpen(false);
+  }, [previewMode]);
+
+  if (!canClaim && !open) return null;
+
+  return (
+    <>
+      {canClaim ? (
+        <Button className="trade-reward-action" onClick={() => setOpen(true)} type="button" variant="secondary">
+          <Trophy size={16} />
+          View {formatSats(rewardSats)} in robot rewards
+        </Button>
+      ) : null}
+      {!previewMode && open && slot && coordinator?.shortAlias === shortAlias ? (
+        <Suspense fallback={<AppTransitionDialog title="Preparing rewards" message="Loading the claim controls..." />}>
+          <LazyRewardWithdrawalDialog coordinators={[coordinator]} onClose={() => setOpen(false)} slot={slot} />
+        </Suspense>
+      ) : null}
+    </>
+  );
 }
 
 function ContractPanel({
@@ -730,12 +682,13 @@ function ContractPanel({
   signingRobot,
   slotToken,
   view,
-  onSubmitAction,
-  onSubmitCommand,
-  onSubmitPayout,
+  rewardClaim,
+  onPublishRating,
   onRenew,
   onStartAgain,
-  onPublishRating
+  onSubmitAction,
+  onSubmitCommand,
+  onSubmitPayout
 }: {
   actions: TradeActionCommand[];
   canSubmit: boolean;
@@ -752,12 +705,13 @@ function ContractPanel({
   signingRobot?: RobotRecord;
   slotToken?: string;
   view: ReturnType<typeof getTradeViewState>;
+  rewardClaim: ReactNode;
+  onPublishRating?: (rating: number) => Promise<void>;
+  onRenew: (password?: string) => Promise<void>;
+  onStartAgain: () => void;
   onSubmitAction: (payload: SubmitOrderActionPayload) => Promise<void>;
   onSubmitCommand: (action: TradeActionCommand) => Promise<void>;
   onSubmitPayout: (payload: SubmitOrderActionPayload, clearInvoice?: string) => Promise<void>;
-  onRenew: (password?: string) => Promise<void>;
-  onStartAgain: () => void;
-  onPublishRating?: (rating: number) => Promise<void>;
 }) {
   const isInvoicePaymentStep = view.requiredAction === "pay_bond" || view.requiredAction === "pay_escrow";
   const isChatStep = view.panel === "chat";
@@ -781,7 +735,13 @@ function ContractPanel({
           </div>
           <TradeActionSurface actions={actions} canSubmit={canSubmit} loading={loading} onSubmit={onSubmitCommand} />
         </>
-      ) : !isInvoicePaymentStep && !isChatStep && !isDisputeStep && !isPayoutStep && !isRenewalStep && !isSuccessStep && !isRoutingStep ? (
+      ) : !isInvoicePaymentStep &&
+        !isChatStep &&
+        !isDisputeStep &&
+        !isPayoutStep &&
+        !isRenewalStep &&
+        !isSuccessStep &&
+        !isRoutingStep ? (
         <Card className="trade-contract-card">
           <CardHeader className="trade-contract-title-row">
             <CardTitle>{view.message.heading}</CardTitle>
@@ -790,7 +750,10 @@ function ContractPanel({
             {order.pending_cancel ? (
               <div className="status-panel status-panel-warning trade-cancel-notice">
                 <AlertTriangle size={18} />
-                <span>Your peer requested collaborative cancellation. To accept, open Trade options and press Accept cancellation.</span>
+                <span>
+                  Your peer requested collaborative cancellation. To accept, open Trade options and press Accept
+                  cancellation.
+                </span>
               </div>
             ) : order.asked_for_cancel ? (
               <div className="status-panel trade-cancel-notice">
@@ -802,6 +765,7 @@ function ContractPanel({
               <ShieldAlert size={22} />
               <p>{view.message.body}</p>
             </div>
+            {rewardClaim}
             <TradeActionSurface actions={actions} canSubmit={canSubmit} loading={loading} onSubmit={onSubmitCommand} />
           </CardContent>
         </Card>
@@ -840,9 +804,11 @@ function ContractPanel({
         onRenew={onRenew}
         onStartAgain={onStartAgain}
         onPublishRating={onPublishRating}
-        footer={isInvoicePaymentStep && actions.length > 0 ? (
-          <TradeActionSurface actions={actions} canSubmit={canSubmit} loading={loading} onSubmit={onSubmitCommand} />
-        ) : undefined}
+        footer={
+          isInvoicePaymentStep && actions.length > 0 ? (
+            <TradeActionSurface actions={actions} canSubmit={canSubmit} loading={loading} onSubmit={onSubmitCommand} />
+          ) : undefined
+        }
         onSubmitAction={onSubmitAction}
         onSubmitPayout={onSubmitPayout}
       />
@@ -880,7 +846,9 @@ function ChatTradeActions({
       {order.pending_cancel ? (
         <div className="status-panel status-panel-warning trade-cancel-notice">
           <AlertTriangle size={18} />
-          <span>Your peer requested collaborative cancellation. To accept, open Trade options and press Accept cancellation.</span>
+          <span>
+            Your peer requested collaborative cancellation. To accept, open Trade options and press Accept cancellation.
+          </span>
         </div>
       ) : order.asked_for_cancel ? (
         <div className="status-panel trade-cancel-notice">
@@ -897,249 +865,6 @@ function ChatTradeActions({
       ) : null}
     </div>
   );
-}
-
-function OrderDetailsPanel({
-  coordinator,
-  coordinatorAlias,
-  defaultOpen,
-  order,
-  robotHashId,
-  robotName
-}: {
-  coordinator?: CoordinatorSummary;
-  coordinatorAlias: string;
-  defaultOpen: boolean;
-  order: OrderDto;
-  robotHashId: string;
-  robotName: string;
-}) {
-  const currencyCode = currencyCodeFromId(order.currency) ?? String(order.currency);
-  const fiatAmount = formatOrderAmount(order, currencyCode);
-  const satsAmount = formatOrderSats(order);
-  const sendReceive = tradeSendReceive(order, fiatAmount, satsAmount);
-  const expiresAt = new Date(order.expires_at);
-  const expiryText = Number.isNaN(expiresAt.getTime())
-    ? "soon"
-    : expiresAt.toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
-  const showExpiry = ![4, 5, 12, 13, 14, 15, 16, 17, 18].includes(order.status);
-  const paymentShowsExpiry =
-    (Boolean(order.bond_invoice) && (order.status === 0 || order.status === 3)) ||
-    (Boolean(order.escrow_invoice) && (order.status === 6 || order.status === 7));
-  const coordinatorName = coordinator?.longAlias || coordinator?.shortAlias || order.shortAlias || coordinatorAlias || "Coordinator";
-  const coordinatorAvatar = coordinator?.smallAvatarUrl || (coordinatorAlias ? getCoordinatorAvatarUrl(coordinatorAlias, "small") : "");
-  const coordinatorTradeUrl = coordinator?.url
-    ? `${coordinator.url.trim().replace(/\/+$/, "")}/trade/${order.id}`
-    : window.location.href;
-  const preferenceKey = `robosats_order_details_${coordinatorAlias}_${order.id}_${order.status}`;
-  const [detailsOpen, setDetailsOpen] = useState(() => readOrderDetailsPreference(preferenceKey, defaultOpen));
-  const [showF2FMap, setShowF2FMap] = useState(false);
-  const hasF2FLocation = paymentMethodHasF2F(order.payment_method)
-    && hasApproximateF2FLocation(order.latitude, order.longitude);
-
-  useEffect(() => {
-    setDetailsOpen(readOrderDetailsPreference(preferenceKey, defaultOpen));
-  }, [defaultOpen, preferenceKey]);
-
-  const handleToggle = (open: boolean) => {
-    setDetailsOpen(open);
-    writeOrderDetailsPreference(preferenceKey, open);
-  };
-
-  return (
-    <Card className="trade-order-card">
-      <div className="trade-order-context">
-        <div className="trade-order-user">
-          <RobotAvatar hashId={robotHashId || robotName} label={robotName} size="sm" />
-          <span>
-            <small>Your robot</small>
-            <strong>{robotName}</strong>
-          </span>
-        </div>
-        <span className="trade-order-number">
-          <small>Order</small>
-          <strong>#{order.id || "-"}</strong>
-        </span>
-      </div>
-      <details
-        className="trade-order-disclosure"
-        open={detailsOpen}
-        onToggle={(event) => handleToggle(event.currentTarget.open)}
-      >
-        <summary className="trade-order-summary">
-          <span className="trade-order-summary-copy">
-            <strong>Order details</strong>
-            <span className="trade-order-summary-meta">
-              <small className="trade-order-summary-order">{fiatAmount} · {order.payment_method || "Method not specified"}</small>
-              {showExpiry && !paymentShowsExpiry ? (
-                <small className="trade-order-summary-expiry">
-                  <Clock size={12} aria-hidden="true" />
-                  Expires {expiryText}
-                </small>
-              ) : null}
-            </span>
-          </span>
-          <ChevronDown className="trade-order-summary-chevron" size={18} aria-hidden="true" />
-        </summary>
-        <CardContent>
-        <div className="trade-order-host">
-          {coordinatorAvatar ? (
-            <img className="trade-order-host-avatar" src={coordinatorAvatar} alt="" />
-          ) : (
-            <span className="trade-order-host-avatar">
-              <Tag size={18} />
-            </span>
-          )}
-          <div>
-            <strong>{coordinatorName}</strong>
-            <p>Order host</p>
-          </div>
-        </div>
-
-        <dl className="trade-detail-list">
-          <div>
-            <dt>Amount</dt>
-            <dd className="trade-detail-amount">
-              <CurrencyFlag code={currencyCode} size={20} />
-              <span className="amount-mono">{fiatAmount}</span>
-            </dd>
-          </div>
-          <div>
-            <dt>Method</dt>
-            <dd className="trade-detail-method">
-              <PaymentMethodIcons text={order.payment_method} size={20} />
-              <span>{order.payment_method || "Not specified"}</span>
-            </dd>
-          </div>
-          <div>
-            <dt>Premium</dt>
-            <dd>{Number.isFinite(Number(order.premium)) ? `${Number(order.premium).toFixed(2)}%` : "-"}</dd>
-          </div>
-        </dl>
-
-        {hasF2FLocation ? (
-          <Button
-            className="trade-f2f-map-button"
-            onClick={() => setShowF2FMap(true)}
-            size="sm"
-            type="button"
-            variant="secondary"
-          >
-            <MapPin size={15} />
-            View approximate meeting area
-          </Button>
-        ) : null}
-
-        <div className="trade-flow-lines">
-          <div className="trade-flow-line trade-flow-line-send">
-            {order.is_buyer ? (
-              <Banknote className="trade-flow-icon-fiat" size={18} aria-hidden="true" />
-            ) : (
-              <Zap className="trade-flow-icon-lightning" size={18} aria-hidden="true" />
-            )}
-            <span>{sendReceive.send}</span>
-          </div>
-          <div className="trade-flow-line trade-flow-line-receive">
-            {order.is_buyer ? (
-              <Zap className="trade-flow-icon-lightning" size={18} aria-hidden="true" />
-            ) : (
-              <Banknote className="trade-flow-icon-fiat" size={18} aria-hidden="true" />
-            )}
-            <span>{sendReceive.receive}</span>
-          </div>
-        </div>
-
-        {order.description ? (
-          <details className="invoice-details">
-            <summary>Offer description</summary>
-            <p className="muted-copy">{order.description}</p>
-          </details>
-        ) : null}
-        <Button
-          className="trade-copy-link"
-          size="sm"
-          variant="ghost"
-          onClick={() => void writeClipboard(coordinatorTradeUrl).catch(() => undefined)}
-        >
-          <Copy size={14} /> Copy order link
-        </Button>
-        </CardContent>
-      </details>
-      {showF2FMap ? (
-        <Suspense fallback={<AppTransitionDialog title="Preparing meeting map" message="Loading the approximate meeting area..." />}>
-          <LazyF2FLocationDialog
-            latitude={order.latitude}
-            longitude={order.longitude}
-            onClose={() => setShowF2FMap(false)}
-            readOnly
-          />
-        </Suspense>
-      ) : null}
-    </Card>
-  );
-}
-
-export function shouldOpenOrderDetailsByDefault(order: Pick<OrderDto, "status" | "is_maker">): boolean {
-  return [7, 8].includes(order.status) || ([1, 2].includes(order.status) && order.is_maker);
-}
-
-function readOrderDetailsPreference(key: string, fallback: boolean): boolean {
-  try {
-    const preference = window.sessionStorage.getItem(key);
-    if (preference === null) return fallback;
-    return preference === "open";
-  } catch {
-    return fallback;
-  }
-}
-
-function writeOrderDetailsPreference(key: string, open: boolean): void {
-  try {
-    window.sessionStorage.setItem(key, open ? "open" : "closed");
-  } catch {
-    // The disclosure still works when storage is unavailable.
-  }
-}
-
-function tradeSendReceive(order: OrderDto, fiatAmount: string, satsAmount: string): { send: string; receive: string } {
-  if (order.is_buyer) {
-    return {
-      send: `You send via ${order.payment_method || "the agreed method"} ${fiatAmount}`,
-      receive: `You receive ${satsAmount}`
-    };
-  }
-
-  return {
-    send: `You send via Lightning ${satsAmount}`,
-    receive: `You receive via ${order.payment_method || "the agreed method"} ${fiatAmount}`
-  };
-}
-
-function formatOrderAmount(order: OrderDto, currencyCode: string): string {
-  const hasUnselectedRange = order.has_range && !(typeof order.amount === "number" && order.amount > 0);
-  if (hasUnselectedRange && order.min_amount && order.max_amount) {
-    if (order.currency === 1000) {
-      return formatSatsRange(Math.round(order.min_amount * 100_000_000), Math.round(order.max_amount * 100_000_000));
-    }
-    return `${formatFiat(order.min_amount)} - ${formatFiat(order.max_amount, currencyCode)}`;
-  }
-
-  return order.currency === 1000
-    ? formatSats(Math.round((order.amount ?? 0) * 100_000_000))
-    : formatFiat(order.amount, currencyCode);
-}
-
-function formatOrderSats(order: OrderDto): string {
-  const range = orderReferenceSatsRange(order);
-  if (range) return `Approx. ${formatSatsRange(range.minimum, range.maximum)}`;
-
-  const sats = orderReferenceSats(order);
-  return `${isOrderReferenceSatsApproximate(order) ? "Approx. " : ""}${formatSats(sats)}`;
-}
-
-function formatSatsRange(minimum: number, maximum: number): string {
-  const formatter = new Intl.NumberFormat();
-  return `${formatter.format(minimum)} - ${formatter.format(maximum)} sats`;
 }
 
 function TradeActionSurface({
@@ -1193,7 +918,8 @@ function TradeActionSurface({
     <>
       <div className="trade-action-surface">
         {orderedActions.map((action) => {
-          const disabledReason = action.disabledReason ?? (!canSubmit ? "Load a live order with an active robot first" : undefined);
+          const disabledReason =
+            action.disabledReason ?? (!canSubmit ? "Load a live order with an active robot first" : undefined);
           const isCritical = action.requiresConfirmation;
           const isActive = activeActionKey === action.key;
           return (
@@ -1223,26 +949,26 @@ function TradeActionSurface({
           overlayClassName="confirm-overlay"
           panelClassName="confirm-sheet"
         >
-            <div className="confirm-header">
-              <div className="confirm-icon-shell">
-                <AlertTriangle size={24} />
-              </div>
-              <h3>{pendingAction.label}?</h3>
+          <div className="confirm-header">
+            <div className="confirm-icon-shell">
+              <AlertTriangle size={24} />
             </div>
-            <p className="confirm-body">{pendingAction.description}</p>
-            <div className="confirm-actions">
-              <Button variant="secondary" onClick={handleCancel} type="button">
-                Cancel
-              </Button>
-              <Button
-                variant={pendingAction.variant === "destructive" ? "destructive" : "primary"}
-                onClick={handleConfirm}
-                type="button"
-              >
-                <Check size={16} />
-                Confirm
-              </Button>
-            </div>
+            <h3>{pendingAction.label}?</h3>
+          </div>
+          <p className="confirm-body">{pendingAction.description}</p>
+          <div className="confirm-actions">
+            <Button variant="secondary" onClick={handleCancel} type="button">
+              Cancel
+            </Button>
+            <Button
+              variant={pendingAction.variant === "destructive" ? "destructive" : "primary"}
+              onClick={handleConfirm}
+              type="button"
+            >
+              <Check size={16} />
+              Confirm
+            </Button>
+          </div>
         </Dialog>
       )}
     </>
@@ -1290,7 +1016,9 @@ function TradePaymentPanel({
 }) {
   const view = getTradeViewState(order);
   const trustKey = `robosats_trusted_coordinator_${order.shortAlias || "unknown"}`;
-  const [coordinatorAcknowledged, setCoordinatorAcknowledged] = useState(() => previewTrustPrompt ? false : !coordinatorUrl || localStorage.getItem(trustKey) === "true");
+  const [coordinatorAcknowledged, setCoordinatorAcknowledged] = useState(() =>
+    previewTrustPrompt ? false : !coordinatorUrl || localStorage.getItem(trustKey) === "true"
+  );
 
   if (
     [
@@ -1336,69 +1064,15 @@ function TradePaymentPanel({
   }
 
   if (view.panel === "success") {
-    const queued = Boolean(order.tx_queued && !order.txid);
-    const tradeOverview = {
-      format: "robosats-trade-overview",
-      version: 1,
-      order_id: order.id,
-      status: order.status,
-      coordinator: order.shortAlias,
-      role: order.is_maker ? "maker" : "taker",
-      side: order.is_buyer ? "buy" : "sell",
-      amount: order.amount,
-      currency: currencyCodeFromId(order.currency) ?? order.currency,
-      payment_method: order.payment_method,
-      premium_percent: order.premium,
-      amount_sats: order.sent_satoshis || order.num_satoshis || order.trade_satoshis || order.invoice_amount,
-      txid: order.txid,
-      address: order.address,
-      maker_summary: order.maker_summary,
-      taker_summary: order.taker_summary,
-      platform_summary: order.platform_summary
-    };
     return (
-      <Card className="trade-completion-card">
-        <CardContent>
-          <div className="trade-completion-hero">
-            <h2><Zap size={22} aria-hidden /> {queued ? "Payout accepted" : "Trade finished!"} <Zap size={22} aria-hidden /></h2>
-            <p>{queued ? "The payout is queued and will be broadcast shortly." : "Thank you for trading privately with RoboSats."}</p>
-          </div>
-
-          {queued ? <p className="trade-completion-note">This page will keep checking until the transaction is broadcast.</p> : null}
-          <div className="trade-completion-actions">
-            {order.txid ? (
-              <Button variant="secondary" onClick={() => window.open(blockExplorerUrl(order.txid!, order.network), "_blank", "noopener,noreferrer")}>
-                <ExternalLink size={15} /> View transaction
-              </Button>
-            ) : null}
-            <Button variant="outline" onClick={() => downloadJson(`robosats-trade-${order.id}-overview.json`, tradeOverview)}>
-              <Download size={15} /> Download trade overview
-            </Button>
-          </div>
-          {order.maker_summary || order.taker_summary || order.platform_summary ? (
-            <details className="trade-completion-details">
-              <summary>Receipt details</summary>
-              <pre className="receipt-json">{JSON.stringify(tradeOverview, null, 2)}</pre>
-            </details>
-          ) : null}
-
-          {!queued ? (
-            <>
-              <RatingSubmissionCard
-                canSubmit={canSubmit}
-                coordinatorName={coordinatorName}
-                loading={loading}
-                onPublishRating={onPublishRating}
-              />
-              <div className="trade-completion-restart">
-                <p>RoboSats gets better with more liquidity. Tell a bitcoiner friend about it.</p>
-                <Button variant="secondary" onClick={onStartAgain}><Rocket size={16} /> Start again</Button>
-              </div>
-              <CompletedTradeSummary order={order} />
-            </>
-          ) : null}
-        </CardContent>
-      </Card>
+      <CompletedTradePanel
+        canSubmit={canSubmit}
+        coordinatorName={coordinatorName}
+        loading={loading}
+        onPublishRating={onPublishRating}
+        onStartAgain={onStartAgain}
+        order={order}
+      />
     );
   }
 
@@ -1428,10 +1102,26 @@ function TradePaymentPanel({
     if (!coordinatorAcknowledged) {
       return (
         <Card className="trade-status-card trade-status-card-warning">
-          <CardHeader><CardTitle>Trust the coordinator before bonding</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle>Trust the coordinator before bonding</CardTitle>
+          </CardHeader>
           <CardContent>
-            <div className="trade-action"><ShieldAlert size={22} /><p>The coordinator holds the contract infrastructure and resolves disputes. Verify that you trust <strong>{order.shortAlias || "this coordinator"}</strong> before locking funds.</p></div>
-            <Button className="full-width" onClick={() => { if (!previewMode) localStorage.setItem(trustKey, "true"); setCoordinatorAcknowledged(true); }}>I understand, continue</Button>
+            <div className="trade-action">
+              <ShieldAlert size={22} />
+              <p>
+                The coordinator holds the contract infrastructure and resolves disputes. Verify that you trust{" "}
+                <strong>{order.shortAlias || "this coordinator"}</strong> before locking funds.
+              </p>
+            </div>
+            <Button
+              className="full-width"
+              onClick={() => {
+                if (!previewMode) localStorage.setItem(trustKey, "true");
+                setCoordinatorAcknowledged(true);
+              }}
+            >
+              I understand, continue
+            </Button>
           </CardContent>
         </Card>
       );
@@ -1513,21 +1203,6 @@ function TradePaymentPanel({
   );
 }
 
-function blockExplorerUrl(txid: string, network?: string): string {
-  if (network === "testnet") return `https://mempool.space/testnet/tx/${txid}`;
-  if (network === "signet") return `https://mempool.space/signet/tx/${txid}`;
-  return `https://mempool.space/tx/${txid}`;
-}
-
-function downloadJson(filename: string, value: unknown) {
-  const url = URL.createObjectURL(new Blob([JSON.stringify(value, null, 2)], { type: "application/json" }));
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.click();
-  URL.revokeObjectURL(url);
-}
-
 function TradeStatusCard({
   badge,
   body,
@@ -1547,7 +1222,13 @@ function TradeStatusCard({
     <Card className={`trade-status-card trade-status-card-${tone}`}>
       <CardHeader className="payment-card-header">
         <CardTitle>{title}</CardTitle>
-        <Badge tone={tone === "danger" ? "danger" : tone === "warning" ? "warning" : tone === "success" ? "success" : "muted"}>{badge}</Badge>
+        <Badge
+          tone={
+            tone === "danger" ? "danger" : tone === "warning" ? "warning" : tone === "success" ? "success" : "muted"
+          }
+        >
+          {badge}
+        </Badge>
       </CardHeader>
       <CardContent>
         <div className="trade-status-card-body">
@@ -1599,7 +1280,9 @@ function ExpiredOrderRenewalCard({
 
   return (
     <Card className="trade-status-card trade-status-card-muted">
-      <CardHeader><CardTitle>Offer expired</CardTitle></CardHeader>
+      <CardHeader>
+        <CardTitle>Offer expired</CardTitle>
+      </CardHeader>
       <CardContent className="trade-renewal-content">
         <div className="trade-action">
           <Clock size={22} />
@@ -1717,11 +1400,14 @@ function PayoutSubmissionCard({
 
     try {
       if (payoutMode === "lightning") {
-        await onSubmit({
-          action: "update_invoice",
-          invoice: signedValue,
-          routing_budget_ppm: effectiveRoutingPpm
-        }, rawValue);
+        await onSubmit(
+          {
+            action: "update_invoice",
+            invoice: signedValue,
+            routing_budget_ppm: effectiveRoutingPpm
+          },
+          rawValue
+        );
       } else {
         await onSubmit({
           action: "update_address",
@@ -1737,29 +1423,32 @@ function PayoutSubmissionCard({
   const payoutMode = retryInvoice ? "lightning" : mode;
   const error = localError || (payoutMode === "lightning" ? order.bad_invoice : order.bad_address) || "";
   const tradeAmount = order.trade_satoshis || order.invoice_amount;
-  const routingPpm = routingBudgetUnit === "sats"
-    ? Math.round(((Number(routingBudgetSatsInput) || 0) * 1_000_000) / Math.max(1, tradeAmount))
-    : Number(routingBudgetPpm) || 0;
+  const routingPpm =
+    routingBudgetUnit === "sats"
+      ? Math.round(((Number(routingBudgetSatsInput) || 0) * 1_000_000) / Math.max(1, tradeAmount))
+      : Number(routingBudgetPpm) || 0;
   const effectiveRoutingPpm = Math.min(100_001, Math.max(0, routingPpm));
   const lightningAmount = lightningPayoutAmount(tradeAmount, effectiveRoutingPpm);
   const routingBudgetSats = lightningRoutingBudgetSats(tradeAmount, effectiveRoutingPpm);
   const proxyServers = availableLnProxyServers();
   const parsedMiningFeeRate = Number(miningFeeRate);
   const onchainBreakdown = onchainPayoutBreakdown(order.invoice_amount, order.swap_fee_rate, parsedMiningFeeRate);
-  const invalidMiningFee = !Number.isFinite(parsedMiningFeeRate) || parsedMiningFeeRate < 2 || parsedMiningFeeRate > 500;
+  const invalidMiningFee =
+    !Number.isFinite(parsedMiningFeeRate) || parsedMiningFeeRate < 2 || parsedMiningFeeRate > 500;
   const currencyCode = currencyCodeFromId(order.currency) ?? String(order.currency);
-  const amountBeingPaid = order.currency === 1000
-    ? formatSats(orderReferenceSats(order))
-    : formatFiat(order.amount, currencyCode);
+  const amountBeingPaid =
+    order.currency === 1000 ? formatSats(orderReferenceSats(order)) : formatFiat(order.amount, currencyCode);
 
   return (
     <Card className="payout-entry-card">
       <CardHeader className="payout-entry-header">
         <CardTitle>{retryInvoice ? "Payout failed" : "Choose your payout"}</CardTitle>
         <p>
-          {retryInvoice
-            ? "Submit a new Lightning invoice to retry your payout."
-            : <>Before you send {amountBeingPaid}, make sure you can receive the bitcoin.</>}
+          {retryInvoice ? (
+            "Submit a new Lightning invoice to retry your payout."
+          ) : (
+            <>Before you send {amountBeingPaid}, make sure you can receive the bitcoin.</>
+          )}
         </p>
       </CardHeader>
       <CardContent>
@@ -1772,7 +1461,11 @@ function PayoutSubmissionCard({
         >
           {!retryInvoice ? (
             <div className="segmented payout-mode-tabs" role="group" aria-label="Payout method">
-              <Button type="button" variant={mode === "lightning" ? "primary" : "secondary"} onClick={() => setMode("lightning")}>
+              <Button
+                type="button"
+                variant={mode === "lightning" ? "primary" : "secondary"}
+                onClick={() => setMode("lightning")}
+              >
                 <Zap size={16} /> Lightning
               </Button>
               <Button
@@ -1791,7 +1484,13 @@ function PayoutSubmissionCard({
               <div className="payout-invoice-target">
                 <span>Invoice amount</span>
                 <strong className="tabular amount-mono">{formatSats(lightningAmount)}</strong>
-                <Button type="button" size="icon" variant="ghost" aria-label="Copy invoice amount" onClick={() => void writeClipboard(String(lightningAmount)).catch(() => undefined)}>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  aria-label="Copy invoice amount"
+                  onClick={() => void writeClipboard(String(lightningAmount)).catch(() => undefined)}
+                >
                   <Copy size={15} />
                 </Button>
               </div>
@@ -1816,60 +1515,121 @@ function PayoutSubmissionCard({
                       max={routingBudgetUnit === "ppm" ? 100001 : tradeAmount}
                       type="number"
                       value={routingBudgetUnit === "ppm" ? routingBudgetPpm : routingBudgetSatsInput}
-                      onChange={(event) => routingBudgetUnit === "ppm" ? setRoutingBudgetPpm(event.target.value) : setRoutingBudgetSatsInput(event.target.value)}
+                      onChange={(event) =>
+                        routingBudgetUnit === "ppm"
+                          ? setRoutingBudgetPpm(event.target.value)
+                          : setRoutingBudgetSatsInput(event.target.value)
+                      }
                     />
-                    <Button type="button" size="sm" variant="ghost" onClick={() => {
-                      if (routingBudgetUnit === "ppm") setRoutingBudgetSatsInput(String(routingBudgetSats));
-                      else setRoutingBudgetPpm(String(effectiveRoutingPpm));
-                      setRoutingBudgetUnit((unit) => unit === "ppm" ? "sats" : "ppm");
-                    }}>{routingBudgetUnit}</Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        if (routingBudgetUnit === "ppm") setRoutingBudgetSatsInput(String(routingBudgetSats));
+                        else setRoutingBudgetPpm(String(effectiveRoutingPpm));
+                        setRoutingBudgetUnit((unit) => (unit === "ppm" ? "sats" : "ppm"));
+                      }}
+                    >
+                      {routingBudgetUnit}
+                    </Button>
                   </div>
                   <small className="muted-copy">Routing allowance: {formatSats(routingBudgetSats)}</small>
                 </label>
                 <label className="toggle-row">
-                  <input type="checkbox" checked={useLnProxy} onChange={(event) => setUseLnProxy(event.target.checked)} />
-                  <span><strong>Use LNProxy</strong><small>Hide your receiving wallet from the coordinator.</small></span>
+                  <input
+                    type="checkbox"
+                    checked={useLnProxy}
+                    onChange={(event) => setUseLnProxy(event.target.checked)}
+                  />
+                  <span>
+                    <strong>Use LNProxy</strong>
+                    <small>Hide your receiving wallet from the coordinator.</small>
+                  </span>
                 </label>
                 {useLnProxy ? (
                   <div className="payout-form">
-                    <label className="field-block">Destination invoice
-                      <textarea rows={3} value={lnProxyInvoice} onChange={(event) => setLnProxyInvoice(event.target.value)} placeholder="Invoice for the net amount" />
+                    <label className="field-block">
+                      Destination invoice
+                      <textarea
+                        rows={3}
+                        value={lnProxyInvoice}
+                        onChange={(event) => setLnProxyInvoice(event.target.value)}
+                        placeholder="Invoice for the net amount"
+                      />
                     </label>
-                    <label className="field-block">LNProxy routing budget (sats)
-                      <input type="number" min={0} value={lnProxyBudgetSats} onChange={(event) => setLnProxyBudgetSats(event.target.value)} />
+                    <label className="field-block">
+                      LNProxy routing budget (sats)
+                      <input
+                        type="number"
+                        min={0}
+                        value={lnProxyBudgetSats}
+                        onChange={(event) => setLnProxyBudgetSats(event.target.value)}
+                      />
                     </label>
-                    <label className="field-block">LNProxy server
-                      <select value={lnProxyServerIndex} onChange={(event) => setLnProxyServerIndex(Number(event.target.value))}>
-                        {proxyServers.map((server, index) => <option key={server.url} value={index}>{server.name}</option>)}
+                    <label className="field-block">
+                      LNProxy server
+                      <select
+                        value={lnProxyServerIndex}
+                        onChange={(event) => setLnProxyServerIndex(Number(event.target.value))}
+                      >
+                        {proxyServers.map((server, index) => (
+                          <option key={server.url} value={index}>
+                            {server.name}
+                          </option>
+                        ))}
                       </select>
                     </label>
-                    <Button type="button" variant="secondary" loading={wrappingProxy} disabled={!lnProxyInvoice || proxyServers.length === 0} onClick={async () => {
-                      const server = proxyServers[lnProxyServerIndex];
-                      if (!server) return;
-                      setWrappingProxy(true);
-                      setLocalError("");
-                      try {
-                        if (previewMode) setInvoice(`lnbc${Math.max(1, lightningAmount)}n1fixtureprivateinvoice`);
-                        else setInvoice(await wrapLnProxyInvoice(server, normalizeLightningInvoice(lnProxyInvoice), Number(lnProxyBudgetSats) || 0));
-                      }
-                      catch (proxyError) { setLocalError(toUserMessage(proxyError, "Could not wrap the invoice.")); }
-                      finally { setWrappingProxy(false); }
-                    }}>Create private invoice</Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      loading={wrappingProxy}
+                      disabled={!lnProxyInvoice || proxyServers.length === 0}
+                      onClick={async () => {
+                        const server = proxyServers[lnProxyServerIndex];
+                        if (!server) return;
+                        setWrappingProxy(true);
+                        setLocalError("");
+                        try {
+                          if (previewMode) setInvoice(`lnbc${Math.max(1, lightningAmount)}n1fixtureprivateinvoice`);
+                          else
+                            setInvoice(
+                              await wrapLnProxyInvoice(
+                                server,
+                                normalizeLightningInvoice(lnProxyInvoice),
+                                Number(lnProxyBudgetSats) || 0
+                              )
+                            );
+                        } catch (proxyError) {
+                          setLocalError(toUserMessage(proxyError, "Could not wrap the invoice."));
+                        } finally {
+                          setWrappingProxy(false);
+                        }
+                      }}
+                    >
+                      Create private invoice
+                    </Button>
                   </div>
                 ) : null}
               </details>
             </>
           ) : (
             <>
-              <p className="payout-onchain-copy">The coordinator swaps the payout and sends it to your Bitcoin address.</p>
+              <p className="payout-onchain-copy">
+                The coordinator swaps the payout and sends it to your Bitcoin address.
+              </p>
               <dl className="payout-cost-summary">
                 <div>
                   <dt>Swap fee</dt>
-                  <dd>{formatSats(onchainBreakdown.swapFeeSats)} ({order.swap_fee_rate.toFixed(2)}%)</dd>
+                  <dd>
+                    {formatSats(onchainBreakdown.swapFeeSats)} ({order.swap_fee_rate.toFixed(2)}%)
+                  </dd>
                 </div>
                 <div>
                   <dt>Mining fee</dt>
-                  <dd>{formatSats(onchainBreakdown.miningFeeSats)} ({onchainBreakdown.effectiveMiningFeeRate} sats/vbyte)</dd>
+                  <dd>
+                    {formatSats(onchainBreakdown.miningFeeSats)} ({onchainBreakdown.effectiveMiningFeeRate} sats/vbyte)
+                  </dd>
                 </div>
                 <div className="payout-cost-total">
                   <dt>Final amount you receive</dt>
@@ -1879,7 +1639,13 @@ function PayoutSubmissionCard({
               <div className="payout-onchain-fields">
                 <label className="field-block">
                   Bitcoin address
-                  <input aria-describedby={error ? "payout-error" : undefined} aria-invalid={Boolean(error)} value={address} onChange={(event) => setAddress(event.target.value)} placeholder="bc1..." />
+                  <input
+                    aria-describedby={error ? "payout-error" : undefined}
+                    aria-invalid={Boolean(error)}
+                    value={address}
+                    onChange={(event) => setAddress(event.target.value)}
+                    placeholder="bc1..."
+                  />
                 </label>
                 <label className="field-block">
                   Mining fee
@@ -1900,11 +1666,19 @@ function PayoutSubmissionCard({
             </>
           )}
 
-          {error ? <p className="field-error" id="payout-error" role="alert">{error}</p> : null}
+          {error ? (
+            <p className="field-error" id="payout-error" role="alert">
+              {error}
+            </p>
+          ) : null}
 
           <Button
             className="full-width"
-            disabled={payoutMode === "lightning" ? normalizeLightningInvoice(invoice).length < 20 : invalidMiningFee || !address.trim()}
+            disabled={
+              payoutMode === "lightning"
+                ? normalizeLightningInvoice(invoice).length < 20
+                : invalidMiningFee || !address.trim()
+            }
             loading={loading || signing}
             type="submit"
           >
@@ -1938,51 +1712,6 @@ function robotDisplayName(order: OrderDto, slot: RobotSlot | undefined): string 
 function normalizeLightningInvoice(value: string): string {
   const invoice = value.trim();
   return invoice.toLowerCase().startsWith("lightning:") ? invoice.slice("lightning:".length) : invoice;
-}
-
-function TradeProgress({ order }: { order: OrderDto }) {
-  const labels = order.is_taker ? ["Take", "Setup", "Trade", "Finish"] : ["Publish", "Wait", "Setup", "Trade", "Finish"];
-  const activeIndex = tradeStepIndex(order);
-
-  return (
-    <div className={`trade-progress trade-progress-${labels.length}`} aria-label="Trade progress">
-      {labels.map((label, i) => {
-        const state = progressStateForIndex(i, activeIndex, order);
-      return (
-        <div key={label} className={`trade-progress-step ${state}`}>
-          <span className="trade-progress-dot">
-            {state === "complete" ? <Check size={14} /> : <span>{i + 1}</span>}
-          </span>
-          <span className="trade-progress-label">{label}</span>
-        </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function tradeStepIndex(order: OrderDto): number {
-  if (!order.is_taker && [1, 2, 3].includes(order.status)) return 1;
-  if ([6, 7, 8].includes(order.status)) return order.is_taker ? 1 : 2;
-  if ([9, 10, 11, 12].includes(order.status)) return order.is_taker ? 2 : 3;
-  if ([13, 14, 15, 16, 17, 18].includes(order.status)) return order.is_taker ? 3 : 4;
-  return 0;
-}
-
-function progressStateForIndex(index: number, activeIndex: number, order: OrderDto): string {
-  const disputeLost = (order.status === 17 && order.is_maker) || (order.status === 18 && order.is_taker);
-  const failedPayout = hasFailedPayoutForCurrentRobot(order);
-  const payoutRetrying = failedPayout && !order.invoice_expired;
-  const completed =
-    isCompletedTradeForCurrentRobot(order) ||
-    ([17, 18].includes(order.status) && !disputeLost);
-  if (failedPayout || disputeLost) {
-    if (index === activeIndex) return payoutRetrying ? "waiting" : "danger";
-  }
-  if (completed && index <= activeIndex) return "complete";
-  if (index < activeIndex) return "complete";
-  if (index === activeIndex) return "active";
-  return "pending";
 }
 
 function DisputeStatementCard({
@@ -2028,7 +1757,9 @@ function DisputeStatementCard({
     }
     const cleanedStatement = statement.trim();
     if (cleanedStatement.length < 100) {
-      setLocalError("The statement is too short. Include at least 100 characters with the relevant facts and evidence.");
+      setLocalError(
+        "The statement is too short. Include at least 100 characters with the relevant facts and evidence."
+      );
       return;
     }
     if (!contactMethod) {
@@ -2048,7 +1779,9 @@ function DisputeStatementCard({
         submittedStatement = JSON.stringify({ statement: submittedStatement, messages }, null, 2);
       }
       if (submittedStatement.length > 50_000) {
-        setLocalError("The statement and attached logs exceed 50,000 characters. Shorten the statement or submit without chat logs.");
+        setLocalError(
+          "The statement and attached logs exceed 50,000 characters. Shorten the statement or submit without chat logs."
+        );
         return;
       }
       await onSubmit({ action: "submit_statement", statement: submittedStatement });
@@ -2062,40 +1795,54 @@ function DisputeStatementCard({
   async function loadDisputeMessages() {
     if (previewMode) {
       return [
-        { index: 1, plainTextMessage: "Fixture chat message from the trade peer.", validSignature: true, userNick: "Trade peer", time: new Date().toISOString() },
-        { index: 2, plainTextMessage: "Fixture response from your robot.", validSignature: true, userNick: myNick || "Your robot", time: new Date().toISOString() }
+        {
+          index: 1,
+          plainTextMessage: "Fixture chat message from the trade peer.",
+          validSignature: true,
+          userNick: "Trade peer",
+          time: new Date().toISOString()
+        },
+        {
+          index: 2,
+          plainTextMessage: "Fixture response from your robot.",
+          validSignature: true,
+          userNick: myNick || "Your robot",
+          time: new Date().toISOString()
+        }
       ];
     }
     if (!baseUrl || !auth || !robot?.encPrivKey || !robot.pubKey || !slotToken) {
       throw new Error("Chat logs cannot be attached because this robot's local encryption keys are unavailable.");
     }
     const response = await fetchChatMessages(baseUrl, order.id, 0, auth);
-    const messages = await Promise.all(response.messages
-      .filter((message) => message.encryptedMessage.startsWith("-----BEGIN PGP MESSAGE-----"))
-      .map(async (message) => {
-        let plainTextMessage = "Encrypted message could not be decrypted.";
-        let validSignature = false;
-        try {
-          plainTextMessage = await decryptChatMessage({
-            armoredMessage: message.encryptedMessage,
-            ownPrivateKeyArmored: robot.encPrivKey ?? "",
-            ownPublicKeyArmored: robot.pubKey ?? "",
-            passphrase: slotToken,
-            peerPublicKeyArmored: response.peerPubkey
-          });
-          validSignature = true;
-        } catch {
-          // Preserve the encrypted source even when a message cannot decrypt.
-        }
-        return {
-          index: message.index,
-          encryptedMessage: message.encryptedMessage,
-          plainTextMessage,
-          validSignature,
-          userNick: message.nick || myNick,
-          time: message.time
-        };
-      }));
+    const messages = await Promise.all(
+      response.messages
+        .filter((message) => message.encryptedMessage.startsWith("-----BEGIN PGP MESSAGE-----"))
+        .map(async (message) => {
+          let plainTextMessage = "Encrypted message could not be decrypted.";
+          let validSignature = false;
+          try {
+            plainTextMessage = await decryptChatMessage({
+              armoredMessage: message.encryptedMessage,
+              ownPrivateKeyArmored: robot.encPrivKey ?? "",
+              ownPublicKeyArmored: robot.pubKey ?? "",
+              passphrase: slotToken,
+              peerPublicKeyArmored: response.peerPubkey
+            });
+            validSignature = true;
+          } catch {
+            // Preserve the encrypted source even when a message cannot decrypt.
+          }
+          return {
+            index: message.index,
+            encryptedMessage: message.encryptedMessage,
+            plainTextMessage,
+            validSignature,
+            userNick: message.nick || myNick,
+            time: message.time
+          };
+        })
+    );
     return messages;
   }
 
@@ -2119,7 +1866,10 @@ function DisputeStatementCard({
             <FileText size={24} />
             <div>
               <strong>Explain what happened</strong>
-              <p className="muted-copy">Build a complete case and provide a reachable burner contact. The coordinator cannot otherwise read your private trade chat.</p>
+              <p className="muted-copy">
+                Build a complete case and provide a reachable burner contact. The coordinator cannot otherwise read your
+                private trade chat.
+              </p>
             </div>
           </div>
           <label className="field-block">
@@ -2136,24 +1886,55 @@ function DisputeStatementCard({
           <div className="dispute-contact-grid">
             <label className="field-block">
               Contact method *
-              <select aria-describedby={error ? "dispute-statement-error" : undefined} aria-invalid={Boolean(error)} required value={contactMethod} onChange={(event) => setContactMethod(event.target.value)}>
-                <option value="" disabled>Select a contact method</option>
-                {availableContactMethods.map((method) => <option key={method} value={method}>{contactMethodLabel(method)}</option>)}
+              <select
+                aria-describedby={error ? "dispute-statement-error" : undefined}
+                aria-invalid={Boolean(error)}
+                required
+                value={contactMethod}
+                onChange={(event) => setContactMethod(event.target.value)}
+              >
+                <option value="" disabled>
+                  Select a contact method
+                </option>
+                {availableContactMethods.map((method) => (
+                  <option key={method} value={method}>
+                    {contactMethodLabel(method)}
+                  </option>
+                ))}
                 <option value="other">Other</option>
               </select>
             </label>
             <label className="field-block">
               Contact address or username *
-              <input aria-describedby={error ? "dispute-statement-error" : undefined} aria-invalid={Boolean(error)} required value={contact} onChange={(event) => setContact(event.target.value)} placeholder={contactPlaceholder(contactMethod)} />
+              <input
+                aria-describedby={error ? "dispute-statement-error" : undefined}
+                aria-invalid={Boolean(error)}
+                required
+                value={contact}
+                onChange={(event) => setContact(event.target.value)}
+                placeholder={contactPlaceholder(contactMethod)}
+              />
             </label>
           </div>
           <label className="toggle-row dispute-logs-toggle">
             <input type="checkbox" checked={attachLogs} onChange={(event) => setAttachLogs(event.target.checked)} />
             <Paperclip size={17} />
-            <span><strong>Attach chat logs</strong><small>This helps the dispute solver, but may reveal private trade details.</small></span>
+            <span>
+              <strong>Attach chat logs</strong>
+              <small>This helps the dispute solver, but may reveal private trade details.</small>
+            </span>
           </label>
-          {error ? <p className="field-error" id="dispute-statement-error" role="alert">{error}</p> : null}
-          <Button className="full-width dispute-submit-button" loading={loading || preparingLogs} type="submit" variant="outline">
+          {error ? (
+            <p className="field-error" id="dispute-statement-error" role="alert">
+              {error}
+            </p>
+          ) : null}
+          <Button
+            className="full-width dispute-submit-button"
+            loading={loading || preparingLogs}
+            type="submit"
+            variant="outline"
+          >
             <FileText size={16} />
             Submit statement
           </Button>
@@ -2175,120 +1956,6 @@ function contactPlaceholder(method: string): string {
   if (method === "simplex") return "SimpleX incognito contact link";
   if (method === "nostr") return "npub or NIP-05 address";
   return "How the coordinator can reach you";
-}
-
-function RatingSubmissionCard({
-  canSubmit,
-  coordinatorName,
-  loading,
-  onPublishRating
-}: {
-  canSubmit: boolean;
-  coordinatorName: string;
-  loading: boolean;
-  onPublishRating?: (rating: number) => Promise<void>;
-}) {
-  const [peerRating, setPeerRating] = useState(0);
-  const [coordinatorRating, setCoordinatorRating] = useState(0);
-  const [submitting, setSubmitting] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
-  const [localError, setLocalError] = useState("");
-
-  async function selectCoordinatorRating(rating: number) {
-    setCoordinatorRating(rating);
-    setSubmitted(false);
-    setLocalError("");
-    if (!canSubmit) {
-      setLocalError("Load this live order with your robot before rating the trade.");
-      return;
-    }
-    if (!onPublishRating) {
-      setLocalError("Coordinator rating is unavailable.");
-      return;
-    }
-    setSubmitting(true);
-    try {
-      await onPublishRating(rating);
-      setSubmitted(true);
-    } catch (error) {
-      setLocalError(toUserMessage(error, "Could not publish the rating."));
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  const ratingLabels = ["Poor", "Fair", "Good", "Very good", "Excellent"];
-  const ratingSending = loading || submitting;
-
-  return (
-    <section className="trade-completion-rating">
-      <div className="trade-completion-rating-heading">
-        <h3>Rate your trade</h3>
-      </div>
-      <div className="trade-completion-rating-grid">
-        <RatingField
-          label="Your peer"
-          rating={peerRating}
-          ratingLabels={ratingLabels}
-          onChange={setPeerRating}
-        />
-        <RatingField
-          disabled={ratingSending}
-          label={`Your host ${coordinatorName || "coordinator"}`}
-          rating={coordinatorRating}
-          ratingLabels={ratingLabels}
-          onChange={(value) => void selectCoordinatorRating(value)}
-        />
-      </div>
-      {ratingSending ? (
-        <p className="trade-rating-sending" role="status">
-          <span className="ui-spinner" aria-hidden="true" />
-          Sending coordinator rating
-        </p>
-      ) : submitted ? (
-        <p className="trade-rating-thanks" role="status">
-          Also {coordinatorName || "your coordinator"} loves you <span aria-hidden="true">❤️</span>
-        </p>
-      ) : localError ? <p className="field-error" role="alert">{localError}</p> : null}
-    </section>
-  );
-}
-
-function RatingField({
-  disabled = false,
-  label,
-  onChange,
-  rating,
-  ratingLabels
-}: {
-  disabled?: boolean;
-  label: string;
-  onChange: (value: number) => void;
-  rating: number;
-  ratingLabels: string[];
-}) {
-  return (
-    <div className="trade-rating-field">
-      <strong>{label}</strong>
-      <div className="rating-options" role="radiogroup" aria-label={`${label} rating`}>
-        {[1, 2, 3, 4, 5].map((value) => (
-          <button
-            aria-checked={rating === value}
-            aria-label={`${value} stars, ${ratingLabels[value - 1]}`}
-            className={`rating-star-button ${rating >= value ? "rating-star-button-active" : ""}`}
-            disabled={disabled}
-            key={value}
-            onClick={() => onChange(value)}
-            role="radio"
-            type="button"
-          >
-            <Star size={26} />
-          </button>
-        ))}
-      </div>
-      {rating ? <small>{ratingLabels[rating - 1]}</small> : <small>Not rated</small>}
-    </div>
-  );
 }
 
 const payoutBoltLanes = [
@@ -2344,108 +2011,4 @@ function PayoutRoutingCard({
       </CardContent>
     </Card>
   );
-}
-
-type CompletionSummarySide = "maker" | "platform" | "taker";
-
-function CompletedTradeSummary({ order }: { order: OrderDto }) {
-  const [side, setSide] = useState<CompletionSummarySide>(order.is_maker ? "maker" : "taker");
-  const currencyCode = currencyCodeFromId(order.currency);
-  const fallbackSats = firstPositiveNumber(
-    order.sent_satoshis,
-    order.num_satoshis,
-    order.trade_satoshis,
-    order.satoshis,
-    order.invoice_amount
-  );
-  const makerIsBuyer = order.is_maker ? order.is_buyer : !order.is_buyer;
-  const selectedSummary = side === "maker" ? order.maker_summary : order.taker_summary;
-  const selectedIsBuyer = recordBoolean(selectedSummary, "is_buyer", side === "maker" ? makerIsBuyer : !makerIsBuyer);
-  const fiatAmount = recordNumber(selectedSummary, selectedIsBuyer ? "sent_fiat" : "received_fiat", order.amount ?? 0);
-  const bitcoinAmount = recordNumber(selectedSummary, selectedIsBuyer ? "received_sats" : "sent_sats", fallbackSats);
-  const tradeFeeSats = recordNumber(selectedSummary, "trade_fee_sats", 0);
-  const tradeFeePercent = recordNumber(selectedSummary, "trade_fee_percent", order.trade_fee_percent ?? 0);
-
-  return (
-    <section className="completed-trade-summary">
-      <h3>Trade summary</h3>
-      <Tabs
-        ariaLabel="Trade summary participant"
-        className="completed-summary-tabs"
-        id="completed-summary"
-        onChange={setSide}
-        options={[
-          {
-            value: "maker",
-            label: (
-              <>
-                <RobotAvatar hashId={order.maker_hash_id || order.maker_nick} label={order.maker_nick || "Maker"} size="sm" />
-                <span>Maker</span>
-              </>
-            )
-          },
-          {
-            value: "platform",
-            ariaLabel: "RoboSats summary",
-            label: <img className="completed-summary-platform-mark" alt="" src="/static/assets/vector/R-notext.svg" />
-          },
-          {
-            value: "taker",
-            label: (
-              <>
-                <span>Taker</span>
-                <RobotAvatar hashId={order.taker_hash_id || order.taker_nick} label={order.taker_nick || "Taker"} size="sm" />
-              </>
-            )
-          }
-        ]}
-        panelId="completed-summary-panel"
-        value={side}
-      />
-
-      <div
-        aria-labelledby={tabId("completed-summary", side)}
-        id="completed-summary-panel"
-        role="tabpanel"
-      >
-        {side === "platform" ? (
-          <dl className="completed-summary-details">
-            <div><dt>Coordinator</dt><dd>{order.shortAlias || "RoboSats"}</dd></div>
-            <div><dt>Order</dt><dd>#{order.id}</dd></div>
-            {recordNumber(order.platform_summary, "trade_revenue_sats", 0) > 0 ? (
-              <div><dt>Trade revenue</dt><dd>{formatSats(recordNumber(order.platform_summary, "trade_revenue_sats", 0))}</dd></div>
-            ) : null}
-          </dl>
-        ) : (
-          <dl className="completed-summary-details">
-            <div><dt>User role</dt><dd>{selectedIsBuyer ? "Buyer" : "Seller"}</dd></div>
-            <div><dt>{selectedIsBuyer ? "Fiat sent" : "Fiat received"}</dt><dd>{formatFiat(fiatAmount, currencyCode)}</dd></div>
-            <div><dt>{selectedIsBuyer ? "Bitcoin received" : "Bitcoin sent"}</dt><dd>{formatSats(bitcoinAmount)}</dd></div>
-            <div>
-              <dt>Trade fee</dt>
-              <dd>{formatSats(tradeFeeSats)}{tradeFeePercent > 0 ? ` (${formatSummaryPercent(tradeFeePercent)})` : ""}</dd>
-            </div>
-          </dl>
-        )}
-      </div>
-    </section>
-  );
-}
-
-function recordNumber(record: Record<string, unknown> | undefined, key: string, fallback: number): number {
-  const value = Number(record?.[key]);
-  return Number.isFinite(value) ? value : fallback;
-}
-
-function recordBoolean(record: Record<string, unknown> | undefined, key: string, fallback: boolean): boolean {
-  return typeof record?.[key] === "boolean" ? record[key] : fallback;
-}
-
-function firstPositiveNumber(...values: Array<number | null | undefined>): number {
-  return values.find((value) => typeof value === "number" && Number.isFinite(value) && value > 0) ?? 0;
-}
-
-function formatSummaryPercent(value: number): string {
-  const percentage = value > 0 && value < 1 ? value * 100 : value;
-  return `${Number(percentage.toPrecision(3))}%`;
 }
