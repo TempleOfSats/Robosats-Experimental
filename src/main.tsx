@@ -14,6 +14,7 @@ import { initializeDesktopRuntimeBridge } from "@/domains/transport/tauriBridge"
 import { installRefreshIntentLifecycle } from "@/domains/transport/refreshIntents";
 import { startOrderFeedbackRuntime } from "@/domains/notifications/orderFeedbackRuntime";
 import { AppErrorBoundary } from "@/components/app/AppErrorBoundary";
+import { startDisputeRewardRefreshRuntime } from "@/domains/rewards/disputeRewardRefresh";
 
 initializeDesktopRuntimeBridge();
 installRefreshIntentLifecycle();
@@ -21,6 +22,7 @@ subscribeNativeOrderHints((hint) => {
   publishOrderChangeNotification({ source: "native", ...hint });
 });
 startOrderFeedbackRuntime();
+startDisputeRewardRefreshRuntime();
 window.dispatchEvent(new CustomEvent("robosats:boot-stage", {
   detail: { progress: 82, message: "Starting the private interface..." }
 }));

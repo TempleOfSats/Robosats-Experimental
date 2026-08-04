@@ -20,6 +20,14 @@ type DesktopNotificationState = {
   permission: string;
 };
 
+export type DesktopTransportDiagnostic = {
+  phase: "bootstrap" | "tor-connect" | "stream" | "socks" | "unknown";
+  outcome: "ready" | "completed" | "timeout" | "circuit-failed" | "stream-closed" | "rejected" | "failed" | "unknown";
+  durationMs: number;
+  attempt: number;
+  artiVersion: string;
+};
+
 export const DESKTOP_NOTIFICATION_OPEN_EVENT = "robosats:desktop-notification-open";
 
 let pendingDesktopNotificationRoute: string | undefined;
@@ -73,6 +81,7 @@ export async function showDesktopNotification(request: {
   title: string;
   body: string;
   route?: string;
+  avatar?: { cacheKey: string; dataUrl: string };
 }): Promise<boolean> {
   if (!isTauriDesktop()) return false;
   return invoke<boolean>("desktop_show_notification", { request });
@@ -86,6 +95,21 @@ export async function requestDesktopTransportRecovery(): Promise<void> {
 export async function requestDesktopTorReconnect(): Promise<void> {
   if (!isTauriDesktop()) return;
   await invoke("desktop_reconnect_transport");
+}
+
+export async function requestDesktopTorReset(): Promise<void> {
+  if (!isTauriDesktop()) return;
+  await invoke("desktop_reset_transport");
+}
+
+export async function saveDesktopFile(filename: string, content: string): Promise<void> {
+  if (!isTauriDesktop()) return;
+  await invoke("desktop_save_file", { filename, content });
+}
+
+export async function getDesktopTransportDiagnostics(): Promise<DesktopTransportDiagnostic[]> {
+  if (!isTauriDesktop()) return [];
+  return invoke<DesktopTransportDiagnostic[]>("desktop_transport_diagnostics");
 }
 
 export async function loadDesktopSecret(key: string): Promise<string | null> {

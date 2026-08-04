@@ -12,6 +12,8 @@ import {
   Search,
   Send,
   Trash2,
+  Trophy,
+  WalletCards,
   X
 } from "lucide-react";
 import { Fragment, useState } from "react";
@@ -40,8 +42,10 @@ export function TradeList({
   onFindTrade,
   onOpen,
   onPause,
+  onClaimRewards,
   onResume,
   quickActionKey,
+  rewardSlots,
   snapshots
 }: {
   coordinators: CoordinatorSummary[];
@@ -50,11 +54,13 @@ export function TradeList({
   onFindTrade: () => void;
   onOpen: (locator: ProTradeLocator) => void;
   onPause: (snapshot: ProTradeSnapshot) => void;
+  onClaimRewards: (slotId: string) => void;
   onResume: (snapshot: ProTradeSnapshot) => void;
   quickActionKey: string;
+  rewardSlots: RobotSlot[];
   snapshots: ProTradeSnapshot[];
 }) {
-  if (snapshots.length === 0) {
+  if (snapshots.length === 0 && rewardSlots.length === 0) {
     return <TradeEmptyState onCreate={onCreate} onFindTrade={onFindTrade} />;
   }
 
@@ -62,14 +68,45 @@ export function TradeList({
 
   return (
     <div className="pro-trade-list" aria-label="Trades">
-      <div className={showQuickActions ? "pro-trade-header" : "pro-trade-header pro-trade-header-no-actions"} aria-hidden="true">
-        <span>Robot</span>
-        <span>Order</span>
-        <span>Coordinator</span>
-        <span>Status</span>
-        <span>Deadline</span>
-        {showQuickActions ? <span>Actions</span> : null}
-      </div>
+      {rewardSlots.length > 0 ? (
+        <div className="pro-reward-action-group" aria-label="Robot rewards ready to claim">
+          <div className="pro-trade-group">Rewards ready</div>
+          {rewardSlots.map((slot) => (
+            <div className="pro-reward-action-row" key={slot.tokenSHA256}>
+              <span className="pro-reward-action-robot">
+                <RobotAvatar hashId={slot.hashId} label={slot.nickname} size="sm" />
+                <span>
+                  <strong>{slot.nickname}</strong>
+                  <small>Robot reward</small>
+                </span>
+              </span>
+              <span className="pro-reward-action-amount">
+                <Trophy size={16} aria-hidden="true" />
+                <span>
+                  <strong>{formatSats(slot.earnedRewards)}</strong>
+                  <small>available for this robot</small>
+                </span>
+              </span>
+              <Button onClick={() => onClaimRewards(slot.tokenSHA256)} size="sm" type="button" variant="outline">
+                <WalletCards size={15} /> Claim
+              </Button>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {snapshots.length > 0 ? (
+        <div
+          className={showQuickActions ? "pro-trade-header" : "pro-trade-header pro-trade-header-no-actions"}
+          aria-hidden="true"
+        >
+          <span>Robot</span>
+          <span>Order</span>
+          <span>Coordinator</span>
+          <span>Status</span>
+          <span>Deadline</span>
+          {showQuickActions ? <span>Actions</span> : null}
+        </div>
+      ) : null}
       {snapshots.map((snapshot, index) => {
         const presentation = toProTradePresentation(snapshot);
         const StatusIcon = presentation.statusIcon;
@@ -80,7 +117,9 @@ export function TradeList({
         return (
           <Fragment key={snapshot.key}>
             {showGroup ? <div className="pro-trade-group">{groupLabel(presentation.group)}</div> : null}
-            <div className={`pro-trade-row${hasQuickActions ? " pro-trade-row-quick-actions" : ""}${showQuickActions ? "" : " pro-trade-row-no-actions"}`}>
+            <div
+              className={`pro-trade-row${hasQuickActions ? " pro-trade-row-quick-actions" : ""}${showQuickActions ? "" : " pro-trade-row-no-actions"}`}
+            >
               <button
                 className="pro-trade-row-open"
                 type="button"
@@ -89,66 +128,77 @@ export function TradeList({
               >
                 <span className="pro-trade-robot">
                   <RobotAvatar hashId={snapshot.hashId} label={snapshot.nickname} size="sm" />
-                  <span><strong>{snapshot.nickname}</strong><small>{presentation.directionLabel}</small></span>
+                  <span>
+                    <strong>{snapshot.nickname}</strong>
+                    <small>{presentation.directionLabel}</small>
+                  </span>
                 </span>
                 <span className="pro-trade-order" data-direction={presentation.directionLabel}>
                   <strong>{presentation.amountLabel}</strong>
-                  <small>{presentation.methodLabel} · #{snapshot.locator.orderId}</small>
+                  <small>
+                    {presentation.methodLabel} · #{snapshot.locator.orderId}
+                  </small>
                 </span>
                 <span className="pro-trade-coordinator">
-                  {coordinator ? <img className="coordinator-avatar coordinator-avatar-xs" src={coordinator.smallAvatarUrl} alt="" /> : null}
+                  {coordinator ? (
+                    <img className="coordinator-avatar coordinator-avatar-xs" src={coordinator.smallAvatarUrl} alt="" />
+                  ) : null}
                   <span>{coordinator?.longAlias ?? snapshot.locator.shortAlias}</span>
                 </span>
-                <span>
-                  <Badge tone={presentation.statusTone} icon={<StatusIcon size={12} />}>{presentation.statusLabel}</Badge>
+                <span className="pro-trade-status">
+                  <Badge tone={presentation.statusTone} icon={<StatusIcon size={12} />}>
+                    {presentation.statusLabel}
+                  </Badge>
                 </span>
                 <span className="pro-trade-deadline" title={formatExpiryTitle(snapshot.order?.expires_at)}>
                   <Clock3 size={15} aria-hidden="true" />
                   {presentation.deadline ? formatExpiryCountdown(snapshot.order?.expires_at) : "-"}
                 </span>
               </button>
-              {showQuickActions ? <span className="pro-trade-actions">
-                {snapshot.order?.status === 1 && snapshot.order.is_maker ? (
-                  <>
+              {showQuickActions ? (
+                <span className="pro-trade-actions">
+                  {snapshot.order?.status === 1 && snapshot.order.is_maker ? (
+                    <>
+                      <Button
+                        aria-label={`Pause order ${snapshot.locator.orderId}`}
+                        className="pro-trade-action-button"
+                        disabled={Boolean(quickActionKey)}
+                        loading={quickActionKey === `${snapshot.key}:pause`}
+                        onClick={() => onPause(snapshot)}
+                        size="sm"
+                        title="Hide this offer from the public order book"
+                        variant="outline"
+                      >
+                        <Pause size={14} /> <span className="pro-trade-action-label">Pause</span>
+                      </Button>
+                      <Button
+                        aria-label={`Cancel order ${snapshot.locator.orderId}`}
+                        className="pro-trade-action-button pro-trade-cancel-button"
+                        disabled={Boolean(quickActionKey)}
+                        onClick={() => onCancel(snapshot)}
+                        size="sm"
+                        title="Cancel this offer"
+                        variant="destructive"
+                      >
+                        <X size={14} /> <span className="pro-trade-action-label">Cancel offer</span>
+                      </Button>
+                    </>
+                  ) : snapshot.order?.status === 2 && snapshot.order.is_maker ? (
                     <Button
-                      aria-label={`Pause order ${snapshot.locator.orderId}`}
+                      aria-label={`Resume order ${snapshot.locator.orderId}`}
                       className="pro-trade-action-button"
                       disabled={Boolean(quickActionKey)}
-                      loading={quickActionKey === `${snapshot.key}:pause`}
-                      onClick={() => onPause(snapshot)}
+                      loading={quickActionKey === `${snapshot.key}:resume`}
+                      onClick={() => onResume(snapshot)}
                       size="sm"
-                      title="Hide this offer from the public order book"
+                      title="Return this offer to the public order book"
                       variant="outline"
                     >
-                      <Pause size={14} /> <span className="pro-trade-action-label">Pause</span>
+                      <Play size={14} /> <span className="pro-trade-action-label">Resume</span>
                     </Button>
-                    <Button
-                      aria-label={`Cancel order ${snapshot.locator.orderId}`}
-                      className="pro-trade-action-button pro-trade-cancel-button"
-                      disabled={Boolean(quickActionKey)}
-                      onClick={() => onCancel(snapshot)}
-                      size="sm"
-                      title="Cancel this offer"
-                      variant="destructive"
-                    >
-                      <X size={14} /> <span className="pro-trade-action-label">Cancel</span>
-                    </Button>
-                  </>
-                ) : snapshot.order?.status === 2 && snapshot.order.is_maker ? (
-                  <Button
-                    aria-label={`Resume order ${snapshot.locator.orderId}`}
-                    className="pro-trade-action-button"
-                    disabled={Boolean(quickActionKey)}
-                    loading={quickActionKey === `${snapshot.key}:resume`}
-                    onClick={() => onResume(snapshot)}
-                    size="sm"
-                    title="Return this offer to the public order book"
-                    variant="outline"
-                  >
-                    <Play size={14} /> <span className="pro-trade-action-label">Resume</span>
-                  </Button>
-                ) : null}
-              </span> : null}
+                  ) : null}
+                </span>
+              ) : null}
             </div>
           </Fragment>
         );
@@ -183,10 +233,15 @@ export function RobotList({
   if (slots.length === 0) {
     return (
       <div className="pro-empty-state pro-fleet-empty-state">
-        <span className="pro-fleet-empty-mark" aria-hidden="true"><FleetGlyph size={28} /></span>
+        <span className="pro-fleet-empty-mark" aria-hidden="true">
+          <FleetGlyph size={28} />
+        </span>
         <div className="pro-fleet-empty-copy">
           <strong>Your Robot Fleet is ready</strong>
-          <p>Create multiple robots here to manage their offers and active trades in one place. Each has a portable token that works in any RoboSats frontend.</p>
+          <p>
+            Create multiple robots here to manage their offers and active trades in one place. Each has a portable token
+            that works in any RoboSats frontend.
+          </p>
           <p>Your Fleet key restores and synchronizes the same robots and offer presets across your devices.</p>
         </div>
       </div>
@@ -204,7 +259,12 @@ export function RobotList({
         return (
           <article className="pro-robot-row" key={summary.slotId}>
             <div className="pro-robot-identity">
-              <button className="pro-robot-avatar-button" type="button" onClick={() => onSettings(summary.slotId)} aria-label={`Open ${summary.nickname} settings`}>
+              <button
+                className="pro-robot-avatar-button"
+                type="button"
+                onClick={() => onSettings(summary.slotId)}
+                aria-label={`Open ${summary.nickname} settings`}
+              >
                 <RobotAvatar hashId={summary.hashId} label={summary.nickname} size="md" />
               </button>
               <span>
@@ -223,27 +283,48 @@ export function RobotList({
                     <Badge tone={lifecycle.statusTone}>{lifecycle.statusLabel}</Badge>
                   )}
                   <small className="pro-robot-refresh-meta">
-                    <span>{checkingStatus ? "Checking coordinators" : formatLastRefresh(lifecycle.statusTimestamp)}</span>
+                    <span>
+                      {checkingStatus ? "Checking coordinators" : formatLastRefresh(lifecycle.statusTimestamp)}
+                    </span>
                   </small>
                 </span>
               </span>
             </div>
             <div className="pro-robot-actions">
-              <Button size="icon" variant="ghost" onClick={() => onDownload(summary.slotId)} aria-label={`Download ${summary.nickname} recovery JSON`} title="Download recovery JSON">
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={() => onDownload(summary.slotId)}
+                aria-label={`Download ${summary.nickname} recovery JSON`}
+                title="Download recovery JSON"
+              >
                 <Download size={16} />
               </Button>
-              <Button size="icon" variant="ghost" onClick={() => onTelegram(summary.slotId)} aria-label={`Enable Telegram for ${summary.nickname}`} title="Enable Telegram">
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={() => onTelegram(summary.slotId)}
+                aria-label={`Enable Telegram for ${summary.nickname}`}
+                title="Enable Telegram"
+              >
                 <Send size={16} />
               </Button>
               <Button
-                aria-label={lifecycle.canStartOrder ? `Create an offer with ${summary.nickname}` : `${summary.nickname} is unavailable`}
+                aria-label={
+                  lifecycle.canStartOrder
+                    ? `Create an offer with ${summary.nickname}`
+                    : `${summary.nickname} is unavailable`
+                }
                 className="pro-robot-create-button"
                 disabled={!lifecycle.canStartOrder}
                 size="sm"
                 onClick={() => onCreate(summary.slotId)}
-                title={lifecycle.canStartOrder
-                  ? `Create an offer with ${summary.nickname}`
-                  : lifecycle.availability.message ?? "Finish this robot's current order before creating another offer"}
+                title={
+                  lifecycle.canStartOrder
+                    ? `Create an offer with ${summary.nickname}`
+                    : (lifecycle.availability.message ??
+                      "Finish this robot's current order before creating another offer")
+                }
                 variant="outline"
               >
                 <CirclePlus size={16} /> <span className="pro-robot-action-label">Create offer</span>
@@ -254,9 +335,11 @@ export function RobotList({
                 disabled={!lifecycle.canRemove}
                 onClick={() => onDelete(summary.slotId)}
                 aria-label={`Remove ${summary.nickname} from Fleet`}
-                title={!lifecycle.canRemove
-                  ? lifecycle.availability.message ?? "Finish the current order before removing this robot"
-                  : "Remove from Fleet"}
+                title={
+                  !lifecycle.canRemove
+                    ? (lifecycle.availability.message ?? "Finish the current order before removing this robot")
+                    : "Remove from Fleet"
+                }
               >
                 <Trash2 size={16} />
               </Button>
@@ -285,7 +368,7 @@ export function HistoryList({
         </span>
         <div className="pro-history-empty-copy">
           <strong>No completed trades yet</strong>
-          <p>Completed trades and collaborative cancellations will appear here.</p>
+          <p>Completed trades, collaborative cancellations and dispute results will appear here.</p>
         </div>
       </div>
     );
@@ -318,17 +401,28 @@ export function HistoryList({
             >
               <span className="pro-history-robot">
                 <RobotAvatar hashId={entry.robotHashId} label={entry.robotName} size="sm" />
-                <span><strong>{entry.robotName}</strong><small>{entry.role === "buyer" ? "Bought BTC" : "Sold BTC"}</small></span>
+                <span>
+                  <strong>{entry.robotName}</strong>
+                  <small>{entry.role === "buyer" ? "Bought BTC" : "Sold BTC"}</small>
+                </span>
               </span>
               <span className="pro-history-trade">
                 <strong>{formatHistoryAmount(entry)}</strong>
-                <small>{entry.paymentMethod || "Method not specified"} · #{entry.orderId}</small>
+                <small>
+                  {entry.paymentMethod || "Method not specified"} · #{entry.orderId}
+                </small>
               </span>
               <span className="pro-history-coordinator">
-                {coordinator ? <img className="coordinator-avatar coordinator-avatar-xs" src={coordinator.smallAvatarUrl} alt="" /> : null}
+                {coordinator ? (
+                  <img className="coordinator-avatar coordinator-avatar-xs" src={coordinator.smallAvatarUrl} alt="" />
+                ) : null}
                 <span>{coordinator?.longAlias ?? entry.coordinatorShortAlias}</span>
               </span>
-              <span><Badge tone={outcome.tone} icon={<OutcomeIcon size={12} />}>{outcome.label}</Badge></span>
+              <span>
+                <Badge tone={outcome.tone} icon={<OutcomeIcon size={12} />}>
+                  {outcome.label}
+                </Badge>
+              </span>
               <span className="pro-history-date">{formatHistoryDate(entry.completedAt)}</span>
             </button>
           );
@@ -344,43 +438,75 @@ export function HistoryList({
           <header className="garage-switcher-header">
             <div>
               <p className="app-eyebrow">Finished trade</p>
-              <h3 id="pro-history-detail-title">Order #{selected.orderId}</h3>
+              <h3 data-dialog-initial-focus id="pro-history-detail-title" tabIndex={-1}>
+                Order #{selected.orderId}
+              </h3>
             </div>
-            <button className="icon-button" type="button" onClick={() => setSelected(undefined)} aria-label="Close trade history">
+            <button
+              className="icon-button"
+              type="button"
+              onClick={() => setSelected(undefined)}
+              aria-label="Close trade history"
+            >
               <X size={18} />
             </button>
           </header>
           <div className="pro-history-detail-identity">
             <RobotAvatar hashId={selected.robotHashId} label={selected.robotName} size="md" />
-            <span><strong>{selected.robotName}</strong><small>{selected.role === "buyer" ? "Bought BTC" : "Sold BTC"}</small></span>
-            <Badge
-              tone={historyOutcome(selected.outcome).tone}
-              icon={historyOutcomeIcon(selected.outcome)}
-            >
+            <span>
+              <strong>{selected.robotName}</strong>
+              <small>{selected.role === "buyer" ? "Bought BTC" : "Sold BTC"}</small>
+            </span>
+            <Badge tone={historyOutcome(selected.outcome).tone} icon={historyOutcomeIcon(selected.outcome)}>
               {historyOutcome(selected.outcome).label}
             </Badge>
           </div>
           <dl className="pro-history-detail-list">
-            <div><dt>Amount</dt><dd>{formatHistoryAmount(selected)}</dd></div>
-            <div><dt>Payment method</dt><dd>{selected.paymentMethod || "Not specified"}</dd></div>
-            <div><dt>Premium</dt><dd>{formatSignedPercent(selected.premium)}</dd></div>
-            <div><dt>Bitcoin</dt><dd>{formatSats(selected.satoshis)}</dd></div>
-            <div><dt>Role</dt><dd>{selected.origin === "maker" ? "Offer maker" : "Offer taker"}</dd></div>
-            <div><dt>Coordinator</dt><dd>{coordinatorName(coordinators, selected.coordinatorShortAlias)}</dd></div>
-            <div><dt>Completed</dt><dd>{new Date(selected.completedAt).toLocaleString()}</dd></div>
+            <div>
+              <dt>Amount</dt>
+              <dd>{formatHistoryAmount(selected)}</dd>
+            </div>
+            <div>
+              <dt>Payment method</dt>
+              <dd>{selected.paymentMethod || "Not specified"}</dd>
+            </div>
+            <div>
+              <dt>Premium</dt>
+              <dd>{formatSignedPercent(selected.premium)}</dd>
+            </div>
+            <div>
+              <dt>
+                {selected.outcome === "dispute-won" || selected.outcome === "dispute-lost"
+                  ? "Contract bitcoin"
+                  : selected.role === "buyer"
+                    ? "Bitcoin bought"
+                    : "Bitcoin sent"}
+              </dt>
+              <dd>{formatSats(selected.satoshis)}</dd>
+            </div>
+            <div>
+              <dt>Role</dt>
+              <dd>{selected.origin === "maker" ? "Offer maker" : "Offer taker"}</dd>
+            </div>
+            <div>
+              <dt>Coordinator</dt>
+              <dd>{coordinatorName(coordinators, selected.coordinatorShortAlias)}</dd>
+            </div>
+            <div>
+              <dt>Completed</dt>
+              <dd>{new Date(selected.completedAt).toLocaleString()}</dd>
+            </div>
           </dl>
           {selected.settlementInvoice && selected.settlementInvoicePurpose ? (
             <section className="pro-history-invoice">
               <div>
                 <strong>
-                  {selected.settlementInvoicePurpose === "payout-received"
-                    ? "Payout invoice"
-                    : "Seller collateral invoice"}
+                  {selected.settlementInvoicePurpose === "payout-received" ? "Payout invoice" : "Escrow invoice"}
                 </strong>
                 <small>
                   {selected.settlementInvoicePurpose === "payout-received"
                     ? "Bitcoin received through this invoice"
-                    : "Bitcoin collateral paid through this invoice"}
+                    : "Escrow paid through this invoice"}
                 </small>
               </div>
               <code>{selected.settlementInvoice}</code>
@@ -398,7 +524,8 @@ export function HistoryList({
             </section>
           ) : null}
           <p className="pro-history-retention-note">
-            This summary is kept in your encrypted Fleet history. Banking details, peer identity and chat are not stored.
+            This summary is kept in your encrypted Fleet history. Banking details, peer identity and chat are not
+            stored.
           </p>
         </Dialog>
       ) : null}
@@ -406,22 +533,21 @@ export function HistoryList({
   );
 }
 
-function TradeEmptyState({
-  onCreate,
-  onFindTrade
-}: {
-  onCreate: () => void;
-  onFindTrade: () => void;
-}) {
+function TradeEmptyState({ onCreate, onFindTrade }: { onCreate: () => void; onFindTrade: () => void }) {
   return (
     <div className="pro-empty-state">
       <ListChecks size={22} aria-hidden="true" />
-      <div><strong>No matching trades</strong><p>Active trades and public offers for every robot will appear here.</p></div>
+      <div>
+        <strong>No matching trades</strong>
+        <p>Active trades and public offers for every robot will appear here.</p>
+      </div>
       <div>
         <Button size="sm" variant="secondary" onClick={onFindTrade}>
           <Search size={15} /> Find a trade
         </Button>
-        <Button size="sm" variant="ghost" onClick={onCreate}>Create offer</Button>
+        <Button size="sm" variant="ghost" onClick={onCreate}>
+          Create offer
+        </Button>
       </div>
     </div>
   );
@@ -437,6 +563,8 @@ function historyOutcome(outcome: TradeHistoryOutcome): {
   tone: "success" | "warning" | "danger" | "muted";
 } {
   if (outcome === "completed") return { icon: CircleCheck, label: "Completed", tone: "success" };
+  if (outcome === "dispute-won") return { icon: Trophy, label: "Dispute won", tone: "success" };
+  if (outcome === "dispute-lost") return { icon: X, label: "Dispute lost", tone: "danger" };
   return { icon: CalendarClock, label: "Cancelled together", tone: "muted" };
 }
 

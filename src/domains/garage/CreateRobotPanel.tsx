@@ -7,14 +7,20 @@ import { RobotAvatar } from "@/domains/identity/RobotAvatar";
 import { deriveRobotIdentity, type RobotIdentity } from "@/domains/identity/robotIdentity";
 import { useGarageStore } from "@/domains/garage/garageStore";
 import { requestRobotDataRefresh } from "@/domains/garage/robotDataRefresh";
-import { generateRobotToken } from "@/domains/garage/token";
+import { generateRobotToken, isProFleetToken } from "@/domains/garage/token";
 import { downloadRobotTokenBackup } from "@/domains/garage/tokenBackup";
 import { cn } from "@/lib/cn";
 import { writeClipboard } from "@/lib/clipboard";
 
 type WizardStep = "token" | "identity" | "ready";
 
-export function CreateRobotPanel({ onProfile }: { onProfile?: () => void }) {
+export function CreateRobotPanel({
+  onFleetRecovery,
+  onProfile
+}: {
+  onFleetRecovery?: (fleetKey: string) => void;
+  onProfile?: () => void;
+}) {
   const navigate = useNavigate();
   const addSlot = useGarageStore((state) => state.addSlot);
   const updateSlotIdentityDetails = useGarageStore((state) => state.updateSlotIdentityDetails);
@@ -73,6 +79,10 @@ export function CreateRobotPanel({ onProfile }: { onProfile?: () => void }) {
       setError("Enter a robot token first.");
       return;
     }
+    if (isProFleetToken(cleanToken) && onFleetRecovery) {
+      onFleetRecovery(cleanToken);
+      return;
+    }
 
     const identity = deriveRobotIdentity(cleanToken);
     const fallbackName = fallbackRobotName(identity.hashId);
@@ -97,6 +107,7 @@ export function CreateRobotPanel({ onProfile }: { onProfile?: () => void }) {
       addSlot({
         ...identity,
         nickname,
+        managedBy: undefined,
         earnedRewards: 0,
         robots: {
           local: {

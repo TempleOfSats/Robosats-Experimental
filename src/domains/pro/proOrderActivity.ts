@@ -8,18 +8,18 @@ import {
   type CoordinatorOrderObservation
 } from "@/domains/orders/orderActivity";
 import type { OrderDto } from "@/domains/orders/order.types";
-import {
-  isTerminalOrderForCurrentRobot
-} from "@/domains/orders/orderStateMachine";
+import { isTerminalOrderForCurrentRobot } from "@/domains/orders/orderStateMachine";
 import { selectProGarageSlots, useGarageVaultStore } from "@/domains/pro/garageVaultStore";
 import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
 import { proTradeKey, type ProTradeLocator, type ProTradeSnapshot } from "@/domains/pro/pro.types";
+import type { ArchiveTradeInput } from "@/domains/pro/tradeHistory";
 
 export function startProOrderActivityBridge(): () => void {
   const consume = (observation: CoordinatorOrderObservation) => {
     const vault = useGarageVaultStore.getState();
-    const slot = selectProGarageSlots(useGarageStore.getState().slots, vault.manifest)
-      .find((candidate) => candidate.tokenSHA256 === observation.slotId);
+    const slot = selectProGarageSlots(useGarageStore.getState().slots, vault.manifest).find(
+      (candidate) => candidate.tokenSHA256 === observation.slotId
+    );
     if (!slot) return;
     applyProOrderSnapshot({
       slot,
@@ -47,8 +47,7 @@ export function startProOrderActivityBridge(): () => void {
   const unsubscribeSettlement = subscribeCoordinatorSettlementActivity(consumeSettlement, { replay: true });
   const unsubscribeVault = useGarageVaultStore.subscribe((state, previous) => {
     const envelopeBecameAvailable = Boolean(state.envelope && !previous.envelope);
-    const fleetChanged = Boolean(state.envelope)
-      && state.manifest?.revision !== previous.manifest?.revision;
+    const fleetChanged = Boolean(state.envelope) && state.manifest?.revision !== previous.manifest?.revision;
     if (envelopeBecameAvailable || fleetChanged) {
       replayCoordinatorOrderActivity(consume);
       replayCoordinatorSettlementActivity(consumeSettlement);
@@ -97,14 +96,15 @@ export function applyProOrderSnapshot({
       isSeller: order.is_seller
     });
   }
-  const currentSlot = useGarageStore.getState().slots.find((candidate) => candidate.tokenSHA256 === slot.tokenSHA256) ?? slot;
+  const currentSlot =
+    useGarageStore.getState().slots.find((candidate) => candidate.tokenSHA256 === slot.tokenSHA256) ?? slot;
   const robot = currentSlot.robots[shortAlias];
-  const released = releasePublicTake || (
-    order.status === 1
-    && !order.is_maker
-    && !order.is_taker
-    && (robot?.activeOrderId === order.id || robot?.releasedOrderId === order.id)
-  );
+  const released =
+    releasePublicTake ||
+    (order.status === 1 &&
+      !order.is_maker &&
+      !order.is_taker &&
+      (robot?.activeOrderId === order.id || robot?.releasedOrderId === order.id));
   if (released) {
     useGarageStore.getState().releaseOrderReservation(slot.token, shortAlias, order.id);
     tradeIndex.removeTrade(locator);
@@ -113,26 +113,6 @@ export function applyProOrderSnapshot({
 
   const renewable = order.status === 5 && order.is_maker;
   const settlement = settlementForSnapshot(order, previous);
-  if (!renewable && isTerminalForProDesk(
-    order.status,
-    order.is_maker,
-    order.is_seller
-  )) {
-    const archiveResult = useGarageVaultStore.getState().archiveTrade({
-      slotId: slot.tokenSHA256,
-      robotName: currentSlot.nickname,
-      robotHashId: currentSlot.hashId,
-      coordinatorShortAlias: shortAlias,
-      order,
-      ...settlement,
-      observedAt
-    });
-    if (archiveResult !== "deferred") {
-      tradeIndex.removeTrade(locator);
-      return "removed";
-    }
-  }
-
   const key = proTradeKey(locator);
   const changed = !previous?.order || orderChanged(previous.order, order);
   const snapshot: ProTradeSnapshot = {
@@ -151,9 +131,34 @@ export function applyProOrderSnapshot({
     changedAt: changed ? observedAt : previous.changedAt,
     errorCode: undefined
   };
+  if (!renewable && isTerminalForProDesk(order.status, order.is_maker, order.is_seller)) {
+    const archiveResult = archiveTerminalTrade({
+      slotId: slot.tokenSHA256,
+      robotName: currentSlot.nickname,
+      robotHashId: currentSlot.hashId,
+      coordinatorShortAlias: shortAlias,
+      order,
+      ...settlement,
+      observedAt
+    });
+    if (archiveResult !== "deferred") {
+      tradeIndex.removeTrade(locator);
+      return "removed";
+    }
+  }
+
   tradeIndex.upsertSnapshot(snapshot);
   if (authoritative) tradeIndex.clearDirty(locator);
   return "upserted";
+}
+
+function archiveTerminalTrade(input: ArchiveTradeInput): "archived" | "deferred" | "ineligible" {
+  try {
+    return useGarageVaultStore.getState().archiveTrade(input);
+  } catch {
+    // Preserve the terminal snapshot; observation replay will retry archival.
+    return "deferred";
+  }
 }
 
 export function recordProSettlementInvoice(
@@ -164,9 +169,10 @@ export function recordProSettlementInvoice(
   const invoice = cleanSettlementInvoice(value);
   const tradeIndex = useProTradeIndexStore.getState();
   const snapshot = tradeIndex.snapshots[proTradeKey(locator)];
-  const roleMatches = snapshot?.order
-    && ((snapshot.order.is_buyer && purpose === "payout-received")
-      || (snapshot.order.is_seller && purpose === "escrow-paid"));
+  const roleMatches =
+    snapshot?.order &&
+    ((snapshot.order.is_buyer && purpose === "payout-received") ||
+      (snapshot.order.is_seller && purpose === "escrow-paid"));
   if (!invoice || !snapshot || !roleMatches) return false;
   tradeIndex.upsertSnapshot({
     ...snapshot,
@@ -176,30 +182,26 @@ export function recordProSettlementInvoice(
   return true;
 }
 
-function isTerminalForProDesk(
-  status: number,
-  isMaker: boolean,
-  isSeller?: boolean
-): boolean {
+function isTerminalForProDesk(status: number, isMaker: boolean, isSeller?: boolean): boolean {
   return isTerminalOrderForCurrentRobot({ status, isMaker, isSeller });
 }
 
 function orderChanged(previous: OrderDto, current: OrderDto): boolean {
-  return previous.status !== current.status
-    || previous.expires_at !== current.expires_at
-    || previous.amount !== current.amount
-    || previous.min_amount !== current.min_amount
-    || previous.max_amount !== current.max_amount
-    || previous.payment_method !== current.payment_method;
+  return (
+    previous.status !== current.status ||
+    previous.expires_at !== current.expires_at ||
+    previous.amount !== current.amount ||
+    previous.min_amount !== current.min_amount ||
+    previous.max_amount !== current.max_amount ||
+    previous.payment_method !== current.payment_method
+  );
 }
 
 function settlementForSnapshot(
   order: OrderDto,
   previous: ProTradeSnapshot | undefined
 ): Pick<ProTradeSnapshot, "settlementInvoice" | "settlementInvoicePurpose"> {
-  const paidEscrowInvoice = order.is_seller && order.escrow_locked
-    ? cleanSettlementInvoice(order.escrow_invoice)
-    : undefined;
+  const paidEscrowInvoice = order.is_seller ? cleanSettlementInvoice(order.escrow_invoice) : undefined;
   if (paidEscrowInvoice) {
     return {
       settlementInvoice: paidEscrowInvoice,
@@ -217,10 +219,7 @@ function settlementForSnapshot(
 
 function cleanSettlementInvoice(value: string | undefined): string | undefined {
   const invoice = value?.trim();
-  return invoice
-    && invoice.length >= 20
-    && invoice.length <= 4_096
-    && /^ln[a-z0-9]+$/i.test(invoice)
+  return invoice && invoice.length >= 20 && invoice.length <= 4_096 && /^ln[a-z0-9]+$/i.test(invoice)
     ? invoice
     : undefined;
 }

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { getTradeViewState } from "@/domains/orders/orderStateMachine";
+import {
+  disputeOutcomeForCurrentRobot,
+  getTradeViewState
+} from "@/domains/orders/orderStateMachine";
 import type { OrderDto } from "@/domains/orders/order.types";
 
 const baseOrder: OrderDto = {
@@ -138,6 +141,13 @@ describe("getTradeViewState", () => {
     expect(getTradeViewState({ ...baseOrder, status: 17, is_maker: false, is_taker: true }).panel).toBe("dispute_won");
     expect(getTradeViewState({ ...baseOrder, status: 18, is_maker: true, is_taker: false }).panel).toBe("dispute_won");
     expect(getTradeViewState({ ...baseOrder, status: 18, is_maker: false, is_taker: true }).panel).toBe("dispute_lost");
+    expect(disputeOutcomeForCurrentRobot({ status: 17, is_maker: false, is_taker: true })).toBe("won");
+    expect(disputeOutcomeForCurrentRobot({ status: 18, is_maker: false, is_taker: true })).toBe("lost");
+    expect(disputeOutcomeForCurrentRobot({ status: 17, is_maker: false, is_taker: false })).toBeUndefined();
+    expect(getTradeViewState({ ...baseOrder, status: 17, is_maker: false, is_taker: false })).toMatchObject({
+      title: "Dispute resolved",
+      panel: "dispute_resolution"
+    });
   });
 
   it("covers every current order status with a panel and message", () => {

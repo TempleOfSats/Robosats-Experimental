@@ -4,8 +4,11 @@ import type { ProTradeSnapshot } from "@/domains/pro/pro.types";
 import type { OfferPreset } from "@/domains/pro/portableSettings";
 import { isRobotStatusStale } from "@/domains/pro/reconcilePolicy";
 
-export function summaryCounts(trades: ProTradeSnapshot[]): Record<Exclude<ProFilter, "all">, number> {
-  const counts = { "needs-action": 0, active: 0, public: 0, renewable: 0 };
+export function summaryCounts(
+  trades: ProTradeSnapshot[],
+  rewardActionCount = 0
+): Record<Exclude<ProFilter, "all">, number> {
+  const counts = { "needs-action": rewardActionCount, active: 0, public: 0, renewable: 0 };
   for (const trade of trades) {
     const category = summaryCategory(trade);
     if (category) counts[category] += 1;

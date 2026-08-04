@@ -10,10 +10,18 @@ const preferredMessageKeys = [
 export function toUserMessage(error: unknown, fallback = "Something went wrong. Please try again."): string {
   const extracted = extractMessage(error);
   if (!extracted) return fallback;
+  if (containsSensitiveMaterial(extracted)) return fallback;
 
   const normalized = normalizeKnownTechnicalMessage(extracted);
   if (!normalized || looksTechnical(normalized)) return fallback;
   return sentence(normalized);
+}
+
+function containsSensitiveMaterial(value: string): boolean {
+  return (
+    /-----BEGIN PGP (?:PRIVATE|PUBLIC) KEY BLOCK-----/i.test(value) ||
+    /\bHeader\s+['"]?Authorization['"]?\s+has invalid value/i.test(value)
+  );
 }
 
 function extractMessage(value: unknown): string | undefined {

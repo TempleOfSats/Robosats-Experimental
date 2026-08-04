@@ -245,8 +245,8 @@ function applyVaultManifestToGarage(): void {
   for (const entry of garageSlotsFromManifest(manifest)) {
     const existing = useGarageStore.getState().slots.find((slot) => slot.token === entry.token);
     if (existing) {
-      if (existing.nickname !== entry.nickname || existing.managedBy !== "fleet") {
-        garage.addSlot({ ...existing, nickname: entry.nickname, managedBy: "fleet" });
+      if (existing.nickname !== entry.nickname) {
+        garage.addSlot({ ...existing, nickname: entry.nickname });
       }
       continue;
     }
@@ -270,7 +270,7 @@ function applyVaultManifestToGarage(): void {
   for (const slot of useGarageStore.getState().slots) {
     const entry = manifest.entries.find((candidate) => candidate.tokenId === garageTokenId(slot.token));
     const hasRelevantOrder = Object.values(slot.robots).some((robot) => robot.activeOrderId || robot.renewableOrderId);
-    if (entry?.deleted && !hasRelevantOrder) garage.removeSlot(slot.token);
+    if (entry?.deleted && slot.managedBy === "fleet" && !hasRelevantOrder) garage.removeSlot(slot.token);
   }
   if (selectedToken && useGarageStore.getState().slots.some((slot) => slot.token === selectedToken)) {
     garage.setCurrentToken(selectedToken);

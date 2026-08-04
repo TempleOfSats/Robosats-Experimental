@@ -334,6 +334,13 @@
     color-mix(in srgb, var(--card) 78%, var(--muted));
 }
 
+.garage-robot-status-stack {
+  display: grid;
+  justify-items: center;
+  gap: 0.45rem;
+  max-width: 100%;
+}
+
 .garage-robot-status {
   display: inline-flex;
   align-items: center;
@@ -347,6 +354,33 @@
   padding: 0.35rem 0.75rem;
   font-size: 0.86rem;
   font-weight: 600;
+}
+
+.garage-reward-status {
+  min-height: 2rem;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  border: 1px solid var(--warning-border);
+  border-radius: 999px;
+  background: var(--warning-surface);
+  color: var(--warning-foreground);
+  padding: 0.35rem 0.75rem;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+  text-align: center;
+  white-space: normal;
+  cursor: pointer;
+}
+
+.garage-reward-status:hover,
+.garage-reward-status:focus-visible {
+  border-color: var(--warning);
+  outline: 0;
 }
 
 .garage-robot-status a,

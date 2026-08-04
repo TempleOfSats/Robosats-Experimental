@@ -6,13 +6,15 @@ vi.mock("@/domains/transport/androidBridge", () => ({
   getNativeTorDiagnostics: diagnosticsMock,
   isNativeApp: vi.fn(() => true),
   nativeAppBridge: vi.fn(),
-  requestNativeTorReconnect: vi.fn()
+  requestNativeTorReconnect: vi.fn(),
+  requestNativeTorReset: vi.fn()
 }));
 
 vi.mock("@/domains/transport/tauriBridge", () => ({
   getDesktopTorDiagnostics: vi.fn(),
   isTauriDesktop: vi.fn(() => false),
-  requestDesktopTorReconnect: vi.fn()
+  requestDesktopTorReconnect: vi.fn(),
+  requestDesktopTorReset: vi.fn()
 }));
 
 import { registerTorReconnectMonitor } from "@/domains/transport/torConnection";

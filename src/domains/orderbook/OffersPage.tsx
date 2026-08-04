@@ -47,7 +47,7 @@ import type { OrderDto } from "@/domains/orders/order.types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
-import { AppTransitionDialog, AppTransitionFeedback } from "@/domains/navigation/AppTransitionFeedback";
+import { AppTransitionDialog } from "@/domains/navigation/AppTransitionFeedback";
 import { preloadStatisticsRoute } from "@/domains/statistics/statisticsRoute";
 import { InfoHint } from "@/components/ui/infoHint";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -708,6 +708,9 @@ export function OffersPage() {
               <MobileSortButton active={sortColumn === "premium"} direction={sortDirection} onClick={() => toggleSort("premium")}>
                 Premium
               </MobileSortButton>
+              <MobileSortButton active={sortColumn === "expiry"} direction={sortDirection} onClick={() => toggleSort("expiry")}>
+                Expiry
+              </MobileSortButton>
             </div>
 
             <div className="offer-table-scroll">
@@ -798,7 +801,16 @@ export function OffersPage() {
       </section>
 
       {guidedTradeOpen ? (
-        <Suspense fallback={<GuidedTradeLoadingDialog onClose={closeGuidedTrade} />}>
+        <Suspense
+          fallback={
+            <AppTransitionDialog
+              closeLabel="Close trade finder"
+              message="Loading the guided trade steps..."
+              onClose={closeGuidedTrade}
+              title="Preparing trade finder"
+            />
+          }
+        >
           <LazyBeginnerTradeWizard
             coordinators={coordinators}
             initialCriteria={guidedLaunch?.criteria}
@@ -967,22 +979,6 @@ function F2FOffersMapLoadingDialog({ onClose }: { onClose: () => void }) {
       <span className="ui-spinner" aria-hidden="true" />
       <strong>Loading Cash F2F map…</strong>
       <Button onClick={onClose} size="sm" type="button" variant="ghost">Cancel</Button>
-    </Dialog>
-  );
-}
-
-function GuidedTradeLoadingDialog({ onClose }: { onClose: () => void }) {
-  return (
-    <Dialog
-      ariaLabel="Preparing trade finder"
-      onClose={onClose}
-      overlayClassName="confirm-overlay app-transition-overlay"
-      panelClassName="confirm-sheet app-transition-dialog"
-    >
-      <button className="take-modal-close" onClick={onClose} type="button" aria-label="Close trade finder">
-        <X size={18} />
-      </button>
-      <AppTransitionFeedback title="Preparing trade finder" message="Loading the guided trade steps..." />
     </Dialog>
   );
 }
@@ -1156,7 +1152,7 @@ function TakeOfferModal({
         ) : null}
 
         {blockedReason ? (
-          <div className="status-panel">
+          <div className="status-panel" hidden={taking}>
             <AlertCircle size={16} />
             <span>{blockedReason}</span>
           </div>

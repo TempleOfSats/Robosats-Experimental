@@ -113,6 +113,14 @@ export function requestNativeTorReconnect(): boolean {
   return true;
 }
 
+export function requestNativeTorReset(): boolean {
+  const bridge = nativeAppBridge();
+  const reset = bridge?.resetTorTransport;
+  if (!bridge || !reset) return false;
+  reset.call(bridge);
+  return true;
+}
+
 export function nativeHttpRequest(
   url: string,
   init: RequestInit = {},

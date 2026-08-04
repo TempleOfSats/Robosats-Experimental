@@ -9,16 +9,9 @@ import {
 } from "@/domains/orders/orderActivity";
 import type { OrderDto } from "@/domains/orders/order.types";
 import { classifyProTrade } from "@/domains/pro/proSelectors";
-import {
-  recordProSettlementInvoice,
-  startProOrderActivityBridge
-} from "@/domains/pro/proOrderActivity";
+import { recordProSettlementInvoice, startProOrderActivityBridge } from "@/domains/pro/proOrderActivity";
 import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
-import {
-  createGarageManifest,
-  garageTokenId,
-  upsertGarageEntry
-} from "@/domains/pro/garageVault";
+import { createGarageManifest, garageTokenId, upsertGarageEntry } from "@/domains/pro/garageVault";
 import { resetGarageVaultRuntimeForTests, useGarageVaultStore } from "@/domains/pro/garageVaultStore";
 
 const slot = makeSlot();
@@ -38,16 +31,21 @@ beforeEach(() => {
   useGarageVaultStore.setState({
     status: "ready",
     archiveTrade: vi.fn((input) =>
-      input.order.status === 12
-      || input.order.status === 14
-      || (input.order.is_seller && [13, 15].includes(input.order.status))
+      input.order.status === 12 ||
+      input.order.status === 14 ||
+      (input.order.is_seller && [13, 15].includes(input.order.status))
         ? "archived"
-        : "ineligible"),
-    manifest: upsertGarageEntry(createGarageManifest("a".repeat(32), 1), {
-      id: "b".repeat(32),
-      tokenId: garageTokenId(slot.token),
-      nickname: slot.nickname
-    }, 2)
+        : "ineligible"
+    ),
+    manifest: upsertGarageEntry(
+      createGarageManifest("a".repeat(32), 1),
+      {
+        id: "b".repeat(32),
+        tokenId: garageTokenId(slot.token),
+        nickname: slot.nickname
+      },
+      2
+    )
   });
   stopBridge = startProOrderActivityBridge();
 });
@@ -62,25 +60,30 @@ afterEach(() => {
 
 describe("foreground order activity", () => {
   it("shows a newly created maker offer as needing action before its first GET completes", () => {
-    const provisional = buildProvisionalMakerOrder(42, "lake", {
-      type: 0,
-      currency: 1,
-      amount: 150,
-      has_range: false,
-      min_amount: null,
-      max_amount: null,
-      payment_method: "Revolut",
-      is_explicit: false,
-      premium: 1,
-      satoshis: null,
-      public_duration: 86_400,
-      escrow_duration: 10_800,
-      bond_size: 3,
-      latitude: 0,
-      longitude: 0,
-      password: null,
-      description: null
-    }, slot);
+    const provisional = buildProvisionalMakerOrder(
+      42,
+      "lake",
+      {
+        type: 0,
+        currency: 1,
+        amount: 150,
+        has_range: false,
+        min_amount: null,
+        max_amount: null,
+        payment_method: "Revolut",
+        is_explicit: false,
+        premium: 1,
+        satoshis: null,
+        public_duration: 86_400,
+        escrow_duration: 10_800,
+        bond_size: 3,
+        latitude: 0,
+        longitude: 0,
+        password: null,
+        description: null
+      },
+      slot
+    );
 
     ingestCoordinatorOrder({ authoritative: false, order: provisional, shortAlias: "lake", slot });
 
@@ -149,14 +152,33 @@ describe("foreground order activity", () => {
       shortAlias: "lake",
       slot
     });
-    expect(recordProSettlementInvoice(
-      { slotId: slot.tokenSHA256, shortAlias: "lake", orderId: 42 },
-      "payout-received",
-      "lnbc1000n1buyerinvoice0123456789"
-    )).toBe(true);
+    expect(
+      recordProSettlementInvoice(
+        { slotId: slot.tokenSHA256, shortAlias: "lake", orderId: 42 },
+        "payout-received",
+        "lnbc1000n1buyerinvoice0123456789"
+      )
+    ).toBe(true);
     expect(useProTradeIndexStore.getState().snapshots["slot-id:lake:42"]).toMatchObject({
       settlementInvoice: "lnbc1000n1buyerinvoice0123456789",
       settlementInvoicePurpose: "payout-received"
+    });
+
+    ingestCoordinatorOrder({
+      order: order({
+        id: 43,
+        status: 6,
+        is_buyer: false,
+        is_seller: true,
+        escrow_locked: false,
+        escrow_invoice: "lnbc2000n1sellerinvoice0123456789"
+      }),
+      shortAlias: "lake",
+      slot
+    });
+    expect(useProTradeIndexStore.getState().snapshots["slot-id:lake:43"]).toMatchObject({
+      settlementInvoice: "lnbc2000n1sellerinvoice0123456789",
+      settlementInvoicePurpose: "escrow-paid"
     });
 
     ingestCoordinatorOrder({
@@ -166,7 +188,7 @@ describe("foreground order activity", () => {
         is_buyer: false,
         is_seller: true,
         escrow_locked: true,
-        escrow_invoice: "lnbc2000n1sellerinvoice0123456789"
+        escrow_invoice: ""
       }),
       shortAlias: "lake",
       slot
@@ -278,6 +300,47 @@ describe("foreground order activity", () => {
     });
   });
 
+  it.each([17, 18])("removes resolved dispute status %i from active trades", (status) => {
+    const archiveTrade = vi.fn(() => "ineligible" as const);
+    useGarageVaultStore.setState({ archiveTrade });
+
+    ingestCoordinatorOrder({
+      order: order({ id: 30 + status, status }),
+      shortAlias: "lake",
+      slot
+    });
+
+    expect(archiveTrade).toHaveBeenCalledOnce();
+    expect(useProTradeIndexStore.getState().snapshots[`slot-id:lake:${30 + status}`]).toBeUndefined();
+  });
+
+  it("retains the fresh terminal state and retries after history archival throws", () => {
+    const archiveTrade = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw new Error("Encrypted history is temporarily unavailable.");
+      })
+      .mockReturnValue("archived" as const);
+    useGarageVaultStore.setState({ archiveTrade });
+
+    ingestCoordinatorOrder({
+      order: order({ id: 46, status: 13, is_buyer: false, is_seller: true }),
+      shortAlias: "lake",
+      slot
+    });
+
+    expect(useProTradeIndexStore.getState().snapshots["slot-id:lake:46"]).toMatchObject({
+      freshness: "fresh",
+      order: { id: 46, status: 13 }
+    });
+
+    stopBridge?.();
+    stopBridge = undefined;
+    stopBridge = startProOrderActivityBridge();
+
+    expect(archiveTrade).toHaveBeenCalledTimes(2);
+    expect(useProTradeIndexStore.getState().snapshots["slot-id:lake:46"]).toBeUndefined();
+  });
 });
 
 function makeSlot(): RobotSlot {

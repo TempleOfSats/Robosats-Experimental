@@ -6,7 +6,6 @@ import { selectOfferReadyRobots } from "@/domains/pro/proRobotLifecycle";
 import { summarizeProRobots } from "@/domains/pro/proSelectors";
 import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
 import { selectProGarageSlots, useGarageVaultStore } from "@/domains/pro/garageVaultStore";
-import "@/domains/pro/proWorkspaceContent.css";
 
 export function ProTakeRobotPicker({
   onClose,

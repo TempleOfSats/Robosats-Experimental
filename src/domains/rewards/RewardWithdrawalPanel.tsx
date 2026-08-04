@@ -17,12 +17,16 @@ export function RewardWithdrawalPanel({
   slot
 }: {
   coordinators: CoordinatorSummary[];
-  onClaimed: () => Promise<void>;
+  onClaimed: (shortAlias: string) => void;
   slot: RobotSlot;
 }) {
-  const coordinatorAliases = useMemo(() => new Set(coordinators.map((coordinator) => coordinator.shortAlias)), [coordinators]);
+  const coordinatorAliases = useMemo(
+    () => new Set(coordinators.map((coordinator) => coordinator.shortAlias)),
+    [coordinators]
+  );
   const rewardRobots = useMemo(
-    () => Object.values(slot.robots).filter(
+    () =>
+      Object.values(slot.robots).filter(
       (robot) => (robot.earnedRewards ?? 0) > 0 && robot.shortAlias && coordinatorAliases.has(robot.shortAlias)
     ),
     [coordinatorAliases, slot.robots]
@@ -30,7 +34,6 @@ export function RewardWithdrawalPanel({
   const [selectedAlias, setSelectedAlias] = useState(rewardRobots[0]?.shortAlias ?? "");
   const [invoice, setInvoice] = useState("");
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   const rewardRobot = rewardRobots.find((robot) => robot.shortAlias === selectedAlias) ?? rewardRobots[0];
@@ -48,7 +51,6 @@ export function RewardWithdrawalPanel({
 
   async function submitRewardWithdrawal() {
     setError("");
-    setSuccess("");
     if (!rewardRobot?.shortAlias || !coordinator) {
       setError("Reward coordinator is not available.");
       return;
@@ -74,8 +76,7 @@ export function RewardWithdrawalPanel({
       const result = await claimReward(coordinator.url, signedInvoice, 0, auth);
       if (result.successfulWithdrawal) {
         setInvoice("");
-        setSuccess("Reward withdrawal requested.");
-        await onClaimed();
+        onClaimed(rewardRobot.shortAlias);
       } else {
         setError(toUserMessage(result.error, "Reward withdrawal was rejected."));
       }
@@ -100,9 +101,7 @@ export function RewardWithdrawalPanel({
             <span className="muted-copy">Invoice amount</span>
             <strong className="payment-amount tabular">{formatSats(rewardSats)}</strong>
           </div>
-          <p className="reward-withdrawal-copy">
-            Paste a Lightning invoice for this exact amount.
-          </p>
+          <p className="reward-withdrawal-copy">Paste a Lightning invoice for this exact amount.</p>
           {rewardRobots.length > 1 ? (
             <label className="field-block">
               Coordinator
@@ -112,12 +111,14 @@ export function RewardWithdrawalPanel({
                 options={rewardRobots.flatMap((robot) => {
                   if (!robot.shortAlias) return [];
                   const rewardCoordinator = coordinators.find((item) => item.shortAlias === robot.shortAlias);
-                  return [{
+                  return [
+                    {
                     value: robot.shortAlias,
                     label: rewardCoordinator?.longAlias ?? robot.shortAlias,
                     description: `${robot.earnedRewards ?? 0} sats available`,
                     icon: rewardCoordinator ? <img src={rewardCoordinator.smallAvatarUrl} alt="" /> : undefined
-                  }];
+                    }
+                  ];
                 })}
                 value={selectedAlias}
               />
@@ -134,8 +135,6 @@ export function RewardWithdrawalPanel({
               value={invoice}
             />
           </Field>
-
-          {success ? <p className="field-note" role="status">{success}</p> : null}
 
           <Button className="full-width" disabled={!invoiceReady || submitting} loading={submitting} type="submit">
             <WalletCards size={16} />

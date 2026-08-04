@@ -44,9 +44,15 @@ type StandardRobotRefreshScope = {
   orderIdsByAlias?: Map<string, Set<number>>;
 };
 
+type CoordinatorHealthRecoveryTarget = "all" | string[];
+
+const FEDERATION_RECOVERY_START_DELAY_MS = 1_000;
+const FEDERATION_RECOVERY_RETRY_DELAYS_MS = [15_000, 45_000] as const;
+
 export function scheduleAppPrewarm(): () => void {
   const stopOrderChangeHints = startOrderChangeHintRuntime();
   let foregroundRefresh: Promise<void> | undefined;
+  let stopFederationRecovery: () => void = () => undefined;
   let pendingNotificationScope: StandardRobotRefreshScope | undefined;
   const refreshForegroundRobot = (scope?: StandardRobotRefreshScope) => {
     if (foregroundRefresh) {
@@ -63,6 +69,19 @@ export function scheduleAppPrewarm(): () => void {
       });
   };
   const refreshAfterLifecycle = (reason: RefreshReason) => {
+    if (reason === "tor-ready" || reason === "tor-reconnected") {
+      stopFederationRecovery();
+      const federation = useFederationStore.getState();
+      const enabled = federation.coordinators.filter((coordinator) => coordinator.enabled);
+      const failedAliases = enabled
+        .filter(coordinatorNeedsHealthRecovery)
+        .map((coordinator) => coordinator.shortAlias);
+      if (reason === "tor-reconnected" || failedAliases.length > 0) {
+        stopFederationRecovery = scheduleCoordinatorHealthRecovery(
+          reason === "tor-reconnected" ? "all" : failedAliases
+        );
+      }
+    }
     if (reason === "tor-ready") {
       prewarmData();
       if (isStandardGarageRoute(window.location.pathname)) refreshForegroundRobot();
@@ -116,9 +135,76 @@ export function scheduleAppPrewarm(): () => void {
     stopLifecycle();
     stopOrderChanges();
     stopRobotDataRefresh();
+    stopFederationRecovery();
     window.removeEventListener(ROUTE_TRANSITION_READY_EVENT, refreshGarageRoute);
     cleanups.forEach((cleanup) => cleanup());
   };
+}
+
+function scheduleCoordinatorHealthRecovery(initialTarget: CoordinatorHealthRecoveryTarget): () => void {
+  let cancelled = false;
+  let timer: number | undefined;
+
+  const failedAliases = () =>
+    useFederationStore
+      .getState()
+      .coordinators.filter((coordinator) => coordinator.enabled && coordinatorNeedsHealthRecovery(coordinator))
+      .map((coordinator) => coordinator.shortAlias);
+
+  const refreshCoordinatorAliases = async (aliases: string[]) => {
+    if (cancelled || aliases.length === 0) return;
+    const federation = useFederationStore.getState();
+    const eligibleAliases = aliases.filter((shortAlias) => {
+      const coordinator = federation.coordinators.find((item) => item.shortAlias === shortAlias);
+      return Boolean(
+        coordinator?.enabled
+        && coordinator.url
+        && (coordinator.loading || coordinatorNeedsHealthRecovery(coordinator))
+      );
+    });
+    await Promise.allSettled(
+      eligibleAliases.map((shortAlias) =>
+        federation.refreshCoordinator(shortAlias, {
+          force: true,
+          priority: "background"
+        })
+      )
+    );
+  };
+
+  const scheduleRetry = (retryIndex: number) => {
+    if (cancelled || retryIndex >= FEDERATION_RECOVERY_RETRY_DELAYS_MS.length || failedAliases().length === 0) return;
+    timer = window.setTimeout(() => {
+      timer = undefined;
+      void retryFailedCoordinators(retryIndex);
+    }, FEDERATION_RECOVERY_RETRY_DELAYS_MS[retryIndex]);
+  };
+
+  const retryFailedCoordinators = async (retryIndex: number) => {
+    await refreshCoordinatorAliases(failedAliases());
+    scheduleRetry(retryIndex + 1);
+  };
+
+  timer = window.setTimeout(() => {
+    timer = undefined;
+    const initialRefresh =
+      initialTarget === "all"
+        ? useFederationStore.getState().refreshCoordinators({
+            force: true,
+            priority: "background"
+          })
+        : refreshCoordinatorAliases(initialTarget);
+    void initialRefresh.catch(() => undefined).then(() => scheduleRetry(0));
+  }, FEDERATION_RECOVERY_START_DELAY_MS);
+
+  return () => {
+    cancelled = true;
+    if (timer !== undefined) window.clearTimeout(timer);
+  };
+}
+
+export function coordinatorNeedsHealthRecovery(coordinator: CoordinatorSummary): boolean {
+  return Boolean(coordinator.url) && (coordinator.loading || !coordinator.online || Boolean(coordinator.error));
 }
 
 function prewarmData(): void {
@@ -150,8 +236,11 @@ function prewarmData(): void {
 
 async function refreshSecondaryData(): Promise<void> {
   const cachedFederation = useFederationStore.getState();
+  const coordinatorRefreshOptions = cachedFederation.coordinators.some(coordinatorNeedsHealthRecovery)
+    ? { force: true, priority: "background" as const }
+    : undefined;
   await Promise.all([
-    cachedFederation.refreshCoordinators(),
+    cachedFederation.refreshCoordinators(coordinatorRefreshOptions),
     refreshSelectedStandardRobot(cachedFederation.coordinators, "background")
   ]);
   const refreshedFederation = useFederationStore.getState();

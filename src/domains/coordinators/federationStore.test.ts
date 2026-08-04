@@ -17,7 +17,11 @@ import {
   useFederationStore
 } from "@/domains/coordinators/federationStore";
 import { defaultFederation } from "@/domains/coordinators/defaultFederation";
-import type { CoordinatorDefinition, CoordinatorInfo, CoordinatorLimitList } from "@/domains/coordinators/coordinator.types";
+import type {
+  CoordinatorDefinition,
+  CoordinatorInfo,
+  CoordinatorLimitList
+} from "@/domains/coordinators/coordinator.types";
 
 const coordinator: CoordinatorDefinition = {
   shortAlias: "lake",
@@ -178,9 +182,11 @@ describe("buildCoordinatorSummary", () => {
       selfhostedClient: false
     });
 
-    await expect(useFederationStore.getState().refreshCoordinatorLimits("lake", {
-      priority: "visible"
-    })).resolves.toBe(true);
+    await expect(
+      useFederationStore.getState().refreshCoordinatorLimits("lake", {
+        priority: "visible"
+      })
+    ).resolves.toBe(true);
 
     expect(fetchCoordinatorLimitsMock).toHaveBeenCalledWith("http://lake.onion", {
       force: undefined,
@@ -199,11 +205,13 @@ describe("buildCoordinatorSummary", () => {
     fetchCoordinatorInfoMock.mockRejectedValue(new Error("offline"));
     useFederationStore.setState({
       connection: "nostr",
-      coordinators: [{
-        ...summary,
-        online: true,
-        lastCheckedAt: Date.now() - FEDERATION_CACHE_MAX_AGE_MS - 1
-      }],
+      coordinators: [
+        {
+          ...summary,
+          online: true,
+          lastCheckedAt: Date.now() - FEDERATION_CACHE_MAX_AGE_MS - 1
+        }
+      ],
       lastRefreshed: undefined,
       network: "mainnet",
       origin: "onion",
@@ -251,8 +259,44 @@ describe("buildCoordinatorSummary", () => {
 
     await useFederationStore.getState().refreshCoordinators({ force: true });
 
-    expect(vi.mocked(globalThis.localStorage.setItem).mock.calls.filter(
-      ([key]) => key === "robosats_exp_federation_cache_v1"
-    )).toHaveLength(1);
+    expect(
+      vi
+        .mocked(globalThis.localStorage.setItem)
+        .mock.calls.filter(([key]) => key === "robosats_exp_federation_cache_v1")
+    ).toHaveLength(1);
+  });
+
+  it("can bypass stale health without promoting recovery probes", async () => {
+    const summary = buildCoordinatorSummary(coordinator, {
+      network: "mainnet",
+      origin: "onion",
+      selfhostedClient: false
+    });
+    fetchCoordinatorInfoMock.mockResolvedValue({
+      maker_fee: 0.002,
+      taker_fee: 0.002,
+      swap_enabled: false,
+      notice_severity: "none",
+      notice_message: ""
+    } as CoordinatorInfo);
+    useFederationStore.setState({
+      connection: "nostr",
+      coordinators: [summary],
+      lastRefreshed: Date.now(),
+      network: "mainnet",
+      origin: "onion",
+      refreshing: false,
+      selfhostedClient: false
+    });
+
+    await useFederationStore.getState().refreshCoordinators({
+      force: true,
+      priority: "background"
+    });
+
+    expect(fetchCoordinatorInfoMock).toHaveBeenCalledWith("http://lake.onion", {
+      force: true,
+      priority: "background"
+    });
   });
 });

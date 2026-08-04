@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { readdir, rm } from "node:fs/promises";
+import { readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 export const WAYLAND_RUNTIME_LIBRARIES = new Set([
@@ -25,6 +25,25 @@ export async function removeBundledWaylandLibraries(appDirectory) {
       }
     }
   }
+}
+
+export async function configureAdaptiveGtkBackend(appDirectory) {
+  const hook = path.join(appDirectory, "apprun-hooks", "linuxdeploy-plugin-gtk.sh");
+  const source = await readFile(hook, "utf8");
+  const forcedBackend = /^export GDK_BACKEND=x11(?:\s*#.*)?$/m;
+  if (!forcedBackend.test(source)) {
+    if (source.includes("GDK_BACKEND=wayland,x11")) return false;
+    throw new Error("Could not locate linuxdeploy's forced GTK backend setting");
+  }
+  const adaptiveBackend = `if [ -z "\${GDK_BACKEND:-}" ]; then
+  if [ "\${XDG_SESSION_TYPE:-}" = "wayland" ] && [ -n "\${WAYLAND_DISPLAY:-}" ]; then
+    export GDK_BACKEND=wayland,x11
+  else
+    export GDK_BACKEND=x11
+  fi
+fi`;
+  await writeFile(hook, source.replace(forcedBackend, adaptiveBackend));
+  return true;
 }
 
 export function appImagePluginPath(environment = process.env, home = homedir()) {

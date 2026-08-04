@@ -55,7 +55,7 @@ export interface GarageReconcileController {
   reconcileOrder(locator: ProTradeLocator, reason: ReconcileReason): Promise<void>;
   handleOrderHint(hint: NostrOrderChangeNotification): Promise<boolean>;
   handleNativeOrderHint(hint: NativeOrderChangeNotification): Promise<boolean>;
-  invalidateEpoch(): void;
+  resetAfterTransportReconnect(): void;
 }
 
 class AsyncLimiter {
@@ -181,8 +181,10 @@ export class GarageReconciler implements GarageReconcileController {
     return true;
   }
 
-  invalidateEpoch(): void {
+  resetAfterTransportReconnect(): void {
     this.epoch += 1;
+    this.inFlightSlots.clear();
+    this.coordinatorBackoff.reset();
   }
 
   private canKeepLocalReady(
@@ -732,11 +734,17 @@ function isRecentHint(hint: NostrOrderChangeNotification, now: number): boolean 
 }
 
 function canBypassCoordinatorBackoff(reason: ReconcileReason): boolean {
-  return reason === "manual" || reason === "order-action" || reason === "nostr-hint";
+  return reason === "manual"
+    || reason === "order-action"
+    || reason === "nostr-hint";
 }
 
 function isInteractiveOrderRead(reason: ReconcileReason): boolean {
-  return reason === "startup" || reason === "fleet-ready" || canBypassCoordinatorBackoff(reason);
+  return reason === "startup"
+    || reason === "fleet-ready"
+    || reason === "manual"
+    || reason === "order-action"
+    || reason === "nostr-hint";
 }
 
 function earliestCoordinatorRetry(
@@ -755,6 +763,12 @@ function shouldSuppressAutomaticBurst(
   now: number
 ): boolean {
   if (!sync?.lastAttemptAt || sync.error) return false;
+  // A slot skipped by coordinator backoff has not made a network attempt. Let
+  // the confirmed Tor reconnect include it in the bounded recovery wave.
+  if (
+    reason === "tor-reconnected"
+    && (sync.inFlight || sync.attemptedCoordinators === 0)
+  ) return false;
   if (![
     "startup",
     "fleet-ready",

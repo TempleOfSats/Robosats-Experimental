@@ -228,7 +228,7 @@ describe("GarageReconciler", () => {
     expect(refreshRobotSlot).toHaveBeenCalledTimes(2);
   });
 
-  it("backs off a failed coordinator across Fleet slots while manual refresh bypasses it", async () => {
+  it("resets coordinator backoff for one bounded wave after Tor reconnects", async () => {
     let now = 1_000;
     const gamma = makeSlot("gamma", "slot-gamma", "Gamma");
     useGarageStore.setState({ slots: [alpha, beta, gamma], currentToken: "alpha", hydrated: true });
@@ -268,8 +268,51 @@ describe("GarageReconciler", () => {
       inFlight: false
     });
 
+    reconciler.resetAfterTransportReconnect();
+    await reconciler.reconcileSlot("slot-alpha", "tor-reconnected");
+    await reconciler.reconcileSlot("slot-beta", "tor-reconnected");
+    await reconciler.reconcileSlot("slot-gamma", "tor-reconnected");
+    expect(refreshRobotSlot).toHaveBeenCalledTimes(4);
+    expect(useProTradeIndexStore.getState().syncBySlot["slot-gamma"]).toMatchObject({
+      attemptedCoordinators: 0,
+      inFlight: false
+    });
+
     await reconciler.reconcileSlot("slot-gamma", "manual");
-    expect(refreshRobotSlot).toHaveBeenCalledTimes(3);
+    expect(refreshRobotSlot).toHaveBeenCalledTimes(5);
+  });
+
+  it("starts a fresh background wave when Tor reconnects during an older request", async () => {
+    let resolveStale: (value: RefreshRobotSlotResult) => void = () => undefined;
+    let resolveFresh: (value: RefreshRobotSlotResult) => void = () => undefined;
+    const stale = new Promise<RefreshRobotSlotResult>((resolve) => { resolveStale = resolve; });
+    const fresh = new Promise<RefreshRobotSlotResult>((resolve) => { resolveFresh = resolve; });
+    const refreshRobotSlot = vi.fn()
+      .mockImplementationOnce(() => stale)
+      .mockImplementationOnce(() => fresh);
+    const reconciler = makeReconciler({ refreshRobotSlot, fetchOrder: vi.fn() });
+
+    const olderWave = reconciler.reconcileSlot("slot-beta", "interval");
+    await vi.waitFor(() => expect(refreshRobotSlot).toHaveBeenCalledOnce());
+
+    reconciler.resetAfterTransportReconnect();
+    const reconnectWave = reconciler.reconcileSlot("slot-beta", "tor-reconnected");
+    await vi.waitFor(() => expect(refreshRobotSlot).toHaveBeenCalledTimes(2));
+    expect(refreshRobotSlot.mock.calls[1]?.[2]).toMatchObject({ priority: "background" });
+
+    const recovered = {
+      slotId: "slot-beta",
+      coordinators: [{ shortAlias: "lake", found: false }]
+    } satisfies RefreshRobotSlotResult;
+    resolveFresh(recovered);
+    await reconnectWave;
+    resolveStale(recovered);
+    await olderWave;
+
+    expect(useProTradeIndexStore.getState().syncBySlot["slot-beta"]).toMatchObject({
+      epoch: 1,
+      inFlight: false
+    });
   });
 
   it("discovers enabled coordinators whenever a restored Fleet becomes ready", async () => {
