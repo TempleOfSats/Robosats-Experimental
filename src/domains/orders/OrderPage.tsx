@@ -35,10 +35,7 @@ import {
   shouldLeaveTradeAfterAction,
   type TradeActionCommand
 } from "@/domains/orders/orderActions";
-import {
-  disputeOutcomeForCurrentRobot,
-  getTradeViewState
-} from "@/domains/orders/orderStateMachine";
+import { disputeOutcomeForCurrentRobot, getTradeViewState } from "@/domains/orders/orderStateMachine";
 import {
   orderLoadIdentityMatches,
   orderForLocator,
@@ -84,11 +81,7 @@ import { useTorConnection } from "@/domains/transport/torConnection";
 import { registerVisibleTrade } from "@/domains/notifications/orderFeedbackVisibility";
 import { AppTransitionDialog } from "@/domains/navigation/AppTransitionFeedback";
 import { ColdOrderLoadState } from "@/domains/orders/OrderLoadState";
-import {
-  OrderDetailsPanel,
-  OrderEyebrow,
-  shouldOpenOrderDetailsByDefault
-} from "@/domains/orders/OrderDetailsPanel";
+import { OrderDetailsPanel, OrderEyebrow, shouldOpenOrderDetailsByDefault } from "@/domains/orders/OrderDetailsPanel";
 import { TradeProgress } from "@/domains/orders/TradeProgress";
 import { CompletedTradePanel } from "@/domains/orders/CompletedTradePanel";
 
@@ -374,7 +367,10 @@ export function OrderPage({
             myNick={currentRobotName}
             order={order}
             previewMode={Boolean(previewOrder)}
-            preChatEnabled={shouldOfferPreChat(order.status, coordinator?.info)}
+            preChatEnabled={shouldOfferPreChat(order.status, coordinator?.info, {
+              is_buyer: order.is_buyer,
+              is_seller: order.is_seller
+            })}
             previewTrustPrompt={previewScenario === "trust-coordinator"}
             signingRobot={previewOrder ? undefined : signingRobot}
             slotToken={previewOrder ? undefined : currentSlot?.token}
@@ -1822,14 +1818,15 @@ function DisputeStatementCard({
           let plainTextMessage = "Encrypted message could not be decrypted.";
           let validSignature = false;
           try {
-            plainTextMessage = await decryptChatMessage({
+            const ownMessage = Boolean(message.nick && message.nick === myNick);
+            const decrypted = await decryptChatMessage({
               armoredMessage: message.encryptedMessage,
               ownPrivateKeyArmored: robot.encPrivKey ?? "",
-              ownPublicKeyArmored: robot.pubKey ?? "",
               passphrase: slotToken,
-              peerPublicKeyArmored: response.peerPubkey
+              expectedSignerPublicKeyArmored: ownMessage ? robot.pubKey : response.peerPubkey
             });
-            validSignature = true;
+            plainTextMessage = decrypted.plaintext;
+            validSignature = decrypted.signatureStatus === "verified";
           } catch {
             // Preserve the encrypted source even when a message cannot decrypt.
           }

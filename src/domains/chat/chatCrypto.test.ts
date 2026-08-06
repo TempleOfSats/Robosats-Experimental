@@ -21,18 +21,48 @@ describe("chatCrypto", () => {
       decryptChatMessage({
         armoredMessage: encrypted,
         ownPrivateKeyArmored: bob.encryptedPrivateKeyArmored,
-        ownPublicKeyArmored: bob.publicKeyArmored,
         passphrase: bobToken,
-        peerPublicKeyArmored: alice.publicKeyArmored
+        expectedSignerPublicKeyArmored: alice.publicKeyArmored
       })
-    ).resolves.toBe("Fiat sent at 10:00");
+    ).resolves.toMatchObject({ plaintext: "Fiat sent at 10:00", signatureStatus: "verified" });
     await expect(
       decryptChatMessage({
         armoredMessage: encrypted,
         ownPrivateKeyArmored: alice.encryptedPrivateKeyArmored,
-        ownPublicKeyArmored: alice.publicKeyArmored,
-        passphrase: aliceToken
+        passphrase: aliceToken,
+        expectedSignerPublicKeyArmored: alice.publicKeyArmored
       })
-    ).resolves.toBe("Fiat sent at 10:00");
+    ).resolves.toMatchObject({ plaintext: "Fiat sent at 10:00", signatureStatus: "verified" });
+  }, 30000);
+
+  it("keeps plaintext usable while distinguishing unknown and failed signatures", async () => {
+    const aliceToken = "alice-token-with-enough-entropy-1234567890";
+    const bobToken = "bob-token-with-enough-entropy-1234567890";
+    const carolToken = "carol-token-with-enough-entropy-1234567890";
+    const alice = await generatePgpKeyPair(aliceToken);
+    const bob = await generatePgpKeyPair(bobToken);
+    const carol = await generatePgpKeyPair(carolToken);
+    const encrypted = await encryptChatMessage({
+      message: "signed payload",
+      ownPrivateKeyArmored: alice.encryptedPrivateKeyArmored,
+      passphrase: aliceToken,
+      peerPublicKeyArmored: bob.publicKeyArmored
+    });
+    const decrypt = (expectedSignerPublicKeyArmored?: string) =>
+      decryptChatMessage({
+        armoredMessage: encrypted,
+        ownPrivateKeyArmored: bob.encryptedPrivateKeyArmored,
+        passphrase: bobToken,
+        expectedSignerPublicKeyArmored
+      });
+    await expect(decrypt(alice.publicKeyArmored)).resolves.toMatchObject({
+      plaintext: "signed payload",
+      signatureStatus: "verified"
+    });
+    await expect(decrypt()).resolves.toMatchObject({ plaintext: "signed payload", signatureStatus: "unknown" });
+    await expect(decrypt(carol.publicKeyArmored)).resolves.toMatchObject({
+      plaintext: "signed payload",
+      signatureStatus: "unverified"
+    });
   }, 30000);
 });

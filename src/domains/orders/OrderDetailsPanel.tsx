@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { getCoordinatorAvatarUrl } from "@/domains/coordinators/coordinatorAssets";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
+import type { CoordinatorRating } from "@/domains/coordinators/coordinatorRatings";
+import { useFederationStore } from "@/domains/coordinators/federationStore";
 import { RobotAvatar } from "@/domains/identity/RobotAvatar";
 import { hasApproximateF2FLocation, paymentMethodHasF2F } from "@/domains/location/f2fLocation";
 import { AppTransitionDialog } from "@/domains/navigation/AppTransitionFeedback";
@@ -16,6 +18,9 @@ import { writeClipboard } from "@/lib/clipboard";
 
 const LazyF2FLocationDialog = lazy(() =>
   import("@/domains/location/F2FLocationDialog").then((module) => ({ default: module.F2FLocationDialog }))
+);
+const LazyCoordinatorDetailDialog = lazy(() =>
+  import("@/domains/coordinators/CoordinatorsPage").then((module) => ({ default: module.CoordinatorDetailDialog }))
 );
 
 export function OrderEyebrow({ order }: { order: OrderDto }) {
@@ -60,6 +65,7 @@ export function OrderDetailsPanel({
     (Boolean(order.escrow_invoice) && (order.status === 6 || order.status === 7));
   const coordinatorName =
     coordinator?.longAlias || coordinator?.shortAlias || order.shortAlias || coordinatorAlias || "Coordinator";
+  const hostName = coordinatorName || "Coordinator";
   const coordinatorAvatar =
     coordinator?.smallAvatarUrl || (coordinatorAlias ? getCoordinatorAvatarUrl(coordinatorAlias, "small") : "");
   const coordinatorTradeUrl = coordinator?.url
@@ -118,19 +124,7 @@ export function OrderDetailsPanel({
           <ChevronDown className="trade-order-summary-chevron" size={18} aria-hidden="true" />
         </summary>
         <CardContent>
-          <div className="trade-order-host">
-            {coordinatorAvatar ? (
-              <img className="trade-order-host-avatar" src={coordinatorAvatar} alt="" />
-            ) : (
-              <span className="trade-order-host-avatar">
-                <Tag size={18} />
-              </span>
-            )}
-            <div>
-              <strong>{coordinatorName}</strong>
-              <p>Order host</p>
-            </div>
-          </div>
+          <CoordinatorHost coordinator={coordinator} coordinatorName={hostName} coordinatorAvatar={coordinatorAvatar} />
 
           <dl className="trade-detail-list">
             <div>
@@ -216,6 +210,91 @@ export function OrderDetailsPanel({
         </Suspense>
       ) : null}
     </Card>
+  );
+}
+
+function CoordinatorHost({
+  coordinator,
+  coordinatorAvatar,
+  coordinatorName
+}: {
+  coordinator?: CoordinatorSummary;
+  coordinatorAvatar: string;
+  coordinatorName: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [rating, setRating] = useState<CoordinatorRating>({ score: 0, count: 0 });
+  const lastRefreshed = useFederationStore((state) => state.lastRefreshed);
+  const network = useFederationStore((state) => state.network);
+
+  function showDetails() {
+    if (!coordinator) return;
+    setOpen(true);
+    setRating({ score: 0, count: 0 });
+    void import("@/domains/coordinators/coordinatorRatings")
+      .then(({ fetchCoordinatorRatings }) => fetchCoordinatorRatings([coordinator]))
+      .then((ratings) => setRating(ratings[coordinator.shortAlias] ?? { score: 0, count: 0 }))
+      .catch(() => undefined);
+  }
+
+  if (!coordinator) {
+    return (
+      <div className="trade-order-host">
+        {coordinatorAvatar ? (
+          <img className="trade-order-host-avatar" src={coordinatorAvatar} alt="" />
+        ) : (
+          <span className="trade-order-host-avatar">
+            <Tag size={18} />
+          </span>
+        )}
+        <div>
+          <strong>{coordinatorName}</strong>
+          <p>Order host</p>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <>
+      <button
+        className="trade-order-host trade-order-host-button"
+        type="button"
+        onClick={showDetails}
+        aria-label={`View ${coordinatorName} coordinator details`}
+      >
+        {coordinatorAvatar ? (
+          <img className="trade-order-host-avatar" src={coordinatorAvatar} alt="" />
+        ) : (
+          <span className="trade-order-host-avatar">
+            <Tag size={18} />
+          </span>
+        )}
+        <span>
+          <strong>{coordinatorName}</strong>
+          <small>Order host</small>
+        </span>
+      </button>
+      {open ? (
+        <Suspense
+          fallback={
+            <AppTransitionDialog
+              title="Preparing coordinator details"
+              message={`Loading ${coordinatorName}...`}
+              onClose={() => setOpen(false)}
+            />
+          }
+        >
+          <LazyCoordinatorDetailDialog
+            compact
+            coordinator={coordinator}
+            lastRefreshed={lastRefreshed}
+            network={network}
+            rating={rating}
+            onClose={() => setOpen(false)}
+          />
+        </Suspense>
+      ) : null}
+    </>
   );
 }
 

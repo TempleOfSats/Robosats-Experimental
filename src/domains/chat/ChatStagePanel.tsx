@@ -5,6 +5,7 @@ import {
   escapeChatPayload,
   fetchChatMessages,
   isDisplayableChatPayload,
+  normalizePeerConnected,
   normalizeChatMessage,
   postChatMessage
 } from "@/domains/chat/chatApi";
@@ -66,7 +67,7 @@ export function ChatStagePanel({
   const [messages, setMessages] = useState<DisplayChatMessage[]>(() =>
     previewMode ? previewChatMessages(myNick, peerNick) : []
   );
-  const [peerConnected, setPeerConnected] = useState(previewMode);
+  const [peerConnected, setPeerConnected] = useState<boolean | undefined>(previewMode ? true : undefined);
   const [peerPubkey, setPeerPubkey] = useState("");
   const [sending, setSending] = useState(false);
   const [socketConnected, setSocketConnected] = useState(previewMode);
@@ -80,7 +81,8 @@ export function ChatStagePanel({
   const historyReadyRef = useRef(previewMode);
   const loadErrorRef = useRef("");
   const peerPubkeyRef = useRef("");
-  const decryptFailureAttemptsRef = useRef(new Map<string, number>());
+  const presenceRevisionRef = useRef(0);
+  const latestPresenceRequestRef = useRef(0);
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const errorId = useId();
 
@@ -89,6 +91,7 @@ export function ChatStagePanel({
   const canLoad = previewMode || Boolean(baseUrl && auth && robot?.encPrivKey && robot.pubKey && slotToken && orderId);
   const lastIndex = useMemo(() => messages.reduce((max, message) => Math.max(max, message.index), 0), [messages]);
   const preChatMessageSent = isPreChat && hasSentPreChatMessage(messages);
+  const hasLivePresence = peerConnected === true || peerConnected === false;
 
   useEffect(() => {
     peerPubkeyRef.current = peerPubkey;
@@ -123,6 +126,9 @@ export function ChatStagePanel({
     options: ApiRequestOptions = {}
   ): Promise<ChatResponse | undefined> {
     if (!baseUrl || !auth || !canLoad) return undefined;
+    const presenceRequest = latestPresenceRequestRef.current + 1;
+    latestPresenceRequestRef.current = presenceRequest;
+    const presenceRevision = presenceRevisionRef.current;
     const loadingHistory = offset === 0 && !historyReadyRef.current;
     if (loadingHistory) setHistoryStatus("loading");
     if (reportError) {
@@ -131,6 +137,12 @@ export function ChatStagePanel({
     }
     try {
       const response = await fetchChatMessages(baseUrl, orderId, offset, auth, undefined, options);
+      applyPresenceObservation(
+        response.peerConnected,
+        presenceRequest === latestPresenceRequestRef.current && presenceRevision === presenceRevisionRef.current,
+        presenceRevisionRef,
+        setPeerConnected
+      );
       await applyChatResponse(response, historyReadyRef.current);
       historyReadyRef.current = true;
       if (loadingHistory) setHistoryStatus("ready");
@@ -169,7 +181,8 @@ export function ChatStagePanel({
           nick: myNick || "Your robot",
           plaintext: text,
           mine: true,
-          decryptFailed: false
+          decryptFailed: false,
+          signatureStatus: "unknown"
         }
       ]);
       setDraft("");
@@ -207,6 +220,7 @@ export function ChatStagePanel({
         );
       } else {
         const response = await postChatMessage(baseUrl, orderId, outgoingMessage, lastIndex, auth);
+        applyPresenceObservation(response.peerConnected, true, presenceRevisionRef, setPeerConnected);
         await applyChatResponse(response);
       }
       setDraft("");
@@ -229,7 +243,6 @@ export function ChatStagePanel({
   }
 
   async function applyChatResponse(response: ChatResponse, notifyNewMessages = historyReadyRef.current) {
-    setPeerConnected(response.peerConnected);
     const responsePeerPubkey = usablePeerPublicKey(response.peerPubkey, robot?.pubKey ?? "");
     if (responsePeerPubkey) {
       peerPubkeyRef.current = responsePeerPubkey;
@@ -249,18 +262,7 @@ export function ChatStagePanel({
         })
       )
     );
-    const nextMessages = decryptedMessages.filter((message) => {
-      const failureKey = `${message.index}:${message.encryptedMessage}`;
-      if (!message.decryptFailed) {
-        decryptFailureAttemptsRef.current.delete(failureKey);
-        return true;
-      }
-      const attempts = (decryptFailureAttemptsRef.current.get(failureKey) ?? 0) + 1;
-      decryptFailureAttemptsRef.current.set(failureKey, attempts);
-      return attempts > 1;
-    });
-
-    const visibleMessages = isPreChat ? visiblePreChatMessages(nextMessages) : nextMessages;
+    const visibleMessages = isPreChat ? visiblePreChatMessages(decryptedMessages) : decryptedMessages;
     const newPeerMessages = visibleMessages.filter(
       (message) => !knownMessageIndexesRef.current.has(message.index) && !message.mine && !message.decryptFailed
     );
@@ -346,31 +348,36 @@ export function ChatStagePanel({
       socketRef.current = socket;
 
       socket.onopen = () => {
+        if (socketRef.current !== socket) return;
         attempts = 0;
         setSocketConnected(true);
         socket.send(JSON.stringify({ type: "message", message: robot.pubKey, nick: canonicalMyNick }));
         void loadMessages(lastIndex, false);
       };
       socket.onmessage = (event) => {
+        if (socketRef.current !== socket) return;
         attempts = 0;
-        void applySocketMessage(String(event.data));
+        void applySocketMessage(socket, String(event.data));
       };
       socket.onerror = () => socket.close();
       socket.onclose = () => {
+        if (socketRef.current !== socket) return;
         if (socketRef.current === socket) socketRef.current = undefined;
         setSocketConnected(false);
+        presenceRevisionRef.current += 1;
+        setPeerConnected(undefined);
         if (disposed) return;
         attempts += 1;
         reconnectTimer = window.setTimeout(connect, chatReconnectDelayMs(attempts));
       };
     };
 
-    const applySocketMessage = async (raw: string) => {
+    const applySocketMessage = async (socket: WebSocket, raw: string) => {
       try {
+        if (socketRef.current !== socket) return;
         const data = JSON.parse(raw) as Record<string, unknown>;
-        const peerIsConnected =
-          data.peer_connected === true || data.peer_connected === 1 || data.peer_connected === "true";
-        setPeerConnected(peerIsConnected);
+        const peerIsConnected = normalizePeerConnected(data.peer_connected);
+        applyPresenceObservation(peerIsConnected, true, presenceRevisionRef, setPeerConnected);
         const message = normalizeChatMessage(data);
         if (!message.encryptedMessage) return;
 
@@ -389,7 +396,7 @@ export function ChatStagePanel({
         if (!isDisplayableChatPayload(message.encryptedMessage)) return;
 
         await applyChatResponse({
-          peerConnected: peerIsConnected,
+          peerConnected: undefined,
           peerPubkey: peerPubkeyRef.current,
           messages: [message]
         });
@@ -401,6 +408,9 @@ export function ChatStagePanel({
     connect();
     return () => {
       disposed = true;
+      presenceRevisionRef.current += 1;
+      setSocketConnected(false);
+      setPeerConnected(undefined);
       if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer);
       socketRef.current?.close();
       socketRef.current = undefined;
@@ -442,11 +452,7 @@ export function ChatStagePanel({
             <span>
               <strong title={peerNick || "Trade peer"}>{peerNick || "Trade peer"}</strong>
               <small>Peer</small>
-              {!isPreChat ? (
-                <span className={peerConnected ? "chat-presence chat-presence-online" : "chat-presence"}>
-                  {peerConnected ? "Online" : socketConnected ? "Away" : "Offline"}
-                </span>
-              ) : null}
+              {!isPreChat && hasLivePresence ? presenceLabel(peerConnected) : null}
             </span>
           </div>
         </div>
@@ -617,7 +623,8 @@ function previewChatMessages(myNick: string, peerNick: string): DisplayChatMessa
       nick: peerNick || "Trade peer",
       plaintext: "Hi. I am ready to complete the payment.",
       mine: false,
-      decryptFailed: false
+      decryptFailed: false,
+      signatureStatus: "unknown"
     },
     {
       index: 2,
@@ -626,7 +633,8 @@ function previewChatMessages(myNick: string, peerNick: string): DisplayChatMessa
       nick: myNick || "Your robot",
       plaintext: "Ready here too. I will confirm as soon as it is sent.",
       mine: true,
-      decryptFailed: false
+      decryptFailed: false,
+      signatureStatus: "unknown"
     }
   ];
 }
@@ -675,6 +683,11 @@ function MessageBubble({
           <time>{formatChatTime(message.time)}</time>
         </div>
         <p>{message.plaintext}</p>
+        {message.signatureStatus === "verified" ? (
+          <span className="chat-signature-status">Signature verified</span>
+        ) : message.signatureStatus === "unverified" ? (
+          <span className="chat-signature-status">Signature could not be verified</span>
+        ) : null}
       </div>
     </article>
   );
@@ -697,37 +710,50 @@ async function decryptDisplayMessage(
       ...message,
       decryptFailed: false,
       mine,
-      plaintext: message.encryptedMessage
+      plaintext: message.encryptedMessage,
+      signatureStatus: "unknown"
     };
   }
 
   try {
-    const plaintext = await decryptChatMessage({
+    const decrypted = await decryptChatMessage({
       armoredMessage: message.encryptedMessage,
       ownPrivateKeyArmored: keys.ownPrivateKeyArmored,
-      ownPublicKeyArmored: keys.ownPublicKeyArmored,
       passphrase: keys.passphrase,
-      peerPublicKeyArmored: mine ? undefined : keys.peerPublicKeyArmored
+      expectedSignerPublicKeyArmored: mine ? keys.ownPublicKeyArmored : keys.peerPublicKeyArmored
     });
     return {
       ...message,
       decryptFailed: false,
       mine,
-      plaintext
+      plaintext: decrypted.plaintext,
+      signatureStatus: decrypted.signatureStatus
     };
   } catch {
     return {
       ...message,
       decryptFailed: true,
       mine,
-      plaintext: "Encrypted message could not be decrypted."
+      plaintext: "Encrypted message could not be decrypted.",
+      signatureStatus: "unknown"
     };
   }
 }
 
-function mergeMessages(current: DisplayChatMessage[], incoming: DisplayChatMessage[]): DisplayChatMessage[] {
+const signatureRank = { unknown: 0, unverified: 1, verified: 2 } as const;
+
+export function mergeMessages(current: DisplayChatMessage[], incoming: DisplayChatMessage[]): DisplayChatMessage[] {
   const byIndex = new Map(current.map((message) => [message.index, message]));
-  for (const message of incoming) byIndex.set(message.index, message);
+  for (const message of incoming) {
+    const previous = byIndex.get(message.index);
+    if (!previous || (previous.decryptFailed && !message.decryptFailed)) {
+      byIndex.set(message.index, message);
+      continue;
+    }
+    if (!previous.decryptFailed && message.decryptFailed) continue;
+    if (signatureRank[message.signatureStatus] > signatureRank[previous.signatureStatus])
+      byIndex.set(message.index, message);
+  }
   return [...byIndex.values()].sort((a, b) => a.index - b.index);
 }
 
@@ -739,4 +765,24 @@ function formatChatTime(value: string): string {
     hour: "2-digit",
     minute: "2-digit"
   }).format(date);
+}
+
+function presenceLabel(peerConnected: boolean | undefined) {
+  if (peerConnected === undefined) return null;
+  return (
+    <span className={peerConnected ? "chat-presence chat-presence-online" : "chat-presence"}>
+      {peerConnected ? "Online" : "Offline"}
+    </span>
+  );
+}
+
+function applyPresenceObservation(
+  observation: boolean | undefined,
+  allowed: boolean,
+  revision: { current: number },
+  setPresence: (value: boolean | undefined) => void
+): void {
+  if (!allowed || observation === undefined) return;
+  revision.current += 1;
+  setPresence(observation);
 }

@@ -5,7 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RobotSlot } from "@/domains/garage/garageStore";
-import { HistoryList, TradeList } from "@/domains/pro/ProWorkspaceLists";
+import { HistoryList, RobotList, TradeList } from "@/domains/pro/ProWorkspaceLists";
 import type { TradeHistoryEntry } from "@/domains/pro/tradeHistory";
 
 let root: Root | undefined;
@@ -22,6 +22,96 @@ afterEach(async () => {
 });
 
 describe("Pro workspace lists", () => {
+  it("shows an active robot trade identity beside its status", () => {
+    const html = renderToStaticMarkup(
+      <RobotList
+        onCreate={vi.fn()}
+        onDelete={vi.fn()}
+        onDownload={vi.fn()}
+        onOpenTrade={vi.fn()}
+        onSettings={vi.fn()}
+        onTelegram={vi.fn()}
+        slots={[rewardSlot]}
+        snapshots={{
+          active: {
+            key: "reward-slot:temple:92195",
+            locator: { slotId: "reward-slot", shortAlias: "temple", orderId: 92195 },
+            nickname: "Reward Robot",
+            hashId: "reward-hash",
+            order: {
+              amount: 12,
+              currency: 2,
+              payment_method: "Revolut",
+              status: 9,
+              is_buyer: true,
+              is_seller: false
+            } as never,
+            renewable: false,
+            released: false,
+            freshness: "fresh"
+          }
+        }}
+        summaries={[
+          {
+            slotId: "reward-slot",
+            nickname: "Reward Robot",
+            hashId: "reward-hash",
+            coordinatorCount: 1,
+            activeTradeCount: 1,
+            publicOfferCount: 0,
+            needsAttentionCount: 1,
+            relevantOrderCount: 1,
+            stale: false
+          }
+        ]}
+        syncBySlot={{ "reward-slot": { slotId: "reward-slot", epoch: 1, inFlight: false, lastSuccessAt: 1 } }}
+      />
+    );
+
+    expect(html).toContain("€12 · Revolut · #92195");
+  });
+
+  it("leaves the trade identity out when order data is unavailable", () => {
+    const html = renderToStaticMarkup(
+      <RobotList
+        onCreate={vi.fn()}
+        onDelete={vi.fn()}
+        onDownload={vi.fn()}
+        onOpenTrade={vi.fn()}
+        onSettings={vi.fn()}
+        onTelegram={vi.fn()}
+        slots={[rewardSlot]}
+        snapshots={{
+          pending: {
+            key: "reward-slot:temple:92195",
+            locator: { slotId: "reward-slot", shortAlias: "temple", orderId: 92195 },
+            nickname: "Reward Robot",
+            hashId: "reward-hash",
+            renewable: false,
+            released: false,
+            freshness: "refreshing"
+          }
+        }}
+        summaries={[
+          {
+            slotId: "reward-slot",
+            nickname: "Reward Robot",
+            hashId: "reward-hash",
+            coordinatorCount: 1,
+            activeTradeCount: 1,
+            publicOfferCount: 0,
+            needsAttentionCount: 0,
+            relevantOrderCount: 1,
+            stale: false
+          }
+        ]}
+        syncBySlot={{ "reward-slot": { slotId: "reward-slot", epoch: 1, inFlight: true } }}
+      />
+    );
+
+    expect(html).not.toContain("#92195");
+  });
+
   it("renders robot rewards as claim work without an empty-trades message", () => {
     const html = renderToStaticMarkup(
       <TradeList
@@ -72,7 +162,7 @@ describe("Pro workspace lists", () => {
     expect(html).toContain(label);
   });
 
-  it("labels the bitcoin amount neutrally for a disputed trade", async () => {
+  it("shows a resolved dispute with the contract bitcoin amount and Fleet-history location", async () => {
     root = createRoot(document.querySelector("#root")!);
     await act(async () => {
       root?.render(<HistoryList coordinators={[]} entries={[{ ...sellerHistoryEntry, outcome: "dispute-lost" }]} />);
@@ -84,6 +174,24 @@ describe("Pro workspace lists", () => {
 
     expect(document.body.textContent).toContain("Contract bitcoin18,991 sats");
     expect(document.body.textContent).not.toContain("Bitcoin sent18,991 sats");
+    expect(document.body.textContent).toContain("Dispute resolved");
+    expect(document.body.textContent).toContain(
+      "This summary is kept in your encrypted Fleet history stored over nostr."
+    );
+  });
+
+  it("does not present an unrecoverable legacy bitcoin amount as zero", async () => {
+    root = createRoot(document.querySelector("#root")!);
+    await act(async () => {
+      root?.render(<HistoryList coordinators={[]} entries={[{ ...sellerHistoryEntry, satoshis: 0 }]} />);
+    });
+
+    const row = document.querySelector<HTMLButtonElement>('[aria-label="Open finished order 92045 for Seller"]');
+    if (!row) throw new Error("Missing zero-amount history row");
+    await act(async () => row.click());
+
+    expect(document.body.textContent).toContain("Bitcoin sentNot recorded");
+    expect(document.body.textContent).not.toContain("Bitcoin sent0 sats");
   });
 });
 

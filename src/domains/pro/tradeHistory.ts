@@ -98,7 +98,7 @@ export function tradeHistoryEntryFromOrder(input: ArchiveTradeInput, deviceId: s
     currency: input.order.currency,
     paymentMethod: cleanText(input.order.payment_method, TRADE_HISTORY_LIMITS.paymentMethodLength),
     premium: finiteNumber(input.order.premium) ?? 0,
-    satoshis: finalTradeSatoshis(input.order),
+    satoshis: contractSatoshis(input.order),
     ...settlement,
     outcome,
     completedAt,
@@ -361,19 +361,17 @@ function validatedSettlement(
   return invoice && roleMatches ? { settlementInvoice: invoice, settlementInvoicePurpose: purpose } : {};
 }
 
-function finalTradeSatoshis(order: OrderDto): number {
-  const summary = order.is_maker ? order.maker_summary : order.taker_summary;
-  const summaryValue = summary?.[order.is_buyer ? "received_sats" : "sent_sats"];
+function contractSatoshis(order: OrderDto): number {
   const candidates = order.is_buyer
     ? [
-        summaryValue,
-        order.sent_satoshis,
-        order.trade_satoshis,
         order.invoice_amount,
+        order.trade_satoshis,
         order.num_satoshis,
+        order.sent_satoshis,
+        order.satoshis_now,
         order.satoshis
       ]
-    : [summaryValue, order.escrow_satoshis, order.trade_satoshis, order.satoshis];
+    : [order.escrow_satoshis, order.trade_satoshis, order.satoshis_now, order.satoshis];
   for (const candidate of candidates) {
     const value = Number(candidate);
     if (Number.isFinite(value) && value > 0) return value;

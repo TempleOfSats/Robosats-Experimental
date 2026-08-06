@@ -28,36 +28,57 @@ export async function encryptChatMessage({
   );
 }
 
+type ChatSignatureStatus = "verified" | "unverified" | "unknown";
+
+export interface DecryptedChatMessage {
+  plaintext: string;
+  signatureStatus: ChatSignatureStatus;
+}
+
 export async function decryptChatMessage({
   armoredMessage,
   ownPrivateKeyArmored,
-  ownPublicKeyArmored,
   passphrase,
-  peerPublicKeyArmored
+  expectedSignerPublicKeyArmored
 }: {
   armoredMessage: string;
   ownPrivateKeyArmored: string;
-  ownPublicKeyArmored: string;
   passphrase: string;
-  peerPublicKeyArmored?: string;
-}): Promise<string> {
+  expectedSignerPublicKeyArmored?: string;
+}): Promise<DecryptedChatMessage> {
   const { decrypt, decryptKey, readKey, readMessage, readPrivateKey } = await import("openpgp/lightweight");
   const decryptionKey = await decryptKey({
     privateKey: await readPrivateKey({ armoredKey: ownPrivateKeyArmored }),
     passphrase
   });
-  const verificationKeys = await Promise.all(
-    uniqueArmoredKeys([peerPublicKeyArmored, ownPublicKeyArmored]).map((armoredKey) => readKey({ armoredKey }))
-  );
-  const { data } = await decrypt({
+  let signerKeyAvailable = false;
+  let verificationKeys: Awaited<ReturnType<typeof readKey>>[] = [];
+  if (expectedSignerPublicKeyArmored) {
+    try {
+      verificationKeys = [await readKey({ armoredKey: expectedSignerPublicKeyArmored })];
+      signerKeyAvailable = true;
+    } catch {
+      // Decrypt without verification when the expected signer key is unavailable.
+    }
+  }
+  const { data, signatures } = await decrypt({
     message: await readMessage({ armoredMessage }),
     decryptionKeys: decryptionKey,
     verificationKeys
   });
 
-  return String(data);
-}
-
-function uniqueArmoredKeys(keys: Array<string | undefined>): string[] {
-  return [...new Set(keys.filter((key): key is string => Boolean(key)))];
+  let signatureStatus: ChatSignatureStatus = "unknown";
+  if (expectedSignerPublicKeyArmored && signerKeyAvailable) {
+    signatureStatus = "unverified";
+    const signature = signatures?.[0];
+    if (signature) {
+      try {
+        await signature.verified;
+        signatureStatus = "verified";
+      } catch {
+        // Plaintext remains usable when signature verification fails.
+      }
+    }
+  }
+  return { plaintext: String(data), signatureStatus };
 }

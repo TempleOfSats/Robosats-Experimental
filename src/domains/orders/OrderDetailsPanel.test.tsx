@@ -3,6 +3,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { OrderDetailsPanel } from "@/domains/orders/OrderDetailsPanel";
+import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import type { OrderDto } from "@/domains/orders/order.types";
 
 describe("OrderDetailsPanel", () => {
@@ -20,6 +21,22 @@ describe("OrderDetailsPanel", () => {
     expect(buyer).toContain("You receive Approx. 18,915 sats");
     expect(seller).toContain("You send via Lightning Approx. 18,915 sats");
     expect(seller).toContain("You receive via Revolut 12 USD");
+  });
+
+  it("makes a resolved coordinator host accessible and interactive", () => {
+    const html = renderToStaticMarkup(
+      <OrderDetailsPanel
+        coordinator={coordinator}
+        coordinatorAlias="temple"
+        defaultOpen
+        order={baseOrder}
+        robotHashId="robot-hash"
+        robotName="Patient robot"
+      />
+    );
+
+    expect(html).toContain('aria-label="View Temple of Sats coordinator details"');
+    expect(html).toContain("trade-order-host-button");
   });
 });
 
@@ -51,3 +68,10 @@ const baseOrder = {
   expires_at: "2030-01-01T00:00:00Z",
   shortAlias: "temple"
 } as OrderDto;
+
+const coordinator = {
+  shortAlias: "temple",
+  longAlias: "Temple of Sats",
+  url: "https://temple.example",
+  smallAvatarUrl: "/temple.png"
+} as CoordinatorSummary;

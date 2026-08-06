@@ -45,6 +45,10 @@
   filter: invert(1);
 }
 
+:root[data-theme="light"] .desktop-titlebar-brand img {
+  filter: none;
+}
+
 .desktop-titlebar-brand strong {
   overflow: hidden;
   font-size: 0.8125rem;
@@ -1596,6 +1600,22 @@
   margin-bottom: 0.9rem;
 }
 
+.trade-order-host-button {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.trade-order-host-button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+
 .trade-order-host-avatar {
   width: 2.55rem;
   height: 2.55rem;
@@ -1618,6 +1638,14 @@
 
 .trade-order-host p {
   margin: 0.16rem 0 0;
+  color: var(--muted-foreground);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.trade-order-host small {
+  display: block;
+  margin-top: 0.16rem;
   color: var(--muted-foreground);
   font-size: 0.82rem;
   font-weight: 600;

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-label="Buy and sell">
+  <!-- BUY: down-left -->
+  <path d="M14.5 5.5 8.5 11.5" style="fill:none;stroke:#6bbbe5;stroke-linecap:round" stroke-width="2.2"/>
+  <path d="M8.5 7.8v3.7h3.7" style="fill:none;stroke:#6bbbe5;stroke-linecap:round;stroke-linejoin:round" stroke-width="2.2"/>
+
+  <!-- SELL: up-right -->
+  <path d="m9.5 18.5 6-6" style="fill:none;stroke:#e1a0c5;stroke-linecap:round" stroke-width="2.2"/>
+  <path d="M15.5 16.2v-3.7h-3.7" style="fill:none;stroke:#e1a0c5;stroke-linecap:round;stroke-linejoin:round" stroke-width="2.2"/>
+</svg>

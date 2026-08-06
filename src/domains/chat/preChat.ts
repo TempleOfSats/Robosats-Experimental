@@ -1,16 +1,18 @@
 import type { CoordinatorInfo } from "@/domains/coordinators/coordinator.types";
 
-const PRE_CHAT_STATUS = 6;
-
 export function coordinatorSupportsPreChat(info?: Pick<CoordinatorInfo, "features">): boolean {
   return info?.features?.pre_chat === true;
 }
 
 export function shouldOfferPreChat(
   status: number,
-  info?: Pick<CoordinatorInfo, "features">
+  info: Pick<CoordinatorInfo, "features"> | undefined,
+  role?: { is_buyer?: boolean; is_seller?: boolean }
 ): boolean {
-  return status === PRE_CHAT_STATUS && coordinatorSupportsPreChat(info);
+  if (!coordinatorSupportsPreChat(info)) return false;
+  if (role?.is_buyer) return status === 6 || status === 8;
+  if (role?.is_seller) return status === 6 || status === 7;
+  return false;
 }
 
 export function visiblePreChatMessages<T extends { mine: boolean }>(messages: T[]): T[] {
@@ -21,11 +23,7 @@ export function hasSentPreChatMessage(messages: Array<{ mine: boolean }>): boole
   return messages.some((message) => message.mine);
 }
 
-export function isOwnChatMessage(
-  messageNick: string,
-  ownCoordinatorNick: string,
-  senderOnlyResponse = false
-): boolean {
+export function isOwnChatMessage(messageNick: string, ownCoordinatorNick: string, senderOnlyResponse = false): boolean {
   if (senderOnlyResponse) return true;
   return messageNick.trim() === ownCoordinatorNick.trim();
 }

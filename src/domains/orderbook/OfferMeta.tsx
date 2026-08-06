@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { ArrowDownLeft, ArrowUpRight, ChevronDown, CircleDollarSign, Globe2, Repeat2 } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, ChevronDown, CircleDollarSign, Repeat2 } from "lucide-react";
 import { matchedPaymentMethods, paymentIconSrc, type PaymentMethodOption } from "@/domains/orderbook/paymentMethods";
 import { isNativeApp } from "@/domains/transport/androidBridge";
 
@@ -9,6 +9,17 @@ export type IntentPickerOption = {
   value: string;
   tone: "any" | "buy" | "sell" | "swap-in" | "swap-out";
 };
+
+const FILTER_ANY_BUY_SELL_ICON = "/static/assets/vector/filter-any-buy-sell.svg";
+
+export function FilterAnyMonochromeIcon({ kind }: { kind: "currency" | "payment-method" }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={`filter-any-icon filter-any-icon-monochrome filter-any-icon-${kind}`}
+    />
+  );
+}
 
 const flagCodeByCurrency: Record<string, string> = {
   AED: "AE",
@@ -109,11 +120,7 @@ export function CurrencyFlag({ code, size = 20 }: { code?: string; size?: number
   const normalizedCode = code?.toUpperCase() ?? "";
 
   if (normalizedCode === "ANY") {
-    return (
-      <span className="currency-flag currency-flag-symbol" title="Any currency">
-        <Globe2 size={size - 2} />
-      </span>
-    );
+    return <FilterAnyMonochromeIcon kind="currency" />;
   }
 
   if (normalizedCode === "BTC") {
@@ -573,9 +580,5 @@ function IntentIcon({ tone, size }: { tone: IntentPickerOption["tone"]; size: nu
       </span>
     );
   }
-  return (
-    <span className={className}>
-      <Globe2 size={size} />
-    </span>
-  );
+  return <img alt="" className="filter-any-icon" src={FILTER_ANY_BUY_SELL_ICON} />;
 }

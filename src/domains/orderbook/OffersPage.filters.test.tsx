@@ -80,6 +80,40 @@ describe("OffersPage filters", () => {
     await chooseCurrency("USD");
     expect(methodInput.value).toBe("Wise");
   });
+
+  it("uses dedicated icons for each ANY filter while preserving the labels", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter>
+          <OffersPage />
+        </MemoryRouter>
+      );
+    });
+
+    const intentIcon = container.querySelector<HTMLImageElement>(
+      'summary[aria-label="Filter public offers by trade direction"] img'
+    );
+    const currencyIcon = container.querySelector<HTMLElement>(
+      'summary[aria-label="Filter by currency"] .filter-any-icon-currency'
+    );
+    expect(intentIcon?.getAttribute("src")).toBe("/static/assets/vector/filter-any-buy-sell.svg");
+    expect(intentIcon?.closest(".intent-icon")).toBeNull();
+    expect(currencyIcon?.classList.contains("filter-any-icon-monochrome")).toBe(true);
+    expect(currencyIcon?.tagName).toBe("SPAN");
+    expect(currencyIcon?.closest(".currency-flag")).toBeNull();
+    const methodIcon = container
+      .querySelector('input[aria-label="Filter by payment method"]')
+      ?.closest(".image-select")
+      ?.querySelector<HTMLElement>(".filter-any-icon-payment-method");
+    expect(methodIcon?.classList.contains("filter-any-icon-monochrome")).toBe(true);
+    expect(methodIcon?.tagName).toBe("SPAN");
+    expect(
+      container.querySelector('summary[aria-label="Filter public offers by trade direction"] .image-select-value')
+        ?.textContent
+    ).toBe("ANY");
+    expect(currencyValue()).toBe("ANY");
+    expect(container.querySelector<HTMLInputElement>('input[aria-label="Filter by payment method"]')?.value).toBe("");
+  });
 });
 
 function input(label: string): HTMLInputElement {

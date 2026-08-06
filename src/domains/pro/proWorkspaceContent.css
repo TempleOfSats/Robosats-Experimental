@@ -346,6 +346,10 @@
   display: grid;
 }
 
+.pro-history-detail-identity > .ui-badge {
+  white-space: nowrap;
+}
+
 .pro-history-detail-identity small,
 .pro-history-retention-note {
   color: var(--text-supporting);
@@ -463,6 +467,25 @@
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
+}
+
+.pro-robot-trade-identity {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: min(100%, 22rem);
+  white-space: nowrap;
+}
+
+.pro-robot-trade-amount,
+.pro-robot-trade-order {
+  flex: 0 0 auto;
+}
+
+.pro-robot-trade-method {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .pro-robot-trade-status {
