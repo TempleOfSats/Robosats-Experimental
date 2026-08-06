@@ -16,12 +16,21 @@ describe("pre-chat capability", () => {
     expect(coordinatorSupportsPreChat({ features: { pre_chat: true } })).toBe(true);
   });
 
-  it("offers pre-chat only while both setup inputs are outstanding", () => {
-    expect(shouldOfferPreChat(6, { features: { pre_chat: true } })).toBe(true);
+  it("offers pre-chat during the buyer and seller setup windows", () => {
+    const enabled = { features: { pre_chat: true } };
+    expect(shouldOfferPreChat(6, enabled, { is_buyer: true })).toBe(true);
+    expect(shouldOfferPreChat(8, enabled, { is_buyer: true })).toBe(true);
+    expect(shouldOfferPreChat(6, enabled, { is_seller: true })).toBe(true);
+    expect(shouldOfferPreChat(7, enabled, { is_seller: true })).toBe(true);
   });
 
-  it.each([1, 3, 7, 8, 9, 11, 14])("does not offer pre-chat during status %i", (status) => {
-    expect(shouldOfferPreChat(status, { features: { pre_chat: true } })).toBe(false);
+  it("requires a known role and rejects unsupported status/capability combinations", () => {
+    const enabled = { features: { pre_chat: true } };
+    expect(shouldOfferPreChat(6, enabled)).toBe(false);
+    expect(shouldOfferPreChat(7, enabled, { is_buyer: true })).toBe(false);
+    expect(shouldOfferPreChat(8, enabled, { is_seller: true })).toBe(false);
+    expect(shouldOfferPreChat(8, { features: { pre_chat: false } }, { is_buyer: true })).toBe(false);
+    expect(shouldOfferPreChat(9, enabled, { is_buyer: true })).toBe(false);
   });
 
   it("keeps peer messages hidden until normal chat opens", () => {

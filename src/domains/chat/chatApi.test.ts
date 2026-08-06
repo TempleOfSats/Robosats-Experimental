@@ -4,6 +4,7 @@ import {
   fetchChatMessages,
   isDisplayableChatPayload,
   normalizeChatResponse,
+  normalizePeerConnected,
   postChatMessage
 } from "@/domains/chat/chatApi";
 import type { ApiClient, Auth } from "@/domains/transport/apiClient";
@@ -16,12 +17,21 @@ describe("chatApi", () => {
       normalizeChatResponse({
         peer_connected: "true",
         peer_pubkey: "-----BEGIN PGP PUBLIC KEY BLOCK-----\\\\peer\\key",
-        messages: [{ index: "2", time: "2026-07-06T00:00:00Z", message: "-----BEGIN PGP MESSAGE-----\\armored", nick: "Robot" }]
+        messages: [
+          { index: "2", time: "2026-07-06T00:00:00Z", message: "-----BEGIN PGP MESSAGE-----\\armored", nick: "Robot" }
+        ]
       })
     ).toEqual({
       peerConnected: true,
       peerPubkey: "-----BEGIN PGP PUBLIC KEY BLOCK-----\n\npeer\nkey",
-      messages: [{ index: 2, time: "2026-07-06T00:00:00Z", encryptedMessage: "-----BEGIN PGP MESSAGE-----\narmored", nick: "Robot" }]
+      messages: [
+        {
+          index: 2,
+          time: "2026-07-06T00:00:00Z",
+          encryptedMessage: "-----BEGIN PGP MESSAGE-----\narmored",
+          nick: "Robot"
+        }
+      ]
     });
   });
 
@@ -33,6 +43,18 @@ describe("chatApi", () => {
         messages: [{ index: 1, message: "# payment reference \\ stays literal", nick: "Robot" }]
       }).messages[0]?.encryptedMessage
     ).toBe("# payment reference \\ stays literal");
+  });
+
+  it("does not treat a missing or unknown presence field as offline", () => {
+    expect(normalizeChatResponse({ messages: [] }).peerConnected).toBeUndefined();
+    expect(normalizeChatResponse({ peer_connected: "unknown", messages: [] }).peerConnected).toBeUndefined();
+    expect(normalizeChatResponse({ peer_connected: false, messages: [] }).peerConnected).toBe(false);
+  });
+
+  it("normalizes all explicit coordinator presence forms", () => {
+    expect([true, "true", 1, "1"].map(normalizePeerConnected)).toEqual([true, true, true, true]);
+    expect([false, "false", 0, "0"].map(normalizePeerConnected)).toEqual([false, false, false, false]);
+    expect(normalizePeerConnected(null)).toBeUndefined();
   });
 
   it("distinguishes chat content from WebSocket presence controls", () => {
@@ -52,12 +74,11 @@ describe("chatApi", () => {
 
     await fetchChatMessages("https://coordinator", 123, 4, auth, client);
 
-    expect(client.get).toHaveBeenCalledWith(
-      "https://coordinator",
-      "/api/chat/?order_id=123&offset=4",
-      auth,
-      { timeoutProfile: "background", priority: "background", source: "chat" }
-    );
+    expect(client.get).toHaveBeenCalledWith("https://coordinator", "/api/chat/?order_id=123&offset=4", auth, {
+      timeoutProfile: "background",
+      priority: "background",
+      source: "chat"
+    });
   });
 
   it("posts encrypted chat messages with current field names", async () => {

@@ -975,6 +975,26 @@
   color: var(--primary);
 }
 
+.filter-any-icon {
+  width: 1.15rem;
+  height: 1.15rem;
+  display: block;
+}
+
+.filter-any-icon-monochrome {
+  background: currentColor;
+  -webkit-mask: var(--filter-any-icon-mask) center / contain no-repeat;
+  mask: var(--filter-any-icon-mask) center / contain no-repeat;
+}
+
+.filter-any-icon-currency {
+  --filter-any-icon-mask: url("/static/assets/vector/filter-any-currency.svg");
+}
+
+.filter-any-icon-payment-method {
+  --filter-any-icon-mask: url("/static/assets/vector/filter-any-payment-method.svg");
+}
+
 .currency-flag span {
   font-size: 0.75rem;
   font-weight: 600;

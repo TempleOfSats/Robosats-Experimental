@@ -10,12 +10,12 @@ export async function fetchChatMessages(
   client: ApiClient = apiClient,
   options: ApiRequestOptions = {}
 ): Promise<ChatResponse> {
-  const data = await client.get<ChatApiResponse>(
-    baseUrl,
-    apiRoutes.chat(orderId, offset),
-    auth,
-    { timeoutProfile: "background", priority: "background", source: "chat", ...options }
-  );
+  const data = await client.get<ChatApiResponse>(baseUrl, apiRoutes.chat(orderId, offset), auth, {
+    timeoutProfile: "background",
+    priority: "background",
+    source: "chat",
+    ...options
+  });
   return normalizeChatResponse(data);
 }
 
@@ -44,9 +44,11 @@ export async function postChatMessage(
 export function normalizeChatResponse(data: ChatApiResponse): ChatResponse {
   const messages = Array.isArray(data.messages) ? data.messages : [];
   return {
-    peerConnected: toBoolean(data.peer_connected),
+    peerConnected: normalizePeerConnected(data.peer_connected),
     peerPubkey: restoreSeparator(data.peer_pubkey),
-    messages: messages.map((message) => normalizeChatMessage(message as ChatApiMessage)).filter((message) => message.encryptedMessage)
+    messages: messages
+      .map((message) => normalizeChatMessage(message as ChatApiMessage))
+      .filter((message) => message.encryptedMessage)
   };
 }
 
@@ -88,6 +90,8 @@ function toNumber(value: unknown): number {
   return Number.isFinite(number) ? number : 0;
 }
 
-function toBoolean(value: unknown): boolean {
-  return value === true || value === "true" || value === 1 || value === "1";
+export function normalizePeerConnected(value: unknown): boolean | undefined {
+  if (value === true || value === "true" || value === 1 || value === "1") return true;
+  if (value === false || value === "false" || value === 0 || value === "0") return false;
+  return undefined;
 }

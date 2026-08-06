@@ -217,6 +217,16 @@
     display: none;
   }
 
+  .pro-robot-state .pro-robot-trade-identity {
+    display: inline-flex;
+    max-width: 14rem;
+  }
+
+  .pro-robot-state .pro-robot-trade-method,
+  .pro-robot-state .pro-robot-trade-method + span {
+    display: none;
+  }
+
   .pro-history-header {
     display: none;
   }

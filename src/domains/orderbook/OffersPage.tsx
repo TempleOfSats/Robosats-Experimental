@@ -51,7 +51,7 @@ import { AppTransitionDialog } from "@/domains/navigation/AppTransitionFeedback"
 import { preloadStatisticsRoute } from "@/domains/statistics/statisticsRoute";
 import { InfoHint } from "@/components/ui/infoHint";
 import { Skeleton } from "@/components/ui/skeleton";
-import { CurrencyFlag, CurrencyPicker, IntentPicker, PaymentMethodIcons, PaymentMethodPicker, type IntentPickerOption } from "@/domains/orderbook/OfferMeta";
+import { CurrencyFlag, CurrencyPicker, FilterAnyMonochromeIcon, IntentPicker, PaymentMethodIcons, PaymentMethodPicker, type IntentPickerOption } from "@/domains/orderbook/OfferMeta";
 import type { GuidedTradeCriteria } from "@/domains/orderbook/guidedTrade";
 import { isSwapPaymentMethod, matchedPaymentMethods, paymentIconSrc, paymentMethodOptions } from "@/domains/orderbook/paymentMethods";
 import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
@@ -688,7 +688,7 @@ export function OffersPage() {
                 <div className="filter-select-field filter-select-field-wide">
                   <span>{intentIsSwap(intentFilter) ? "Destination" : "Payment Method"}</span>
                   <PaymentMethodPicker
-                    defaultIcon={<CurrencyFlag code="ANY" size={18} />}
+                    defaultIcon={<FilterAnyMonochromeIcon kind="payment-method" />}
                     label={intentIsSwap(intentFilter) ? "Filter by swap destination" : "Filter by payment method"}
                     open={openFilter === "method"}
                     options={methodOptions}

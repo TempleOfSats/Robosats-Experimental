@@ -27,10 +27,13 @@ const disabledTradePreviewFixturesPath = fileURLToPath(
   new URL("./src/dev/tradePreviewFixtures.disabled.ts", import.meta.url)
 );
 
-export default defineConfig(({ command }) => {
+export default defineConfig(({ command, mode }) => {
   const tradeLabEnabled = command === "serve" || process.env.VITE_ENABLE_TRADE_LAB === "true";
   const assetDirectory = command === "build" ? `assets/${buildRevision()}` : "assets";
-  const staticRevision = command === "build" ? staticTreeRevision(publicStaticPath) : "";
+  // Installed bundles are immutable and retain browser storage across upgrades.
+  // Stable URLs avoid platform-specific Tauri protocol resolution and stale cached revision paths.
+  const versionStatic = command === "build" && mode !== "desktop";
+  const staticRevision = versionStatic ? staticTreeRevision(publicStaticPath) : "";
 
   return {
     server: {
@@ -38,10 +41,8 @@ export default defineConfig(({ command }) => {
     },
     plugins: [
       react(),
-      ...(command === "build" ? [
-        versionStaticAssets(staticRevision),
-        deferApplicationStyles()
-      ] : [])
+      ...(versionStatic ? [versionStaticAssets(staticRevision)] : []),
+      ...(command === "build" ? [deferApplicationStyles()] : [])
     ],
     resolve: {
       alias: [

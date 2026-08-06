@@ -81,12 +81,13 @@ describe("Fleet trade history", () => {
     ).toMatchObject({ outcome: "completed", role: "seller" });
   });
 
-  it("archives the current robot's exact final bitcoin amount from the backend summary", () => {
+  it("archives the role-specific contract bitcoin amount", () => {
     expect(
       entryFor(
         order({
+          invoice_amount: 18_915,
           trade_satoshis: 18_958,
-          taker_summary: { is_buyer: true, received_sats: 18_915 }
+          taker_summary: { is_buyer: true, received_sats: 18_800 }
         })
       )
     ).toMatchObject({ role: "buyer", satoshis: 18_915 });
@@ -98,8 +99,9 @@ describe("Fleet trade history", () => {
           is_seller: true,
           is_maker: true,
           is_taker: false,
+          escrow_satoshis: 18_991,
           trade_satoshis: 18_958,
-          maker_summary: { is_buyer: false, sent_sats: 18_991 }
+          maker_summary: { is_buyer: false, sent_sats: 18_800 }
         })
       )
     ).toMatchObject({ role: "seller", satoshis: 18_991 });

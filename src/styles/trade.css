@@ -688,6 +688,12 @@
   text-align: center;
 }
 
+.chat-signature-status {
+  display: block;
+  font-size: 0.75rem;
+  opacity: 0.75;
+}
+
 .chat-message > .robot-avatar {
   flex: 0 0 auto;
 }

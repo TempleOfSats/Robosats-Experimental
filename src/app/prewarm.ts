@@ -118,7 +118,6 @@ export function scheduleAppPrewarm(): () => void {
     // first Offers or Settings navigation wait on an app-onion round trip.
     scheduleIdle(preloadQuickAccessRoutes, 900, 7000),
     scheduleIdle(prewarmVisualAssets, 7000, 16000),
-    scheduleIdle(prewarmAudioAssets, 45000, 60000),
     scheduleDesktopNotificationRefresh()
   ];
   // Native and desktop packages read chunks locally, so warming the remaining
@@ -509,10 +508,6 @@ function prewarmVisualAssets(): void {
     .slice(0, 6);
 
   preloadImages(coordinatorAvatarUrls);
-}
-
-function prewarmAudioAssets(): void {
-  swallow(import("@/domains/audio/audioController").then(({ preloadTradeAudio }) => preloadTradeAudio()));
 }
 
 function preloadImages(urls: string[]): void {

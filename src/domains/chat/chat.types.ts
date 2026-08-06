@@ -23,7 +23,7 @@ export interface ChatMessage {
 }
 
 export interface ChatResponse {
-  peerConnected: boolean;
+  peerConnected?: boolean;
   peerPubkey: string;
   messages: ChatMessage[];
 }
@@ -32,4 +32,5 @@ export interface DisplayChatMessage extends ChatMessage {
   plaintext: string;
   mine: boolean;
   decryptFailed: boolean;
+  signatureStatus: "verified" | "unverified" | "unknown";
 }

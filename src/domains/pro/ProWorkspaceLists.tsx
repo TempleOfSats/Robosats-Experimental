@@ -25,9 +25,10 @@ import type { RobotSlot } from "@/domains/garage/garageStore";
 import { RobotAvatar } from "@/domains/identity/RobotAvatar";
 import { formatExpiryCountdown, formatExpiryTitle } from "@/domains/orderbook/offerDisplay";
 import { currencyCodeFromId } from "@/domains/orderbook/currencies";
+import { matchedPaymentMethods } from "@/domains/orderbook/paymentMethods";
 import { toProTradePresentation } from "@/domains/pro/proPresentation";
 import { deriveProRobotLifecycle } from "@/domains/pro/proRobotLifecycle";
-import { summarizeProRobots } from "@/domains/pro/proSelectors";
+import { classifyProTrade, summarizeProRobots } from "@/domains/pro/proSelectors";
 import { FleetGlyph } from "@/domains/pro/ProWorkspaceIcons";
 import type { ProTradeLocator, ProTradeSnapshot, SlotSyncState } from "@/domains/pro/pro.types";
 import type { TradeHistoryEntry, TradeHistoryOutcome } from "@/domains/pro/tradeHistory";
@@ -238,11 +239,11 @@ export function RobotList({
         </span>
         <div className="pro-fleet-empty-copy">
           <strong>Your Robot Fleet is ready</strong>
+          <p>A Fleet lets you manage several RoboSats robots and their trades from one Trade Desk.</p>
           <p>
-            Create multiple robots here to manage their offers and active trades in one place. Each has a portable token
-            that works in any RoboSats frontend.
+            Each robot remains a standard RoboSats identity recoverable in any RoboSats app. Your Fleet key restores the
+            complete collection on any device, while maintaining your identities separate from coordinators.
           </p>
-          <p>Your Fleet key restores and synchronizes the same robots and offer presets across your devices.</p>
         </div>
       </div>
     );
@@ -256,6 +257,7 @@ export function RobotList({
         if (!slot) return null;
         const lifecycle = deriveProRobotLifecycle(slot, snapshots, sync);
         const checkingStatus = lifecycle.status === "checking";
+        const tradeIdentifier = fleetTradeIdentifier(summary.slotId, snapshots, lifecycle.status);
         return (
           <article className="pro-robot-row" key={summary.slotId}>
             <div className="pro-robot-identity">
@@ -282,6 +284,15 @@ export function RobotList({
                   ) : (
                     <Badge tone={lifecycle.statusTone}>{lifecycle.statusLabel}</Badge>
                   )}
+                  {tradeIdentifier ? (
+                    <small className="pro-robot-trade-identity" aria-label={tradeIdentifier.label}>
+                      <span className="pro-robot-trade-amount">{tradeIdentifier.amount}</span>
+                      <span aria-hidden="true"> · </span>
+                      <span className="pro-robot-trade-method">{tradeIdentifier.method}</span>
+                      <span aria-hidden="true"> · </span>
+                      <span className="pro-robot-trade-order">#{tradeIdentifier.orderId}</span>
+                    </small>
+                  ) : null}
                   <small className="pro-robot-refresh-meta">
                     <span>
                       {checkingStatus ? "Checking coordinators" : formatLastRefresh(lifecycle.statusTimestamp)}
@@ -351,6 +362,41 @@ export function RobotList({
   );
 }
 
+function fleetTradeIdentifier(
+  slotId: string,
+  snapshots: Record<string, ProTradeSnapshot>,
+  lifecycleStatus: "ongoing" | "needs-attention" | string
+): { label: string; amount: string; method: string; orderId: number } | undefined {
+  if (lifecycleStatus !== "ongoing" && lifecycleStatus !== "needs-attention") return undefined;
+  const snapshot = Object.values(snapshots).find(
+    (candidate) =>
+      candidate.locator.slotId === slotId &&
+      !candidate.released &&
+      !candidate.renewable &&
+      candidate.order &&
+      (classifyProTrade(candidate) === "in-progress" || classifyProTrade(candidate) === "needs-action")
+  );
+  const order = snapshot?.order;
+  const currency = order ? currencyCodeFromId(order.currency) : undefined;
+  if (!snapshot || !order || !currency || order.amount == null || Number.isNaN(order.amount)) return undefined;
+  const currencyFormatter = new Intl.NumberFormat(undefined, {
+    currency,
+    currencyDisplay: "narrowSymbol",
+    style: "currency"
+  });
+  const symbol = currencyFormatter.formatToParts(0).find((part) => part.type === "currency")?.value;
+  if (!symbol) return undefined;
+  const amount = `${symbol}${formatFiat(order.amount)}`;
+  const method = matchedPaymentMethods(order.payment_method)[0]?.name || order.payment_method.trim();
+  if (!method) return undefined;
+  return {
+    amount,
+    label: `${amount} · ${method} · #${snapshot.locator.orderId}`,
+    method,
+    orderId: snapshot.locator.orderId
+  };
+}
+
 export function HistoryList({
   coordinators,
   entries
@@ -382,7 +428,7 @@ export function HistoryList({
           <span>Trade</span>
           <span>Coordinator</span>
           <span>Result</span>
-          <span>Completed</span>
+          <span>Result date</span>
         </div>
         {entries.map((entry) => {
           const coordinator = coordinators.find((item) => item.shortAlias === entry.coordinatorShortAlias);
@@ -437,7 +483,7 @@ export function HistoryList({
         >
           <header className="garage-switcher-header">
             <div>
-              <p className="app-eyebrow">Finished trade</p>
+              <p className="app-eyebrow">{historyDetailTitle(selected.outcome)}</p>
               <h3 data-dialog-initial-focus id="pro-history-detail-title" tabIndex={-1}>
                 Order #{selected.orderId}
               </h3>
@@ -482,7 +528,7 @@ export function HistoryList({
                     ? "Bitcoin bought"
                     : "Bitcoin sent"}
               </dt>
-              <dd>{formatSats(selected.satoshis)}</dd>
+              <dd>{formatHistorySats(selected.satoshis)}</dd>
             </div>
             <div>
               <dt>Role</dt>
@@ -493,7 +539,7 @@ export function HistoryList({
               <dd>{coordinatorName(coordinators, selected.coordinatorShortAlias)}</dd>
             </div>
             <div>
-              <dt>Completed</dt>
+              <dt>{historyCompletionLabel(selected.outcome)}</dt>
               <dd>{new Date(selected.completedAt).toLocaleString()}</dd>
             </div>
           </dl>
@@ -524,8 +570,7 @@ export function HistoryList({
             </section>
           ) : null}
           <p className="pro-history-retention-note">
-            This summary is kept in your encrypted Fleet history. Banking details, peer identity and chat are not
-            stored.
+            This summary is kept in your encrypted Fleet history stored over nostr.
           </p>
         </Dialog>
       ) : null}
@@ -577,6 +622,22 @@ function formatHistoryAmount(entry: TradeHistoryEntry): string {
   if (entry.amount === undefined) return "Amount unavailable";
   const currency = currencyCodeFromId(entry.currency) ?? String(entry.currency);
   return entry.currency === 1000 ? formatSats(entry.amount) : formatFiat(entry.amount, currency);
+}
+
+function formatHistorySats(value: number): string {
+  return value > 0 ? formatSats(value) : "Not recorded";
+}
+
+function historyDetailTitle(outcome: TradeHistoryOutcome): string {
+  if (outcome === "completed") return "Trade completed";
+  if (outcome === "collaboratively-cancelled") return "Trade cancelled";
+  return "Dispute resolved";
+}
+
+function historyCompletionLabel(outcome: TradeHistoryOutcome): string {
+  if (outcome === "completed") return "Trade completed";
+  if (outcome === "collaboratively-cancelled") return "Cancelled";
+  return "Dispute resolved";
 }
 
 function formatHistoryDate(value: number): string {
