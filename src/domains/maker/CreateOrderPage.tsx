@@ -426,9 +426,12 @@ export function CreateOrderPage() {
   return (
     <main className="page page-narrow maker-page">
       {creatingOfferNotice ? (
-        <aside className="maker-create-identity-notice" role="status" aria-live="polite">
+        <aside className="action-notice maker-create-identity-notice" role="status" aria-live="polite">
           <RobotAvatar hashId={creatingOfferNotice.hashId} label={creatingOfferNotice.nickname} size="sm" />
-          <span>Creating offer as <strong>{creatingOfferNotice.nickname}</strong></span>
+          <span className="action-notice-copy">
+            <small>Creating offer as</small>
+            <strong>{creatingOfferNotice.nickname}</strong>
+          </span>
         </aside>
       ) : null}
       <div className="page-heading">

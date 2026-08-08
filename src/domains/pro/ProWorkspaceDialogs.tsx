@@ -1,5 +1,5 @@
-import { AlertTriangle, ChevronRight, PlusCircle, ShieldCheck, Trash2, X } from "lucide-react";
-import { useState } from "react";
+import { AlertTriangle, Check, ChevronRight, PlusCircle, ShieldCheck, Trash2, X } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
@@ -168,18 +168,36 @@ function canOfferFreshRobot(
   return Boolean(onAddRobot && !fleetFull && freshRobotCount === 0 && reusedRobotCount > 0);
 }
 
-export function RobotAddedNotice({
+export function ProActionNotice({
+  detail,
+  noticeKey,
   onClose,
-  robot
+  robot,
+  title
 }: {
+  detail: string;
+  noticeKey: number;
   onClose: () => void;
-  robot: { hashId: string; nickname: string };
+  robot?: { hashId: string; nickname: string };
+  title: string;
 }) {
+  useEffect(() => {
+    const timeout = window.setTimeout(onClose, 3_600);
+    return () => window.clearTimeout(timeout);
+  }, [noticeKey, onClose]);
+
   return (
-    <aside className="pro-robot-added-notice" role="status" aria-live="polite">
-      <RobotAvatar hashId={robot.hashId} label={robot.nickname} size="sm" />
-      <strong>{robot.nickname} has been added!</strong>
-      <button className="icon-button" onClick={onClose} type="button" aria-label="Dismiss robot added message">
+    <aside className="action-notice pro-action-notice">
+      {robot ? (
+        <RobotAvatar hashId={robot.hashId} label={robot.nickname} size="sm" />
+      ) : (
+        <span className="pro-action-notice-icon" aria-hidden="true"><Check size={17} strokeWidth={2.5} /></span>
+      )}
+      <span className="action-notice-copy" role="status" aria-atomic="true" aria-live="polite">
+        <strong>{title}</strong>
+        <small>{detail}</small>
+      </span>
+      <button className="icon-button pro-action-notice-close" onClick={onClose} type="button" aria-label="Dismiss confirmation">
         <X size={16} />
       </button>
     </aside>

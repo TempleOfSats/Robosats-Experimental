@@ -3,7 +3,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CreateOfferRobotPicker } from "@/domains/pro/ProWorkspaceDialogs";
+import { CreateOfferRobotPicker, ProActionNotice } from "@/domains/pro/ProWorkspaceDialogs";
 import type { OfferReadyRobots } from "@/domains/pro/proRobotLifecycle";
 import { shouldAutoSelectReadyRobot } from "@/domains/pro/ProTakeRobotPicker";
 
@@ -22,6 +22,7 @@ beforeEach(() => {
 afterEach(async () => {
   if (root) await act(async () => root?.unmount());
   root = undefined;
+  vi.useRealTimers();
   document.body.innerHTML = "";
 });
 
@@ -75,6 +76,29 @@ describe("take-offer robot selection", () => {
   it("auto-selects one unused robot but asks before reusing one", () => {
     expect(shouldAutoSelectReadyRobot([robot("fresh-slot", "Fresh Robot", false)])).toBe(true);
     expect(shouldAutoSelectReadyRobot([robot("used-slot", "Used Robot", true)])).toBe(false);
+  });
+});
+
+describe("ProActionNotice", () => {
+  it("announces contextual confirmation and dismisses automatically", async () => {
+    vi.useFakeTimers();
+    const onClose = vi.fn();
+    await act(async () => {
+      root?.render(
+        <ProActionNotice detail="#92452 · LaughingPottery870" noticeKey={1} onClose={onClose} title="Offer paused" />
+      );
+    });
+
+    const notice = document.querySelector<HTMLElement>('[role="status"]');
+    expect(notice?.getAttribute("aria-live")).toBe("polite");
+    expect(notice?.getAttribute("aria-atomic")).toBe("true");
+    expect(notice?.textContent).toContain("Offer paused");
+    expect(notice?.textContent).toContain("#92452 · LaughingPottery870");
+
+    await act(async () => vi.advanceTimersByTime(3_599));
+    expect(onClose).not.toHaveBeenCalled();
+    await act(async () => vi.advanceTimersByTime(1));
+    expect(onClose).toHaveBeenCalledOnce();
   });
 });
 

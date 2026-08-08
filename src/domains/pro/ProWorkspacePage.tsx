@@ -14,7 +14,7 @@ import {
   Store,
   X
 } from "lucide-react";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { AppTransitionDialog, AppTransitionFeedback } from "@/domains/navigation/AppTransitionFeedback";
 import { Button } from "@/components/ui/button";
@@ -63,7 +63,7 @@ import {
   ConfirmCancelOffer,
   ConfirmDeleteRobot,
   CreateOfferRobotPicker,
-  RobotAddedNotice,
+  ProActionNotice,
   TelegramCoordinatorPicker
 } from "@/domains/pro/ProWorkspaceDialogs";
 import { AddRobotGlyph, FleetGlyph } from "@/domains/pro/ProWorkspaceIcons";
@@ -79,6 +79,13 @@ import { shouldRefreshRobotStatus } from "@/domains/pro/reconcilePolicy";
 import "@/domains/pro/proWorkspace.css";
 
 const MANUAL_REFRESH_FOREGROUND_MS = 8_000;
+
+type WorkspaceActionNotice = {
+  id: number;
+  title: string;
+  detail: string;
+  robot?: { slotId: string; hashId: string; nickname: string };
+};
 
 const LazyBeginnerTradeWizard = lazy(() =>
   import("@/domains/orderbook/BeginnerTradeWizard").then((module) => ({ default: module.BeginnerTradeWizard }))
@@ -160,7 +167,8 @@ export function ProWorkspacePage() {
   const [presetsOpen, setPresetsOpen] = useState(() => Boolean(routeState?.openPresets));
   const [abandonFleetOpen, setAbandonFleetOpen] = useState(false);
   const [abandoningFleet, setAbandoningFleet] = useState(false);
-  const [addedRobot, setAddedRobot] = useState<{ slotId: string; hashId: string; nickname: string }>();
+  const [actionNotice, setActionNotice] = useState<WorkspaceActionNotice>();
+  const actionNoticeSequence = useRef(0);
   const [createPickerOpen, setCreatePickerOpen] = useState(() => Boolean(routeState?.openCreate));
   const [pendingCreatePrefill, setPendingCreatePrefill] = useState(routeState?.prefillDraft);
   const [pendingPresetId, setPendingPresetId] = useState<string>();
@@ -218,16 +226,11 @@ export function ProWorkspacePage() {
   const settingsRobot =
     settingsCoordinator && settingsSlot ? settingsSlot.robots[settingsCoordinator.shortAlias] : undefined;
 
-  useEffect(() => {
-    if (!addedRobot) return;
-    const timeout = window.setTimeout(() => setAddedRobot(undefined), 5000);
-    return () => window.clearTimeout(timeout);
-  }, [addedRobot]);
-
   const closeTrade = useCallback(() => {
     setSelectedTrade(undefined);
     void garageReconciler.reconcileAll("order-action");
   }, []);
+  const dismissActionNotice = useCallback(() => setActionNotice(undefined), []);
 
   if (!enabled) return <Navigate to="/garage" replace />;
   if (vaultStatus === "idle" || vaultStatus === "loading" || !hydrated) {
@@ -421,7 +424,12 @@ export function ProWorkspacePage() {
           }
         }
       });
-      setAddedRobot({ slotId: identity.tokenSHA256, hashId: identity.hashId, nickname: fallbackName });
+      setActionNotice({
+        id: ++actionNoticeSequence.current,
+        title: "Robot added",
+        detail: fallbackName,
+        robot: { slotId: identity.tokenSHA256, hashId: identity.hashId, nickname: fallbackName }
+      });
       setAnnouncement("New robot added.");
 
       void import("@/domains/identity/roboidentitiesClient")
@@ -430,7 +438,9 @@ export function ProWorkspacePage() {
           const nickname = generateRoboname(identity.hashId);
           updateSlotIdentityDetails(token, { nickname });
           void renameVaultRobot(token, nickname);
-          setAddedRobot((current) => (current?.slotId === identity.tokenSHA256 ? { ...current, nickname } : current));
+          setActionNotice((current) => current?.robot?.slotId === identity.tokenSHA256
+            ? { ...current, detail: nickname, robot: { ...current.robot, nickname } }
+            : current);
         })
         .catch(() => undefined);
       window.setTimeout(() => {
@@ -541,6 +551,11 @@ export function ProWorkspacePage() {
       });
       const result = action === "pause" ? "paused" : action === "resume" ? "resumed" : "cancelled";
       setAnnouncement(`Order ${snapshot.locator.orderId} ${result}.`);
+      setActionNotice({
+        id: ++actionNoticeSequence.current,
+        title: `Offer ${result}`,
+        detail: `#${snapshot.locator.orderId} · ${slot.nickname}`
+      });
     } catch (error) {
       if (action === "cancel" && isAlreadyCancelledError(error)) {
         if (snapshot.order) {
@@ -553,6 +568,11 @@ export function ProWorkspacePage() {
           removeTrade(snapshot.locator);
         }
         setAnnouncement(`Order ${snapshot.locator.orderId} was already cancelled.`);
+        setActionNotice({
+          id: ++actionNoticeSequence.current,
+          title: "Offer already cancelled",
+          detail: `#${snapshot.locator.orderId} · ${slot.nickname}`
+        });
         return;
       }
       setAnnouncement(`Could not ${action} order ${snapshot.locator.orderId}. Try again.`);
@@ -1047,7 +1067,15 @@ export function ProWorkspacePage() {
         </Dialog>
       ) : null}
 
-      {addedRobot ? <RobotAddedNotice robot={addedRobot} onClose={() => setAddedRobot(undefined)} /> : null}
+      {actionNotice ? (
+        <ProActionNotice
+          detail={actionNotice.detail}
+          noticeKey={actionNotice.id}
+          onClose={dismissActionNotice}
+          robot={actionNotice.robot}
+          title={actionNotice.title}
+        />
+      ) : null}
     </main>
   );
 }
