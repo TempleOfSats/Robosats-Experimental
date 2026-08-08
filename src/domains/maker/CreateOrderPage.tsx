@@ -1,6 +1,5 @@
 import {
   AlertCircle,
-  AlertTriangle,
   ArrowLeft,
   ArrowRight,
   Bookmark,
@@ -33,7 +32,7 @@ import { coordinatorNeedsRefresh, selectCoordinatorAvailability } from "@/domain
 import { federationLottery } from "@/domains/coordinators/federationLottery";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
 import { toUserMessage } from "@/lib/userError";
-import { getRobotAuthForCoordinator, selectCurrentSlot, selectStandardGarageSlots, useGarageStore, type RobotSlot } from "@/domains/garage/garageStore";
+import { getRobotAuthForCoordinator, selectCurrentSlot, selectStandardGarageSlots, useGarageStore } from "@/domains/garage/garageStore";
 import { getRobotOrderAvailability } from "@/domains/garage/robotAvailability";
 import { RobotAvatar } from "@/domains/identity/RobotAvatar";
 import {
@@ -485,8 +484,6 @@ export function CreateOrderPage() {
                   </Link>
                 </div>
               ) : null}
-              <RobotReuseNote hidden={presetEditor} slot={activeSlot} />
-
               {currentStep === 0 ? (
                 <>
                   {presetEditor ? (
@@ -569,28 +566,6 @@ export function CreateOrderPage() {
       </section>
     </main>
   );
-}
-
-function RobotReuseNote({
-  hidden,
-  slot
-}: {
-  hidden: boolean;
-  slot?: RobotSlot;
-}) {
-  if (hidden || !slot || !hasPreviousOrder(slot)) return null;
-  return (
-    <div className="token-reuse-note" role="note">
-      <AlertTriangle size={16} aria-hidden="true" />
-      <span>
-        This robot identity was used for an earlier order. You can continue, or choose a fresh robot for stronger privacy separation.
-      </span>
-    </div>
-  );
-}
-
-function hasPreviousOrder(slot: RobotSlot): boolean {
-  return Boolean(slot.lastOrderId || Object.values(slot.robots).some((robot) => robot.lastOrderId));
 }
 
 function OfferPresetPanel({

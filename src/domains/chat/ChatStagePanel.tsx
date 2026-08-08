@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { sha256 } from "js-sha256";
 import { ChevronDown, Download, MessageSquare, Send } from "lucide-react";
 import {
@@ -30,6 +30,8 @@ import {
   visiblePreChatMessages
 } from "@/domains/chat/preChat";
 import { downloadTextFile } from "@/domains/transport/downloadFile";
+
+type ChatHistoryStatus = "idle" | "loading" | "ready" | "unavailable" | "error";
 
 export function ChatStagePanel({
   auth,
@@ -71,11 +73,10 @@ export function ChatStagePanel({
   const [peerPubkey, setPeerPubkey] = useState("");
   const [sending, setSending] = useState(false);
   const [socketConnected, setSocketConnected] = useState(previewMode);
-  const [historyStatus, setHistoryStatus] = useState<"idle" | "loading" | "ready" | "error">(
-    previewMode ? "ready" : "idle"
-  );
+  const [historyStatus, setHistoryStatus] = useState<ChatHistoryStatus>(previewMode ? "ready" : "idle");
   const [messageAnnouncement, setMessageAnnouncement] = useState("");
   const [connectionEpoch, setConnectionEpoch] = useState(0);
+  const [visibleCount, setVisibleCount] = useState(VISIBLE_MESSAGE_WINDOW);
   const socketRef = useRef<WebSocket | undefined>(undefined);
   const knownMessageIndexesRef = useRef(new Set(messages.map((message) => message.index)));
   const historyReadyRef = useRef(previewMode);
@@ -83,13 +84,28 @@ export function ChatStagePanel({
   const peerPubkeyRef = useRef("");
   const presenceRevisionRef = useRef(0);
   const latestPresenceRequestRef = useRef(0);
+  const initialHistoryLoadRef = useRef<Promise<ChatResponse | undefined> | undefined>(undefined);
+  const historyExpansionAnchorRef = useRef<{ scrollHeight: number; scrollTop: number } | undefined>(undefined);
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const errorId = useId();
 
   const isPreChat = variant === "pre-chat";
   const canonicalMyNick = ownCoordinatorNick?.trim() || myNick;
-  const canLoad = previewMode || Boolean(baseUrl && auth && robot?.encPrivKey && robot.pubKey && slotToken && orderId);
+  const stableAuth = useMemo<Auth | undefined>(
+    () => copyAuth(auth),
+    [auth?.keys?.encPrivKey, auth?.keys?.pubKey, auth?.nostrPubkey, auth?.tokenSHA256]
+  );
+  const robotPrivateKey = robot?.encPrivKey;
+  const robotPublicKey = robot?.pubKey;
+  const canLoad =
+    previewMode || hasLiveChatCredentials(baseUrl, stableAuth, robotPrivateKey, robotPublicKey, slotToken, orderId);
   const lastIndex = useMemo(() => messages.reduce((max, message) => Math.max(max, message.index), 0), [messages]);
+  const lastIndexRef = useRef(lastIndex);
+  lastIndexRef.current = lastIndex;
+  const visibleMessages = useMemo(
+    () => messages.slice(-Math.min(visibleCount, messages.length)),
+    [messages, visibleCount]
+  );
   const preChatMessageSent = isPreChat && hasSentPreChatMessage(messages);
   const hasLivePresence = peerConnected === true || peerConnected === false;
 
@@ -120,48 +136,97 @@ export function ChatStagePanel({
     if (element) element.scrollTop = element.scrollHeight;
   }, [messages.length]);
 
-  async function loadMessages(
-    offset = lastIndex,
-    reportError = true,
-    options: ApiRequestOptions = {}
-  ): Promise<ChatResponse | undefined> {
-    if (!baseUrl || !auth || !canLoad) return undefined;
-    const presenceRequest = latestPresenceRequestRef.current + 1;
-    latestPresenceRequestRef.current = presenceRequest;
-    const presenceRevision = presenceRevisionRef.current;
-    const loadingHistory = offset === 0 && !historyReadyRef.current;
-    if (loadingHistory) setHistoryStatus("loading");
-    if (reportError) {
-      loadErrorRef.current = "";
-      setError("");
-    }
-    try {
-      const response = await fetchChatMessages(baseUrl, orderId, offset, auth, undefined, options);
-      applyPresenceObservation(
-        response.peerConnected,
-        presenceRequest === latestPresenceRequestRef.current && presenceRevision === presenceRevisionRef.current,
-        presenceRevisionRef,
-        setPeerConnected
-      );
-      await applyChatResponse(response, historyReadyRef.current);
-      historyReadyRef.current = true;
-      if (loadingHistory) setHistoryStatus("ready");
-      const recoveredError = loadErrorRef.current;
-      if (recoveredError) {
-        loadErrorRef.current = "";
-        setError((current) => (current === recoveredError ? "" : current));
+  useEffect(() => {
+    setVisibleCount(VISIBLE_MESSAGE_WINDOW);
+  }, [orderId]);
+
+  useLayoutEffect(() => {
+    const anchor = historyExpansionAnchorRef.current;
+    const element = messagesRef.current;
+    if (!anchor || !element) return;
+    element.scrollTop = restoredExpandedScrollTop(anchor.scrollTop, anchor.scrollHeight, element.scrollHeight);
+    historyExpansionAnchorRef.current = undefined;
+  }, [visibleCount]);
+
+  const handleScroll = useMemo(
+    () => makeScrollHandler(messagesRef, historyExpansionAnchorRef, messages.length, visibleCount, setVisibleCount),
+    [messages.length, visibleCount]
+  );
+  const hasUsablePeerKey = useCallback(() => Boolean(peerPubkeyRef.current), []);
+
+  const loadMessages = useCallback(
+    async function loadMessages(
+      offset = lastIndexRef.current,
+      reportError = true,
+      options: ApiRequestOptions = {}
+    ): Promise<ChatResponse | undefined> {
+      if (!baseUrl || !stableAuth || !canLoad) return undefined;
+      if (offset === 0 && initialHistoryLoadRef.current) return initialHistoryLoadRef.current;
+
+      const operation = (async () => {
+        const presenceRequest = latestPresenceRequestRef.current + 1;
+        latestPresenceRequestRef.current = presenceRequest;
+        const presenceRevision = presenceRevisionRef.current;
+        const loadingHistory = offset === 0 && !historyReadyRef.current;
+        if (loadingHistory) setHistoryStatus("loading");
+        if (reportError) {
+          loadErrorRef.current = "";
+          setError("");
+        }
+        try {
+          const response = await fetchChatMessages(baseUrl, orderId, offset, stableAuth, undefined, options);
+          applyPresenceObservation(
+            response.peerConnected,
+            presenceRequest === latestPresenceRequestRef.current && presenceRevision === presenceRevisionRef.current,
+            presenceRevisionRef,
+            setPeerConnected
+          );
+          await applyChatResponse(response, historyReadyRef.current);
+          historyReadyRef.current = true;
+          if (loadingHistory) setHistoryStatus("ready");
+          const recoveredError = loadErrorRef.current;
+          if (recoveredError) {
+            loadErrorRef.current = "";
+            setError((current) => (current === recoveredError ? "" : current));
+          }
+          return response;
+        } catch (loadError) {
+          if (loadingHistory) setHistoryStatus("error");
+          if (reportError) {
+            const message = toUserMessage(
+              loadError,
+              isPreChat ? "Could not load early messaging." : "Could not load chat."
+            );
+            loadErrorRef.current = message;
+            setError(message);
+          }
+          return undefined;
+        }
+      })();
+
+      if (offset !== 0) return operation;
+      initialHistoryLoadRef.current = operation;
+      try {
+        return await operation;
+      } finally {
+        if (initialHistoryLoadRef.current === operation) initialHistoryLoadRef.current = undefined;
       }
-      return response;
-    } catch (loadError) {
-      if (loadingHistory) setHistoryStatus("error");
-      if (reportError) {
-        const message = toUserMessage(loadError, "Could not load chat.");
-        loadErrorRef.current = message;
-        setError(message);
-      }
-      return undefined;
-    }
-  }
+    },
+    [
+      baseUrl,
+      canLoad,
+      canonicalMyNick,
+      isPreChat,
+      myHashId,
+      orderId,
+      peerNick,
+      robotPrivateKey,
+      robotPublicKey,
+      shortAlias,
+      slotToken,
+      stableAuth
+    ]
+  );
 
   async function sendMessage() {
     setError("");
@@ -188,7 +253,7 @@ export function ChatStagePanel({
       setDraft("");
       return;
     }
-    if (!baseUrl || !auth || !robot?.encPrivKey || !robot.pubKey || !slotToken) {
+    if (!baseUrl || !stableAuth || !robotPrivateKey || !robotPublicKey || !slotToken) {
       setError("Load this live order with your robot before sending chat messages.");
       return;
     }
@@ -209,7 +274,7 @@ export function ChatStagePanel({
         ? text
         : await encryptChatMessage({
             message: text,
-            ownPrivateKeyArmored: robot.encPrivKey,
+            ownPrivateKeyArmored: robotPrivateKey,
             passphrase: slotToken,
             peerPublicKeyArmored: currentPeerPubkey
           });
@@ -219,7 +284,7 @@ export function ChatStagePanel({
           JSON.stringify({ type: "message", message: escapeChatPayload(outgoingMessage), nick: canonicalMyNick })
         );
       } else {
-        const response = await postChatMessage(baseUrl, orderId, outgoingMessage, lastIndex, auth);
+        const response = await postChatMessage(baseUrl, orderId, outgoingMessage, lastIndex, stableAuth);
         applyPresenceObservation(response.peerConnected, true, presenceRevisionRef, setPeerConnected);
         await applyChatResponse(response);
       }
@@ -243,19 +308,19 @@ export function ChatStagePanel({
   }
 
   async function applyChatResponse(response: ChatResponse, notifyNewMessages = historyReadyRef.current) {
-    const responsePeerPubkey = usablePeerPublicKey(response.peerPubkey, robot?.pubKey ?? "");
+    const responsePeerPubkey = usablePeerPublicKey(response.peerPubkey, robotPublicKey ?? "");
     if (responsePeerPubkey) {
       peerPubkeyRef.current = responsePeerPubkey;
       setPeerPubkey(responsePeerPubkey);
     }
-    if (!robot?.encPrivKey || !robot.pubKey || !slotToken) return;
+    if (!robotPrivateKey || !robotPublicKey || !slotToken) return;
 
     const decryptedMessages = await Promise.all(
       response.messages.map((message) =>
         decryptDisplayMessage(message, {
           ownCoordinatorNick: canonicalMyNick,
-          ownPrivateKeyArmored: robot.encPrivKey ?? "",
-          ownPublicKeyArmored: robot.pubKey ?? "",
+          ownPrivateKeyArmored: robotPrivateKey,
+          ownPublicKeyArmored: robotPublicKey,
           passphrase: slotToken,
           peerPublicKeyArmored: responsePeerPubkey || peerPubkeyRef.current,
           senderOnlyResponse: isPreChat
@@ -286,32 +351,19 @@ export function ChatStagePanel({
   useEffect(() => {
     if (!canLoad || previewMode || isPreChat) return;
     void loadMessages(0, true, { timeoutProfile: "interactive", priority: "foreground" });
-  }, [canLoad, connectionEpoch, isPreChat, orderId, previewMode]);
+  }, [canLoad, connectionEpoch, isPreChat, loadMessages, orderId, previewMode]);
 
-  useEffect(() => {
-    if (!canLoad || previewMode || !isPreChat) return;
-    let disposed = false;
-    let retryTimer: number | undefined;
-
-    const reconcilePreChat = async (attempt: number) => {
-      const response = await loadMessages(
-        0,
-        attempt === 0,
-        attempt === 0
-          ? { timeoutProfile: "interactive", priority: "foreground" }
-          : { timeoutProfile: "background", priority: "visible" }
-      );
-      if (disposed || response?.peerPubkey) return;
-      const delay = Math.min(12_000, 1_500 * 2 ** Math.min(attempt, 3));
-      retryTimer = window.setTimeout(() => void reconcilePreChat(attempt + 1), delay);
-    };
-
-    void reconcilePreChat(0);
-    return () => {
-      disposed = true;
-      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
-    };
-  }, [canLoad, connectionEpoch, isPreChat, orderId, previewMode]);
+  usePreChatReconciliation({
+    canLoad,
+    previewMode,
+    isPreChat,
+    connectionEpoch,
+    orderId,
+    loadMessages,
+    hasUsablePeerKey,
+    setError,
+    setHistoryStatus
+  });
 
   useEffect(() => {
     if (isPreChat || !canLoad || previewMode) return;
@@ -322,7 +374,7 @@ export function ChatStagePanel({
       if (document.hidden && isNativeApp()) return;
       timer = window.setTimeout(
         async () => {
-          await loadMessages(lastIndex, false);
+          await loadMessages(lastIndexRef.current, false);
           schedule();
         },
         chatPollDelayMs(socketConnected, document.hidden)
@@ -333,10 +385,10 @@ export function ChatStagePanel({
       disposed = true;
       if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [canLoad, isPreChat, lastIndex, orderId, previewMode, socketConnected]);
+  }, [canLoad, isPreChat, loadMessages, orderId, previewMode, socketConnected]);
 
   useEffect(() => {
-    if (variant === "pre-chat" || !canLoad || previewMode || !baseUrl || !robot?.pubKey || !slotToken) return;
+    if (variant === "pre-chat" || !canLoad || previewMode || !baseUrl || !robotPublicKey || !slotToken) return;
 
     let disposed = false;
     let reconnectTimer: number | undefined;
@@ -351,8 +403,12 @@ export function ChatStagePanel({
         if (socketRef.current !== socket) return;
         attempts = 0;
         setSocketConnected(true);
-        socket.send(JSON.stringify({ type: "message", message: robot.pubKey, nick: canonicalMyNick }));
-        void loadMessages(lastIndex, false);
+        socket.send(JSON.stringify({ type: "message", message: robotPublicKey, nick: canonicalMyNick }));
+        if (!historyReadyRef.current) {
+          void loadMessages(0, false);
+        } else if (lastIndexRef.current > 0) {
+          void loadMessages(lastIndexRef.current, false);
+        }
       };
       socket.onmessage = (event) => {
         if (socketRef.current !== socket) return;
@@ -382,7 +438,7 @@ export function ChatStagePanel({
         if (!message.encryptedMessage) return;
 
         if (message.encryptedMessage.startsWith("-----BEGIN PGP PUBLIC KEY BLOCK-----")) {
-          const socketPeerPubkey = usablePeerPublicKey(message.encryptedMessage, robot.pubKey ?? "");
+          const socketPeerPubkey = usablePeerPublicKey(message.encryptedMessage, robotPublicKey);
           if (socketPeerPubkey) {
             peerPubkeyRef.current = socketPeerPubkey;
             setPeerPubkey(socketPeerPubkey);
@@ -415,7 +471,18 @@ export function ChatStagePanel({
       socketRef.current?.close();
       socketRef.current = undefined;
     };
-  }, [baseUrl, canLoad, canonicalMyNick, connectionEpoch, orderId, previewMode, robot?.pubKey, slotToken, variant]);
+  }, [
+    baseUrl,
+    canLoad,
+    canonicalMyNick,
+    connectionEpoch,
+    loadMessages,
+    orderId,
+    previewMode,
+    robotPublicKey,
+    slotToken,
+    variant
+  ]);
 
   return (
     <Card className="chat-panel">
@@ -465,8 +532,14 @@ export function ChatStagePanel({
             <span aria-live="polite" className="sr-only" role="status">
               {messageAnnouncement}
             </span>
-            <div aria-label="Trade chat history" className="chat-messages" ref={messagesRef} role="log">
-              {messages.length === 0 && historyStatus === "loading" ? (
+            <div
+              aria-label="Trade chat history"
+              className="chat-messages"
+              onScroll={handleScroll}
+              ref={messagesRef}
+              role="log"
+            >
+              {shouldShowChatLoading(messages.length, historyStatus, isPreChat) ? (
                 <div className="chat-loading" role="status">
                   <span className="ui-spinner" aria-hidden="true" />
                   <span>{isPreChat ? "Loading early message..." : "Loading chat..."}</span>
@@ -475,7 +548,7 @@ export function ChatStagePanel({
               {messages.length === 0 && historyStatus === "ready" ? (
                 <p className="chat-empty">{isPreChat ? "No early message sent." : "No chat messages yet."}</p>
               ) : null}
-              {messages.map((message) => (
+              {visibleMessages.map((message) => (
                 <MessageBubble
                   key={message.index}
                   message={message}
@@ -537,12 +610,9 @@ export function ChatStagePanel({
               <p className="pre-chat-saved" role="status">
                 Message saved. Your peer will see it when trade chat opens.
               </p>
-            ) : isPreChat && !peerPubkey ? (
-              <p className="pre-chat-key-status" role="status">
-                <span className="ui-spinner" aria-hidden="true" />
-                Preparing encrypted messaging...
-              </p>
-            ) : null}
+            ) : (
+              renderPreChatStatus(isPreChat, peerPubkey, historyStatus, messages.length)
+            )}
             {error ? (
               <p className="field-error" id={errorId} role="alert">
                 {error}
@@ -565,7 +635,7 @@ export function ChatStagePanel({
       });
       return;
     }
-    if (!robot?.encPrivKey || !robot.pubKey || !slotToken) return;
+    if (!robotPrivateKey || !robotPublicKey || !slotToken) return;
     if (
       !window.confirm(
         "This chat log file contains the private chat key and robot passphrase. Store it securely and share it only with the dispute coordinator."
@@ -577,9 +647,9 @@ export function ChatStagePanel({
       order_id: orderId,
       exported_at: new Date().toISOString(),
       credentials: {
-        own_public_key: robot.pubKey,
+        own_public_key: robotPublicKey,
         peer_public_key: peerPubkey,
-        encrypted_private_key: robot.encPrivKey,
+        encrypted_private_key: robotPrivateKey,
         passphrase: slotToken
       },
       messages: messages.map(({ index, time, encryptedMessage, nick }) => ({
@@ -611,6 +681,151 @@ export function PreChatDisclosure(props: Omit<Parameters<typeof ChatStagePanel>[
       <ChatStagePanel key={`${props.orderId}:${props.peerHashId || props.peerNick}`} {...props} variant="pre-chat" />
     </details>
   );
+}
+
+const PRE_CHAT_MAX_ATTEMPTS = 3;
+
+const VISIBLE_MESSAGE_WINDOW = 50;
+
+function makeScrollHandler(
+  ref: React.RefObject<HTMLDivElement | null>,
+  anchorRef: React.MutableRefObject<{ scrollHeight: number; scrollTop: number } | undefined>,
+  maxMessages: number,
+  visibleCount: number,
+  expand: (fn: (current: number) => number) => void
+): () => void {
+  return () => {
+    const element = ref.current;
+    if (!element || anchorRef.current || visibleCount >= maxMessages || element.scrollTop >= element.clientHeight * 2)
+      return;
+    anchorRef.current = { scrollHeight: element.scrollHeight, scrollTop: element.scrollTop };
+    expand((current) => Math.min(current + VISIBLE_MESSAGE_WINDOW, maxMessages));
+  };
+}
+
+export function restoredExpandedScrollTop(previousTop: number, previousHeight: number, nextHeight: number): number {
+  return previousTop + Math.max(0, nextHeight - previousHeight);
+}
+
+function preChatRetryDelay(attempt: number): number {
+  return Math.min(12_000, 1_500 * 2 ** Math.min(attempt, 3));
+}
+
+interface PreChatReconciliationParams {
+  canLoad: boolean;
+  previewMode: boolean;
+  isPreChat: boolean;
+  connectionEpoch: number;
+  orderId: number;
+  loadMessages: (
+    offset: number,
+    reportError: boolean,
+    options?: ApiRequestOptions
+  ) => Promise<ChatResponse | undefined>;
+  hasUsablePeerKey: () => boolean;
+  setError: (message: string) => void;
+  setHistoryStatus: (status: ChatHistoryStatus) => void;
+}
+
+function usePreChatReconciliation({
+  canLoad,
+  previewMode,
+  isPreChat,
+  connectionEpoch,
+  orderId,
+  loadMessages,
+  hasUsablePeerKey,
+  setError,
+  setHistoryStatus
+}: PreChatReconciliationParams): void {
+  useEffect(() => {
+    if (!canLoad || previewMode || !isPreChat || hasUsablePeerKey()) return;
+    let disposed = false;
+    let retryTimer: number | undefined;
+
+    const reconcile = async (attempt: number) => {
+      const finalAttempt = attempt + 1 >= PRE_CHAT_MAX_ATTEMPTS;
+      const response = await loadMessages(
+        0,
+        finalAttempt,
+        attempt === 0
+          ? { timeoutProfile: "interactive", priority: "foreground" }
+          : { timeoutProfile: "background", priority: "visible" }
+      );
+      if (disposed || hasUsablePeerKey()) return;
+      if (finalAttempt) {
+        setHistoryStatus(response ? "unavailable" : "error");
+        return;
+      }
+      setHistoryStatus("loading");
+      retryTimer = window.setTimeout(() => void reconcile(attempt + 1), preChatRetryDelay(attempt));
+    };
+
+    setError("");
+    setHistoryStatus("loading");
+    void reconcile(0);
+    return () => {
+      disposed = true;
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+    };
+  }, [
+    canLoad,
+    connectionEpoch,
+    hasUsablePeerKey,
+    isPreChat,
+    loadMessages,
+    orderId,
+    previewMode,
+    setError,
+    setHistoryStatus
+  ]);
+}
+
+function renderPreChatStatus(
+  isPreChat: boolean,
+  peerPubkey: string | undefined,
+  historyStatus: string,
+  messageCount: number
+): ReactNode {
+  if (!isPreChat || peerPubkey) return null;
+  if (historyStatus === "error") return null;
+  if ((historyStatus === "ready" || historyStatus === "unavailable") && messageCount === 0) {
+    return (
+      <p className="muted-copy" role="status">
+        Encrypted messaging will be available when the trade chat opens.
+      </p>
+    );
+  }
+  return (
+    <p className="pre-chat-key-status" role="status">
+      <span className="ui-spinner" aria-hidden="true" />
+      Preparing encrypted messaging...
+    </p>
+  );
+}
+
+function copyAuth(auth?: Auth): Auth | undefined {
+  if (!auth) return undefined;
+  return {
+    tokenSHA256: auth.tokenSHA256,
+    nostrPubkey: auth.nostrPubkey,
+    keys: auth.keys ? { pubKey: auth.keys.pubKey, encPrivKey: auth.keys.encPrivKey } : undefined
+  };
+}
+
+function hasLiveChatCredentials(
+  baseUrl: string | undefined,
+  auth: Auth | undefined,
+  privateKey: string | undefined,
+  publicKey: string | undefined,
+  slotToken: string | undefined,
+  orderId: number
+): boolean {
+  return Boolean(baseUrl && auth && privateKey && publicKey && slotToken && orderId);
+}
+
+function shouldShowChatLoading(messageCount: number, status: ChatHistoryStatus, isPreChat: boolean): boolean {
+  return messageCount === 0 && status === "loading" && !isPreChat;
 }
 
 function previewChatMessages(myNick: string, peerNick: string): DisplayChatMessage[] {
@@ -651,7 +866,7 @@ function buildChatSocketUrl(baseUrl: string, orderId: number, token: string): st
   return url.toString();
 }
 
-function MessageBubble({
+const MessageBubble = memo(function MessageBubble({
   message,
   myHashId,
   myNick,
@@ -691,7 +906,7 @@ function MessageBubble({
       </div>
     </article>
   );
-}
+});
 
 async function decryptDisplayMessage(
   message: ChatMessage,
@@ -757,14 +972,16 @@ export function mergeMessages(current: DisplayChatMessage[], incoming: DisplayCh
   return [...byIndex.values()].sort((a, b) => a.index - b.index);
 }
 
+const chatTimeFormatter = new Intl.DateTimeFormat(undefined, {
+  hour: "2-digit",
+  minute: "2-digit"
+});
+
 function formatChatTime(value: string): string {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat(undefined, {
-    hour: "2-digit",
-    minute: "2-digit"
-  }).format(date);
+  return chatTimeFormatter.format(date);
 }
 
 function presenceLabel(peerConnected: boolean | undefined) {

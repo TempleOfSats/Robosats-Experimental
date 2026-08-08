@@ -1,4 +1,4 @@
-import { AlertTriangle, ChevronRight, Trash2, X } from "lucide-react";
+import { AlertTriangle, ChevronRight, PlusCircle, ShieldCheck, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -25,7 +25,7 @@ export function CreateOfferRobotPicker({
   addingRobot?: boolean;
   emptyMessage?: string;
   fleetFull?: boolean;
-  onAddRobot?: () => void;
+  onAddRobot?: () => Promise<string | undefined>;
   onClose: () => void;
   onSelect: (slotId: string) => void;
   optionStatus?: string;
@@ -33,6 +33,25 @@ export function CreateOfferRobotPicker({
   subtitle?: string;
   title?: string;
 }) {
+  const [pendingReuse, setPendingReuse] = useState<OfferReadyRobots[number]>();
+  const [creatingFresh, setCreatingFresh] = useState(false);
+  const freshRobots = robots.filter((robot) => !robot.previouslyUsed);
+  const reusedRobots = robots.filter((robot) => robot.previouslyUsed);
+  const canCreateFresh = canOfferFreshRobot(onAddRobot, fleetFull, freshRobots.length, reusedRobots.length);
+  const orderedRobots = [...freshRobots, ...reusedRobots];
+  const freshRobotBusy = addingRobot || creatingFresh;
+
+  async function createFreshRobot() {
+    if (!onAddRobot || freshRobotBusy) return;
+    setCreatingFresh(true);
+    try {
+      const slotId = await onAddRobot();
+      if (slotId) onSelect(slotId);
+    } finally {
+      setCreatingFresh(false);
+    }
+  }
+
   return (
     <Dialog
       ariaLabelledby="pro-create-robot-title"
@@ -49,21 +68,64 @@ export function CreateOfferRobotPicker({
             <X size={18} />
           </button>
         </header>
-        {robots.length > 0 ? (
+        {pendingReuse ? (
+          <div className="pro-reuse-confirmation">
+            <div className="pro-reuse-robot">
+              <RobotAvatar hashId={pendingReuse.hashId} label={pendingReuse.nickname} size="md" />
+              <span>
+                <small>Reuse robot</small>
+                <strong>{pendingReuse.nickname}</strong>
+              </span>
+            </div>
+            <p>A fresh robot provides better separation between trades.</p>
+            <div className="pro-reuse-actions">
+              <Button variant="secondary" onClick={() => onSelect(pendingReuse.slotId)}>
+                Use this robot
+              </Button>
+              {canCreateFresh ? (
+                <Button loading={freshRobotBusy} loadingLabel="Creating fresh robot" onClick={() => void createFreshRobot()}>
+                  <PlusCircle size={16} aria-hidden="true" /> Create fresh robot
+                </Button>
+              ) : (
+                <Button onClick={() => setPendingReuse(undefined)}>Back to robots</Button>
+              )}
+            </div>
+          </div>
+        ) : robots.length > 0 ? (
           <div className="garage-switcher-list">
-            {robots.map((robot) => (
+            {canCreateFresh ? (
+              <button
+                className="garage-switcher-item pro-fresh-robot-option"
+                aria-busy={freshRobotBusy || undefined}
+                disabled={freshRobotBusy}
+                onClick={() => void createFreshRobot()}
+                type="button"
+              >
+                <span className="pro-fresh-robot-icon" aria-hidden="true">
+                  <PlusCircle size={20} />
+                </span>
+                <span className="garage-switcher-item-info">
+                  <strong className="garage-switcher-item-name">{freshRobotBusy ? "Creating fresh robot…" : "Fresh robot"}</strong>
+                  <small className="garage-switcher-item-status">
+                    <ShieldCheck size={12} aria-hidden="true" /> New identity · Best privacy
+                  </small>
+                </span>
+                <ChevronRight size={18} aria-hidden="true" />
+              </button>
+            ) : null}
+            {canCreateFresh ? <p className="pro-robot-list-divider">Or reuse an available robot</p> : null}
+            {orderedRobots.map((robot) => (
               <button
                 className="garage-switcher-item pro-create-robot-option"
                 key={robot.slotId}
-                onClick={() => onSelect(robot.slotId)}
+                onClick={() => selectRobot(robot, onSelect, setPendingReuse)}
                 type="button"
               >
                 <RobotAvatar hashId={robot.hashId} label={robot.nickname} size="md" />
                 <span className="garage-switcher-item-info">
                   <strong className="garage-switcher-item-name">{robot.nickname}</strong>
-                  <small className={`garage-switcher-item-status${robot.previouslyUsed ? " pro-reused-robot-status" : ""}`}>
-                    {robot.previouslyUsed ? <AlertTriangle size={12} aria-hidden="true" /> : null}
-                    {robot.previouslyUsed ? "Ready · previously used identity" : optionStatus}
+                  <small className="garage-switcher-item-status">
+                    {robot.previouslyUsed ? "Used before" : optionStatus}
                   </small>
                 </span>
                 <ChevronRight size={18} aria-hidden="true" />
@@ -78,19 +140,32 @@ export function CreateOfferRobotPicker({
               ? `All ${GARAGE_LIMITS.activeRobots} Fleet robots are currently unavailable. Finish an order or remove an idle robot before adding another.`
               : "Create a robot here, then use it to publish an offer.")}</p>
             {!fleetFull && onAddRobot ? (
-              <Button loading={addingRobot} onClick={onAddRobot} size="sm">
+              <Button loading={freshRobotBusy} onClick={() => void createFreshRobot()} size="sm">
                 <RobotGlyph size={16} /> Create robot
               </Button>
             ) : null}
           </div>
         )}
-        {robots.some((robot) => robot.previouslyUsed) ? (
-          <p className="pro-reused-robot-note">
-            Previously used robots remain available, but a fresh robot provides stronger separation between trades.
-          </p>
-        ) : null}
     </Dialog>
   );
+}
+
+function selectRobot(
+  robot: OfferReadyRobots[number],
+  onSelect: (slotId: string) => void,
+  onReuse: (robot: OfferReadyRobots[number]) => void
+) {
+  if (robot.previouslyUsed) onReuse(robot);
+  else onSelect(robot.slotId);
+}
+
+function canOfferFreshRobot(
+  onAddRobot: (() => Promise<string | undefined>) | undefined,
+  fleetFull: boolean,
+  freshRobotCount: number,
+  reusedRobotCount: number
+): boolean {
+  return Boolean(onAddRobot && !fleetFull && freshRobotCount === 0 && reusedRobotCount > 0);
 }
 
 export function RobotAddedNotice({

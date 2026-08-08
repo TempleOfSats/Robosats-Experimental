@@ -92,8 +92,8 @@ export interface OrderDto {
   maker_summary?: Record<string, unknown>;
   taker_summary?: Record<string, unknown>;
   platform_summary?: Record<string, unknown>;
-  maker_pubkey?: string;
-  taker_pubkey?: string;
+  maker_nostr_pubkey?: string;
+  taker_nostr_pubkey?: string;
   bad_request?: string;
   bad_address?: string;
   bad_invoice?: string;

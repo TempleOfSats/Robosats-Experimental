@@ -96,7 +96,7 @@ for (const assetUrl of referencedStaticAssets) {
 const sourceFiles = files.filter((path) => !path.endsWith(".br") && !path.endsWith(".gz"));
 const compressedSources = [];
 for (const path of sourceFiles) {
-  if (!/\.(?:asc|css|html|js|json|mjs|svg|txt|wasm|xml)$/i.test(path)) continue;
+  if (!/\.(?:asc|css|html|js|json|mjs|rsid|svg|txt|wasm|xml)$/i.test(path)) continue;
   if ((await stat(path)).size < 1024) continue;
   await Promise.all([stat(`${path}.br`), stat(`${path}.gz`)]);
   compressedSources.push(path);
@@ -107,10 +107,10 @@ if (compressedSources.length === 0) {
 
 const identityFiles = sourceFiles.filter((path) => /roboidentitiesClient|robot-identities/.test(path));
 const identityTransferBytes = identityFiles.reduce((total, path) => {
-  const content = readFileSync(path);
-  return total + (path.endsWith(".js") ? gzipSync(content, { level: 9 }).length : content.length);
+  if (path.endsWith(".rsid")) return total + readFileSync(`${path}.br`).length;
+  return total + gzipSync(readFileSync(path), { level: 9 }).length;
 }, 0);
-if (identityFiles.length !== 2 || identityTransferBytes > 230_000) {
+if (identityFiles.length !== 2 || identityTransferBytes > 205_000) {
   throw new Error(`Browser identity payload exceeds its budget: ${identityTransferBytes} bytes`);
 }
 

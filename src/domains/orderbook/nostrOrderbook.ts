@@ -16,6 +16,7 @@ import type { PublicOrder } from "@/domains/orderbook/orderbook.types";
 import { decodeGeohashCenter } from "@/domains/location/f2fLocation";
 
 const ORDER_KIND = 38383;
+const SNAPSHOT_LOOKBACK_SECONDS = 30 * 60 * 60;
 const RELAY_MAX_WAIT_MS = 45_000;
 const PROGRESS_EMIT_INTERVAL_MS = 350;
 const DEFAULT_RELAY_COUNT = 3;
@@ -138,6 +139,7 @@ class NostrOrderbookSession {
   private readonly relaysWithEvents = new Set<string>();
   private readonly relayRetryTimers = new Map<number, ReturnType<typeof setTimeout>>();
   private readonly relayRetryAttempts = new Map<number, number>();
+  private readonly degradedSilentRelays = new Set<number>();
   private readonly maxWaitMs: number;
   private readonly coordinators: CoordinatorSummary[];
   private readonly network: Network;
@@ -186,7 +188,12 @@ class NostrOrderbookSession {
     this.secondarySilenceMs = Math.min(fallbackTiming.secondaryMs, maxWaitMs);
     const since = nowSeconds ?? Math.floor(Date.now() / 1000);
     this.filters = [
-      { authors, kinds: [ORDER_KIND], "#s": ["pending"] },
+      {
+        authors,
+        kinds: [ORDER_KIND],
+        since: since - SNAPSHOT_LOOKBACK_SECONDS,
+        until: since
+      },
       { authors, kinds: [ORDER_KIND], "#s": ["pending", "success", "canceled", "in-progress"], since }
     ];
   }
@@ -230,6 +237,11 @@ class NostrOrderbookSession {
 
   close(): void {
     if (this.closed) return;
+    if (!this.initialSettled && this.resolveInitial) {
+      this.initialSettled = true;
+      this.resolveInitial(this.currentOrders());
+      this.resolveInitial = undefined;
+    }
     this.closed = true;
     this.clearTimers();
     this.subscriptions.forEach((subscription) => void subscription.close("complete"));
@@ -267,9 +279,35 @@ class NostrOrderbookSession {
   private scheduleFallback(relayIndex: number, delayMs: number, onlyWhenEmpty = false): void {
     if (relayIndex >= this.relays.length) return;
     const timer = setTimeout(() => {
-      if (!onlyWhenEmpty || this.events.size === 0) this.startRelay(relayIndex);
+      if (onlyWhenEmpty && this.events.size > 0) return;
+      this.degradeSilentRelaysBefore(relayIndex);
+      this.startRelay(relayIndex);
     }, delayMs);
     this.fallbackTimers.push(timer);
+  }
+
+  private degradeSilentRelaysBefore(fallbackRelayIndex: number): void {
+    for (let relayIndex = 0; relayIndex < fallbackRelayIndex; relayIndex += 1) {
+      if (
+        this.degradedSilentRelays.has(relayIndex)
+        || !this.relayStartedAt.has(relayIndex)
+        || this.relayEoses.get(relayIndex)?.size
+      ) {
+        continue;
+      }
+
+      const relay = this.relays[relayIndex];
+      if (!relay || this.relaysWithEvents.has(relay)) continue;
+      this.degradedSilentRelays.add(relayIndex);
+      markRelayUnavailable(relay);
+      noteRelayFailure(relay);
+      recordRelayPerformance(
+        relay,
+        "close",
+        Date.now() - (this.relayStartedAt.get(relayIndex) ?? Date.now()),
+        "timeout"
+      );
+    }
   }
 
   private handleEvent(event: Event, relay: string): void {

@@ -11,12 +11,18 @@ export type IntentPickerOption = {
 };
 
 const FILTER_ANY_BUY_SELL_ICON = "/static/assets/vector/filter-any-buy-sell.svg";
+const FILTER_ANY_CURRENCY_ICON = "/static/assets/vector/filter-any-currency.svg";
+const FILTER_ANY_PAYMENT_METHOD_ICON = "/static/assets/vector/filter-any-payment-method.svg";
+
+const filterAnyIconMaskStyle = (url: string) => ({ "--filter-any-icon-mask": `url(${url})` }) as CSSProperties;
 
 export function FilterAnyMonochromeIcon({ kind }: { kind: "currency" | "payment-method" }) {
+  const iconUrl = kind === "currency" ? FILTER_ANY_CURRENCY_ICON : FILTER_ANY_PAYMENT_METHOD_ICON;
   return (
     <span
       aria-hidden="true"
       className={`filter-any-icon filter-any-icon-monochrome filter-any-icon-${kind}`}
+      style={filterAnyIconMaskStyle(iconUrl)}
     />
   );
 }

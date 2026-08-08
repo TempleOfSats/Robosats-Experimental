@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RobotSlot } from "@/domains/garage/garageStore";
 import { HistoryList, RobotList, TradeList } from "@/domains/pro/ProWorkspaceLists";
+import type { ProTradeSnapshot } from "@/domains/pro/pro.types";
 import type { TradeHistoryEntry } from "@/domains/pro/tradeHistory";
 
 let root: Root | undefined;
@@ -135,6 +136,37 @@ describe("Pro workspace lists", () => {
     expect(html).not.toContain("No matching trades");
   });
 
+  it("keeps public-offer actions compact and represents the coordinator by avatar", () => {
+    const html = renderToStaticMarkup(
+      <TradeList
+        coordinators={[
+          {
+            shortAlias: "temple",
+            longAlias: "Temple of Sats",
+            smallAvatarUrl: "/temple.webp"
+          } as never
+        ]}
+        onCancel={vi.fn()}
+        onClaimRewards={vi.fn()}
+        onCreate={vi.fn()}
+        onFindTrade={vi.fn()}
+        onOpen={vi.fn()}
+        onPause={vi.fn()}
+        onResume={vi.fn()}
+        quickActionKey=""
+        rewardSlots={[]}
+        snapshots={[publicOfferSnapshot]}
+      />
+    );
+
+    expect(html).toContain('aria-label="Pause order 92452"');
+    expect(html).toContain('aria-label="Cancel order 92452"');
+    expect(html).toContain('title="Temple of Sats"');
+    expect(html).toContain('src="/temple.webp"');
+    expect(html).not.toContain("pro-trade-action-label");
+    expect(html).not.toContain("<span>Temple of Sats</span>");
+  });
+
   it("describes a seller's fee-inclusive history amount as bitcoin sent", async () => {
     root = createRoot(document.querySelector("#root")!);
     await act(async () => {
@@ -208,6 +240,31 @@ const rewardSlot = {
   earnedRewards: 2_100,
   robots: {}
 } satisfies RobotSlot;
+
+const publicOfferSnapshot = {
+  key: "slot:temple:92452",
+  locator: { slotId: "slot", shortAlias: "temple", orderId: 92452 },
+  nickname: "LaughingPottery870",
+  hashId: "robot-hash",
+  order: {
+    status: 1,
+    type: 1,
+    currency: 2,
+    amount: 1_000,
+    has_range: true,
+    min_amount: 1_000,
+    max_amount: 2_500,
+    payment_method: "Instant SEPA",
+    expires_at: "2099-01-01T00:00:00.000Z",
+    is_maker: true,
+    is_taker: false,
+    is_buyer: false,
+    is_seller: true
+  } as never,
+  renewable: false,
+  released: false,
+  freshness: "fresh"
+} satisfies ProTradeSnapshot;
 
 const sellerHistoryEntry = {
   id: "slot:temple:92045",

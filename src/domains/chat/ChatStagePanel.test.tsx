@@ -3,8 +3,9 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ChatStagePanel, mergeMessages } from "@/domains/chat/ChatStagePanel";
+import { ChatStagePanel, mergeMessages, restoredExpandedScrollTop } from "@/domains/chat/ChatStagePanel";
 import type { DisplayChatMessage } from "@/domains/chat/chat.types";
+import type { Auth } from "@/domains/transport/apiClient";
 
 const mocks = vi.hoisted(() => ({
   fetchChatMessages: vi.fn(),
@@ -49,6 +50,7 @@ afterEach(async () => {
   if (root) await act(async () => root?.unmount());
   root = undefined;
   document.body.innerHTML = "";
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -63,12 +65,11 @@ describe("ChatStagePanel presence", () => {
       mocks.socket?.onopen?.();
       mocks.socket?.onmessage?.({ data: JSON.stringify({ peer_connected: true }) });
     });
-    await vi.waitFor(() => expect(mocks.fetchChatMessages).toHaveBeenCalledTimes(2));
+    expect(mocks.fetchChatMessages).toHaveBeenCalledOnce();
     expect(document.querySelector(".chat-presence")?.textContent).toBe("Online");
 
     await act(async () => {
       pending[0]?.({ peerConnected: false, peerPubkey: "", messages: [] });
-      pending[1]?.({ peerConnected: false, peerPubkey: "", messages: [] });
     });
     expect(document.querySelector(".chat-presence")?.textContent).toBe("Online");
 
@@ -113,14 +114,80 @@ describe("chat message reconciliation", () => {
       verified
     ]);
   });
+
+  it("preserves the visible message position when older history is prepended", () => {
+    expect(restoredExpandedScrollTop(120, 600, 900)).toBe(420);
+    expect(restoredExpandedScrollTop(120, 600, 550)).toBe(120);
+  });
 });
 
-async function renderPanel(): Promise<void> {
+describe("pre-chat reconciliation", () => {
+  it("does not restart an in-flight request when equivalent auth props are recreated", async () => {
+    mocks.fetchChatMessages.mockImplementation(() => new Promise(() => undefined));
+
+    await renderPanel({ variant: "pre-chat", auth: { tokenSHA256: "token" } });
+    expect(mocks.fetchChatMessages).toHaveBeenCalledOnce();
+
+    await renderPanel({ variant: "pre-chat", auth: { tokenSHA256: "token" } });
+    expect(mocks.fetchChatMessages).toHaveBeenCalledOnce();
+  });
+
+  it("reports a terminal coordinator failure instead of leaving a spinner", async () => {
+    vi.useFakeTimers();
+    mocks.fetchChatMessages.mockRejectedValue(new Error("Coordinator unavailable"));
+
+    await renderPanel({ variant: "pre-chat" });
+    await act(async () => vi.advanceTimersByTimeAsync(1_500));
+    await act(async () => vi.advanceTimersByTimeAsync(3_000));
+
+    expect(mocks.fetchChatMessages).toHaveBeenCalledTimes(3);
+    expect(document.querySelector(".field-error")?.textContent).toContain("Coordinator unavailable");
+    expect(document.querySelector(".pre-chat-key-status")).toBeNull();
+  });
+
+  it("settles as unavailable after successful responses never provide a peer key", async () => {
+    vi.useFakeTimers();
+    mocks.fetchChatMessages.mockResolvedValue({ peerConnected: undefined, peerPubkey: "", messages: [] });
+
+    await renderPanel({ variant: "pre-chat" });
+    await act(async () => vi.advanceTimersByTimeAsync(1_500));
+    await act(async () => vi.advanceTimersByTimeAsync(3_000));
+
+    expect(mocks.fetchChatMessages).toHaveBeenCalledTimes(3);
+    expect(document.body.textContent).toContain("Encrypted messaging will be available when the trade chat opens.");
+    expect(document.querySelector(".pre-chat-key-status")).toBeNull();
+    expect(document.querySelector(".field-error")).toBeNull();
+  });
+
+  it("recovers on a later attempt without surfacing the transient failure", async () => {
+    vi.useFakeTimers();
+    mocks.fetchChatMessages.mockRejectedValueOnce(new Error("Temporary failure")).mockResolvedValueOnce({
+      peerConnected: undefined,
+      peerPubkey: "-----BEGIN PGP PUBLIC KEY BLOCK-----\\peer\\-----END PGP PUBLIC KEY BLOCK-----",
+      messages: []
+    });
+
+    await renderPanel({ variant: "pre-chat" });
+    await act(async () => vi.advanceTimersByTimeAsync(1_500));
+
+    expect(mocks.fetchChatMessages).toHaveBeenCalledTimes(2);
+    expect(document.querySelector(".pre-chat-key-status")).toBeNull();
+    expect(document.querySelector(".field-error")).toBeNull();
+  });
+});
+
+async function renderPanel({
+  auth = { tokenSHA256: "token" },
+  variant = "trade"
+}: {
+  auth?: Auth;
+  variant?: "trade" | "pre-chat";
+} = {}): Promise<void> {
   root ??= createRoot(document.querySelector("#root")!);
   await act(async () => {
     root?.render(
       <ChatStagePanel
-        auth={{ tokenSHA256: "token" }}
+        auth={auth}
         baseUrl="https://coordinator.example"
         canSend={true}
         myNick="Mine"
@@ -130,6 +197,7 @@ async function renderPanel(): Promise<void> {
         peerHashId="peer"
         robot={{ encPrivKey: "private", pubKey: "public" } as never}
         slotToken="slot-token"
+        variant={variant}
       />
     );
   });

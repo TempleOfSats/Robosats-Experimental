@@ -62,6 +62,55 @@ describe("CompletedTradePanel", () => {
   });
 });
 
+it("shows swap and mining fees for a swap trade buyer", () => {
+  const html = render(
+    completedOrder({
+      is_maker: false,
+      is_taker: true,
+      is_buyer: true,
+      is_seller: false,
+      taker_summary: {
+        is_buyer: true,
+        is_swap: true,
+        sent_fiat: 100,
+        received_sats: 50_000,
+        trade_fee_sats: 25,
+        trade_fee_percent: 0.05,
+        swap_fee_sats: 500,
+        swap_fee_percent: 0.5,
+        mining_fee_sats: 300
+      }
+    })
+  );
+
+  expect(html).toContain("Onchain swap fee");
+  expect(html).toContain("500 sats");
+  expect(html).toContain("0.5%");
+  expect(html).not.toContain("50%");
+  expect(html).toContain("Mining fee");
+  expect(html).toContain("300 sats");
+});
+
+it("does not show swap rows for a non-swap trade", () => {
+  const html = render(
+    completedOrder({
+      is_maker: true,
+      is_buyer: false,
+      is_seller: true,
+      maker_summary: {
+        is_buyer: false,
+        sent_sats: 18_991,
+        received_fiat: 12,
+        trade_fee_sats: 33,
+        trade_fee_percent: 0.175
+      }
+    })
+  );
+
+  expect(html).not.toContain("Onchain swap fee");
+  expect(html).not.toContain("Mining fee");
+});
+
 function render(order: OrderDto): string {
   return renderToStaticMarkup(
     <CompletedTradePanel

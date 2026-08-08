@@ -19,7 +19,7 @@ export function showDesktopOrderNotification(
     return showDesktopNotification(request).catch(() => false);
   }
   return import("@/domains/identity/roboidentitiesClient")
-    .then(({ generateRobohash }) => generateRobohash(robotHashId!, "small"))
+    .then(({ generateRobohash }) => generateRobohash(robotHashId!))
     .then(rasterizeNotificationAvatar)
     .then((dataUrl) => ({ cacheKey: robotHashId!, dataUrl }))
     .catch(() => undefined)

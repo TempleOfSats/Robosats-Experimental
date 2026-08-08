@@ -196,7 +196,6 @@ export function ProWorkspacePage() {
     () => selectOfferReadyRobots(slots, robotSummaries, snapshots),
     [robotSummaries, slots, snapshots]
   );
-  const offerReadySlotIds = useMemo(() => new Set(offerReadyRobots.map((robot) => robot.slotId)), [offerReadyRobots]);
   const offerPresets = useMemo(() => activeOfferPresets(portableManifest), [portableManifest]);
   const fleetFull = Boolean(manifest && !hasGarageRobotCapacity(manifest));
   const filteredTrades = useMemo(() => trades.filter((snapshot) => matchesFilter(snapshot, filter)), [filter, trades]);
@@ -295,9 +294,11 @@ export function ProWorkspacePage() {
     presetId?: string,
     prefillDraft?: Pick<CreateOrderDraft, "amount" | "currency" | "paymentMethod" | "type">
   ) {
-    const slot = slots.find((item) => item.tokenSHA256 === slotId);
+    const slot = useGarageStore.getState().slots.find((item) => item.tokenSHA256 === slotId);
     if (!slot) return;
-    if (!offerReadySlotIds.has(slotId)) {
+    const tradeIndex = useProTradeIndexStore.getState();
+    const lifecycle = deriveProRobotLifecycle(slot, tradeIndex.snapshots, tradeIndex.syncBySlot[slotId]);
+    if (!lifecycle.canStartOrder) {
       setAnnouncement(`${slot.nickname} is not available for another order.`);
       return;
     }
@@ -398,7 +399,7 @@ export function ProWorkspacePage() {
     setShowKeys(false);
   }
 
-  async function addRobotQuickly() {
+  async function addRobotQuickly(): Promise<string | undefined> {
     setAddingRobot(true);
     try {
       const entry = await createDerivedRobot();
@@ -445,26 +446,33 @@ export function ProWorkspacePage() {
           )
           .catch(() => undefined);
       }, 600);
+      return identity.tokenSHA256;
     } catch (error) {
       setAnnouncement(error instanceof Error ? error.message : "Could not add robot.");
+      return undefined;
     } finally {
       setAddingRobot(false);
     }
   }
 
-  async function requestRobotCreation() {
-    if (vaultStatus === "idle" || vaultStatus === "loading") {
-      await initializeVault();
+  async function requestRobotCreation(): Promise<string | undefined> {
+    try {
+      if (vaultStatus === "idle" || vaultStatus === "loading") {
+        await initializeVault();
+      }
+      if (useGarageVaultStore.getState().status !== "ready") {
+        setGarageSetupOpen(true);
+        return undefined;
+      }
+      if (fleetFull) {
+        setAnnouncement(FLEET_ROBOT_LIMIT_MESSAGE);
+        return undefined;
+      }
+      return addRobotQuickly();
+    } catch (error) {
+      setAnnouncement(error instanceof Error ? error.message : "Could not prepare a fresh robot.");
+      return undefined;
     }
-    if (useGarageVaultStore.getState().status !== "ready") {
-      setGarageSetupOpen(true);
-      return;
-    }
-    if (fleetFull) {
-      setAnnouncement(FLEET_ROBOT_LIMIT_MESSAGE);
-      return;
-    }
-    await addRobotQuickly();
   }
 
   function finishFleetSetup() {
@@ -844,7 +852,7 @@ export function ProWorkspacePage() {
 
       {createPickerOpen && vaultStatus === "ready" ? (
         <CreateOfferRobotPicker
-          onAddRobot={() => void requestRobotCreation()}
+          onAddRobot={requestRobotCreation}
           addingRobot={addingRobot}
           fleetFull={fleetFull}
           onClose={() => {

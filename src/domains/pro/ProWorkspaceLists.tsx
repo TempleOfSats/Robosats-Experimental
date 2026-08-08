@@ -102,7 +102,7 @@ export function TradeList({
         >
           <span>Robot</span>
           <span>Order</span>
-          <span>Coordinator</span>
+          <span>Host</span>
           <span>Status</span>
           <span>Deadline</span>
           {showQuickActions ? <span>Actions</span> : null}
@@ -124,7 +124,7 @@ export function TradeList({
               <button
                 className="pro-trade-row-open"
                 type="button"
-                aria-label={`Open order ${snapshot.locator.orderId} for ${snapshot.nickname}`}
+                aria-label={`Open order ${snapshot.locator.orderId} for ${snapshot.nickname}, hosted by ${coordinator?.longAlias ?? snapshot.locator.shortAlias}`}
                 onClick={() => onOpen(snapshot.locator)}
               >
                 <span className="pro-trade-robot">
@@ -140,11 +140,14 @@ export function TradeList({
                     {presentation.methodLabel} · #{snapshot.locator.orderId}
                   </small>
                 </span>
-                <span className="pro-trade-coordinator">
+                <span className="pro-trade-coordinator" title={coordinator?.longAlias ?? snapshot.locator.shortAlias}>
                   {coordinator ? (
                     <img className="coordinator-avatar coordinator-avatar-xs" src={coordinator.smallAvatarUrl} alt="" />
-                  ) : null}
-                  <span>{coordinator?.longAlias ?? snapshot.locator.shortAlias}</span>
+                  ) : (
+                    <span className="pro-trade-coordinator-fallback" aria-hidden="true">
+                      {snapshot.locator.shortAlias.slice(0, 1).toUpperCase()}
+                    </span>
+                  )}
                 </span>
                 <span className="pro-trade-status">
                   <Badge tone={presentation.statusTone} icon={<StatusIcon size={12} />}>
@@ -166,22 +169,22 @@ export function TradeList({
                         disabled={Boolean(quickActionKey)}
                         loading={quickActionKey === `${snapshot.key}:pause`}
                         onClick={() => onPause(snapshot)}
-                        size="sm"
+                        size="icon"
                         title="Hide this offer from the public order book"
                         variant="outline"
                       >
-                        <Pause size={14} /> <span className="pro-trade-action-label">Pause</span>
+                        <Pause size={15} />
                       </Button>
                       <Button
                         aria-label={`Cancel order ${snapshot.locator.orderId}`}
                         className="pro-trade-action-button pro-trade-cancel-button"
                         disabled={Boolean(quickActionKey)}
                         onClick={() => onCancel(snapshot)}
-                        size="sm"
+                        size="icon"
                         title="Cancel this offer"
                         variant="destructive"
                       >
-                        <X size={14} /> <span className="pro-trade-action-label">Cancel offer</span>
+                        <X size={15} />
                       </Button>
                     </>
                   ) : snapshot.order?.status === 2 && snapshot.order.is_maker ? (
@@ -191,11 +194,11 @@ export function TradeList({
                       disabled={Boolean(quickActionKey)}
                       loading={quickActionKey === `${snapshot.key}:resume`}
                       onClick={() => onResume(snapshot)}
-                      size="sm"
+                      size="icon"
                       title="Return this offer to the public order book"
                       variant="outline"
                     >
-                      <Play size={14} /> <span className="pro-trade-action-label">Resume</span>
+                      <Play size={15} />
                     </Button>
                   ) : null}
                 </span>

@@ -1,9 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { RobotSlot } from "@/domains/garage/garageStore";
-import {
-  ingestCoordinatorOrder,
-  resetCoordinatorOrderActivityForTests
-} from "@/domains/orders/orderActivity";
+import { ingestCoordinatorOrder, resetCoordinatorOrderActivityForTests } from "@/domains/orders/orderActivity";
 import type { OrderDto } from "@/domains/orders/order.types";
 
 const playTradeAudioMock = vi.hoisted(() => vi.fn(() => Promise.resolve()));
@@ -70,12 +67,7 @@ describe("desktop trade feedback", () => {
 
     observe({ status: 2, chat_last_index: 3 });
     expect(playTradeAudioMock).toHaveBeenLastCalledWith("chat-open");
-    expect(showDesktopOrderNotificationMock).toHaveBeenLastCalledWith(
-      123,
-      "lake",
-      "New trade chat message",
-      "hash"
-    );
+    expect(showDesktopOrderNotificationMock).toHaveBeenLastCalledWith(123, "lake", "New trade chat message", "hash");
 
     observe({ status: 2, chat_last_index: 3, pending_cancel: true });
     expect(showDesktopOrderNotificationMock).toHaveBeenLastCalledWith(
@@ -84,6 +76,19 @@ describe("desktop trade feedback", () => {
       "Your peer requested collaborative cancellation",
       "hash"
     );
+  });
+
+  it("deduplicates repeated desktop feedback when the first observation occurs at epoch zero", () => {
+    vi.spyOn(Date, "now").mockReturnValue(0);
+    startOrderFeedbackRuntime();
+    observe({ status: 1 });
+    observe({ status: 2 });
+    observe({ status: 1 });
+    observe({ status: 2 });
+
+    expect(
+      (showDesktopOrderNotificationMock.mock.calls as unknown[][]).filter(([, , message]) => message === "Taker found")
+    ).toHaveLength(1);
   });
 
   it("ignores provisional observations", () => {
@@ -134,6 +139,64 @@ describe("desktop trade feedback", () => {
       "Dispute resolved in favor of your peer",
       "hash"
     );
+  });
+
+  it("plays one success sound when a buyer first reaches the success panel", () => {
+    startOrderFeedbackRuntime();
+    observe({ status: 12, is_buyer: true, is_seller: false });
+    observe({ status: 13, is_buyer: true, is_seller: false });
+    observe({ status: 14, is_buyer: true, is_seller: false });
+
+    expect(playTradeAudioMock).toHaveBeenNthCalledWith(1, "locked-invoice");
+    expect(playTradeAudioMock).toHaveBeenNthCalledWith(2, "successful");
+    expect(playTradeAudioMock).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ["seller reaches success at status 13 and stays there", [12, 13, 14, 15], false, true],
+    ["seller skips directly into success", [12, 15], false, true],
+    ["buyer never sees success on a payout retry", [13, 15], true, false]
+  ])("keeps success audio role-aware: %s", (_label, statuses, is_buyer, is_seller) => {
+    startOrderFeedbackRuntime();
+    for (const status of statuses as number[]) {
+      observe({ status, is_buyer, is_seller });
+    }
+
+    const successCalls = (playTradeAudioMock.mock.calls as unknown[][]).filter(([event]) => event === "successful");
+    expect(successCalls).toHaveLength(is_seller ? 1 : 0);
+  });
+
+  it("does not repeat success audio for duplicate observations or runtime replay", () => {
+    startOrderFeedbackRuntime();
+    observe({ status: 12, is_buyer: true, is_seller: false });
+    observe({ status: 14, is_buyer: true, is_seller: false });
+    observe({ status: 14, is_buyer: true, is_seller: false });
+    stopOrderFeedbackRuntimeForTests();
+    startOrderFeedbackRuntime();
+
+    expect(playTradeAudioMock).toHaveBeenCalledTimes(1);
+    expect(playTradeAudioMock).toHaveBeenLastCalledWith("successful");
+  });
+
+  it("does not repeat success audio after an out-of-order success re-entry", () => {
+    startOrderFeedbackRuntime();
+    observe({ status: 12, is_buyer: true, is_seller: false });
+    observe({ status: 14, is_buyer: true, is_seller: false });
+    observe({ status: 15, is_buyer: true, is_seller: false });
+    observe({ status: 14, is_buyer: true, is_seller: false });
+
+    const successCalls = (playTradeAudioMock.mock.calls as unknown[][]).filter(([event]) => event === "successful");
+    expect(successCalls).toHaveLength(1);
+  });
+
+  it("isolates success edges by order key", () => {
+    startOrderFeedbackRuntime();
+    observe({ id: 123, status: 12, is_buyer: true, is_seller: false });
+    observe({ id: 456, status: 12, is_buyer: true, is_seller: false });
+    observe({ id: 123, status: 14, is_buyer: true, is_seller: false });
+    observe({ id: 456, status: 14, is_buyer: true, is_seller: false });
+
+    expect((playTradeAudioMock.mock.calls as unknown[][]).filter(([event]) => event === "successful")).toHaveLength(2);
   });
 });
 

@@ -6,6 +6,7 @@ const poolState = vi.hoisted(() => ({
   verifyEvent: vi.fn(() => true),
   subscriptions: [] as Array<{
     relays: string[];
+    filter: unknown;
     params: { onevent?: (event: Event) => void; oneose?: () => void; onclose?: () => void };
   }>
 }));
@@ -19,10 +20,10 @@ vi.mock("@/domains/nostr/sharedRelayPool", () => ({
   getLiveRelaySubscriptions: () => ({
     subscribeMany(
       relays: string[],
-      _filter: unknown,
+      filter: unknown,
       params: { onevent?: (event: Event) => void; oneose?: () => void; onclose?: () => void }
     ) {
-      poolState.subscriptions.push({ relays, params });
+      poolState.subscriptions.push({ filter, relays, params });
       return { close: () => Promise.resolve() };
     }
   }),
@@ -260,6 +261,44 @@ describe("nostr orderbook", () => {
     expect(updates.at(-1)).toEqual({ partial: false, authoritative: true });
   });
 
+  it("bounds the initial snapshot while including terminal events published before the live stream", async () => {
+    poolState.subscriptions.length = 0;
+    const promise = fetchNostrOrderbook([coordinator], "mainnet", {
+      hostUrl: "unsafe.thebiglake.org",
+      maxWaitMs: 20_000,
+      nowSeconds: 200_000
+    });
+
+    expect(poolState.subscriptions[0].filter).toEqual({
+      authors: ["coordinator-pubkey"],
+      kinds: [38383],
+      since: 92_000,
+      until: 200_000
+    });
+    poolState.subscriptions[0].params.onevent?.(event({
+      id: "pending-event",
+      created_at: 199_000,
+      tags: baseTags({ status: "pending" })
+    }));
+    poolState.subscriptions[0].params.onevent?.(event({
+      id: "terminal-event",
+      created_at: 199_001,
+      tags: baseTags({ status: "success" })
+    }));
+    poolState.subscriptions[0].params.oneose?.();
+
+    await vi.waitFor(() => expect(poolState.subscriptions).toHaveLength(2));
+    expect(poolState.subscriptions[1].filter).toEqual({
+      authors: ["coordinator-pubkey"],
+      kinds: [38383],
+      "#s": ["pending", "success", "canceled", "in-progress"],
+      since: 200_000
+    });
+    poolState.subscriptions[1].params.oneose?.();
+
+    await expect(promise).resolves.toEqual([]);
+  });
+
   it("checks a fallback relay before accepting an empty multi-relay orderbook", async () => {
     poolState.subscriptions.length = 0;
     const secondCoordinator = {
@@ -316,6 +355,17 @@ describe("nostr orderbook", () => {
     }
   });
 
+  it("settles an unfinished fetch when its session is reset", async () => {
+    poolState.subscriptions.length = 0;
+    const promise = fetchNostrOrderbook([coordinator], "mainnet", {
+      maxWaitMs: 20_000
+    });
+
+    resetNostrOrderbookSession();
+
+    await expect(promise).resolves.toEqual([]);
+  });
+
   it("starts one delayed reconciliation relay after a fast non-host snapshot", async () => {
     vi.useFakeTimers();
     poolState.subscriptions.length = 0;
@@ -364,6 +414,7 @@ describe("nostr orderbook", () => {
         maxWaitMs: 45_000
       });
       expect(poolState.subscriptions).toHaveLength(1);
+      const responsiveRelay = poolState.subscriptions[0].relays[0];
 
       poolState.subscriptions[0].params.onevent?.(event({ tags: baseTags({ status: "pending" }) }));
       await vi.advanceTimersByTimeAsync(14_999);
@@ -375,7 +426,41 @@ describe("nostr orderbook", () => {
       await vi.waitFor(() => expect(poolState.subscriptions).toHaveLength(3));
       poolState.subscriptions[2].params.oneose?.();
       await expect(promise).resolves.toHaveLength(1);
+
+      resetNostrOrderbookSession();
+      expect(selectNostrRelays([coordinator, secondCoordinator])[0]).toBe(responsiveRelay);
     } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("temporarily deprioritizes a relay that stays completely silent until fallback", async () => {
+    vi.useFakeTimers();
+    poolState.subscriptions.length = 0;
+    const secondCoordinator = {
+      ...coordinator,
+      shortAlias: "fallback",
+      url: "https://fallback.example",
+      nostrHexPubkey: "fallback-coordinator-pubkey"
+    } satisfies CoordinatorSummary;
+    const coordinators = [coordinator, secondCoordinator];
+
+    try {
+      const unsubscribe = subscribeNostrOrderbook(coordinators, "mainnet", {
+        maxWaitMs: 45_000
+      });
+      const silentRelay = poolState.subscriptions[0].relays[0];
+
+      await vi.advanceTimersByTimeAsync(14_999);
+      expect(poolState.subscriptions).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(poolState.subscriptions).toHaveLength(2);
+
+      resetNostrOrderbookSession();
+      unsubscribe();
+      expect(selectNostrRelays(coordinators)[0]).not.toBe(silentRelay);
+    } finally {
+      resetNostrOrderbookSession();
       vi.useRealTimers();
     }
   });

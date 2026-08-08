@@ -26,7 +26,7 @@ describe("Fleet trade history", () => {
         status: 14,
         address: "bc1-sensitive",
         bond_invoice: "ln-sensitive",
-        maker_pubkey: "peer-pubkey"
+        maker_nostr_pubkey: "peer-pubkey"
       })
     );
     expect(entry).toMatchObject({

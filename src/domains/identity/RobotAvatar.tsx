@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { RobotIcon } from "@/components/ui/robotIcon";
 import { cn } from "@/lib/cn";
 
-export function RobotAvatar({
+export const RobotAvatar = memo(function RobotAvatar({
   hashId,
   label,
   size = "md"
@@ -22,24 +22,17 @@ export function RobotAvatar({
     }
 
     setAvatarSrc("");
-    const preferredSize = size === "lg" || size === "xl" ? "large" : "small";
-    const previewSize = preferredSize === "large" ? "small" : preferredSize;
-
     void import("@/domains/identity/roboidentitiesClient")
-      .then(async ({ generateRobohash }) => {
-        // Render a small deterministic avatar first, then upgrade it in place.
-        const preview = await generateRobohash(hashId, previewSize);
-        if (!cancelled) setAvatarSrc(preview);
-        if (preferredSize === previewSize) return;
-        const full = await generateRobohash(hashId, preferredSize);
-        if (!cancelled) setAvatarSrc(full);
+      .then(({ generateRobohash }) => generateRobohash(hashId))
+      .then((avatar) => {
+        if (!cancelled) setAvatarSrc(avatar);
       })
       .catch(() => undefined);
 
     return () => {
       cancelled = true;
     };
-  }, [hashId, size]);
+  }, [hashId]);
 
   return (
     <div
@@ -60,4 +53,4 @@ export function RobotAvatar({
       )}
     </div>
   );
-}
+});

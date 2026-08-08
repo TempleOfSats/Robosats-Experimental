@@ -7,6 +7,14 @@ export interface OrderFilterOptions {
   coordinator: string;
 }
 
+export function activePublicOrders(orders: PublicOrder[], now = Date.now()): PublicOrder[] {
+  return orders.filter((order) => {
+    if (!order.expires_at) return true;
+    const expiresAt = Date.parse(order.expires_at);
+    return !Number.isFinite(expiresAt) || expiresAt > now;
+  });
+}
+
 export function filterPublicOrders(orders: PublicOrder[], filters: OrderFilterOptions): PublicOrder[] {
   return orders.filter((order) => {
     if (filters.side === "buy" && order.type !== 1) return false;

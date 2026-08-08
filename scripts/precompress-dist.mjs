@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { constants, brotliCompressSync, gzipSync } from "node:zlib";
 
 const distRoot = resolve("dist");
-const compressible = /\.(?:asc|css|html|js|json|mjs|svg|txt|wasm|xml)$/i;
+const compressible = /\.(?:asc|css|html|js|json|mjs|rsid|svg|txt|wasm|xml)$/i;
 const minimumBytes = 1024;
 let sourceBytes = 0;
 let brotliBytes = 0;

@@ -8,6 +8,7 @@ const backgroundOffset = 56;
 const backgroundLength = 21;
 const packMagic = "RSIDPK01";
 const maxNicknameLength = 18;
+const avatarViewBoxSize = 256;
 
 let assetPackPromise: Promise<ArrayBuffer> | undefined;
 const packedImagePromises = new Map<number, Promise<string>>();
@@ -22,7 +23,7 @@ export function generateBrowserRoboname(hashId: string): string {
   return "";
 }
 
-export async function generateBrowserRobohash(hashId: string, pixels: number): Promise<string> {
+export async function generateBrowserRobohash(hashId: string): Promise<string> {
   const digest = await sha512Hex(hashId);
   const selection = selectRobotIdentity(digest);
   const [background, ...parts] = await Promise.all(
@@ -31,13 +32,13 @@ export async function generateBrowserRobohash(hashId: string, pixels: number): P
   const images = parts
     .map(
       (part) =>
-        `<image width="${pixels}" height="${pixels}" href="data:image/webp;base64,${part}" filter="url(#hue)"/>`
+        `<image width="${avatarViewBoxSize}" height="${avatarViewBoxSize}" href="data:image/webp;base64,${part}" filter="url(#hue)"/>`
     )
     .join("");
   const svg =
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${pixels}" height="${pixels}" viewBox="0 0 ${pixels} ${pixels}">` +
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${avatarViewBoxSize} ${avatarViewBoxSize}">` +
     `<defs><filter id="hue" color-interpolation-filters="sRGB"><feColorMatrix type="hueRotate" values="${selection.hue}"/></filter></defs>` +
-    `<image width="${pixels}" height="${pixels}" href="data:image/webp;base64,${background}"/>${images}</svg>`;
+    `<image width="${avatarViewBoxSize}" height="${avatarViewBoxSize}" href="data:image/webp;base64,${background}"/>${images}</svg>`;
   return `data:image/svg+xml;base64,${stringToBase64(svg)}`;
 }
 

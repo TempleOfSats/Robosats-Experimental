@@ -51,10 +51,24 @@ try {
 
     const page = await context.newPage();
     const pageErrors = [];
+    const assetFailures = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
+    page.on("requestfailed", (request) => {
+      if (isLocalAssetRequest(request)) {
+        assetFailures.push(`${request.url()}: ${request.failure()?.errorText ?? "request failed"}`);
+      }
+    });
+    page.on("response", (response) => {
+      if (response.status() >= 400 && isLocalAssetRequest(response.request())) {
+        assetFailures.push(`${response.url()}: HTTP ${response.status()}`);
+      }
+    });
     await page.route("**/*", async (route) => {
       const url = new URL(route.request().url());
       if (url.origin === baseUrl || url.protocol === "data:" || url.protocol === "blob:") {
+        if (scenario.localAssetDelayMs && isLocalAssetRequest(route.request())) {
+          await new Promise((resolve) => setTimeout(resolve, scenario.localAssetDelayMs));
+        }
         await route.continue();
       } else {
         await route.abort("blockedbyclient");
@@ -79,14 +93,63 @@ try {
           errorBoundary: Boolean(document.querySelector(".app-error-boundary")),
           horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 2,
           mainText: main?.textContent?.trim() ?? "",
+          latinFontPreloaded: performance
+            .getEntriesByType("resource")
+            .some((entry) => entry.name.includes("public-sans-latin-wght-normal")),
           theme: document.documentElement.dataset.theme
         };
       });
       if (metrics.errorBoundary) throw new Error("Application error boundary rendered");
       if (metrics.horizontalOverflow) throw new Error("Page has horizontal viewport overflow");
       if (!metrics.mainText) throw new Error("Main content is empty");
+      if (!metrics.latinFontPreloaded) throw new Error("Latin font preload was not requested");
       if (metrics.theme !== scenario.theme) throw new Error(`Expected ${scenario.theme} theme, received ${metrics.theme}`);
       if (pageErrors.length > 0) throw new Error(`Runtime errors: ${pageErrors.join(" | ")}`);
+      if (assetFailures.length > 0) throw new Error(`Local asset failures: ${assetFailures.join(" | ")}`);
+
+      if (scenario.path === "/offers") {
+        const titleLayout = await page.locator(".orderbook-title").evaluate((title) => {
+          const header = title.closest(".orderbook-card-header");
+          const style = getComputedStyle(title);
+          return {
+            clipPath: style.clipPath,
+            headerPaddingTop: header ? Number.parseFloat(getComputedStyle(header).paddingTop) : Number.NaN,
+            position: style.position
+          };
+        });
+        if (scenario.viewport.width <= 500) {
+          if (titleLayout.position !== "absolute" || titleLayout.clipPath !== "inset(50%)") {
+            throw new Error("Public offers title remains visually exposed on mobile");
+          }
+        } else if (titleLayout.headerPaddingTop > 12.1) {
+          throw new Error(`Public offers header has excessive top padding: ${titleLayout.headerPaddingTop}px`);
+        }
+
+        for (const [kind, selector] of [
+          ["currency", 'summary[aria-label="Filter by currency"] .filter-any-icon-currency'],
+          [
+            "payment-method",
+            '.filter-select-field:has(input[aria-label="Filter by payment method"]) .image-select-icon .filter-any-icon-payment-method'
+          ]
+        ]) {
+          const icon = page.locator(selector);
+          await icon.waitFor({ state: "visible", timeout: 10_000 });
+          const rendered = await icon.evaluate((element) => {
+            const style = getComputedStyle(element);
+            const bounds = element.getBoundingClientRect();
+            return {
+              backgroundColor: style.backgroundColor,
+              height: bounds.height,
+              maskImage: style.maskImage || style.webkitMaskImage,
+              width: bounds.width
+            };
+          });
+          if (rendered.width <= 0 || rendered.height <= 0) throw new Error(`${kind} ANY icon has no rendered size`);
+          if (!rendered.maskImage || rendered.maskImage === "none")
+            throw new Error(`${kind} ANY icon mask is unavailable`);
+          if (rendered.backgroundColor === "rgba(0, 0, 0, 0)") throw new Error(`${kind} ANY icon has no theme color`);
+        }
+      }
 
       const modal = page.locator("[data-modal-dialog='true']");
       if (await modal.isVisible()) {
@@ -130,7 +193,13 @@ if (failures.length > 0) process.exitCode = 1;
 
 function themeCases(theme) {
   const variants = [
-    { name: `${theme}-desktop-offers`, path: "/offers", proEnabled: false, viewport: { width: 1440, height: 900 } },
+    {
+      name: `${theme}-desktop-offers-tor-like`,
+      path: "/offers",
+      proEnabled: false,
+      localAssetDelayMs: 150,
+      viewport: { width: 1440, height: 900 }
+    },
     { name: `${theme}-desktop-create`, path: "/create", proEnabled: false, viewport: { width: 1440, height: 900 } },
     { name: `${theme}-desktop-settings`, path: "/settings", proEnabled: false, viewport: { width: 1440, height: 900 } },
     { name: `${theme}-desktop-garage`, path: "/", expectedPath: "/garage", proEnabled: false, viewport: { width: 1440, height: 900 } },
@@ -141,6 +210,11 @@ function themeCases(theme) {
     { name: `${theme}-mobile-pro`, path: "/", expectedPath: "/pro", proEnabled: true, viewport: { width: 390, height: 844 } }
   ];
   return variants.map((scenario) => ({ ...scenario, theme }));
+}
+
+function isLocalAssetRequest(request) {
+  const url = new URL(request.url());
+  return url.origin === baseUrl && ["font", "image", "script", "stylesheet"].includes(request.resourceType());
 }
 
 async function waitForPreview() {
