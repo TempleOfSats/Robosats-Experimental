@@ -97,7 +97,9 @@ class NotificationsService : Service() {
                                             val federationPubKeys = EncryptedStorage.getEncryptedStorage("federation_pubkeys")
                                             if (federationPubKeys.contains(rumor.pubKey)) {
                                                 EncryptedStorage.setEncryptedStorage("last_notification", rumor.createdAt.toString())
-                                                displayOrderNotification(rumor, firstTaggedUser)
+                                                if (!MainActivity.isAppInForeground()) {
+                                                    displayOrderNotification(rumor, firstTaggedUser)
+                                                }
                                             }
                                         }
                                     }

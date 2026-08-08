@@ -180,6 +180,7 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         activityResumed = true
+        appInForeground = true
         activeActivity = WeakReference(this)
         webView.onResume()
         bridge?.resumeTransport()
@@ -196,6 +197,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() {
         activityResumed = false
+        appInForeground = false
         if (activeActivity?.get() === this) activeActivity = null
         webView.onPause()
         super.onPause()
@@ -441,7 +443,7 @@ class MainActivity : AppCompatActivity() {
         webView.post {
             if (!activityResumed) return@post
             webView.evaluateJavascript(
-                "window.dispatchEvent(new CustomEvent('robosats:tor-reconnected'))",
+                "window.dispatchEvent(new CustomEvent('robosats:tor-reconnected'));window.dispatchEvent(new CustomEvent('robosats:tor-ready'))",
                 null
             )
         }
@@ -695,6 +697,10 @@ class MainActivity : AppCompatActivity() {
     companion object {
         @Volatile
         private var activeActivity: WeakReference<MainActivity>? = null
+        @Volatile
+        private var appInForeground = false
+
+        fun isAppInForeground(): Boolean = appInForeground
 
         fun dispatchOrderHint(orderId: String?) {
             activeActivity?.get()?.dispatchNativeOrderHint(orderId)

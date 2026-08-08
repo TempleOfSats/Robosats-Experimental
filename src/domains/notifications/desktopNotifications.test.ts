@@ -56,6 +56,7 @@ describe("desktop order notifications", () => {
 
     await expect(showDesktopOrderNotification(42, "temple", "Trade updated", hashId)).resolves.toBe(true);
 
+    expect(generateRobohashMock).toHaveBeenCalledWith(hashId);
     expect(showDesktopNotificationMock).toHaveBeenCalledWith({
       title: "Order #42",
       body: "Trade updated",

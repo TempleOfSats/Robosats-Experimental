@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { AppTransitionDialog } from "@/domains/navigation/AppTransitionFeedback";
 import { useGarageStore, type RobotSlot } from "@/domains/garage/garageStore";
 import { CreateOfferRobotPicker } from "@/domains/pro/ProWorkspaceDialogs";
-import { selectOfferReadyRobots } from "@/domains/pro/proRobotLifecycle";
+import { selectOfferReadyRobots, type OfferReadyRobots } from "@/domains/pro/proRobotLifecycle";
 import { summarizeProRobots } from "@/domains/pro/proSelectors";
 import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
 import { selectProGarageSlots, useGarageVaultStore } from "@/domains/pro/garageVaultStore";
@@ -34,14 +34,14 @@ export function ProTakeRobotPicker({
 
   useEffect(() => {
     if (vaultStatus === "idle" || vaultStatus === "loading" || autoSelected.current) return;
-    if (readyRobots.length !== 1) return;
+    if (!shouldAutoSelectReadyRobot(readyRobots)) return;
     const slot = slots.find((item) => item.tokenSHA256 === readyRobots[0].slotId);
     if (!slot) return;
     autoSelected.current = true;
     onSelect(slot);
   }, [onSelect, readyRobots, slots, vaultStatus]);
 
-  if (vaultStatus === "idle" || vaultStatus === "loading" || readyRobots.length === 1) {
+  if (vaultStatus === "idle" || vaultStatus === "loading" || shouldAutoSelectReadyRobot(readyRobots)) {
     return (
       <AppTransitionDialog title="Preparing your Robot Fleet" message="Finding an available robot for this offer." />
     );
@@ -61,4 +61,8 @@ export function ProTakeRobotPicker({
       title="Take with which robot?"
     />
   );
+}
+
+export function shouldAutoSelectReadyRobot(robots: OfferReadyRobots): boolean {
+  return robots.length === 1 && !robots[0].previouslyUsed;
 }

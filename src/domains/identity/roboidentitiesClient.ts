@@ -19,9 +19,9 @@ export function generateRoboname(hashId: string): string {
   return name;
 }
 
-export async function generateRobohash(hashId: string, size: "small" | "large"): Promise<string> {
+export async function generateRobohash(hashId: string): Promise<string> {
   if (!hashId) return "";
-  const cacheKey = `${hashId};${size}`;
+  const cacheKey = hashId;
   const cached = avatarCache.get(cacheKey);
   if (cached) return cached;
 
@@ -30,12 +30,18 @@ export async function generateRobohash(hashId: string, size: "small" | "large"):
     avatarCache.set(cacheKey, persisted);
     return persisted;
   }
+  const legacyPersisted =
+    (await readPersistedAvatar(`${hashId};large`)) ?? (await readPersistedAvatar(`${hashId};small`));
+  if (legacyPersisted) {
+    avatarCache.set(cacheKey, legacyPersisted);
+    void persistAvatar(cacheKey, legacyPersisted);
+    return legacyPersisted;
+  }
 
   const pending = avatarPromiseCache.get(cacheKey);
   if (pending) return pending;
 
-  const pixels = size === "small" ? 80 : 256;
-  const promise = generateBrowserRobohash(hashId, pixels)
+  const promise = generateBrowserRobohash(hashId)
     .then((image) => {
       avatarCache.set(cacheKey, image);
       void persistAvatar(cacheKey, image);
@@ -49,19 +55,13 @@ export async function generateRobohash(hashId: string, size: "small" | "large"):
   return promise;
 }
 
-export function prewarmRobohashes(hashId: string): void {
-  if (!hashId) return;
-  void generateRobohash(hashId, "small").catch(() => undefined);
-  void generateRobohash(hashId, "large").catch(() => undefined);
-}
-
 export function prewarmRobotIdentity(hashId: string): void {
   if (!hashId) return;
-  void generateRobohash(hashId, "small").catch(() => undefined);
+  void generateRobohash(hashId).catch(() => undefined);
 }
 
 export async function prepareRobotIdentity(hashId: string): Promise<{ avatar: string; nickname: string }> {
-  const avatar = await generateRobohash(hashId, "small");
+  const avatar = await generateRobohash(hashId);
   return {
     avatar,
     nickname: generateRoboname(hashId)

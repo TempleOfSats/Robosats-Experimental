@@ -12,6 +12,16 @@ import type { PublicOrder } from "@/domains/orderbook/orderbook.types";
 import { useOrderbookStore } from "@/domains/orderbook/orderbookStore";
 import { defaultProPreferences, useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
 
+const nostrOrderbook = vi.hoisted(() => ({
+  resetSession: vi.fn(),
+  subscribe: vi.fn(() => () => undefined)
+}));
+
+vi.mock("@/domains/orderbook/nostrOrderbook", () => ({
+  resetNostrOrderbookSession: nostrOrderbook.resetSession,
+  subscribeNostrOrderbook: nostrOrderbook.subscribe
+}));
+
 let container: HTMLDivElement;
 let root: Root;
 let previousActEnvironment: boolean | undefined;
@@ -46,6 +56,8 @@ beforeEach(() => {
     hydrate: vi.fn()
   });
   useProPreferencesStore.setState(defaultProPreferences);
+  nostrOrderbook.resetSession.mockClear();
+  nostrOrderbook.subscribe.mockClear();
 });
 
 afterEach(async () => {
@@ -100,6 +112,10 @@ describe("OffersPage filters", () => {
     expect(intentIcon?.closest(".intent-icon")).toBeNull();
     expect(currencyIcon?.classList.contains("filter-any-icon-monochrome")).toBe(true);
     expect(currencyIcon?.tagName).toBe("SPAN");
+    expect(currencyIcon?.getAttribute("aria-hidden")).toBe("true");
+    expect(currencyIcon?.style.getPropertyValue("--filter-any-icon-mask")).toBe(
+      "url(/static/assets/vector/filter-any-currency.svg)"
+    );
     expect(currencyIcon?.closest(".currency-flag")).toBeNull();
     const methodIcon = container
       .querySelector('input[aria-label="Filter by payment method"]')
@@ -107,12 +123,88 @@ describe("OffersPage filters", () => {
       ?.querySelector<HTMLElement>(".filter-any-icon-payment-method");
     expect(methodIcon?.classList.contains("filter-any-icon-monochrome")).toBe(true);
     expect(methodIcon?.tagName).toBe("SPAN");
+    expect(methodIcon?.getAttribute("aria-hidden")).toBe("true");
+    expect(methodIcon?.style.getPropertyValue("--filter-any-icon-mask")).toBe(
+      "url(/static/assets/vector/filter-any-payment-method.svg)"
+    );
     expect(
       container.querySelector('summary[aria-label="Filter public offers by trade direction"] .image-select-value')
         ?.textContent
     ).toBe("ANY");
     expect(currencyValue()).toBe("ANY");
     expect(container.querySelector<HTMLInputElement>('input[aria-label="Filter by payment method"]')?.value).toBe("");
+  });
+
+  it("keeps API offers fiat-first when the coordinator also provides satoshis", async () => {
+    useOrderbookStore.setState({
+      orders: [order({ currency: 2, currencyCode: "EUR", amount: 119, satoshis: 205_420 })]
+    });
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter>
+          <OffersPage />
+        </MemoryRouter>
+      );
+    });
+
+    const amount = container.querySelector(".offer-row .offer-amount-line");
+    expect(amount?.textContent).toContain("119");
+    expect(amount?.textContent).toContain("EUR");
+    expect(amount?.textContent).not.toContain("205,420 sats");
+    expect(amount?.querySelector(".amount-mono")).toBeNull();
+  });
+
+  it("starts a fresh Nostr session when the user explicitly refreshes", async () => {
+    const refreshOrderbook = vi.fn(async () => undefined);
+    useFederationStore.setState({ connection: "nostr" });
+    useOrderbookStore.setState({ refreshOrderbook });
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter>
+          <OffersPage />
+        </MemoryRouter>
+      );
+    });
+    await vi.waitFor(() => expect(refreshOrderbook).toHaveBeenCalled());
+    refreshOrderbook.mockClear();
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('button[aria-label="Refresh public offers"]')?.click();
+    });
+
+    await vi.waitFor(() => expect(refreshOrderbook).toHaveBeenCalledOnce());
+    expect(nostrOrderbook.resetSession).toHaveBeenCalledOnce();
+    expect(refreshOrderbook).toHaveBeenCalledWith(
+      [coordinator],
+      expect.objectContaining({ connection: "nostr", force: true, network: "mainnet" })
+    );
+  });
+
+  it("removes an offer from the visible book when its advertised expiry passes", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime("2026-08-08T12:00:00.000Z");
+    useOrderbookStore.setState({
+      orders: [order({ id: 42, amount: 4242, expires_at: "2026-08-08T12:00:10.000Z" })]
+    });
+
+    try {
+      await act(async () => {
+        root.render(
+          <MemoryRouter>
+            <OffersPage />
+          </MemoryRouter>
+        );
+      });
+      expect(container.querySelector(".offer-row")?.textContent).toContain("4,242");
+
+      await act(async () => vi.advanceTimersByTimeAsync(30_000));
+
+      expect(container.querySelector(".offer-row")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

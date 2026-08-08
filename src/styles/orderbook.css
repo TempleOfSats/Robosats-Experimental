@@ -311,6 +311,12 @@
   gap: 1rem;
 }
 
+@media (min-width: 901px) {
+  .orderbook-table-card .orderbook-card-header {
+    padding-top: 0.75rem;
+  }
+}
+
 .orderbook-refresh-state {
   display: inline-flex;
   align-items: center;
@@ -985,14 +991,6 @@
   background: currentColor;
   -webkit-mask: var(--filter-any-icon-mask) center / contain no-repeat;
   mask: var(--filter-any-icon-mask) center / contain no-repeat;
-}
-
-.filter-any-icon-currency {
-  --filter-any-icon-mask: url("/static/assets/vector/filter-any-currency.svg");
-}
-
-.filter-any-icon-payment-method {
-  --filter-any-icon-mask: url("/static/assets/vector/filter-any-payment-method.svg");
 }
 
 .currency-flag span {

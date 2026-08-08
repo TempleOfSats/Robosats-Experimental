@@ -252,6 +252,10 @@ function CompletedTradeSummary({ order }: { order: OrderDto }) {
   const bitcoinAmount = recordNumber(selectedSummary, selectedIsBuyer ? "received_sats" : "sent_sats", fallbackSats);
   const tradeFeeSats = recordNumber(selectedSummary, "trade_fee_sats", 0);
   const tradeFeePercent = recordNumber(selectedSummary, "trade_fee_percent", order.trade_fee_percent ?? 0);
+  const isSwap = recordBoolean(selectedSummary, "is_swap", false);
+  const swapFeeSats = recordNumber(selectedSummary, "swap_fee_sats", 0);
+  const swapFeePercent = recordNumber(selectedSummary, "swap_fee_percent", 0);
+  const miningFeeSats = recordNumber(selectedSummary, "mining_fee_sats", 0);
 
   return (
     <section className="completed-trade-summary">
@@ -334,9 +338,15 @@ function CompletedTradeSummary({ order }: { order: OrderDto }) {
               <dt>Trade fee</dt>
               <dd>
                 {formatSats(tradeFeeSats)}
-                {tradeFeePercent > 0 ? ` (${formatSummaryPercent(tradeFeePercent)})` : ""}
+                {tradeFeePercent > 0 ? ` (${formatTradeFeePercent(tradeFeePercent)})` : ""}
               </dd>
             </div>
+            <SwapFeeRows
+              isSwap={isSwap}
+              miningFeeSats={miningFeeSats}
+              swapFeePercent={swapFeePercent}
+              swapFeeSats={swapFeeSats}
+            />
           </dl>
         )}
       </div>
@@ -357,7 +367,40 @@ function firstPositiveNumber(...values: Array<number | null | undefined>): numbe
   return values.find((value) => typeof value === "number" && Number.isFinite(value) && value > 0) ?? 0;
 }
 
-function formatSummaryPercent(value: number): string {
+function SwapFeeRows({
+  isSwap,
+  miningFeeSats,
+  swapFeePercent,
+  swapFeeSats
+}: {
+  isSwap: boolean;
+  miningFeeSats: number;
+  swapFeePercent: number;
+  swapFeeSats: number;
+}) {
+  if (!isSwap) return null;
+  return (
+    <>
+      <div>
+        <dt>Onchain swap fee</dt>
+        <dd>
+          {formatSats(swapFeeSats)}
+          {swapFeePercent > 0 ? ` (${formatPercent(swapFeePercent)})` : ""}
+        </dd>
+      </div>
+      <div>
+        <dt>Mining fee</dt>
+        <dd>{formatSats(miningFeeSats)}</dd>
+      </div>
+    </>
+  );
+}
+
+function formatTradeFeePercent(value: number): string {
   const percentage = value > 0 && value < 1 ? value * 100 : value;
+  return formatPercent(percentage);
+}
+
+function formatPercent(percentage: number): string {
   return `${Number(percentage.toPrecision(3))}%`;
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PublicOrder } from "@/domains/orderbook/orderbook.types";
-import { coordinatorFilterOptions, filterPublicOrders } from "@/domains/orderbook/orderbookFilters";
+import { activePublicOrders, coordinatorFilterOptions, filterPublicOrders } from "@/domains/orderbook/orderbookFilters";
 
 const orders: PublicOrder[] = [
   order({ id: 1, type: 0, currency: 2, currencyCode: "EUR", payment_method: "Wise", coordinatorShortAlias: "lake" }),
@@ -11,6 +11,21 @@ const orders: PublicOrder[] = [
 describe("filterPublicOrders", () => {
   it("filters by side and coordinator together", () => {
     expect(filterPublicOrders(orders, { side: "sell", coordinator: "lake" }).map((item) => item.id)).toEqual([1]);
+  });
+});
+
+describe("activePublicOrders", () => {
+  it("removes expired offers while preserving active, undated, and malformed legacy offers", () => {
+    const now = Date.parse("2026-08-08T12:00:00.000Z");
+    const candidates = [
+      order({ id: 10, expires_at: "2026-08-08T11:59:59.000Z" }),
+      order({ id: 11, expires_at: "2026-08-08T12:00:00.000Z" }),
+      order({ id: 12, expires_at: "2026-08-08T12:00:01.000Z" }),
+      order({ id: 13 }),
+      order({ id: 14, expires_at: "not-a-date" })
+    ];
+
+    expect(activePublicOrders(candidates, now).map((candidate) => candidate.id)).toEqual([12, 13, 14]);
   });
 });
 

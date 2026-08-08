@@ -106,7 +106,7 @@ describe("portable PRO settings", () => {
     })).toThrow("Offer preset limit exceeded");
   });
 
-  it("keeps each preset record below the serialized event limit", () => {
+  it("keeps the largest preset record below the serialized event limit", () => {
     let manifest = createPortableSettingsManifest(deviceA, { theme: "dark" }, 1);
     for (let index = 0; index < 96; index += 1) {
       manifest = saveOfferPreset(manifest, {
@@ -126,7 +126,12 @@ describe("portable PRO settings", () => {
       }, index + 2);
     }
     const secret = Uint8Array.from({ length: 32 }, (_, index) => index + 1);
-    const events = manifest.presets.map((preset, index) => buildGarageRecordEvent(secret, presetToSyncRecord(preset), 100 + index));
-    expect(events.every((event) => new TextEncoder().encode(JSON.stringify(event)).length <= 16 * 1024)).toBe(true);
+    const encoder = new TextEncoder();
+    const records = manifest.presets.map(presetToSyncRecord);
+    const largest = records.reduce((left, right) =>
+      encoder.encode(JSON.stringify(left)).length >= encoder.encode(JSON.stringify(right)).length ? left : right
+    );
+    const event = buildGarageRecordEvent(secret, largest, 100);
+    expect(encoder.encode(JSON.stringify(event)).length).toBeLessThanOrEqual(16 * 1024);
   });
 });

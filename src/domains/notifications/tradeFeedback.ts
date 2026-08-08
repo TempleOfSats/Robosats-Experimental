@@ -19,7 +19,7 @@ export function deliverChatFeedback({
   shortAlias: string;
 }): void {
   if (!Number.isSafeInteger(lastIndex) || lastIndex <= 0) return;
-  const key = `${shortAlias}:${orderId}`;
+  const key = `${robotHashId || "unknown"}:${shortAlias}:${orderId}`;
   const previous = lastNotifiedChatIndex.get(key) ?? 0;
   if (lastIndex <= previous) return;
   lastNotifiedChatIndex.delete(key);
@@ -30,15 +30,11 @@ export function deliverChatFeedback({
     lastNotifiedChatIndex.delete(oldest);
   }
 
+  const messageText = peerName ? `New message from ${peerName}` : "New trade chat message";
   if (shouldPlayOrderFeedbackAudio(shortAlias, orderId)) {
     void playTradeAudio("chat-open").catch(() => undefined);
   }
-  void showDesktopOrderNotification(
-    orderId,
-    shortAlias,
-    peerName ? `New message from ${peerName}` : "New trade chat message",
-    robotHashId
-  );
+  void showDesktopOrderNotification(orderId, shortAlias, messageText, robotHashId);
 }
 
 export function resetTradeFeedbackForTests(): void {

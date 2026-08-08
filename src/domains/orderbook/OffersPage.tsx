@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   AlertCircle,
@@ -31,7 +31,7 @@ import { currencyIdFromCode, orderCurrencyCodes } from "@/domains/orderbook/curr
 import { resetNostrOrderbookSession, subscribeNostrOrderbook } from "@/domains/orderbook/nostrOrderbook";
 import { subscribeRefreshIntents, type RefreshReason } from "@/domains/transport/refreshIntents";
 import type { PublicOrder } from "@/domains/orderbook/orderbook.types";
-import { filterPublicOrders } from "@/domains/orderbook/orderbookFilters";
+import { activePublicOrders, filterPublicOrders } from "@/domains/orderbook/orderbookFilters";
 import { buildTakeOfferPayload, defaultTakeAmount, validateTakeOffer } from "@/domains/orderbook/takeOffer";
 import { getRobotAuthForCoordinator, selectCurrentSlot, selectStandardGarageSlots, useGarageStore, type RobotSlot } from "@/domains/garage/garageStore";
 import { getRobotOrderAvailability } from "@/domains/garage/robotAvailability";
@@ -161,7 +161,8 @@ export function OffersPage() {
   const [directReviewOpened, setDirectReviewOpened] = useState(false);
   const [f2fOffersMapOpen, setF2FOffersMapOpen] = useState(false);
   const standardSlots = useMemo(() => selectStandardGarageSlots(garageSlots), [garageSlots]);
-  const cashF2FOffers = useMemo(() => selectCashF2FOffers(orders), [orders]);
+  const activeOrders = useMemo(() => activePublicOrders(orders, nowMs), [nowMs, orders]);
+  const cashF2FOffers = useMemo(() => selectCashF2FOffers(activeOrders), [activeOrders]);
   const activeSlot = selectCurrentSlot(standardSlots, currentToken);
   const standardTakeAvailability = getRobotOrderAvailability(activeSlot);
   const takeRobotUnavailableMessage = proEnabled
@@ -186,6 +187,10 @@ export function OffersPage() {
     const currentState = useFederationStore.getState();
 
     if (currentState.connection === "nostr") {
+      if (force) {
+        resetNostrOrderbookSession();
+        setNostrSessionEpoch((value) => value + 1);
+      }
       try {
         await refreshOrderbook(currentState.coordinators, {
           connection: currentState.connection,
@@ -243,12 +248,10 @@ export function OffersPage() {
     let refreshTimer: number | undefined;
 
     const refreshAfterLifecycle = (reason: RefreshReason) => {
-      if (connection === "nostr" && (reason === "online" || reason === "tor-reconnected" || error)) {
-        resetNostrOrderbookSession();
-        setNostrSessionEpoch((value) => value + 1);
-      }
+      const restartNostr = connection === "nostr"
+        && (reason === "online" || reason === "tor-reconnected" || Boolean(error));
       if (refreshTimer) window.clearTimeout(refreshTimer);
-      refreshTimer = window.setTimeout(() => void refresh(Boolean(error)), 150);
+      refreshTimer = window.setTimeout(() => void refresh(restartNostr || Boolean(error)), 150);
     };
 
     const stopLifecycle = subscribeRefreshIntents(refreshAfterLifecycle);
@@ -265,12 +268,12 @@ export function OffersPage() {
   }, []);
 
   const currencyOptions = useMemo(() => {
-    return orderCurrencyCodes(orders.map((order) => order.currencyCode ?? String(order.currency)));
-  }, [orders]);
+    return orderCurrencyCodes(activeOrders.map((order) => order.currencyCode ?? String(order.currency)));
+  }, [activeOrders]);
   const methodOptions = useMemo(() => {
     const present = new Set<string>();
 
-    for (const order of orders) {
+    for (const order of activeOrders) {
       if (!orderMatchesIntent(order, intentFilter)) continue;
       const matches = matchedPaymentMethods(order.payment_method);
       for (const match of matches) {
@@ -282,10 +285,10 @@ export function OffersPage() {
     return paymentMethodOptions()
       .filter((method) => present.has(method.name))
       .map((method) => ({ icon: method.icon, name: method.name }));
-  }, [intentFilter, orders]);
+  }, [activeOrders, intentFilter]);
 
   const filteredOrders = useMemo(() => {
-    const baseOrders = filterPublicOrders(orders, { side: "all", coordinator: "all" }).filter((order) => {
+    const baseOrders = filterPublicOrders(activeOrders, { side: "all", coordinator: "all" }).filter((order) => {
       const currency = order.currencyCode ?? String(order.currency);
       if (!orderMatchesIntent(order, intentFilter)) return false;
       if (currencyFilter !== "all" && currency !== currencyFilter) return false;
@@ -295,7 +298,7 @@ export function OffersPage() {
 
     if (!sortColumn) return baseOrders;
     return [...baseOrders].sort((left, right) => compareOrders(left, right, sortColumn, sortDirection));
-  }, [currencyFilter, intentFilter, methodFilter, orders, sortColumn, sortDirection]);
+  }, [activeOrders, currencyFilter, intentFilter, methodFilter, sortColumn, sortDirection]);
 
   const totalPages = Math.max(1, Math.ceil(filteredOrders.length / pageSize));
   const currentPage = Math.min(page, totalPages);
@@ -589,7 +592,7 @@ export function OffersPage() {
           <Card className="orderbook-table-card">
           <CardHeader className="orderbook-card-header">
             <div className="orderbook-heading-group">
-              <CardTitle>Public offers</CardTitle>
+              <CardTitle className="orderbook-title">Public offers</CardTitle>
               <Button
                 aria-label="Find a trade step by step"
                 className="orderbook-guided-trade-link"
@@ -1338,30 +1341,17 @@ function DirectionIcon({ order }: { order: PublicOrder }) {
   return isTakerBuying(order) ? <ArrowDownLeft size={18} /> : <ArrowUpRight size={18} />;
 }
 
-function OfferAmountLine({ order }: { order: PublicOrder }) {
-  const sats = knownSatsValue(order.satoshis) ?? knownSatsValue(order.satoshis_now);
-
-  if (order.has_range || !sats) {
-    return (
-      <span className="offer-amount-line">
-        <strong className={order.has_range ? "offer-amount-value offer-amount-value-range" : "offer-amount-value"}>
-          <FiatAmount order={order} size={18} />
-        </strong>
-      </span>
-    );
-  }
-
+const OfferAmountLine = memo(function OfferAmountLine({ order }: { order: PublicOrder }) {
   return (
     <span className="offer-amount-line">
-      <strong className="amount-mono">{formatSats(sats)}</strong>
-      <span>
-        <FiatAmount order={order} size={17} />
-      </span>
+      <strong className={order.has_range ? "offer-amount-value offer-amount-value-range" : "offer-amount-value"}>
+        <FiatAmount order={order} size={18} />
+      </strong>
     </span>
   );
-}
+});
 
-function OfferMethodLine({ order }: { order: PublicOrder }) {
+const OfferMethodLine = memo(function OfferMethodLine({ order }: { order: PublicOrder }) {
   const hasMethodIcon = matchedPaymentMethods(order.payment_method).length > 0;
 
   return (
@@ -1371,7 +1361,7 @@ function OfferMethodLine({ order }: { order: PublicOrder }) {
       {order.is_swap ? <span className="offer-swap-chip">Swap</span> : null}
     </span>
   );
-}
+});
 
 function TradeFlowPreview({
   coordinator,
@@ -1459,7 +1449,7 @@ function FiatAmount({ amountOverride, order, size = 18 }: { amountOverride?: num
   );
 }
 
-function ExpiryDisplay({ expiresAt, nowMs }: { expiresAt?: string; nowMs: number }) {
+const ExpiryDisplay = memo(function ExpiryDisplay({ expiresAt, nowMs }: { expiresAt?: string; nowMs: number }) {
   const expiry = expiryRingValue(expiresAt, nowMs);
   const radius = 15;
   const circumference = 2 * Math.PI * radius;
@@ -1483,9 +1473,9 @@ function ExpiryDisplay({ expiresAt, nowMs }: { expiresAt?: string; nowMs: number
       </span>
     </span>
   );
-}
+});
 
-function CoordinatorPill({
+const CoordinatorPill = memo(function CoordinatorPill({
   coordinator,
   showName = false
 }: {
@@ -1496,11 +1486,16 @@ function CoordinatorPill({
 
   return (
     <span className="coordinator-pill" title={coordinator.longAlias}>
-      <img className="coordinator-avatar coordinator-avatar-xs" src={coordinator.smallAvatarUrl} alt="" />
+      <img
+        className="coordinator-avatar coordinator-avatar-xs"
+        src={coordinator.smallAvatarUrl}
+        alt=""
+        loading="lazy"
+      />
       {showName ? <span className="coordinator-pill-name">{coordinator.longAlias}</span> : null}
     </span>
   );
-}
+});
 
 function compareOrders(left: PublicOrder, right: PublicOrder, column: SortColumn, direction: SortDirection): number {
   const multiplier = direction === "asc" ? 1 : -1;

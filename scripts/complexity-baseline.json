@@ -1,8 +1,6 @@
 {
   "src/components/ui/visualSelect.tsx#VisualSelect": 22,
-  "src/domains/chat/ChatStagePanel.tsx#ChatStagePanel": 59,
-  "src/domains/chat/ChatStagePanel.tsx#applyChatResponse": 22,
-  "src/domains/chat/ChatStagePanel.tsx#sendMessage": 21,
+  "src/domains/chat/ChatStagePanel.tsx#ChatStagePanel": 57,
   "src/domains/coordinators/CoordinatorsPage.tsx#CoordinatorDetailDialog": 27,
   "src/domains/garage/RobotGaragePage.tsx#RobotGaragePage": 32,
   "src/domains/location/F2FLocationDialog.tsx#F2FLocationDialog": 35,

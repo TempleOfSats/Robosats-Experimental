@@ -85,23 +85,23 @@
 .pro-trade-row-open {
   display: grid;
   grid-template-columns:
-    minmax(10.5rem, 1.15fr)
-    minmax(13rem, 1.55fr)
-    minmax(9rem, 1fr)
-    minmax(10rem, 1.2fr)
-    minmax(6rem, 0.65fr);
+    minmax(10.5rem, 18rem)
+    minmax(13rem, 20rem)
+    2.5rem
+    minmax(10rem, 1fr)
+    minmax(6rem, auto);
   align-items: center;
   gap: 0.9rem;
 }
 
 .pro-trade-header {
   grid-template-columns:
-    minmax(10.5rem, 1.15fr)
-    minmax(13rem, 1.55fr)
-    minmax(9rem, 1fr)
-    minmax(10rem, 1.2fr)
-    minmax(6rem, 0.65fr)
-    minmax(8rem, auto);
+    minmax(10.5rem, 18rem)
+    minmax(13rem, 20rem)
+    2.5rem
+    minmax(10rem, 1fr)
+    minmax(6rem, auto)
+    6rem;
   min-height: 2.5rem;
   border-bottom: 1px solid var(--border-subtle);
   color: var(--text-supporting);
@@ -112,11 +112,11 @@
 
 .pro-trade-header-no-actions {
   grid-template-columns:
-    minmax(10.5rem, 1.15fr)
-    minmax(13rem, 1.55fr)
-    minmax(9rem, 1fr)
-    minmax(10rem, 1.2fr)
-    minmax(6rem, 0.65fr);
+    minmax(10.5rem, 18rem)
+    minmax(13rem, 20rem)
+    2.5rem
+    minmax(10rem, 1fr)
+    minmax(6rem, auto);
 }
 
 .pro-trade-row {
@@ -153,7 +153,7 @@
 }
 
 .pro-trade-actions {
-  min-width: 8rem;
+  min-width: 6rem;
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -163,6 +163,9 @@
 
 .pro-trade-action-button {
   flex: 0 0 auto;
+  width: 2.5rem;
+  min-width: 2.5rem;
+  padding: 0;
 }
 
 .pro-trade-robot,
@@ -213,12 +216,21 @@
   white-space: normal;
 }
 
-.pro-trade-coordinator span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--type-compact-size);
+.pro-trade-coordinator {
+  justify-content: center;
+}
+
+.pro-trade-coordinator-fallback {
+  width: 1.65rem;
+  height: 1.65rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-subtle);
+  color: var(--text-supporting);
+  font-size: var(--type-caption-size);
+  font-weight: 700;
 }
 
 .pro-trade-row .ui-badge {

@@ -3,6 +3,7 @@ import { toUserMessage } from "@/lib/userError";
 import { fetchCoordinatorBook } from "@/domains/coordinators/coordinatorApi";
 import type { CoordinatorConnection, CoordinatorSummary, Network, Origin } from "@/domains/coordinators/coordinator.types";
 import { fetchNostrOrderbook } from "@/domains/orderbook/nostrOrderbook";
+import { activePublicOrders } from "@/domains/orderbook/orderbookFilters";
 import {
   isFreshOrderbookCache,
   readOrderbookCache,
@@ -119,7 +120,7 @@ async function runOrderbookRefresh(
   let cachedPaintMs: number | undefined;
   let firstPartialMs: number | undefined;
   const cached = readOrderbookCache(connection, network, origin) ?? readStaleOrderbookCache(connection, network, origin);
-  const cachedOrders = cached ? activeCachedOrders(cached.orders) : [];
+  const cachedOrders = cached ? activePublicOrders(cached.orders) : [];
   const cachedState = cached && isFreshOrderbookCache(cached.savedAt) ? "fresh" : "stale";
 
   set((state) => {
@@ -127,9 +128,6 @@ async function runOrderbookRefresh(
 
     if (cached && cachedOrders.length > 0 && (!sameSource || state.orders.length === 0)) {
       cachedPaintMs = performance.now() - startedAt;
-      logNativeOrderbook(
-        `Rendered ${cachedOrders.length} ${cachedState} cached offers in ${Math.round(cachedPaintMs)}ms`
-      );
       return {
         orders: cachedOrders,
         loading: false,
@@ -381,14 +379,6 @@ function orderKey(order: PublicOrder): string {
   return `${order.coordinatorShortAlias}:${order.id}`;
 }
 
-function activeCachedOrders(orders: PublicOrder[], now = Date.now()): PublicOrder[] {
-  return orders.filter((order) => {
-    if (!order.expires_at) return true;
-    const expiresAt = Date.parse(order.expires_at);
-    return !Number.isFinite(expiresAt) || expiresAt > now;
-  });
-}
-
 function logOrderbookTiming({
   connection,
   cachedPaintMs,
@@ -410,18 +400,9 @@ function logOrderbookTiming({
     orderCount
   };
 
-  logNativeOrderbook(
-    `Live ${connection} refresh completed with ${orderCount} offers in ${timing.finalMs}ms` +
-      (timing.firstPartialMs == null ? "" : `; first relay data ${timing.firstPartialMs}ms`)
-  );
-
   if (!import.meta.env.DEV) return;
 
   console.debug("[orderbook]", timing);
-}
-
-function logNativeOrderbook(message: string): void {
-  globalThis.window?.IOSAppRobosats?.clientLog?.(`Orderbook: ${message}`);
 }
 
 function orderbookRefreshKey(

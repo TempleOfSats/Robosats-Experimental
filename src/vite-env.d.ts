@@ -19,14 +19,10 @@ interface RoboSatsNativeBridge {
     copyToClipboard(value: string): void;
     openExternal(url: string): void;
     saveFile?(filename: string, mimeType: string, contentBase64: string): boolean;
-    clientLog?(message: string): void;
 }
 
 interface Window {
   RobosatsSettings?: string;
-  AndroidDataRobosats?: {
-    navigateToPage?: string;
-  };
   AndroidAppRobosats?: RoboSatsNativeBridge;
   IOSAppRobosats?: RoboSatsNativeBridge;
   __robosatsNativeTransport?: {

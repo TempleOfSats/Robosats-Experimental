@@ -23,20 +23,85 @@
   color: var(--primary);
 }
 
-.pro-reused-robot-status {
+.pro-fresh-robot-option {
+  border-color: color-mix(in srgb, var(--primary) 42%, var(--border));
+  background: color-mix(in srgb, var(--primary) 7%, var(--surface-subtle));
+}
+
+.pro-fresh-robot-icon {
+  width: 2.5rem;
+  height: 2.5rem;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--primary-foreground);
+  background: var(--primary);
+}
+
+.pro-fresh-robot-option .garage-switcher-item-status {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
-  color: var(--warning-foreground);
+  color: var(--text-supporting);
 }
 
-.pro-reused-robot-note {
+.pro-robot-list-divider {
   margin: 0;
-  padding: 0.75rem 1rem;
-  border-top: 1px solid var(--border);
+  padding: 0.15rem 0.2rem 0;
   color: var(--text-supporting);
   font-size: var(--type-caption-size);
   line-height: var(--type-caption-line);
+}
+
+.pro-reuse-confirmation {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+}
+
+.pro-reuse-robot {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.pro-reuse-robot > span {
+  min-width: 0;
+  display: grid;
+  gap: 0.1rem;
+}
+
+.pro-reuse-robot small,
+.pro-reuse-confirmation p {
+  color: var(--text-supporting);
+}
+
+.pro-reuse-robot strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pro-reuse-confirmation p {
+  margin: 0;
+  font-size: var(--type-compact-size);
+  line-height: var(--type-compact-line);
+}
+
+.pro-reuse-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+  gap: 0.55rem;
+}
+
+.pro-reuse-actions .ui-button {
+  min-width: 0;
+}
+
+@media (max-width: 420px) {
+  .pro-reuse-actions {
+    grid-template-columns: 1fr;
+  }
 }
 
 .pro-create-robot-empty {

@@ -1,7 +1,4 @@
-import type {
-  AndroidNotificationState,
-  AndroidTorDiagnostics
-} from "@/domains/transport/androidBridge";
+import type { AndroidNotificationState, AndroidTorDiagnostics } from "@/domains/transport/androidBridge";
 
 type DesktopRuntimeStatus = {
   state: "starting" | "connecting" | "ready" | "failed" | "loading";
@@ -147,6 +144,7 @@ export function initializeDesktopRuntimeBridge(): void {
   void getDesktopNotificationState().catch(() => null);
   void listen("robosats:tor-reconnected", (payload) => {
     window.dispatchEvent(new CustomEvent("robosats:tor-reconnected", { detail: payload }));
+    window.dispatchEvent(new CustomEvent("robosats:tor-ready", { detail: payload }));
   });
   void listen("robosats:native-resume", () => {
     window.dispatchEvent(new Event("robosats:native-resume"));

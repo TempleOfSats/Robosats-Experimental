@@ -1,6 +1,6 @@
 import { sha256 } from "js-sha256";
 import { sha256 as sha256Hash, sha512 } from "@noble/hashes/sha2.js";
-import { getPublicKey } from "nostr-tools";
+import { getPublicKey } from "nostr-tools/pure";
 import { validateTokenEntropy } from "@/domains/garage/token";
 import { hexToBase91 } from "@/lib/hexToBase91";
 

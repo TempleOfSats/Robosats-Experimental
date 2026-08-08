@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -42,6 +42,7 @@ export default defineConfig(({ command, mode }) => {
     plugins: [
       react(),
       ...(versionStatic ? [versionStaticAssets(staticRevision)] : []),
+      preloadLatinFont(),
       ...(command === "build" ? [deferApplicationStyles()] : [])
     ],
     resolve: {
@@ -145,6 +146,36 @@ function versionStaticAssets(revision: string) {
       const versionedPath = resolve(distStaticPath, revision);
       renameSync(unversionedPath, versionedPath);
       rewriteStaticTextFiles(versionedPath, versionedPrefix);
+    }
+  };
+}
+
+function preloadLatinFont(): Plugin {
+  let latinFontPath = "";
+  return {
+    name: "robosats-preload-latin-font",
+    apply: "build",
+    generateBundle(_options, bundle) {
+      for (const fileName of Object.keys(bundle)) {
+        if (/public-sans-latin-wght-normal\.[^/]+\.woff2$/.test(fileName)) {
+          latinFontPath = "/" + fileName;
+        }
+      }
+    },
+    writeBundle(options) {
+      if (!latinFontPath) throw new Error("Public Sans Latin font asset was not emitted");
+      const outDir = options.dir ?? "dist";
+      const htmlPath = resolve(outDir, "index.html");
+      const html = readFileSync(htmlPath, "utf8");
+      if (html.includes('rel="preload" as="font"')) return;
+      if (!html.includes("</head>")) throw new Error("Build output is missing the closing head tag");
+      writeFileSync(
+        htmlPath,
+        html.replace(
+          "</head>",
+          `  <link rel="preload" as="font" type="font/woff2" href="${latinFontPath}" crossorigin>\n  </head>`
+        )
+      );
     }
   };
 }
