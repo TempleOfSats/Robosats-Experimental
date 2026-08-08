@@ -1,6 +1,6 @@
 import { Info, LayoutList, PlusCircle, Settings, Store, Workflow, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import { NavLink } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { NavLink, useLocation } from "react-router-dom";
 import type { RoboSatsPlatform } from "@/app/platform";
 import { preloadAppRoute } from "@/app/routes";
 import { RoboSatsLogo } from "@/components/app/RoboSatsLogo";
@@ -19,6 +19,7 @@ const items = [
 ];
 
 export function AppSidebar({ platform: _platform }: { platform: RoboSatsPlatform }) {
+  const location = useLocation();
   const hydrate = useGarageStore((state) => state.hydrate);
   const slots = useGarageStore((state) => state.slots);
   const currentToken = useGarageStore((state) => state.currentToken);
@@ -26,11 +27,14 @@ export function AppSidebar({ platform: _platform }: { platform: RoboSatsPlatform
   const visibleSlots = proEnabled ? selectFleetManagedSlots(slots) : selectStandardGarageSlots(slots);
   const activeSlot = visibleSlots.find((s) => s.token === currentToken) ?? visibleSlots[0];
   const activeTradePath = getActiveTradePath(activeSlot);
+  const runtimeReady = useProTradeIndexStore((state) => state.runtimeReady);
   const snapshots = useProTradeIndexStore((state) => state.snapshots);
   const attentionCount = useMemo(
     () => Object.values(snapshots).filter((snapshot) => classifyProTrade(snapshot) === "needs-action").length,
     [snapshots]
   );
+  const proDeskActive = location.pathname === "/pro" || location.pathname.startsWith("/pro/");
+  const attentionPulse = useRisingAttentionPulse(attentionCount, runtimeReady, proDeskActive);
   const [unavailableItem, setUnavailableItem] = useState<"robot" | "trade" | null>(null);
 
   useEffect(() => {
@@ -72,7 +76,9 @@ export function AppSidebar({ platform: _platform }: { platform: RoboSatsPlatform
         {proEnabled ? (
           <NavLink
             to="/pro"
-            className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")}
+            className={({ isActive }) =>
+              `nav-item${isActive ? " active" : ""}${attentionPulse ? " nav-item-attention-pulse" : ""}`
+            }
             onFocus={() => preloadAppRoute("/pro")}
             onPointerEnter={() => preloadAppRoute("/pro")}
           >
@@ -151,6 +157,52 @@ export function AppSidebar({ platform: _platform }: { platform: RoboSatsPlatform
       ) : null}
     </aside>
   );
+}
+
+function useRisingAttentionPulse(count: number, ready: boolean, destinationActive: boolean): boolean {
+  const [active, setActive] = useState(false);
+  const seeded = useRef(false);
+  const previousCount = useRef(0);
+  const timeout = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    if (!ready) {
+      seeded.current = false;
+      previousCount.current = count;
+      if (timeout.current !== undefined) window.clearTimeout(timeout.current);
+      timeout.current = undefined;
+      setActive(false);
+      return;
+    }
+    if (!seeded.current) {
+      seeded.current = true;
+      previousCount.current = count;
+      return;
+    }
+
+    const increased = count > previousCount.current;
+    previousCount.current = count;
+    if (destinationActive) {
+      if (timeout.current !== undefined) window.clearTimeout(timeout.current);
+      timeout.current = undefined;
+      setActive(false);
+      return;
+    }
+    if (!increased) return;
+
+    setActive(true);
+    if (timeout.current !== undefined) window.clearTimeout(timeout.current);
+    timeout.current = window.setTimeout(() => {
+      timeout.current = undefined;
+      setActive(false);
+    }, 1_100);
+  }, [count, destinationActive, ready]);
+
+  useEffect(() => () => {
+    if (timeout.current !== undefined) window.clearTimeout(timeout.current);
+  }, []);
+
+  return active;
 }
 
 function getActiveTradePath(slot: RobotSlot | undefined): string | undefined {

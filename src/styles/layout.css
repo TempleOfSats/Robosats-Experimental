@@ -523,6 +523,16 @@
   box-shadow: inset 3px 0 0 var(--selection-indicator);
 }
 
+.nav-item-attention-pulse::after {
+  content: "";
+  position: absolute;
+  inset: -0.18rem;
+  pointer-events: none;
+  border: 1px solid transparent;
+  border-radius: calc(var(--radius-md) + 0.18rem);
+  animation: nav-attention-halo 1.1s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
 .nav-item-disabled {
   position: relative;
   width: 100%;
@@ -588,6 +598,30 @@
   text-align: center;
   font-size: var(--type-caption-size);
   font-variant-numeric: tabular-nums lining-nums;
+}
+
+@keyframes nav-attention-halo {
+  0% {
+    border-color: transparent;
+    box-shadow: 0 0 0 0 transparent;
+  }
+  32% {
+    border-color: var(--warning-border);
+    box-shadow:
+      0 0 0 0.22rem color-mix(in srgb, var(--warning-border) 18%, transparent),
+      0 0 1.05rem color-mix(in srgb, var(--warning-border) 42%, transparent);
+  }
+  100% {
+    border-color: transparent;
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-item-attention-pulse::after {
+    animation: none !important;
+    border-color: var(--warning-border);
+  }
 }
 
 .sidebar-card {

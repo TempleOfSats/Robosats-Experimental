@@ -544,29 +544,27 @@
   gap: 0.4rem;
 }
 
-.pro-robot-added-notice {
-  position: fixed;
-  right: 1rem;
-  bottom: 1rem;
-  z-index: 210;
-  width: min(calc(100vw - 2rem), 24rem);
-  min-height: 4rem;
-  display: grid;
+.pro-action-notice {
+  --action-notice-accent: var(--success-border);
   grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 0.75rem;
-  border: 1px solid var(--secondary);
-  border-radius: var(--radius-md);
-  background: var(--card);
-  color: var(--foreground);
-  padding: 0.65rem 0.75rem;
-  box-shadow: var(--shadow-lg);
 }
 
-.pro-robot-added-notice strong {
-  min-width: 0;
-  overflow-wrap: anywhere;
-  font-size: var(--type-compact-size);
+.pro-action-notice-icon {
+  width: 2rem;
+  height: 2rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--success-border);
+  border-radius: 999px;
+  background: var(--success-surface);
+  color: var(--success-foreground);
+}
+
+.pro-action-notice-close {
+  width: 2.25rem;
+  min-width: 2.25rem;
+  min-height: 2.25rem;
+  color: var(--muted-foreground);
 }
 
 .pro-trade-dialog-overlay {

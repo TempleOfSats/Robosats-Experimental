@@ -11,6 +11,7 @@ import { proTradeKey } from "@/domains/pro/pro.types";
 import { jitteredDelay, PRO_RECONCILE_POLICY } from "@/domains/pro/reconcilePolicy";
 
 type ProTradeIndexState = {
+  runtimeReady: boolean;
   snapshots: Record<ProTradeKey, ProTradeSnapshot>;
   syncBySlot: Record<ProSlotId, SlotSyncState>;
   dirtyKeys: Partial<Record<ProTradeKey, true>>;
@@ -31,10 +32,12 @@ type ProTradeIndexState = {
 };
 
 export const useProTradeIndexStore = create<ProTradeIndexState>((set) => ({
+  runtimeReady: false,
   snapshots: {},
   syncBySlot: {},
   dirtyKeys: {},
   hydrateRuntimeCache: (snapshots, syncBySlot) => set({
+    runtimeReady: true,
     snapshots,
     syncBySlot,
     dirtyKeys: {}
@@ -115,5 +118,5 @@ export const useProTradeIndexStore = create<ProTradeIndexState>((set) => ({
     delete syncBySlot[slotId];
     return { snapshots, dirtyKeys, syncBySlot };
   }),
-  resetRuntimeCache: () => set({ snapshots: {}, syncBySlot: {}, dirtyKeys: {} })
+  resetRuntimeCache: () => set({ runtimeReady: false, snapshots: {}, syncBySlot: {}, dirtyKeys: {} })
 }));

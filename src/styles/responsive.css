@@ -1,7 +1,7 @@
 @media (max-width: 900px) {
-  .maker-create-identity-notice {
-    right: 0.75rem;
-    bottom: 0.75rem;
+  .action-notice {
+    right: max(0.75rem, env(safe-area-inset-right));
+    bottom: max(0.75rem, env(safe-area-inset-bottom));
     width: calc(100vw - 1.5rem);
   }
 
