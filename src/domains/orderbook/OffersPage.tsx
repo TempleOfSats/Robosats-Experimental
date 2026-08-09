@@ -676,10 +676,6 @@ export function OffersPage() {
           </CardHeader>
           <CardContent>
             <div className="table-toolbar orderbook-toolbar">
-              <div className="orderbook-mobile-filter-heading">
-                <span>Filter offers</span>
-                <small>{filteredOrders.length} shown</small>
-              </div>
               <div className="orderbook-filter-strip orderbook-secondary-filters" aria-label="Filter public offers">
                 <div className="filter-select-field">
                   <span>Buy/Sell</span>
