@@ -138,4 +138,5 @@ dependencies {
     implementation(libs.security.crypto.ktx)
     implementation(libs.androidx.activity)
     implementation(libs.androidx.constraintlayout)
+    testImplementation(kotlin("test"))
 }
