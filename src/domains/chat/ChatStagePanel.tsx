@@ -555,9 +555,9 @@ export function ChatStagePanel({
             <span>
               <strong title={peerNick || "Trade peer"}>{peerNick || "Trade peer"}</strong>
               <small>Peer</small>
-              {!isPreChat && hasLivePresence ? presenceLabel(peerConnected) : null}
             </span>
           </div>
+          {!isPreChat && hasLivePresence ? presenceLabel(peerConnected, peerNick) : null}
         </div>
       </CardHeader>
       <CardContent>
@@ -1061,11 +1061,17 @@ function formatChatTime(value: string): string {
   return chatTimeFormatter.format(date);
 }
 
-function presenceLabel(peerConnected: boolean | undefined) {
+function presenceLabel(peerConnected: boolean | undefined, peerNick: string) {
   if (peerConnected === undefined) return null;
+  const status = peerConnected ? "Online" : "Offline";
   return (
-    <span className={peerConnected ? "chat-presence chat-presence-online" : "chat-presence"}>
-      {peerConnected ? "Online" : "Offline"}
+    <span
+      aria-label={`${peerNick || "Trade peer"} is ${status.toLowerCase()}`}
+      aria-live="polite"
+      className={peerConnected ? "chat-presence chat-presence-online" : "chat-presence"}
+      role="status"
+    >
+      {status}
     </span>
   );
 }

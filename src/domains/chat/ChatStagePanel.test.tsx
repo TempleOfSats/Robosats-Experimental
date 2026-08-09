@@ -66,7 +66,13 @@ describe("ChatStagePanel presence", () => {
       mocks.socket?.onmessage?.({ data: JSON.stringify({ peer_connected: true }) });
     });
     expect(mocks.fetchChatMessages).toHaveBeenCalledOnce();
-    expect(document.querySelector(".chat-presence")?.textContent).toBe("Online");
+    const presence = document.querySelector(".chat-presence");
+    const peerBubble = document.querySelector(".chat-participant-peer");
+    expect(presence?.textContent).toBe("Online");
+    expect(presence?.parentElement).toBe(document.querySelector(".chat-participants"));
+    expect(peerBubble?.contains(presence)).toBe(false);
+    expect(presence?.getAttribute("role")).toBe("status");
+    expect(presence?.getAttribute("aria-label")).toBe("Peer is online");
 
     await act(async () => {
       pending[0]?.({ peerConnected: false, peerPubkey: "", messages: [] });

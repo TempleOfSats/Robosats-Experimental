@@ -117,9 +117,18 @@ export function PaymentQrCard({
             </div>
           )}
         </div>
-        {footer ? <div className="payment-card-footer">{footer}</div> : null}
+        <PaymentCardFooter>{footer}</PaymentCardFooter>
       </CardContent>
     </Card>
+  );
+}
+
+export function PaymentCardFooter({ children, disabled = false }: { children?: ReactNode; disabled?: boolean }) {
+  if (!children) return null;
+  return (
+    <fieldset aria-busy={disabled || undefined} className="payment-card-footer" disabled={disabled}>
+      {children}
+    </fieldset>
   );
 }
 

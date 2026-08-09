@@ -802,7 +802,8 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  gap: 0.75rem;
+  column-gap: 0.75rem;
+  row-gap: 0.3rem;
   padding: 0.15rem 0;
 }
 
@@ -846,10 +847,6 @@
   text-align: right;
 }
 
-.chat-participant-peer .chat-presence {
-  justify-content: flex-end;
-}
-
 .chat-participant-divider {
   color: var(--muted-foreground);
   font-size: 0.75rem;
@@ -865,6 +862,13 @@
   color: var(--muted-foreground);
   font-size: 0.75rem;
   font-weight: 600;
+}
+
+.chat-participants > .chat-presence {
+  grid-column: 3;
+  grid-row: 2;
+  justify-self: end;
+  margin-inline-end: 0.65rem;
 }
 
 .chat-presence::before {
@@ -1250,15 +1254,21 @@
 
 .payment-card-footer {
   width: min(100%, 19rem);
+  min-width: 0;
   margin: 1rem auto 0;
+  border: 0;
   border-top: 1px solid var(--border);
-  padding-top: 1rem;
+  padding: 1rem 0 0;
 }
 
 .payment-card-footer > .trade-action-surface,
 .payment-card-footer > .trade-action-surface .trade-action-command,
 .payment-card-footer > .trade-action-surface .trade-action-command > .ui-button {
   width: 100%;
+}
+
+.payment-card-footer > .trade-action-surface {
+  margin-top: 0;
 }
 
 .payment-card-footer > .trade-action-surface .trade-action-command > .ui-button {
@@ -2200,7 +2210,8 @@
 
 @media (max-width: 620px) {
   .chat-participants {
-    gap: 0.45rem;
+    column-gap: 0.45rem;
+    row-gap: 0.25rem;
   }
 
   .chat-participant {
@@ -2232,7 +2243,7 @@
     padding: 0.38rem;
   }
 
-  .chat-participant > span small:not(.chat-presence) {
+  .chat-participant > span small {
     display: none;
   }
 }

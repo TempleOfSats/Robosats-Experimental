@@ -58,7 +58,7 @@ import { buildProvisionalMakerOrder, buildRenewOrderPayload, createOrder } from 
 import { ingestCoordinatorOrder, recordCoordinatorSettlement } from "@/domains/orders/orderActivity";
 import type { Auth } from "@/domains/transport/apiClient";
 import { tradeMotionClass } from "@/domains/motion/tradeMotion";
-import { PaymentQrCard } from "@/domains/payments/PaymentQrCard";
+import { PaymentCardFooter, PaymentQrCard } from "@/domains/payments/PaymentQrCard";
 import {
   lightningPayoutAmount,
   lightningRoutingBudgetSats,
@@ -704,6 +704,10 @@ function ContractPanel({
   const isFinishedStep = shouldShowFinishedReceipt(order, view);
   const isRoutingStep = view.panel === "sending_sats" || view.panel === "routing_failed";
   const isPublicMakerWait = view.panel === "public_order" && order.is_maker;
+  const dedicatedStepFooter =
+    (isInvoicePaymentStep || isPayoutStep) && actions.length > 0 ? (
+      <TradeActionSurface actions={actions} canSubmit={canSubmit} loading={loading} onSubmit={onSubmitCommand} />
+    ) : undefined;
   const hasDedicatedStep = [
     isInvoicePaymentStep,
     isChatStep,
@@ -773,11 +777,7 @@ function ContractPanel({
         onRenew={onRenew}
         onStartAgain={onStartAgain}
         onPublishRating={onPublishRating}
-        footer={
-          isInvoicePaymentStep && actions.length > 0 ? (
-            <TradeActionSurface actions={actions} canSubmit={canSubmit} loading={loading} onSubmit={onSubmitCommand} />
-          ) : undefined
-        }
+        footer={dedicatedStepFooter}
         onSubmitAction={onSubmitAction}
         onSubmitPayout={onSubmitPayout}
       />
@@ -1310,6 +1310,7 @@ function TradePaymentPanel({
     return (
       <PayoutSubmissionCard
         canSubmit={canSubmit}
+        footer={footer}
         loading={loading}
         order={order}
         previewMode={previewMode}
@@ -1519,6 +1520,7 @@ type PayoutMode = "lightning" | "onchain";
 
 function PayoutSubmissionCard({
   canSubmit,
+  footer,
   loading,
   order,
   previewMode,
@@ -1528,6 +1530,7 @@ function PayoutSubmissionCard({
   onSubmit
 }: {
   canSubmit: boolean;
+  footer?: ReactNode;
   loading: boolean;
   order: OrderDto;
   previewMode: boolean;
@@ -1631,6 +1634,7 @@ function PayoutSubmissionCard({
   const onchainBreakdown = onchainPayoutBreakdown(order.invoice_amount, order.swap_fee_rate, parsedMiningFeeRate);
   const invalidMiningFee =
     !Number.isFinite(parsedMiningFeeRate) || parsedMiningFeeRate < 2 || parsedMiningFeeRate > 500;
+  const footerDisabled = [loading, signing, wrappingProxy].some(Boolean);
 
   return (
     <Card className="payout-entry-card">
@@ -1879,6 +1883,7 @@ function PayoutSubmissionCard({
             {retryInvoice ? "Submit new invoice" : "Submit"}
           </Button>
         </form>
+        <PaymentCardFooter disabled={footerDisabled}>{footer}</PaymentCardFooter>
       </CardContent>
     </Card>
   );
