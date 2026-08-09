@@ -58,8 +58,18 @@ describe("Garage robot token controls", () => {
       );
     });
 
+    expect(document.body.textContent).toContain("No active trades");
+    const recoveryTools = document.querySelector<HTMLDetailsElement>(".garage-identity-tools");
+    expect(recoveryTools?.open).toBe(false);
+    expect(recoveryTools?.textContent).toContain("Recovery & backup");
     expect(document.querySelector('input[aria-label="Robot token"]')).toBeNull();
     expect(document.body.innerHTML).not.toContain(token);
+
+    await act(async () => {
+      recoveryTools?.querySelector("summary")?.click();
+    });
+    expect(recoveryTools?.open).toBe(true);
+
     await clickButton("Download Patient robot token backup as JSON");
     await clickButton("Copy token");
 
@@ -76,16 +86,36 @@ describe("Garage robot token controls", () => {
 
     await clickButton("Hide token");
     expect(document.querySelector('input[aria-label="Robot token"]')).toBeNull();
+    expect(document.body.innerHTML).not.toContain(token);
+
+    await clickButton("Show token");
+    expect(document.querySelector<HTMLInputElement>('input[aria-label="Robot token"]')?.value).toBe(token);
+
+    await act(async () => {
+      recoveryTools?.querySelector("summary")?.click();
+    });
+    expect(recoveryTools?.open).toBe(false);
+    expect(document.querySelector('input[aria-label="Robot token"]')).toBeNull();
+    expect(document.body.innerHTML).not.toContain(token);
+
+    await act(async () => {
+      recoveryTools?.querySelector("summary")?.click();
+    });
+    expect(findButton("Show token")).toBeDefined();
   });
 });
 
 async function clickButton(label: string): Promise<void> {
-  const button = [...document.querySelectorAll("button")].find(
-    (candidate) => candidate.getAttribute("aria-label") === label || candidate.getAttribute("title") === label
-  );
+  const button = findButton(label);
   expect(button).toBeDefined();
   await act(async () => {
     button?.click();
     await Promise.resolve();
   });
+}
+
+function findButton(label: string): HTMLButtonElement | undefined {
+  return [...document.querySelectorAll<HTMLButtonElement>("button")].find(
+    (candidate) => candidate.getAttribute("aria-label") === label || candidate.getAttribute("title") === label
+  );
 }

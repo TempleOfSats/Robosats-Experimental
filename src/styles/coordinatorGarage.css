@@ -1519,8 +1519,8 @@
 
 .maker-coordinator-picker {
   display: grid;
-  gap: 0.65rem;
-  margin-top: 1rem;
+  gap: 0.45rem;
+  margin-top: 0.7rem;
 }
 
 .maker-coordinator-heading {
@@ -1560,27 +1560,27 @@
 }
 
 .maker-coordinator-box .visual-select-trigger {
-  min-height: 4.75rem;
-  background: color-mix(in srgb, var(--muted) 42%, transparent);
+  min-height: 3.9rem;
+  background: color-mix(in srgb, var(--muted) 30%, transparent);
 }
 
 .maker-coordinator-box .visual-select-icon > img {
-  width: 3rem;
-  height: 3rem;
+  width: 2.5rem;
+  height: 2.5rem;
 }
 
 .maker-coordinator-detail-button {
   appearance: none;
-  min-height: 2.25rem;
+  min-height: 2rem;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 0.35rem;
-  border: 1px solid var(--border);
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
-  background: var(--card);
+  background: transparent;
   color: var(--muted-foreground);
-  padding: 0.35rem 0.55rem;
+  padding: 0.25rem 0.45rem;
   font: inherit;
   font-size: 0.75rem;
   font-weight: 600;
@@ -1604,12 +1604,12 @@
 }
 
 .maker-coordinator-status {
-  min-height: 2.35rem;
+  min-height: 2rem;
   display: flex;
   align-items: center;
   gap: 0.45rem;
   border-radius: var(--radius-sm);
-  padding: 0.48rem 0.65rem;
+  padding: 0.36rem 0.55rem;
   color: var(--muted-foreground);
   font-size: 0.78rem;
   font-weight: 600;
@@ -1675,7 +1675,7 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   border-top: 1px solid var(--border);
-  padding-top: 0.65rem;
+  padding: 0.5rem 0.1rem 0;
 }
 
 :root[data-theme="light"] .robot-wizard {

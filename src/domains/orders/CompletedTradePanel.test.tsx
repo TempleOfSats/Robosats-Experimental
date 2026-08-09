@@ -55,6 +55,14 @@ describe("CompletedTradePanel", () => {
     expect(receiptSummary(html)).not.toContain("Bitcoin received</dt>");
   });
 
+  it("keeps optional ratings collapsed until the trader opens them", () => {
+    const html = render(completedOrder({}));
+
+    expect(html).toContain('<details class="trade-completion-rating">');
+    expect(html).toContain("Optional feedback for your peer and host");
+    expect(html).not.toContain('<details class="trade-completion-rating" open="">');
+  });
+
   it("keeps the seller receipt final while the buyer payout is queued", () => {
     const html = render(completedOrder({ tx_queued: true, txid: undefined }));
 

@@ -5,6 +5,7 @@ import {
   Clock3,
   Copy,
   Download,
+  Ellipsis,
   History,
   ListChecks,
   Pause,
@@ -33,7 +34,7 @@ import { classifyProTrade, summarizeProRobots } from "@/domains/pro/proSelectors
 import { FleetGlyph } from "@/domains/pro/ProWorkspaceIcons";
 import type { ProTradeLocator, ProTradeSnapshot, SlotSyncState } from "@/domains/pro/pro.types";
 import type { TradeHistoryEntry, TradeHistoryOutcome } from "@/domains/pro/tradeHistory";
-import { formatLastRefresh, groupLabel } from "@/domains/pro/proWorkspacePresentation";
+import { formatLastRefresh, groupLabel, proDeadlineTone } from "@/domains/pro/proWorkspacePresentation";
 import { writeClipboard } from "@/lib/clipboard";
 import { downloadTextFile } from "@/domains/transport/downloadFile";
 import { formatFiat, formatSats } from "@/lib/format";
@@ -104,116 +105,196 @@ export function TradeList({
         >
           <span>Robot</span>
           <span>Order</span>
-          <span>Host</span>
           <span>Status</span>
           <span>Deadline</span>
           {showQuickActions ? <span>Actions</span> : null}
         </div>
       ) : null}
-      {snapshots.map((snapshot, index) => {
-        const presentation = toProTradePresentation(snapshot);
-        const StatusIcon = presentation.statusIcon;
-        const coordinator = coordinators.find((item) => item.shortAlias === snapshot.locator.shortAlias);
-        const previous = snapshots[index - 1];
-        const showGroup = !previous || toProTradePresentation(previous).group !== presentation.group;
-        const hasQuickActions = hasTradeQuickActions(snapshot);
-        return (
-          <Fragment key={snapshot.key}>
-            {showGroup ? <div className="pro-trade-group">{groupLabel(presentation.group)}</div> : null}
-            <div
-              className={`pro-trade-row${hasQuickActions ? " pro-trade-row-quick-actions" : ""}${showQuickActions ? "" : " pro-trade-row-no-actions"}`}
-            >
-              <button
-                className="pro-trade-row-open"
-                type="button"
-                aria-label={`Open order ${snapshot.locator.orderId} for ${snapshot.nickname}, hosted by ${coordinator?.longAlias ?? snapshot.locator.shortAlias}`}
-                onClick={() => onOpen(snapshot.locator)}
-              >
-                <span className="pro-trade-robot">
-                  <RobotAvatar hashId={snapshot.hashId} label={snapshot.nickname} size="sm" />
-                  <span>
-                    <strong>{snapshot.nickname}</strong>
-                    <small>{presentation.directionLabel}</small>
-                  </span>
-                </span>
-                <span className="pro-trade-order" data-direction={presentation.directionLabel}>
-                  <strong>{presentation.amountLabel}</strong>
-                  <small>
-                    {presentation.methodLabel} · #{snapshot.locator.orderId}
-                  </small>
-                </span>
-                <span className="pro-trade-coordinator" title={coordinator?.longAlias ?? snapshot.locator.shortAlias}>
-                  {coordinator ? (
-                    <img className="coordinator-avatar coordinator-avatar-xs" src={coordinator.smallAvatarUrl} alt="" />
-                  ) : (
-                    <span className="pro-trade-coordinator-fallback" aria-hidden="true">
-                      {snapshot.locator.shortAlias.slice(0, 1).toUpperCase()}
-                    </span>
-                  )}
-                </span>
-                <span className="pro-trade-status">
-                  <Badge tone={presentation.statusTone} icon={<StatusIcon size={12} />}>
-                    {presentation.statusLabel}
-                  </Badge>
-                </span>
-                <span className="pro-trade-deadline" title={formatExpiryTitle(snapshot.order?.expires_at)}>
-                  <Clock3 size={15} aria-hidden="true" />
-                  {presentation.deadline ? formatExpiryCountdown(snapshot.order?.expires_at) : "-"}
-                </span>
-              </button>
-              {showQuickActions ? (
-                <span className="pro-trade-actions">
-                  {snapshot.order?.status === 1 && snapshot.order.is_maker ? (
-                    <>
-                      <Button
-                        aria-label={`Pause order ${snapshot.locator.orderId}`}
-                        className="pro-trade-action-button"
-                        disabled={Boolean(quickActionKey)}
-                        loading={quickActionKey === `${snapshot.key}:pause`}
-                        onClick={() => onPause(snapshot)}
-                        size="icon"
-                        title="Hide this offer from the public order book"
-                        variant="outline"
-                      >
-                        <Pause size={15} />
-                      </Button>
-                      <Button
-                        aria-label={`Cancel order ${snapshot.locator.orderId}`}
-                        className="pro-trade-action-button pro-trade-cancel-button"
-                        disabled={Boolean(quickActionKey)}
-                        onClick={() => onCancel(snapshot)}
-                        size="icon"
-                        title="Cancel this offer"
-                        variant="destructive"
-                      >
-                        <X size={15} />
-                      </Button>
-                    </>
-                  ) : snapshot.order?.status === 2 && snapshot.order.is_maker ? (
-                    <Button
-                      aria-label={`Resume order ${snapshot.locator.orderId}`}
-                      className="pro-trade-action-button"
-                      disabled={Boolean(quickActionKey)}
-                      loading={quickActionKey === `${snapshot.key}:resume`}
-                      onClick={() => onResume(snapshot)}
-                      size="icon"
-                      title="Return this offer to the public order book"
-                      variant="outline"
-                    >
-                      <Play size={15} />
-                    </Button>
-                  ) : null}
-                </span>
-              ) : null}
-            </div>
-          </Fragment>
-        );
-      })}
+      {snapshots.map((snapshot, index) => (
+        <ProTradeRow
+          coordinators={coordinators}
+          hasActionsColumn={showQuickActions}
+          key={snapshot.key}
+          onCancel={onCancel}
+          onOpen={onOpen}
+          onPause={onPause}
+          onResume={onResume}
+          previous={snapshots[index - 1]}
+          quickActionKey={quickActionKey}
+          snapshot={snapshot}
+        />
+      ))}
     </div>
   );
 }
 
+function ProTradeRow({
+  coordinators,
+  hasActionsColumn,
+  onCancel,
+  onOpen,
+  onPause,
+  onResume,
+  previous,
+  quickActionKey,
+  snapshot
+}: {
+  coordinators: CoordinatorSummary[];
+  hasActionsColumn: boolean;
+  onCancel: (snapshot: ProTradeSnapshot) => void;
+  onOpen: (locator: ProTradeLocator) => void;
+  onPause: (snapshot: ProTradeSnapshot) => void;
+  onResume: (snapshot: ProTradeSnapshot) => void;
+  previous?: ProTradeSnapshot;
+  quickActionKey: string;
+  snapshot: ProTradeSnapshot;
+}) {
+  const presentation = toProTradePresentation(snapshot);
+  const StatusIcon = presentation.statusIcon;
+  const coordinator = coordinators.find((item) => item.shortAlias === snapshot.locator.shortAlias);
+  const coordinatorName = coordinator?.longAlias ?? snapshot.locator.shortAlias;
+  const showGroup = !previous || toProTradePresentation(previous).group !== presentation.group;
+  const hasQuickActions = hasTradeQuickActions(snapshot);
+  const deadlineTone = proDeadlineTone(presentation.deadline);
+
+  return (
+    <Fragment>
+      {showGroup ? <div className="pro-trade-group">{groupLabel(presentation.group)}</div> : null}
+      <div
+        className={`pro-trade-row${hasQuickActions ? " pro-trade-row-quick-actions" : ""}${hasActionsColumn ? "" : " pro-trade-row-no-actions"}`}
+        data-actionable={presentation.actionable || undefined}
+        data-status-tone={presentation.statusTone}
+      >
+        <button
+          className="pro-trade-row-open"
+          type="button"
+          aria-label={`Open order ${snapshot.locator.orderId} for ${snapshot.nickname}, hosted by ${coordinatorName}`}
+          onClick={() => onOpen(snapshot.locator)}
+        >
+          <span className="pro-trade-robot">
+            <RobotAvatar hashId={snapshot.hashId} label={snapshot.nickname} size="sm" />
+            <span>
+              <strong>{snapshot.nickname}</strong>
+              <small>{presentation.directionLabel}</small>
+            </span>
+          </span>
+          <span className="pro-trade-order" data-direction={presentation.directionLabel}>
+            <strong>{presentation.amountLabel}</strong>
+            <small className="pro-trade-order-meta">
+              <span>
+                {presentation.methodLabel} · #{snapshot.locator.orderId}
+              </span>
+              <span className="pro-trade-coordinator" title={coordinatorName}>
+                {coordinator ? (
+                  <img className="coordinator-avatar coordinator-avatar-xs" src={coordinator.smallAvatarUrl} alt="" />
+                ) : (
+                  <span className="pro-trade-coordinator-fallback" aria-hidden="true">
+                    {snapshot.locator.shortAlias.slice(0, 1).toUpperCase()}
+                  </span>
+                )}
+                <span className="pro-trade-coordinator-name">{coordinatorName}</span>
+              </span>
+            </small>
+          </span>
+          <span className="pro-trade-status">
+            <Badge tone={presentation.statusTone} icon={<StatusIcon size={12} />}>
+              {presentation.statusLabel}
+            </Badge>
+          </span>
+          <span
+            className="pro-trade-deadline"
+            data-tone={deadlineTone}
+            title={formatExpiryTitle(snapshot.order?.expires_at)}
+          >
+            <span className="pro-trade-deadline-signal" aria-hidden="true" />
+            <Clock3 size={15} aria-hidden="true" />
+            {presentation.deadline ? formatExpiryCountdown(snapshot.order?.expires_at) : "-"}
+          </span>
+        </button>
+        <ProTradeQuickActions
+          enabled={hasActionsColumn}
+          onCancel={onCancel}
+          onPause={onPause}
+          onResume={onResume}
+          quickActionKey={quickActionKey}
+          snapshot={snapshot}
+        />
+      </div>
+    </Fragment>
+  );
+}
+
+function ProTradeQuickActions({
+  enabled,
+  onCancel,
+  onPause,
+  onResume,
+  quickActionKey,
+  snapshot
+}: {
+  enabled: boolean;
+  onCancel: (snapshot: ProTradeSnapshot) => void;
+  onPause: (snapshot: ProTradeSnapshot) => void;
+  onResume: (snapshot: ProTradeSnapshot) => void;
+  quickActionKey: string;
+  snapshot: ProTradeSnapshot;
+}) {
+  if (!enabled) return null;
+
+  if (snapshot.order?.status === 1 && snapshot.order.is_maker) {
+    return (
+      <span className="pro-trade-actions">
+        <Button
+          aria-label={`Pause order ${snapshot.locator.orderId}`}
+          className="pro-trade-action-button"
+          disabled={Boolean(quickActionKey)}
+          loading={quickActionKey === `${snapshot.key}:pause`}
+          onClick={() => onPause(snapshot)}
+          size="icon"
+          title="Hide this offer from the public order book"
+          variant="outline"
+        >
+          <Pause size={15} />
+        </Button>
+        <Button
+          aria-label={`Cancel order ${snapshot.locator.orderId}`}
+          className="pro-trade-action-button pro-trade-cancel-button"
+          disabled={Boolean(quickActionKey)}
+          onClick={() => onCancel(snapshot)}
+          size="icon"
+          title="Cancel this offer"
+          variant="destructive"
+        >
+          <X size={15} />
+        </Button>
+      </span>
+    );
+  }
+
+  if (snapshot.order?.status === 2 && snapshot.order.is_maker) {
+    return (
+      <span className="pro-trade-actions">
+        <Button
+          aria-label={`Resume order ${snapshot.locator.orderId}`}
+          className="pro-trade-action-button"
+          disabled={Boolean(quickActionKey)}
+          loading={quickActionKey === `${snapshot.key}:resume`}
+          onClick={() => onResume(snapshot)}
+          size="icon"
+          title="Return this offer to the public order book"
+          variant="outline"
+        >
+          <Play size={15} />
+        </Button>
+      </span>
+    );
+  }
+
+  return <span className="pro-trade-actions" />;
+}
+
 export function RobotList({
+  onAddRobot,
   onCreate,
   onDelete,
   onDownload,
@@ -225,6 +306,7 @@ export function RobotList({
   summaries,
   syncBySlot
 }: {
+  onAddRobot?: () => void;
   onCreate: (slotId: string) => void;
   onDelete: (slotId: string) => void;
   onDownload: (slotId: string) => void;
@@ -239,16 +321,26 @@ export function RobotList({
   if (slots.length === 0) {
     return (
       <div className="pro-empty-state pro-fleet-empty-state">
-        <span className="pro-fleet-empty-mark" aria-hidden="true">
-          <FleetGlyph size={28} />
-        </span>
+        <div className="pro-fleet-empty-visual" aria-hidden="true">
+          <RobotAvatar hashId="a83d2f" label="" size="md" />
+          <RobotAvatar hashId="3c7ab9" label="" size="md" />
+          <RobotAvatar hashId="d09841" label="" size="md" />
+          <span className="pro-fleet-empty-mark">
+            <FleetGlyph size={22} />
+          </span>
+        </div>
         <div className="pro-fleet-empty-copy">
           <strong>Your Robot Fleet is ready</strong>
-          <p>A Fleet lets you manage several RoboSats robots and their trades from one Trade Desk.</p>
+          <p>Build a lineup of separate robot identities, then run every trade from this desk.</p>
           <p>
             Each robot remains a standard RoboSats identity recoverable in any RoboSats app. Your Fleet key restores the
             complete collection on any device, while maintaining your identities separate from coordinators.
           </p>
+          {onAddRobot ? (
+            <Button className="pro-fleet-empty-action" onClick={onAddRobot} size="sm">
+              <CirclePlus size={16} /> Add your first robot
+            </Button>
+          ) : null}
         </div>
       </div>
     );
@@ -308,24 +400,6 @@ export function RobotList({
             </div>
             <div className="pro-robot-actions">
               <Button
-                size="icon"
-                variant="ghost"
-                onClick={() => onDownload(summary.slotId)}
-                aria-label={`Download ${summary.nickname} recovery JSON`}
-                title="Download recovery JSON"
-              >
-                <Download size={16} />
-              </Button>
-              <Button
-                size="icon"
-                variant="ghost"
-                onClick={() => onTelegram(summary.slotId)}
-                aria-label={`Enable Telegram for ${summary.nickname}`}
-                title="Enable Telegram"
-              >
-                <Send size={16} />
-              </Button>
-              <Button
                 aria-label={
                   lifecycle.canStartOrder
                     ? `Create an offer with ${summary.nickname}`
@@ -343,28 +417,63 @@ export function RobotList({
                 }
                 variant="outline"
               >
-                <CirclePlus size={16} /> <span className="pro-robot-action-label">Create offer</span>
+                <CirclePlus size={16} />
+                <span className="pro-robot-action-label pro-robot-action-long">Create offer</span>
+                <span className="pro-robot-action-label pro-robot-action-short">Offer</span>
               </Button>
-              <Button
-                size="icon"
-                variant="ghost"
-                disabled={!lifecycle.canRemove}
-                onClick={() => onDelete(summary.slotId)}
-                aria-label={`Remove ${summary.nickname} from Fleet`}
-                title={
-                  !lifecycle.canRemove
-                    ? (lifecycle.availability.message ?? "Finish the current order before removing this robot")
-                    : "Remove from Fleet"
-                }
-              >
-                <Trash2 size={16} />
-              </Button>
+              <details className="pro-robot-more">
+                <summary aria-label={`More actions for ${summary.nickname}`} title="More robot actions">
+                  <Ellipsis size={18} />
+                </summary>
+                <div className="pro-robot-more-menu">
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      closeRobotActions(event.currentTarget);
+                      onDownload(summary.slotId);
+                    }}
+                  >
+                    <Download size={15} /> Download backup
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      closeRobotActions(event.currentTarget);
+                      onTelegram(summary.slotId);
+                    }}
+                  >
+                    <Send size={15} /> Telegram alerts
+                  </button>
+                  <button
+                    disabled={!lifecycle.canRemove}
+                    type="button"
+                    title={
+                      !lifecycle.canRemove
+                        ? (lifecycle.availability.message ?? "Finish the current order before removing this robot")
+                        : "Remove from Fleet"
+                    }
+                    onClick={(event) => {
+                      closeRobotActions(event.currentTarget);
+                      onDelete(summary.slotId);
+                    }}
+                  >
+                    <Trash2 size={15} /> Remove from Fleet
+                  </button>
+                </div>
+              </details>
             </div>
           </article>
         );
       })}
     </div>
   );
+}
+
+function closeRobotActions(trigger: HTMLButtonElement) {
+  const details = trigger.closest("details");
+  const summary = details?.querySelector<HTMLElement>("summary");
+  details?.removeAttribute("open");
+  summary?.focus();
 }
 
 function fleetTradeIdentifier(

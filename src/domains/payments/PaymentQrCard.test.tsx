@@ -10,7 +10,9 @@ describe("PaymentQrCard", () => {
 
     expect(html).toContain("<svg");
     expect(html).toContain("/static/assets/vector/R-notext.svg");
-    expect(html).toContain("Amount to lock");
+    expect(html).toContain("Lightning payment");
+    expect(html).toContain("Pay once");
+    expect(html).toContain("Taker bond amount");
     expect(html).toContain("This bond confirms your commitment to take the trade.");
     expect(html).not.toContain("invoice-details");
     expect(html).not.toContain("Payment hash");

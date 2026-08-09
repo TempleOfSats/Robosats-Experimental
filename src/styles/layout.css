@@ -650,6 +650,7 @@
 .app-main {
   flex: 1;
   min-width: 0;
+  background: radial-gradient(circle at 52% -14rem, var(--surface-ambient), transparent 38rem), var(--background);
 }
 
 .app-header {
@@ -751,7 +752,7 @@
 
 .page-trade > .trade-progress,
 .page-trade > .order-error-panel {
-  width: min(100%, 36rem);
+  width: min(100%, 58rem);
   margin-inline: auto;
 }
 
@@ -1221,8 +1222,8 @@
 }
 
 .trade-main-layout {
-  width: min(100%, 36rem);
-  grid-template-columns: minmax(0, 1fr);
+  width: min(100%, 58rem);
+  grid-template-columns: minmax(0, 36rem) minmax(16rem, 1fr);
   align-items: start;
   justify-content: center;
   gap: 1rem;
@@ -1231,6 +1232,17 @@
 
 .trade-main-layout > :first-child {
   grid-row: auto;
+}
+
+.trade-main-layout > .trade-panel-slot + .trade-panel-slot {
+  position: sticky;
+  top: 1.5rem;
+}
+
+.trade-main-layout > .trade-panel-slot:only-child {
+  width: min(100%, 36rem);
+  grid-column: 1 / -1;
+  justify-self: center;
 }
 
 .trade-panel-slot,

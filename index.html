@@ -38,6 +38,15 @@
         overflow: hidden;
       }
 
+      #root {
+        opacity: 1;
+        transition: opacity 180ms ease;
+      }
+
+      body.app-booting #root {
+        opacity: 0;
+      }
+
       #app-boot {
         position: fixed;
         inset: 0;
@@ -175,6 +184,7 @@
       }
 
       @media (prefers-reduced-motion: reduce) {
+        #root,
         #app-boot,
         .app-boot-message,
         .app-boot-progress {

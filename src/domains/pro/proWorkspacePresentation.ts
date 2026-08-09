@@ -4,6 +4,8 @@ import type { ProTradeSnapshot } from "@/domains/pro/pro.types";
 import type { OfferPreset } from "@/domains/pro/portableSettings";
 import { isRobotStatusStale } from "@/domains/pro/reconcilePolicy";
 
+export type ProDeadlineTone = "elapsed" | "quiet" | "soon" | "urgent";
+
 export function summaryCounts(
   trades: ProTradeSnapshot[],
   rewardActionCount = 0
@@ -17,9 +19,8 @@ export function summaryCounts(
 }
 
 export function summaryHasStale(trades: ProTradeSnapshot[], filter: Exclude<ProFilter, "all">): boolean {
-  return trades.some((trade) =>
-    (trade.freshness === "error" || trade.freshness === "stale")
-    && summaryCategory(trade) === filter
+  return trades.some(
+    (trade) => (trade.freshness === "error" || trade.freshness === "stale") && summaryCategory(trade) === filter
   );
 }
 
@@ -43,6 +44,15 @@ export function formatLastRefresh(value?: number): string {
   const prefix = isRobotStatusStale(value) ? "Last checked" : "Updated";
   if (elapsedMinutes < 60) return `${prefix} ${elapsedMinutes}m ago`;
   return `${prefix} ${Math.floor(elapsedMinutes / 60)}h ago`;
+}
+
+export function proDeadlineTone(deadline?: number, now = Date.now()): ProDeadlineTone {
+  if (!deadline || !Number.isFinite(deadline)) return "quiet";
+  const remaining = deadline - now;
+  if (remaining <= 0) return "elapsed";
+  if (remaining <= 30 * 60_000) return "urgent";
+  if (remaining <= 2 * 60 * 60_000) return "soon";
+  return "quiet";
 }
 
 export function uniquePresetName(candidate: string, presets: OfferPreset[]): string {

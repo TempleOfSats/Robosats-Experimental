@@ -46,7 +46,9 @@ beforeEach(() => {
     orders,
     loading: false,
     refreshing: false,
+    cacheState: "none",
     error: undefined,
+    lastUpdated: undefined,
     refreshOrderbook: vi.fn(async () => undefined)
   });
   useGarageStore.setState({
@@ -153,6 +155,56 @@ describe("OffersPage filters", () => {
     expect(amount?.textContent).toContain("EUR");
     expect(amount?.textContent).not.toContain("205,420 sats");
     expect(amount?.querySelector(".amount-mono")).toBeNull();
+  });
+
+  it("shows current book context and makes every direction-aware row clearly reviewable", async () => {
+    useOrderbookStore.setState({
+      lastUpdated: Date.now() - 2 * 60_000,
+      orders: [
+        order({ id: 1, type: 1, currency: 2, currencyCode: "EUR", payment_method: "Wise" }),
+        order({ id: 2, type: 0, currency: 1, currencyCode: "USD", payment_method: "Zelle" })
+      ]
+    });
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter>
+          <OffersPage />
+        </MemoryRouter>
+      );
+    });
+
+    expect(container.querySelector(".orderbook-live-pill")?.textContent).toContain("Current");
+    expect(container.querySelector(".orderbook-update-context")?.textContent).toContain("2 offers");
+    expect(container.querySelector(".orderbook-update-context")?.textContent).toContain("Updated 2m ago");
+    expect(container.querySelectorAll(".offer-row-buy")).toHaveLength(1);
+    expect(container.querySelectorAll(".offer-row-sell")).toHaveLength(1);
+    expect(container.querySelectorAll(".offer-review-affordance")).toHaveLength(2);
+    expect(container.querySelector(".offer-review-affordance")?.textContent).toContain("Review");
+    expect(container.querySelector(".orderbook-mobile-filter-heading")?.textContent).toContain("2 shown");
+    expect(container.querySelectorAll(".offer-mobile-sort-options button")).toHaveLength(3);
+  });
+
+  it("labels cached offers honestly while a live refresh is pending", async () => {
+    useOrderbookStore.setState({
+      cacheState: "stale",
+      lastUpdated: Date.now() - 3 * 24 * 60 * 60_000,
+      orders: [order({ id: 1 })],
+      refreshing: true
+    });
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter>
+          <OffersPage />
+        </MemoryRouter>
+      );
+    });
+
+    const status = container.querySelector(".orderbook-live-pill");
+    expect(status?.textContent).toContain("Cached");
+    expect(status?.classList.contains("orderbook-live-pill-confirmed")).toBe(true);
+    expect(container.querySelector(".orderbook-update-context")?.textContent).toContain("Updated 3d ago");
   });
 
   it("starts a fresh Nostr session when the user explicitly refreshes", async () => {

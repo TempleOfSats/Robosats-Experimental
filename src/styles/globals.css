@@ -82,6 +82,9 @@
   --overlay-scrim-strong: rgb(0 0 0 / 78%);
   --modal-shadow: 0 1.5rem 4rem rgb(0 0 0 / 48%);
   --surface-shadow: 0 0.8rem 2.5rem rgb(0 0 0 / 20%);
+  --surface-shadow-soft: 0 0.65rem 1.8rem rgb(0 0 0 / 16%);
+  --surface-highlight: rgb(255 255 255 / 4%);
+  --surface-ambient: rgb(225 160 197 / 7%);
   --menu-shadow: 0 1rem 2.25rem rgb(0 0 0 / 42%);
   --asset-border: rgb(255 255 255 / 22%);
   --asset-inset-border: rgb(255 255 255 / 16%);
@@ -194,6 +197,9 @@
   --text-primary: #211a16;
   --text-secondary: #5f5953;
   --text-supporting: #665f59;
+  --surface-shadow-soft: 0 0.55rem 1.5rem rgb(63 48 37 / 8%);
+  --surface-highlight: rgb(255 255 255 / 72%);
+  --surface-ambient: rgb(143 59 104 / 5%);
   --brand-amber: #ffb23f;
   --brand-amber-hover: #e99a21;
   --brand-amber-foreground: #211a16;

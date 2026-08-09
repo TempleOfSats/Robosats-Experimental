@@ -136,7 +136,7 @@ describe("Pro workspace lists", () => {
     expect(html).not.toContain("No matching trades");
   });
 
-  it("keeps public-offer actions compact and represents the coordinator by avatar", () => {
+  it("keeps public-offer actions compact and folds the coordinator into order metadata", () => {
     const html = renderToStaticMarkup(
       <TradeList
         coordinators={[
@@ -163,8 +163,74 @@ describe("Pro workspace lists", () => {
     expect(html).toContain('aria-label="Cancel order 92452"');
     expect(html).toContain('title="Temple of Sats"');
     expect(html).toContain('src="/temple.webp"');
+    expect(html).toContain("pro-trade-coordinator-name");
+    expect(html).toContain("Temple of Sats");
+    expect(html).toContain('data-tone="quiet"');
     expect(html).not.toContain("pro-trade-action-label");
-    expect(html).not.toContain("<span>Temple of Sats</span>");
+  });
+
+  it("keeps one robot primary action and routes utilities through overflow", async () => {
+    const onDownload = vi.fn();
+    root = createRoot(document.querySelector("#root")!);
+    await act(async () => {
+      root?.render(
+        <RobotList
+          onCreate={vi.fn()}
+          onDelete={vi.fn()}
+          onDownload={onDownload}
+          onOpenTrade={vi.fn()}
+          onSettings={vi.fn()}
+          onTelegram={vi.fn()}
+          slots={[rewardSlot]}
+          snapshots={{}}
+          summaries={[idleRobotSummary]}
+          syncBySlot={{ "reward-slot": { slotId: "reward-slot", epoch: 1, inFlight: false, lastSuccessAt: 1 } }}
+        />
+      );
+    });
+
+    expect(document.body.textContent).toContain("Create offer");
+    const summary = document.querySelector<HTMLElement>('summary[aria-label="More actions for Reward Robot"]');
+    if (!summary) throw new Error("Missing robot overflow trigger");
+    const download = Array.from(document.querySelectorAll<HTMLButtonElement>(".pro-robot-more-menu button")).find(
+      (button) => button.textContent?.includes("Download backup")
+    );
+    if (!download) throw new Error("Missing robot backup action");
+    download.closest("details")?.setAttribute("open", "");
+    download.focus();
+    await act(async () => download.click());
+    expect(onDownload).toHaveBeenCalledWith("reward-slot");
+    expect(download.closest("details")?.hasAttribute("open")).toBe(false);
+    expect(document.activeElement).toBe(summary);
+  });
+
+  it("gives an empty Fleet a direct first-robot action", async () => {
+    const onAddRobot = vi.fn();
+    root = createRoot(document.querySelector("#root")!);
+    await act(async () => {
+      root?.render(
+        <RobotList
+          onAddRobot={onAddRobot}
+          onCreate={vi.fn()}
+          onDelete={vi.fn()}
+          onDownload={vi.fn()}
+          onOpenTrade={vi.fn()}
+          onSettings={vi.fn()}
+          onTelegram={vi.fn()}
+          slots={[]}
+          snapshots={{}}
+          summaries={[]}
+          syncBySlot={{}}
+        />
+      );
+    });
+
+    const addButton = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) =>
+      button.textContent?.includes("Add your first robot")
+    );
+    if (!addButton) throw new Error("Missing first robot action");
+    await act(async () => addButton.click());
+    expect(onAddRobot).toHaveBeenCalledOnce();
   });
 
   it("describes a seller's fee-inclusive history amount as bitcoin sent", async () => {
@@ -266,6 +332,18 @@ const rewardSlot = {
   earnedRewards: 2_100,
   robots: {}
 } satisfies RobotSlot;
+
+const idleRobotSummary = {
+  slotId: "reward-slot",
+  nickname: "Reward Robot",
+  hashId: "reward-hash",
+  coordinatorCount: 1,
+  activeTradeCount: 0,
+  publicOfferCount: 0,
+  needsAttentionCount: 0,
+  relevantOrderCount: 0,
+  stale: false
+};
 
 const publicOfferSnapshot = {
   key: "slot:temple:92452",

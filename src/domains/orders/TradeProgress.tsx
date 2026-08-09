@@ -17,7 +17,12 @@ export function TradeProgress({ order }: { order: OrderDto }) {
       {labels.map((label, i) => {
         const state = progressStateForIndex(i, activeIndex, order);
         return (
-          <div key={label} className={`trade-progress-step ${state}`}>
+          <div
+            aria-current={state === "active" || state === "danger" || state === "waiting" ? "step" : undefined}
+            data-state={state}
+            key={label}
+            className={`trade-progress-step ${state}`}
+          >
             <span className="trade-progress-dot">
               {state === "complete" ? <Check size={14} /> : <span>{i + 1}</span>}
             </span>

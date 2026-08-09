@@ -77,6 +77,7 @@ export function ChatStagePanel({
   const [messageAnnouncement, setMessageAnnouncement] = useState("");
   const [connectionEpoch, setConnectionEpoch] = useState(0);
   const [visibleCount, setVisibleCount] = useState(VISIBLE_MESSAGE_WINDOW);
+  const [newMessageCount, setNewMessageCount] = useState(0);
   const socketRef = useRef<WebSocket | undefined>(undefined);
   const knownMessageIndexesRef = useRef(new Set(messages.map((message) => message.index)));
   const historyReadyRef = useRef(previewMode);
@@ -87,6 +88,8 @@ export function ChatStagePanel({
   const initialHistoryLoadRef = useRef<Promise<ChatResponse | undefined> | undefined>(undefined);
   const historyExpansionAnchorRef = useRef<{ scrollHeight: number; scrollTop: number } | undefined>(undefined);
   const messagesRef = useRef<HTMLDivElement | null>(null);
+  const stickToLatestRef = useRef(true);
+  const renderedMessageCountRef = useRef(messages.length);
   const errorId = useId();
 
   const isPreChat = variant === "pre-chat";
@@ -132,12 +135,26 @@ export function ChatStagePanel({
   }, [orderId, previewMode, shortAlias]);
 
   useEffect(() => {
-    const element = messagesRef.current;
-    if (element) element.scrollTop = element.scrollHeight;
+    const previousCount = renderedMessageCountRef.current;
+    const addedCount = Math.max(0, messages.length - previousCount);
+    const unreadCount = messages.slice(previousCount).filter((message) => !message.mine).length;
+    renderedMessageCountRef.current = messages.length;
+    updateUnreadMessageState({
+      addedCount,
+      element: messagesRef.current,
+      messagesRef,
+      previousCount,
+      setNewMessageCount,
+      stickToLatest: stickToLatestRef.current,
+      unreadCount
+    });
   }, [messages.length]);
 
   useEffect(() => {
     setVisibleCount(VISIBLE_MESSAGE_WINDOW);
+    setNewMessageCount(0);
+    stickToLatestRef.current = true;
+    renderedMessageCountRef.current = 0;
   }, [orderId]);
 
   useLayoutEffect(() => {
@@ -148,10 +165,25 @@ export function ChatStagePanel({
     historyExpansionAnchorRef.current = undefined;
   }, [visibleCount]);
 
-  const handleScroll = useMemo(
+  const handleHistoryScroll = useMemo(
     () => makeScrollHandler(messagesRef, historyExpansionAnchorRef, messages.length, visibleCount, setVisibleCount),
     [messages.length, visibleCount]
   );
+  const handleScroll = useCallback(() => {
+    const element = messagesRef.current;
+    if (element) {
+      stickToLatestRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 56;
+      if (stickToLatestRef.current) setNewMessageCount(0);
+    }
+    handleHistoryScroll();
+  }, [handleHistoryScroll]);
+  const scrollToLatest = useCallback(() => {
+    const element = messagesRef.current;
+    if (!element) return;
+    element.scrollTo({ behavior: "smooth", top: element.scrollHeight });
+    stickToLatestRef.current = true;
+    setNewMessageCount(0);
+  }, []);
   const hasUsablePeerKey = useCallback(() => Boolean(peerPubkeyRef.current), []);
 
   const loadMessages = useCallback(
@@ -237,6 +269,8 @@ export function ChatStagePanel({
       return;
     }
     if (previewMode) {
+      stickToLatestRef.current = true;
+      setNewMessageCount(0);
       setMessages((current) => [
         ...current,
         {
@@ -268,6 +302,8 @@ export function ChatStagePanel({
       return;
     }
 
+    stickToLatestRef.current = true;
+    setNewMessageCount(0);
     setSending(true);
     try {
       const outgoingMessage = sendsPlaintextCommand
@@ -559,6 +595,8 @@ export function ChatStagePanel({
                 />
               ))}
             </div>
+
+            <NewChatMessagesButton count={newMessageCount} onClick={scrollToLatest} />
 
             <form
               className="chat-composer"
@@ -956,6 +994,45 @@ async function decryptDisplayMessage(
 }
 
 const signatureRank = { unknown: 0, unverified: 1, verified: 2 } as const;
+
+function NewChatMessagesButton({ count, onClick }: { count: number; onClick: () => void }) {
+  if (count <= 0) return null;
+  return (
+    <button className="chat-new-messages" onClick={onClick} type="button">
+      {count} new {count === 1 ? "message" : "messages"}
+      <ChevronDown size={15} aria-hidden="true" />
+    </button>
+  );
+}
+
+function updateUnreadMessageState({
+  addedCount,
+  element,
+  messagesRef,
+  previousCount,
+  setNewMessageCount,
+  stickToLatest,
+  unreadCount
+}: {
+  addedCount: number;
+  element: HTMLDivElement | null;
+  messagesRef: { current: HTMLDivElement | null };
+  previousCount: number;
+  setNewMessageCount: (update: number | ((current: number) => number)) => void;
+  stickToLatest: boolean;
+  unreadCount: number;
+}) {
+  if (!element || addedCount === 0) return;
+  if (previousCount === 0 || stickToLatest) {
+    window.requestAnimationFrame(() => {
+      const latest = messagesRef.current;
+      if (latest) latest.scrollTop = latest.scrollHeight;
+    });
+    setNewMessageCount(0);
+    return;
+  }
+  if (unreadCount > 0) setNewMessageCount((current) => current + unreadCount);
+}
 
 export function mergeMessages(current: DisplayChatMessage[], incoming: DisplayChatMessage[]): DisplayChatMessage[] {
   const byIndex = new Map(current.map((message) => [message.index, message]));

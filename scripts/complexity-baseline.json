@@ -12,7 +12,6 @@
   "src/domains/orderbook/OffersPage.tsx#OffersPage": 61,
   "src/domains/orderbook/OffersPage.tsx#TakeOfferModal": 33,
   "src/domains/orderbook/nostrOrderbook.ts#nostrEventToPublicOrder": 28,
-  "src/domains/orders/OrderPage.tsx#ContractPanel": 24,
   "src/domains/orders/OrderDetailsPanel.tsx#OrderDetailsPanel": 33,
   "src/domains/orders/OrderPage.tsx#OrderPage": 61,
   "src/domains/orders/OrderPage.tsx#PayoutSubmissionCard": 31,

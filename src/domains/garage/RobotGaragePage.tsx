@@ -1,5 +1,6 @@
 import {
   AlertTriangle,
+  ArrowRight,
   Copy,
   Download,
   Eye,
@@ -304,59 +305,73 @@ export function RobotGaragePage() {
                   Checking coordinators...
                 </span>
               ) : (
-                <span>No existing orders found</span>
+                <span>No active trades</span>
               )}
             </div>
             <GarageRewardClaim coordinators={displayCoordinators} slot={activeSlot} />
           </div>
 
-          <div className="garage-robot-token">
-            <div className="garage-token-header">
-              <label className="garage-token-label">
-                Token
-                <span aria-hidden="true"> *</span>
-              </label>
-              <button
-                className="icon-button"
-                type="button"
-                onClick={() => setShowToken(!showToken)}
-                title={showToken ? "Hide token" : "Show token"}
-              >
-                {showToken ? <EyeOff size={15} /> : <Eye size={15} />}
-              </button>
+          <details
+            className="garage-identity-tools"
+            onToggle={(event) => {
+              if (!event.currentTarget.open) setShowToken(false);
+            }}
+          >
+            <summary>
+              <KeyRound size={17} aria-hidden="true" />
+              <span>
+                <strong>Recovery &amp; backup</strong>
+                <small>Token, backup, and privacy</small>
+              </span>
+            </summary>
+            <div className="garage-robot-token">
+              <div className="garage-token-header">
+                <label className="garage-token-label">
+                  Token
+                  <span aria-hidden="true"> *</span>
+                </label>
+                <button
+                  className="icon-button"
+                  type="button"
+                  onClick={() => setShowToken(!showToken)}
+                  title={showToken ? "Hide token" : "Show token"}
+                >
+                  {showToken ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
+              </div>
+              <div className={showToken ? "input-shell input-shell-compact" : "garage-token-masked"}>
+                {showToken ? (
+                  <input
+                    value={activeSlot.token}
+                    disabled
+                    aria-readonly
+                    aria-label="Robot token"
+                    className="garage-token-value"
+                  />
+                ) : (
+                  <span>{"••••••••••••••••••••••••••••••"}</span>
+                )}
+                <button
+                  className="icon-button"
+                  type="button"
+                  onClick={() => downloadRobotTokenBackup(activeSlot.token, activeSlot.nickname)}
+                  title="Download JSON backup"
+                  aria-label={`Download ${activeSlot.nickname} token backup as JSON`}
+                >
+                  <Download size={15} />
+                </button>
+                <button
+                  className="icon-button"
+                  type="button"
+                  onClick={copyToken}
+                  title={copied ? "Copied" : "Copy token"}
+                >
+                  <Copy size={15} />
+                </button>
+              </div>
+              <p className="garage-privacy-note">Reusing a trading identity degrades your privacy.</p>
             </div>
-            <div className={showToken ? "input-shell input-shell-compact" : "garage-token-masked"}>
-              {showToken ? (
-                <input
-                  value={activeSlot.token}
-                  disabled
-                  aria-readonly
-                  aria-label="Robot token"
-                  className="garage-token-value"
-                />
-              ) : (
-                <span>{"••••••••••••••••••••••••••••••"}</span>
-              )}
-              <button
-                className="icon-button"
-                type="button"
-                onClick={() => downloadRobotTokenBackup(activeSlot.token, activeSlot.nickname)}
-                title="Download JSON backup"
-                aria-label={`Download ${activeSlot.nickname} token backup as JSON`}
-              >
-                <Download size={15} />
-              </button>
-              <button
-                className="icon-button"
-                type="button"
-                onClick={copyToken}
-                title={copied ? "Copied" : "Copy token"}
-              >
-                <Copy size={15} />
-              </button>
-            </div>
-            <p className="garage-privacy-note">Reusing a trading identity degrades your privacy.</p>
-          </div>
+          </details>
         </Card>
 
         <div className="next-action-grid">
@@ -368,8 +383,9 @@ export function RobotGaragePage() {
             <Search size={20} />
             <strong>Find a trade</strong>
             <span>Choose step by step.</span>
+            <ArrowRight className="action-tile-arrow" size={17} aria-hidden="true" />
           </button>
-          <Link className="action-tile" to="/create">
+          <Link className="action-tile action-tile-secondary" to="/create">
             <Plus size={20} />
             <strong>Create offer</strong>
             <span>Set your terms.</span>

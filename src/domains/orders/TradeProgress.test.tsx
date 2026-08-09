@@ -42,6 +42,12 @@ describe("TradeProgress", () => {
     expect(stepStates(progressOrder(9, { is_maker: true }))).toHaveLength(5);
     expect(stepStates(progressOrder(9, { is_taker: true }))).toHaveLength(4);
   });
+
+  it("identifies exactly one current step to assistive technology", () => {
+    const html = renderToStaticMarkup(<TradeProgress order={progressOrder(9, { is_taker: true })} />);
+
+    expect(html.match(/aria-current="step"/g)).toHaveLength(1);
+  });
 });
 
 function progressOrder(status: number, overrides: Partial<OrderDto>): OrderDto {
