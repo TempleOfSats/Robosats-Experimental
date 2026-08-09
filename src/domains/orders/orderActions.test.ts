@@ -91,10 +91,30 @@ describe("getTradeActionCommands", () => {
     ).toBeUndefined();
   });
 
-  it("matches current cancellation availability", () => {
+  it("keeps unilateral cancellation available to both participants during setup", () => {
     const keys = (order: OrderDto) =>
       getTradeActionCommands(order, getTradeViewState(order)).map((action) => action.key);
-    expect(keys({ ...baseOrder, status: 6 })).toContain("cancel");
+
+    expect(
+      keys({
+        ...baseOrder,
+        status: 6,
+        is_maker: false,
+        is_taker: true,
+        is_buyer: true,
+        is_seller: false
+      })
+    ).toContain("cancel");
+    expect(
+      keys({
+        ...baseOrder,
+        status: 6,
+        is_maker: true,
+        is_taker: false,
+        is_buyer: false,
+        is_seller: true
+      })
+    ).toContain("cancel");
     expect(keys({ ...baseOrder, status: 7 })).toContain("cancel");
     expect(keys({ ...baseOrder, status: 9 })).toContain("collaborative-cancel");
     expect(keys({ ...baseOrder, status: 10 })).not.toContain("cancel");

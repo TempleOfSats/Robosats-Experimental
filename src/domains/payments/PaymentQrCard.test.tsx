@@ -16,6 +16,7 @@ describe("PaymentQrCard", () => {
     expect(html).toContain("Taker bond amount");
     expect(html).toContain("This bond confirms your commitment to take the trade.");
     expect(html).not.toContain("invoice-details");
+    expect(html).not.toContain("payment-card-footer");
     expect(html).not.toContain("Payment hash");
   });
 

@@ -3,7 +3,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { PaymentQrCard } from "@/domains/payments/PaymentQrCard";
+import { PaymentCardFooter, PaymentQrCard } from "@/domains/payments/PaymentQrCard";
 
 let root: Root | undefined;
 
@@ -41,6 +41,25 @@ describe("PaymentQrCard copy feedback", () => {
     await act(async () => document.querySelector<HTMLButtonElement>(".payment-actions button")?.click());
     expect(onCopy).toHaveBeenCalledTimes(2);
     expect(document.querySelector(".payment-action-status-success")?.textContent).toContain("Invoice copied");
+  });
+});
+
+describe("PaymentCardFooter", () => {
+  it("natively disables every descendant action while its parent operation is busy", async () => {
+    root = createRoot(document.querySelector("#root")!);
+    await act(async () => {
+      root?.render(
+        <PaymentCardFooter disabled>
+          <button>Cancel order</button>
+        </PaymentCardFooter>
+      );
+    });
+
+    const footer = document.querySelector<HTMLFieldSetElement>(".payment-card-footer");
+    const cancel = footer?.querySelector<HTMLButtonElement>("button");
+    expect(footer?.disabled).toBe(true);
+    expect(footer?.getAttribute("aria-busy")).toBe("true");
+    expect(cancel?.closest("fieldset[disabled]")).toBe(footer);
   });
 });
 
