@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { Clock3, Copy, LoaderCircle, WalletCards } from "lucide-react";
+import { Check, Clock3, Copy, LoaderCircle, WalletCards } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -41,12 +41,37 @@ export function PaymentQrCard({
     !previewMode && typeof window !== "undefined" && Boolean((window as Window & { webln?: WebLnProvider }).webln);
   const [qrTheme, setQrTheme] = useState(() => readUiPreferences().qrTheme);
   const [webLnState, setWebLnState] = useState<"idle" | "paying" | "success" | "error">("idle");
+  const [copyState, setCopyState] = useState<"idle" | "copying" | "success" | "error">("idle");
+  const copyResetTimer = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     const update = () => setQrTheme(readUiPreferences().qrTheme);
     window.addEventListener("robosats-ui-preferences", update);
     return () => window.removeEventListener("robosats-ui-preferences", update);
   }, []);
+
+  useEffect(
+    () => () => {
+      if (copyResetTimer.current !== undefined) window.clearTimeout(copyResetTimer.current);
+    },
+    []
+  );
+
+  const handleCopy = async () => {
+    if (copyState === "copying") return;
+    setCopyState("copying");
+    try {
+      await onCopy(value);
+      setCopyState("success");
+    } catch {
+      setCopyState("error");
+    }
+    if (copyResetTimer.current !== undefined) window.clearTimeout(copyResetTimer.current);
+    copyResetTimer.current = window.setTimeout(() => {
+      copyResetTimer.current = undefined;
+      setCopyState("idle");
+    }, 1_800);
+  };
 
   const handleWebLnPayment = async () => {
     if (webLnState === "paying" || !value) return;
@@ -62,66 +87,30 @@ export function PaymentQrCard({
   return (
     <Card className={`payment-card payment-card-${concept}`} aria-label={title}>
       <CardContent>
+        <header className="payment-card-heading">
+          <span>
+            <small>Lightning payment</small>
+            <strong>{title}</strong>
+          </span>
+          <span className="payment-once">Pay once</span>
+        </header>
         <div className="payment-card-body">
           {paymentReady ? (
-            <>
-              <button
-                className="payment-qr-shell"
-                aria-label={openWalletHref ? `Open ${title} in wallet` : `${title} QR code`}
-                disabled={!openWalletHref}
-                onClick={() => openWalletHref && !previewMode && window.open(openWalletHref)}
-                title={
-                  openWalletHref
-                    ? previewMode
-                      ? "Wallet launch disabled in fixture mode"
-                      : "Open in Lightning wallet"
-                    : undefined
-                }
-                type="button"
-              >
-                <QRCodeSVG
-                  value={paymentUri}
-                  size={304}
-                  level="Q"
-                  includeMargin
-                  bgColor={qrTheme === "screen" ? "#101010" : "#ffffff"}
-                  fgColor={qrTheme === "screen" ? "#f5f5f2" : "#000000"}
-                />
-                <span className="payment-qr-logo" aria-hidden="true">
-                  <img src="/static/assets/vector/R-notext.svg" alt="" />
-                </span>
-              </button>
-              <div className="payment-primary">
-                <div className="payment-amount-block">
-                  <span>Amount to lock</span>
-                  <strong className="payment-amount tabular amount-mono">{formatSats(amountSats)}</strong>
-                </div>
-                {paymentStepCopy(concept) ? <p className="payment-step-copy">{paymentStepCopy(concept)}</p> : null}
-                {paymentExpiresAt ? (
-                  <div className="payment-expiry">
-                    <Clock3 size={16} />
-                    <PaymentCountdown expiresAt={paymentExpiresAt} />
-                  </div>
-                ) : null}
-                <div className="payment-actions">
-                  <Button onClick={() => onCopy(value)} disabled={webLnState === "paying"}>
-                    <Copy size={16} />
-                    Copy
-                  </Button>
-                  {hasWebLn ? (
-                    <Button
-                      variant="secondary"
-                      loading={webLnState === "paying"}
-                      loadingLabel="Paying with WebLN"
-                      onClick={handleWebLnPayment}
-                    >
-                      <WalletCards size={16} /> WebLN
-                    </Button>
-                  ) : null}
-                </div>
-                <PaymentActionStatus state={webLnState} />
-              </div>
-            </>
+            <PaymentReadyContent
+              amountSats={amountSats as number}
+              concept={concept}
+              copyState={copyState}
+              expiresAt={paymentExpiresAt}
+              hasWebLn={hasWebLn}
+              onCopy={handleCopy}
+              onPay={handleWebLnPayment}
+              openWalletHref={openWalletHref}
+              paymentUri={paymentUri}
+              previewMode={previewMode}
+              qrTheme={qrTheme}
+              title={title}
+              webLnState={webLnState}
+            />
           ) : (
             <div className="payment-preparing" role="status" aria-live="polite">
               <span className="payment-preparing-icon" aria-hidden="true">
@@ -136,6 +125,122 @@ export function PaymentQrCard({
       </CardContent>
     </Card>
   );
+}
+
+function PaymentReadyContent({
+  amountSats,
+  concept,
+  copyState,
+  expiresAt,
+  hasWebLn,
+  onCopy,
+  onPay,
+  openWalletHref,
+  paymentUri,
+  previewMode,
+  qrTheme,
+  title,
+  webLnState
+}: {
+  amountSats: number;
+  concept: PaymentConcept;
+  copyState: "idle" | "copying" | "success" | "error";
+  expiresAt?: string;
+  hasWebLn: boolean;
+  onCopy: () => Promise<void>;
+  onPay: () => Promise<void>;
+  openWalletHref?: string;
+  paymentUri: string;
+  previewMode: boolean;
+  qrTheme: "paper" | "screen";
+  title: string;
+  webLnState: "idle" | "paying" | "success" | "error";
+}) {
+  const stepCopy = paymentStepCopy(concept);
+  return (
+    <>
+      <button
+        className="payment-qr-shell"
+        aria-label={openWalletHref ? `Open ${title} in wallet` : `${title} QR code`}
+        disabled={!openWalletHref}
+        onClick={() => openWalletHref && !previewMode && window.open(openWalletHref)}
+        title={
+          openWalletHref
+            ? previewMode
+              ? "Wallet launch disabled in fixture mode"
+              : "Open in Lightning wallet"
+            : undefined
+        }
+        type="button"
+      >
+        <QRCodeSVG
+          value={paymentUri}
+          size={304}
+          level="Q"
+          includeMargin
+          bgColor={qrTheme === "screen" ? "#101010" : "#ffffff"}
+          fgColor={qrTheme === "screen" ? "#f5f5f2" : "#000000"}
+        />
+        <span className="payment-qr-logo" aria-hidden="true">
+          <img src="/static/assets/vector/R-notext.svg" alt="" />
+        </span>
+      </button>
+      <div className="payment-primary">
+        <div className="payment-amount-block">
+          <span>{paymentAmountLabel(concept)}</span>
+          <strong className="payment-amount tabular amount-mono">{formatSats(amountSats)}</strong>
+        </div>
+        {stepCopy ? <p className="payment-step-copy">{stepCopy}</p> : null}
+        {expiresAt ? (
+          <div className="payment-expiry">
+            <Clock3 size={16} />
+            <PaymentCountdown expiresAt={expiresAt} />
+          </div>
+        ) : null}
+        <div className="payment-actions">
+          <Button
+            disabled={webLnState === "paying" || copyState === "copying"}
+            loading={copyState === "copying"}
+            loadingLabel="Copying"
+            onClick={() => void onCopy()}
+          >
+            {copyState === "success" ? <Check size={16} /> : <Copy size={16} />}
+            {copyState === "success" ? "Copied" : "Copy"}
+          </Button>
+          {hasWebLn ? (
+            <Button
+              variant="secondary"
+              loading={webLnState === "paying"}
+              loadingLabel="Paying with WebLN"
+              onClick={() => void onPay()}
+            >
+              <WalletCards size={16} /> WebLN
+            </Button>
+          ) : null}
+        </div>
+        <PaymentCopyStatus state={copyState} />
+        <PaymentActionStatus state={webLnState} />
+      </div>
+    </>
+  );
+}
+
+function PaymentCopyStatus({ state }: { state: "idle" | "copying" | "success" | "error" }) {
+  if (state === "success") {
+    return (
+      <p className="payment-action-status payment-action-status-success" role="status">
+        Invoice copied.
+      </p>
+    );
+  }
+  if (state === "error") {
+    return (
+      <p className="payment-action-status payment-action-status-error" role="alert">
+        Could not copy the invoice.
+      </p>
+    );
+  }
+  return null;
 }
 
 function PaymentActionStatus({ state }: { state: "idle" | "paying" | "success" | "error" }) {
@@ -166,6 +271,19 @@ function paymentStepCopy(concept: PaymentConcept): string | undefined {
       return "This hold locks the bitcoin until you confirm the fiat arrived.";
     default:
       return undefined;
+  }
+}
+
+function paymentAmountLabel(concept: PaymentConcept): string {
+  switch (concept) {
+    case "maker_bond":
+      return "Maker bond amount";
+    case "taker_bond":
+      return "Taker bond amount";
+    case "escrow":
+      return "Seller escrow amount";
+    default:
+      return "Payment amount";
   }
 }
 

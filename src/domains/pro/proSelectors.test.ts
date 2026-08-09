@@ -8,12 +8,9 @@ import {
   isResumableOrRenewableOffer,
   summarizeProRobots
 } from "@/domains/pro/proSelectors";
-import {
-  hasProRobotStatusBaseline,
-  selectOfferReadyRobots
-} from "@/domains/pro/proRobotLifecycle";
+import { hasProRobotStatusBaseline, selectOfferReadyRobots } from "@/domains/pro/proRobotLifecycle";
 import type { ProTradeSnapshot } from "@/domains/pro/pro.types";
-import { matchesFilter, summaryCounts } from "@/domains/pro/proWorkspacePresentation";
+import { matchesFilter, proDeadlineTone, summaryCounts } from "@/domains/pro/proWorkspacePresentation";
 
 describe("PRO trade selectors", () => {
   it("puts actionable work before waiting and stale trades", () => {
@@ -83,23 +80,34 @@ describe("PRO trade selectors", () => {
     expect([later, sooner].sort(compareProTrades).map((item) => item.locator.orderId)).toEqual([1, 2]);
   });
 
+  it("escalates deadline emphasis as actionable time runs out", () => {
+    const now = Date.UTC(2026, 7, 9, 12);
+
+    expect(proDeadlineTone(undefined, now)).toBe("quiet");
+    expect(proDeadlineTone(now - 1, now)).toBe("elapsed");
+    expect(proDeadlineTone(now + 30 * 60_000, now)).toBe("urgent");
+    expect(proDeadlineTone(now + 31 * 60_000, now)).toBe("soon");
+    expect(proDeadlineTone(now + 2 * 60 * 60_000 + 1, now)).toBe("quiet");
+  });
+
   it("offers only fresh robots without active work for new offers", () => {
     const ready = robotSlot("ready-token", "Ready Robot");
     const reserved = { ...robotSlot("reserved-token", "Reserved Robot"), activeOrderId: 8 };
     const stale = robotSlot("stale-token", "Stale Robot");
     const active = robotSlot("active-token", "Active Robot");
     const snapshots = {
-      stale: { ...snapshot({ id: 3, status: 1, is_maker: true }), locator: locator(stale, 3), freshness: "stale" as const },
+      stale: {
+        ...snapshot({ id: 3, status: 1, is_maker: true }),
+        locator: locator(stale, 3),
+        freshness: "stale" as const
+      },
       active: { ...snapshot({ id: 4, status: 9 }), locator: locator(active, 4) }
     };
     const slots = [ready, reserved, stale, active];
 
-    expect(selectOfferReadyRobots(
-      slots,
-      summarizeProRobots(slots, snapshots),
-      snapshots
-    ).map((robot) => robot.nickname))
-      .toEqual(["Ready Robot"]);
+    expect(
+      selectOfferReadyRobots(slots, summarizeProRobots(slots, snapshots), snapshots).map((robot) => robot.nickname)
+    ).toEqual(["Ready Robot"]);
   });
 
   it("keeps a successful status baseline visible during routine refreshes", () => {
@@ -112,12 +120,14 @@ describe("PRO trade selectors", () => {
       lastSuccessAt: 1
     };
     expect(hasProRobotStatusBaseline(refreshing)).toBe(true);
-    expect(hasProRobotStatusBaseline({
-      slotId: "new-slot",
-      epoch: 0,
-      inFlight: false,
-      locallyReadyAt: 3
-    })).toBe(true);
+    expect(
+      hasProRobotStatusBaseline({
+        slotId: "new-slot",
+        epoch: 0,
+        inFlight: false,
+        locallyReadyAt: 3
+      })
+    ).toBe(true);
   });
 });
 

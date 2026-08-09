@@ -70,6 +70,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatSats } from "@/lib/format";
 import { deriveRobotIdentity } from "@/domains/identity/robotIdentity";
+import { RobotAvatar } from "@/domains/identity/RobotAvatar";
 import { writeClipboard } from "@/lib/clipboard";
 import { requestReviewToken } from "@/domains/reviews/reviewApi";
 import { publishCoordinatorRating } from "@/domains/coordinators/coordinatorRatings";
@@ -332,7 +333,7 @@ export function OrderPage({
         </div>
       ) : null}
 
-      <section className={`trade-layout trade-main-layout ${motionClass}`}>
+      <section className={`trade-layout trade-main-layout trade-panel-${view.panel} ${motionClass}`}>
         <div className="trade-panel-slot">
           <ContractPanel
             actions={actions}
@@ -703,59 +704,39 @@ function ContractPanel({
   const isFinishedStep = shouldShowFinishedReceipt(order, view);
   const isRoutingStep = view.panel === "sending_sats" || view.panel === "routing_failed";
   const isPublicMakerWait = view.panel === "public_order" && order.is_maker;
+  const hasDedicatedStep = [
+    isInvoicePaymentStep,
+    isChatStep,
+    isDisputeStep,
+    isPayoutStep,
+    isRenewalStep,
+    isFinishedStep,
+    isRoutingStep
+  ].some(Boolean);
 
   return (
     <div className="trade-contract-stack">
       {isPublicMakerWait ? (
         <>
-          <div className="trade-public-wait-notice" role="status">
-            <Clock size={18} aria-hidden="true" />
-            <span>
-              <strong>Waiting for a taker</strong>
-              <small>Be patient while robots check the book.</small>
-            </span>
-          </div>
+          <TradeWaitingScene
+            body="Your offer is live while other robots check the book."
+            robotHashId={order.is_maker ? order.maker_hash_id : order.taker_hash_id}
+            robotName={myNick}
+            title="Waiting for a taker"
+          />
           <TradeActionSurface actions={actions} canSubmit={canSubmit} loading={loading} onSubmit={onSubmitCommand} />
         </>
-      ) : !isInvoicePaymentStep &&
-        !isChatStep &&
-        !isDisputeStep &&
-        !isPayoutStep &&
-        !isRenewalStep &&
-        !isFinishedStep &&
-        !isRoutingStep ? (
-        <Card className="trade-contract-card">
-          <CardHeader className="trade-contract-title-row">
-            <CardTitle>{view.message.heading}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {order.pending_cancel ? (
-              <div className="status-panel status-panel-warning trade-cancel-notice">
-                <AlertTriangle size={18} />
-                <span>
-                  Your peer requested collaborative cancellation. To accept, open Trade options and press Accept
-                  cancellation.
-                </span>
-              </div>
-            ) : order.asked_for_cancel ? (
-              <div className="status-panel trade-cancel-notice">
-                <Clock size={18} />
-                <span>Your collaborative cancellation request is waiting for your peer.</span>
-              </div>
-            ) : null}
-            <div className="trade-action trade-action-status">
-              <ShieldAlert size={22} />
-              <p>{view.message.body}</p>
-            </div>
-            {view.panel === "escrow_wait" ? (
-              <TradeStageDeadline expiresAt={order.expires_at} label="Seller collateral" />
-            ) : view.panel === "payout_wait" ? (
-              <TradeStageDeadline expiresAt={order.expires_at} label="Buyer payout information" />
-            ) : null}
-            {rewardClaim}
-            <TradeActionSurface actions={actions} canSubmit={canSubmit} loading={loading} onSubmit={onSubmitCommand} />
-          </CardContent>
-        </Card>
+      ) : !hasDedicatedStep ? (
+        <TradeContractStatusCard
+          actions={actions}
+          canSubmit={canSubmit}
+          loading={loading}
+          myNick={myNick}
+          onSubmit={onSubmitCommand}
+          order={order}
+          rewardClaim={rewardClaim}
+          view={view}
+        />
       ) : null}
 
       {preChatEnabled ? (
@@ -809,6 +790,123 @@ function ContractPanel({
           onSubmit={onSubmitCommand}
         />
       ) : null}
+    </div>
+  );
+}
+
+function TradeContractStatusCard({
+  actions,
+  canSubmit,
+  loading,
+  myNick,
+  onSubmit,
+  order,
+  rewardClaim,
+  view
+}: {
+  actions: TradeActionCommand[];
+  canSubmit: boolean;
+  loading: boolean;
+  myNick: string;
+  onSubmit: (action: TradeActionCommand) => Promise<string | undefined>;
+  order: OrderDto;
+  rewardClaim: ReactNode;
+  view: ReturnType<typeof getTradeViewState>;
+}) {
+  const waiting = isWaitingPanel(view.panel);
+  return (
+    <Card className={`trade-contract-card trade-contract-card-${view.panel}`}>
+      {!waiting ? (
+        <CardHeader className="trade-contract-title-row">
+          <CardTitle>{view.message.heading}</CardTitle>
+        </CardHeader>
+      ) : null}
+      <CardContent>
+        {order.pending_cancel ? (
+          <div className="status-panel status-panel-warning trade-cancel-notice">
+            <AlertTriangle size={18} />
+            <span>
+              Your peer requested collaborative cancellation. To accept, open Trade options and press Accept
+              cancellation.
+            </span>
+          </div>
+        ) : order.asked_for_cancel ? (
+          <div className="status-panel trade-cancel-notice">
+            <Clock size={18} />
+            <span>Your collaborative cancellation request is waiting for your peer.</span>
+          </div>
+        ) : null}
+        {waiting ? (
+          <TradeWaitingScene
+            body={view.message.body}
+            peerHashId={order.is_maker ? order.taker_hash_id : order.maker_hash_id}
+            peerName={order.is_maker ? order.taker_nick : order.maker_nick}
+            robotHashId={order.is_maker ? order.maker_hash_id : order.taker_hash_id}
+            robotName={myNick}
+            title={view.message.heading}
+          />
+        ) : (
+          <div className="trade-action trade-action-status">
+            <ShieldAlert size={22} />
+            <p>{view.message.body}</p>
+          </div>
+        )}
+        {view.panel === "escrow_wait" ? (
+          <TradeStageDeadline expiresAt={order.expires_at} label="Seller collateral" />
+        ) : view.panel === "payout_wait" ? (
+          <TradeStageDeadline expiresAt={order.expires_at} label="Buyer payout information" />
+        ) : null}
+        {rewardClaim}
+        <TradeActionSurface actions={actions} canSubmit={canSubmit} loading={loading} onSubmit={onSubmit} />
+      </CardContent>
+    </Card>
+  );
+}
+
+function isWaitingPanel(panel: ReturnType<typeof getTradeViewState>["panel"]): boolean {
+  return ["taker_found", "escrow_wait", "payout_wait", "dispute_peer_wait", "dispute_resolution", "wait"].includes(
+    panel
+  );
+}
+
+function TradeWaitingScene({
+  body,
+  peerHashId,
+  peerName,
+  robotHashId,
+  robotName,
+  title
+}: {
+  body: string;
+  peerHashId?: string;
+  peerName?: string;
+  robotHashId?: string;
+  robotName: string;
+  title: string;
+}) {
+  return (
+    <div className="trade-wait-scene" role="status">
+      <div className="trade-wait-robots" aria-hidden="true">
+        <span className="trade-wait-robot trade-wait-robot-ready">
+          <RobotAvatar hashId={robotHashId || robotName} label={robotName} size="sm" />
+        </span>
+        <span className="trade-wait-route">
+          <i />
+          <i />
+          <i />
+        </span>
+        {peerName || peerHashId ? (
+          <span className="trade-wait-robot trade-wait-robot-peer">
+            <RobotAvatar hashId={peerHashId || peerName || "peer"} label={peerName || "Trade peer"} size="sm" />
+          </span>
+        ) : (
+          <span className="trade-wait-open-slot">?</span>
+        )}
+      </div>
+      <div className="trade-wait-copy">
+        <h3>{title}</h3>
+        <small>{body}</small>
+      </div>
     </div>
   );
 }
@@ -1945,9 +2043,12 @@ function DisputeStatementCard({
   const error = localError || order.bad_statement || "";
 
   return (
-    <Card>
-      <CardHeader className="payment-card-header">
-        <CardTitle>Dispute statement</CardTitle>
+    <Card className="dispute-statement-card">
+      <CardHeader className="dispute-statement-header">
+        <span>
+          <small>Evidence workspace</small>
+          <CardTitle>Dispute statement</CardTitle>
+        </span>
         <Badge tone="danger">dispute</Badge>
       </CardHeader>
       <CardContent>
@@ -1958,7 +2059,7 @@ function DisputeStatementCard({
             void submitStatement();
           }}
         >
-          <div className="trade-action">
+          <div className="trade-action dispute-introduction">
             <FileText size={24} />
             <div>
               <strong>Explain what happened</strong>
@@ -1966,65 +2067,86 @@ function DisputeStatementCard({
                 Build a complete case and provide a reachable burner contact. The coordinator cannot otherwise read your
                 private trade chat.
               </p>
-              <p className="muted-copy">
-                Each peer has 24 hours from dispute opening to submit a statement. After that, the coordinator manually
-                reviews the evidence; disputes are usually resolved within a few days.
-              </p>
             </div>
           </div>
-          <label className="field-block">
-            Statement *
-            <textarea
-              aria-describedby={error ? "dispute-statement-error" : undefined}
-              aria-invalid={Boolean(error)}
-              value={statement}
-              maxLength={MAX_DISPUTE_STATEMENT_LENGTH}
-              onChange={(event) => setStatement(event.target.value)}
-              placeholder="I sent fiat at HH:MM using the agreed method. The seller has not confirmed..."
-              rows={7}
-            />
-          </label>
-          <div className="dispute-contact-grid">
+          <details className="dispute-next-steps">
+            <summary>What happens next</summary>
+            <p>
+              Each peer has 24 hours from dispute opening to submit a statement. The coordinator then reviews both sets
+              of evidence.
+            </p>
+          </details>
+          <section className="dispute-workspace-section">
+            <header>
+              <span>1</span>
+              <strong>Statement</strong>
+            </header>
             <label className="field-block">
-              Contact method *
-              <select
+              Describe the relevant facts *
+              <textarea
                 aria-describedby={error ? "dispute-statement-error" : undefined}
                 aria-invalid={Boolean(error)}
-                required
-                value={contactMethod}
-                onChange={(event) => setContactMethod(event.target.value)}
-              >
-                <option value="" disabled>
-                  Select a contact method
-                </option>
-                {availableContactMethods.map((method) => (
-                  <option key={method} value={method}>
-                    {contactMethodLabel(method)}
-                  </option>
-                ))}
-                <option value="other">Other</option>
-              </select>
-            </label>
-            <label className="field-block">
-              Contact address or username *
-              <input
-                aria-describedby={error ? "dispute-statement-error" : undefined}
-                aria-invalid={Boolean(error)}
-                required
-                value={contact}
-                onChange={(event) => setContact(event.target.value)}
-                placeholder={contactPlaceholder(contactMethod)}
+                value={statement}
+                maxLength={MAX_DISPUTE_STATEMENT_LENGTH}
+                onChange={(event) => setStatement(event.target.value)}
+                placeholder="I sent fiat at HH:MM using the agreed method. The seller has not confirmed..."
+                rows={7}
               />
             </label>
-          </div>
-          <label className="toggle-row dispute-logs-toggle">
-            <input type="checkbox" checked={attachLogs} onChange={(event) => setAttachLogs(event.target.checked)} />
-            <Paperclip size={17} />
-            <span>
-              <strong>Attach chat logs</strong>
-              <small>This helps the dispute solver, but may reveal private trade details.</small>
-            </span>
-          </label>
+          </section>
+          <section className="dispute-workspace-section">
+            <header>
+              <span>2</span>
+              <strong>Contact</strong>
+            </header>
+            <div className="dispute-contact-grid">
+              <label className="field-block">
+                Contact method *
+                <select
+                  aria-describedby={error ? "dispute-statement-error" : undefined}
+                  aria-invalid={Boolean(error)}
+                  required
+                  value={contactMethod}
+                  onChange={(event) => setContactMethod(event.target.value)}
+                >
+                  <option value="" disabled>
+                    Select a contact method
+                  </option>
+                  {availableContactMethods.map((method) => (
+                    <option key={method} value={method}>
+                      {contactMethodLabel(method)}
+                    </option>
+                  ))}
+                  <option value="other">Other</option>
+                </select>
+              </label>
+              <label className="field-block">
+                Contact address or username *
+                <input
+                  aria-describedby={error ? "dispute-statement-error" : undefined}
+                  aria-invalid={Boolean(error)}
+                  required
+                  value={contact}
+                  onChange={(event) => setContact(event.target.value)}
+                  placeholder={contactPlaceholder(contactMethod)}
+                />
+              </label>
+            </div>
+          </section>
+          <section className="dispute-workspace-section">
+            <header>
+              <span>3</span>
+              <strong>Attachments</strong>
+            </header>
+            <label className="toggle-row dispute-logs-toggle">
+              <input type="checkbox" checked={attachLogs} onChange={(event) => setAttachLogs(event.target.checked)} />
+              <Paperclip size={17} />
+              <span>
+                <strong>Attach chat logs</strong>
+                <small>This helps the dispute solver, but may reveal private trade details.</small>
+              </span>
+            </label>
+          </section>
           {error ? (
             <p className="field-error" id="dispute-statement-error" role="alert">
               {error}
@@ -2085,6 +2207,8 @@ function PayoutRoutingCard({
         <div className="payout-route-scene" aria-label={status} role="status">
           <div className="payout-bolt-stage" aria-hidden="true">
             <svg viewBox="0 0 168 184">
+              <path className="payout-route-path" d="M84 40 C84 76 57 111 84 157" />
+              <circle className="payout-route-target" cx="84" cy="160" r="12" />
               {payoutBoltLanes.map(({ delay, lane }) => (
                 <path className={`payout-bolt-glow ${delay} ${lane}`} d={boltPath} key={`glow-${lane}`} />
               ))}

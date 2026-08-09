@@ -3,6 +3,7 @@ import { useState } from "react";
 import { AppTransitionFeedback } from "@/domains/navigation/AppTransitionFeedback";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
+import { RobotAvatar } from "@/domains/identity/RobotAvatar";
 import { downloadFleetKeyBackup } from "@/domains/pro/fleetKeyBackup";
 import { useGarageVaultStore } from "@/domains/pro/garageVaultStore";
 import { writeClipboard } from "@/lib/clipboard";
@@ -18,7 +19,7 @@ export function GarageSetupDialog({ onComplete, onRestore, onUseStandardGarage }
   const setup = useGarageVaultStore((state) => state.setup);
   const exportToken = useGarageVaultStore((state) => state.exportToken);
   const markBackedUp = useGarageVaultStore((state) => state.markBackedUp);
-  const [fleetKey, setFleetKey] = useState(() => vaultStatus === "needs-backup" ? exportToken() : "");
+  const [fleetKey, setFleetKey] = useState(() => (vaultStatus === "needs-backup" ? exportToken() : ""));
   const [backedUp, setBackedUp] = useState(false);
   const [working, setWorking] = useState(false);
   const [finishing, setFinishing] = useState(false);
@@ -64,17 +65,17 @@ export function GarageSetupDialog({ onComplete, onRestore, onUseStandardGarage }
     <section className="confirm-sheet pro-garage-setup-sheet">
       {finishing ? (
         <>
-          <h3 className="sr-only" id="pro-garage-setup-title">Opening Pro Desk</h3>
-          <AppTransitionFeedback
-            compact
-            title="Opening Pro Desk"
-            message="Loading your Fleet and trade overview..."
-          />
+          <h3 className="sr-only" id="pro-garage-setup-title">
+            Opening Pro Desk
+          </h3>
+          <AppTransitionFeedback compact title="Opening Pro Desk" message="Loading your Fleet and trade overview..." />
         </>
       ) : (
         <>
           <header>
-            <span className="pro-garage-setup-icon"><ShieldCheck size={22} /></span>
+            <span className="pro-garage-setup-icon">
+              <ShieldCheck size={22} />
+            </span>
             <div>
               <p className="app-eyebrow">Pro Fleet</p>
               <h3 id="pro-garage-setup-title">Set up your Robot Fleet</h3>
@@ -82,24 +83,55 @@ export function GarageSetupDialog({ onComplete, onRestore, onUseStandardGarage }
           </header>
           {!fleetKey ? (
             <>
+              <div className="pro-fleet-setup-preview">
+                <div className="pro-fleet-setup-robots" aria-hidden="true">
+                  <RobotAvatar hashId="a83d2f" label="" size="md" />
+                  <RobotAvatar hashId="3c7ab9" label="" size="md" />
+                  <RobotAvatar hashId="d09841" label="" size="md" />
+                </div>
+                <span>
+                  <strong>One Trade Desk</strong>
+                  <small>Separate robot identities, one focused workspace.</small>
+                </span>
+              </div>
               <div className="pro-fleet-setup-copy">
                 <p>A Fleet lets you manage several RoboSats robots and their trades from one Trade Desk.</p>
-                <p>Each robot remains a standard RoboSats identity recoverable in any RoboSats app. Your Fleet key restores the complete collection on another device.</p>
+                <p>
+                  Each robot remains a standard RoboSats identity recoverable in any RoboSats app. Your Fleet key
+                  restores the complete collection on another device.
+                </p>
               </div>
-              {error ? <p className="form-error" role="alert">{error}</p> : null}
+              {error ? (
+                <p className="form-error" role="alert">
+                  {error}
+                </p>
+              ) : null}
               <div className="pro-garage-setup-actions">
-                <Button loading={working} onClick={() => void createFleet()}>Set up a new Fleet</Button>
-                {onRestore ? <Button disabled={working} variant="outline" onClick={onRestore}>Restore Fleet</Button> : null}
+                <Button loading={working} onClick={() => void createFleet()}>
+                  Set up a new Fleet
+                </Button>
+                {onRestore ? (
+                  <Button disabled={working} variant="outline" onClick={onRestore}>
+                    Restore Fleet
+                  </Button>
+                ) : null}
               </div>
               {onUseStandardGarage ? (
-                <Button className="pro-use-standard-garage" disabled={working} variant="ghost" onClick={onUseStandardGarage}>Keep standard Garage</Button>
+                <Button
+                  className="pro-use-standard-garage"
+                  disabled={working}
+                  variant="ghost"
+                  onClick={onUseStandardGarage}
+                >
+                  Keep standard Garage
+                </Button>
               ) : null}
             </>
           ) : (
             <>
               <p>
-                This Fleet key recreates your robots and reconnects the Trade Desk on another device.
-                Keep it private because anyone who has it can control those robot identities.
+                This Fleet key recreates your robots and reconnects the Trade Desk on another device. Keep it private
+                because anyone who has it can control those robot identities.
               </p>
               <div className="pro-garage-token-value">
                 <code>{fleetKey}</code>
@@ -112,8 +144,14 @@ export function GarageSetupDialog({ onComplete, onRestore, onUseStandardGarage }
                   </Button>
                 </div>
               </div>
-              {error ? <p className="form-error" role="alert">{error}</p> : null}
-              <Button disabled={!backedUp} onClick={() => void finishSetup()}>Continue to Trade Desk</Button>
+              {error ? (
+                <p className="form-error" role="alert">
+                  {error}
+                </p>
+              ) : null}
+              <Button disabled={!backedUp} onClick={() => void finishSetup()}>
+                Continue to Trade Desk
+              </Button>
             </>
           )}
         </>

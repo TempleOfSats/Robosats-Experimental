@@ -1,29 +1,31 @@
 @media (max-width: 900px) {
   .action-notice {
     right: max(0.75rem, env(safe-area-inset-right));
-    bottom: max(0.75rem, env(safe-area-inset-bottom));
+    bottom: calc(4.9rem + env(safe-area-inset-bottom));
     width: calc(100vw - 1.5rem);
   }
 
   .app-shell {
     display: block;
+    padding-bottom: calc(4.65rem + env(safe-area-inset-bottom));
   }
 
   .app-sidebar {
     min-height: auto;
     width: 100%;
-    position: sticky;
-    top: 0;
+    position: fixed;
+    inset: auto 0 0;
     z-index: 70;
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
+    display: block;
     align-items: center;
-    gap: 0.75rem;
+    gap: 0;
     border-right: 0;
-    border-bottom: 1px solid var(--border);
-    padding: 0.55rem var(--space-page-x);
-    background: color-mix(in srgb, var(--background) 94%, transparent);
-    backdrop-filter: blur(16px);
+    border-top: 1px solid var(--border-subtle);
+    border-bottom: 0;
+    padding: 0.35rem max(0.65rem, env(safe-area-inset-right)) calc(0.35rem + env(safe-area-inset-bottom))
+      max(0.65rem, env(safe-area-inset-left));
+    background: var(--navigation);
+    box-shadow: 0 -0.75rem 2rem color-mix(in srgb, var(--fixed-black) 20%, transparent);
   }
 
   .app-runtime-desktop .app-sidebar {
@@ -31,26 +33,42 @@
   }
 
   .brand-block {
-    border: 0;
-    padding: 0;
+    display: none;
   }
 
   .sidebar-nav {
-    grid-template-columns: repeat(5, minmax(2.75rem, 1fr));
-    gap: 0.2rem;
-  }
-
-  .sidebar-nav-pro {
-    grid-template-columns: repeat(6, minmax(2.5rem, 1fr));
+    display: flex;
+    justify-content: center;
+    gap: 0.3rem;
   }
 
   .nav-item {
+    flex: 1 1 0;
+    max-width: 6.5rem;
+    flex-direction: column;
     justify-content: center;
-    min-height: 2.7rem;
-    padding: 0.55rem;
+    gap: 0.18rem;
+    min-height: 3.55rem;
+    padding: 0.38rem 0.3rem 0.32rem;
+    border-radius: var(--radius-lg);
   }
 
-  .nav-item span,
+  .nav-item > span:not(.sr-only) {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 0.9rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .nav-item.active {
+    box-shadow: inset 0 2px 0 var(--selection-indicator);
+  }
+
+  .nav-item-disabled,
   .sidebar-card {
     display: none;
   }
@@ -58,7 +76,9 @@
   .nav-attention-count {
     display: block;
     position: absolute;
-    margin: -1.75rem 0 0 1.55rem;
+    top: 0.25rem;
+    left: calc(50% + 0.45rem);
+    margin: 0;
     min-width: 1rem;
     border: 0;
     padding: 0 0.18rem;
@@ -71,6 +91,7 @@
 
   .app-content {
     padding-top: 1.25rem;
+    padding-bottom: 1.25rem;
   }
 
   .orderbook-layout,
@@ -354,7 +375,7 @@
   }
 
   .payment-qr-shell {
-    width: min(100%, 19rem);
+    width: min(100%, 15.5rem);
   }
 
   .wizard-steps {
@@ -740,16 +761,28 @@
 
 @media (max-width: 1320px) {
   .orderbook-layout,
-  .trade-layout {
+  .trade-layout:not(.trade-main-layout) {
     grid-template-columns: 1fr;
   }
 
-  .trade-layout > :first-child {
+  .trade-layout:not(.trade-main-layout) > :first-child {
     grid-row: auto;
+  }
+}
+
+@media (max-width: 1180px) {
+  .page-trade > .trade-progress,
+  .page-trade > .order-error-panel {
+    width: min(100%, 36rem);
   }
 
   .trade-main-layout {
+    width: min(100%, 36rem);
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .trade-main-layout > .trade-panel-slot + .trade-panel-slot {
+    position: static;
   }
 }
 

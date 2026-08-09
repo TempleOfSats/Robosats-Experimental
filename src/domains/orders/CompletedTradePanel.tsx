@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
-import { Download, ExternalLink, Rocket, Star } from "lucide-react";
+import { ChevronDown, Download, ExternalLink, Rocket, Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, tabId } from "@/components/ui/tabs";
 import { currencyCodeFromId } from "@/domains/orderbook/currencies";
@@ -322,35 +322,42 @@ function RatingSubmissionCard({
   const ratingSending = loading || submitting;
 
   return (
-    <section className="trade-completion-rating">
-      <div className="trade-completion-rating-heading">
-        <h3>Rate your trade</h3>
+    <details className="trade-completion-rating">
+      <summary className="trade-completion-rating-heading">
+        <span>
+          <Star size={18} aria-hidden="true" />
+          <strong>Rate your trade</strong>
+          <small>Optional feedback for your peer and host</small>
+        </span>
+        <ChevronDown size={18} aria-hidden="true" />
+      </summary>
+      <div className="trade-completion-rating-body">
+        <div className="trade-completion-rating-grid">
+          <RatingField label="Your peer" rating={peerRating} ratingLabels={ratingLabels} onChange={setPeerRating} />
+          <RatingField
+            disabled={ratingSending}
+            label={`Your host ${coordinatorName || "coordinator"}`}
+            rating={coordinatorRating}
+            ratingLabels={ratingLabels}
+            onChange={(value) => void selectCoordinatorRating(value)}
+          />
+        </div>
+        {ratingSending ? (
+          <p className="trade-rating-sending" role="status">
+            <span className="ui-spinner" aria-hidden="true" />
+            Sending coordinator rating
+          </p>
+        ) : submitted ? (
+          <p className="trade-rating-thanks" role="status">
+            Also {coordinatorName || "your coordinator"} loves you <span aria-hidden="true">❤️</span>
+          </p>
+        ) : localError ? (
+          <p className="field-error" role="alert">
+            {localError}
+          </p>
+        ) : null}
       </div>
-      <div className="trade-completion-rating-grid">
-        <RatingField label="Your peer" rating={peerRating} ratingLabels={ratingLabels} onChange={setPeerRating} />
-        <RatingField
-          disabled={ratingSending}
-          label={`Your host ${coordinatorName || "coordinator"}`}
-          rating={coordinatorRating}
-          ratingLabels={ratingLabels}
-          onChange={(value) => void selectCoordinatorRating(value)}
-        />
-      </div>
-      {ratingSending ? (
-        <p className="trade-rating-sending" role="status">
-          <span className="ui-spinner" aria-hidden="true" />
-          Sending coordinator rating
-        </p>
-      ) : submitted ? (
-        <p className="trade-rating-thanks" role="status">
-          Also {coordinatorName || "your coordinator"} loves you <span aria-hidden="true">❤️</span>
-        </p>
-      ) : localError ? (
-        <p className="field-error" role="alert">
-          {localError}
-        </p>
-      ) : null}
-    </section>
+    </details>
   );
 }
 

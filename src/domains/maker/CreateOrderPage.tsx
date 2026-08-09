@@ -145,6 +145,7 @@ export function CreateOrderPage() {
   });
   const [selectedShortAlias, setSelectedShortAlias] = useState(() => renewal?.shortAlias ?? "");
   const [currentStep, setCurrentStep] = useState(() => renewal?.prefillDraft ? wizardSteps.length - 1 : 0);
+  const [stepDirection, setStepDirection] = useState<"forward" | "backward">("forward");
   const [reviewReady, setReviewReady] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
@@ -334,11 +335,13 @@ export function CreateOrderPage() {
     }
 
     setSubmitError("");
+    setStepDirection("forward");
     setCurrentStep((step) => Math.min(wizardSteps.length - 1, step + 1));
   }
 
   function previousStep() {
     setSubmitError("");
+    setStepDirection("backward");
     setCurrentStep((step) => Math.max(0, step - 1));
   }
 
@@ -453,9 +456,11 @@ export function CreateOrderPage() {
                       className={stepClassName(index, currentStep)}
                       key={step.title}
                       type="button"
+                      aria-current={index === currentStep ? "step" : undefined}
                       onClick={() => {
                         if (index <= currentStep) {
                           setSubmitError("");
+                          if (index < currentStep) setStepDirection("backward");
                           setCurrentStep(index);
                         }
                       }}
@@ -468,7 +473,7 @@ export function CreateOrderPage() {
               </div>
             </CardHeader>
 
-            <CardContent>
+            <CardContent className="maker-wizard-content">
               {proEnabled && portableManifest && !presetEditor ? (
                 <OfferPresetPanel
                   appliedPresetId={renewal?.presetId}
@@ -487,51 +492,57 @@ export function CreateOrderPage() {
                   </Link>
                 </div>
               ) : null}
-              {currentStep === 0 ? (
-                <>
-                  {presetEditor ? (
-                    <label className="maker-preset-name-field maker-preset-name-field-step">
-                      <span>Preset name</span>
-                      <input
-                        ref={presetNameInput}
-                        aria-invalid={submitError === "Give this preset a name before continuing."}
-                        autoFocus
-                        maxLength={64}
-                        placeholder="e.g. Weekly EUR buy"
-                        value={presetName}
-                        onChange={(event) => {
-                          setPresetName(event.target.value);
-                          setSubmitError("");
-                        }}
-                      />
-                    </label>
-                  ) : null}
-                  <SideStep
-                    coordinators={selectableCoordinators}
+              <div
+                className={`maker-step-frame maker-step-frame-${stepDirection}`}
+                data-step={wizardSteps[currentStep].title.toLowerCase()}
+                key={`${currentStep}-${stepDirection}`}
+              >
+                {currentStep === 0 ? (
+                  <>
+                    {presetEditor ? (
+                      <label className="maker-preset-name-field maker-preset-name-field-step">
+                        <span>Preset name</span>
+                        <input
+                          ref={presetNameInput}
+                          aria-invalid={submitError === "Give this preset a name before continuing."}
+                          autoFocus
+                          maxLength={64}
+                          placeholder="e.g. Weekly EUR buy"
+                          value={presetName}
+                          onChange={(event) => {
+                            setPresetName(event.target.value);
+                            setSubmitError("");
+                          }}
+                        />
+                      </label>
+                    ) : null}
+                    <SideStep
+                      coordinators={selectableCoordinators}
+                      draft={draft}
+                      selectedShortAlias={selectedAlias}
+                      showCoordinator={!presetEditor}
+                      updateDraft={updateDraft}
+                      onCoordinatorChange={setSelectedShortAlias}
+                    />
+                  </>
+                ) : null}
+
+                {currentStep === 1 ? (
+                  <AmountStep draft={draft} updateDraft={updateDraft} />
+                ) : null}
+
+                {currentStep === 2 ? (
+                  <ReviewStep
+                    coordinator={selectedCoordinator}
+                    currency={selectedCurrency}
                     draft={draft}
-                    selectedShortAlias={selectedAlias}
-                    showCoordinator={!presetEditor}
-                    updateDraft={updateDraft}
-                    onCoordinatorChange={setSelectedShortAlias}
+                    robotHashId={activeSlot?.hashId}
+                    robotName={activeSlot?.nickname}
+                    presetMode={presetEditor}
+                    validationErrors={validationErrors}
                   />
-                </>
-              ) : null}
-
-              {currentStep === 1 ? (
-                <AmountStep draft={draft} updateDraft={updateDraft} />
-              ) : null}
-
-              {currentStep === 2 ? (
-                <ReviewStep
-                  coordinator={selectedCoordinator}
-                  currency={selectedCurrency}
-                  draft={draft}
-                  robotHashId={activeSlot?.hashId}
-                  robotName={activeSlot?.nickname}
-                  presetMode={presetEditor}
-                  validationErrors={validationErrors}
-                />
-              ) : null}
+                ) : null}
+              </div>
 
               {submitError ? (
                 <div className="status-panel status-panel-warning maker-step-error">
@@ -982,25 +993,11 @@ function ReviewStep({
     && hasApproximateF2FLocation(draft.latitude, draft.longitude);
 
   return (
-    <div className="maker-step-panel">
-      {!presetMode ? <div className="maker-review-identity">
-        <div>
-          <RobotAvatar hashId={robotHashId} label={robotName} size="md" />
-          <span>
-            <small>Maker</small>
-            <strong>{robotName ?? "Your robot"}</strong>
-          </span>
-        </div>
-        {coordinator ? (
-          <div className="maker-review-coordinator">
-            <img className="coordinator-avatar coordinator-avatar-md" src={coordinator.smallAvatarUrl} alt="" />
-            <span>
-              <small>Coordinator <InfoHint title="The order host provides the Lightning and communication infrastructure and handles disputes." /></small>
-              <strong>{coordinator.longAlias}</strong>
-            </span>
-          </div>
-        ) : null}
-      </div> : null}
+    <div className="maker-step-panel maker-review-step">
+      <header className="maker-review-heading">
+        <p>Offer summary</p>
+        <h3>Review before publishing</h3>
+      </header>
       <div className="maker-review-hero">
         <Badge tone={roleBuysBitcoin(draft.type, "maker") ? "buy" : "sell"}>
           {roleIntentLabel(draft.type, draft.isSwap, "maker")}
@@ -1023,6 +1020,25 @@ function ReviewStep({
           </Button>
         ) : null}
       </div>
+
+      {!presetMode ? <div className="maker-review-identity" role="group" aria-label="Offer participants">
+        <div>
+          <RobotAvatar hashId={robotHashId} label={robotName} size="md" />
+          <span>
+            <small>Maker</small>
+            <strong>{robotName ?? "Your robot"}</strong>
+          </span>
+        </div>
+        {coordinator ? (
+          <div className="maker-review-coordinator">
+            <img className="coordinator-avatar coordinator-avatar-md" src={coordinator.smallAvatarUrl} alt="" />
+            <span>
+              <small>Coordinator <InfoHint title="The order host provides the Lightning and communication infrastructure and handles disputes." /></small>
+              <strong>{coordinator.longAlias}</strong>
+            </span>
+          </div>
+        ) : null}
+      </div> : null}
 
       <dl className="maker-review-grid">
         <ReviewItem label="Premium" value={`${draft.premium || 0}%`} />

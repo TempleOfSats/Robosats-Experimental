@@ -1,8 +1,10 @@
 .pro-workspace-header {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
+  padding-block: 0.15rem;
 }
 
 .pro-workspace-header .app-eyebrow {
@@ -12,7 +14,28 @@
 .pro-workspace-heading {
   min-width: 0;
   display: grid;
-  gap: 0.3rem;
+  gap: 0.12rem;
+}
+
+.pro-workspace-heading h2 {
+  margin: 0;
+  font-size: var(--type-balance-size);
+  line-height: var(--type-balance-line);
+}
+
+.pro-workspace-context {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.55rem;
+  margin-top: 0.1rem;
+}
+
+.pro-workspace-scope {
+  color: var(--text-supporting);
+  font-size: var(--type-compact-size);
+  line-height: var(--type-compact-line);
 }
 
 .pro-fleet-sync-status,
@@ -26,6 +49,15 @@
   max-width: 100%;
   gap: 0.2rem;
   color: var(--muted-foreground);
+}
+
+.pro-fleet-sync-status::before {
+  content: "";
+  width: 0.2rem;
+  height: 0.2rem;
+  margin-inline: 0.1rem 0.2rem;
+  border-radius: 50%;
+  background: var(--border-strong);
 }
 
 .pro-fleet-sync-copy {
@@ -76,6 +108,10 @@
   gap: 0.5rem;
 }
 
+.pro-header-action-short {
+  display: none;
+}
+
 .pro-create-offer-button,
 .pro-add-robot-button,
 .pro-robot-create-button {
@@ -97,11 +133,15 @@
 }
 
 @keyframes pro-refresh-spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @keyframes pro-sync-breathe {
-  50% { opacity: 0.45; }
+  50% {
+    opacity: 0.45;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -113,7 +153,7 @@
 
 .pro-summary-strip {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1.35fr) repeat(3, minmax(0, 1fr));
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -135,6 +175,10 @@
   padding: 0.75rem 1rem;
   text-align: left;
   cursor: pointer;
+  transition:
+    background-color 140ms ease,
+    box-shadow 140ms ease,
+    color 140ms ease;
 }
 
 .pro-summary-item:last-child {
@@ -145,6 +189,28 @@
   color: var(--foreground);
   font-size: var(--type-card-title-size);
   font-variant-numeric: tabular-nums lining-nums;
+}
+
+.pro-summary-item.is-zero {
+  color: color-mix(in srgb, var(--muted-foreground) 72%, transparent);
+}
+
+.pro-summary-item.is-zero strong {
+  color: var(--text-supporting);
+}
+
+.pro-summary-item-needs-action.has-value {
+  background: linear-gradient(120deg, color-mix(in srgb, var(--warning) 11%, var(--card)), var(--card) 74%);
+  color: var(--foreground);
+}
+
+.pro-summary-item-needs-action.has-value > svg {
+  color: var(--warning-foreground);
+  filter: drop-shadow(0 0 0.45rem color-mix(in srgb, var(--warning) 24%, transparent));
+}
+
+.pro-summary-item-needs-action.has-value strong {
+  font-size: var(--type-balance-size);
 }
 
 .pro-summary-item span {
@@ -175,8 +241,9 @@
   min-width: 0;
   overflow: visible;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   background: var(--card);
+  box-shadow: var(--surface-shadow-soft);
 }
 
 .pro-workspace-toolbar {
@@ -242,7 +309,10 @@
   visibility: hidden;
   pointer-events: none;
   transform: translate(-50%, -0.25rem);
-  transition: opacity 120ms ease, transform 120ms ease, visibility 120ms ease;
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease,
+    visibility 120ms ease;
 }
 
 .pro-view-tabs button:hover .ui-tab-hint-popover,
@@ -296,10 +366,27 @@
 
 .pro-workspace-content {
   min-height: 16rem;
-  overflow: hidden;
-  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  overflow: visible;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
 }
 
 .pro-fleet-utility-bar {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto;
+}
+
+.pro-fleet-utility-primary {
+  border-color: color-mix(in srgb, var(--secondary) 58%, var(--border));
+  background: color-mix(in srgb, var(--secondary) 9%, var(--card));
+  color: var(--foreground);
+}
+
+.pro-fleet-utility-primary > svg {
+  color: var(--secondary);
+}
+
+.pro-fleet-utility-tertiary {
+  min-width: 10rem;
+  border-color: var(--border-subtle);
+  background: transparent;
+  color: var(--text-supporting);
 }

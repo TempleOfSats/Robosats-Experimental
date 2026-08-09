@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import {
   AlertCircle,
   AlertTriangle,
@@ -33,7 +33,13 @@ import { subscribeRefreshIntents, type RefreshReason } from "@/domains/transport
 import type { PublicOrder } from "@/domains/orderbook/orderbook.types";
 import { activePublicOrders, filterPublicOrders } from "@/domains/orderbook/orderbookFilters";
 import { buildTakeOfferPayload, defaultTakeAmount, validateTakeOffer } from "@/domains/orderbook/takeOffer";
-import { getRobotAuthForCoordinator, selectCurrentSlot, selectStandardGarageSlots, useGarageStore, type RobotSlot } from "@/domains/garage/garageStore";
+import {
+  getRobotAuthForCoordinator,
+  selectCurrentSlot,
+  selectStandardGarageSlots,
+  useGarageStore,
+  type RobotSlot
+} from "@/domains/garage/garageStore";
 import { getRobotOrderAvailability } from "@/domains/garage/robotAvailability";
 import { reserveRobotOrderAction, revalidateRobotForNewOrder } from "@/domains/orders/robotOrderGuard";
 import { downloadRobotTokenBackup } from "@/domains/garage/tokenBackup";
@@ -51,18 +57,33 @@ import { AppTransitionDialog } from "@/domains/navigation/AppTransitionFeedback"
 import { preloadStatisticsRoute } from "@/domains/statistics/statisticsRoute";
 import { InfoHint } from "@/components/ui/infoHint";
 import { Skeleton } from "@/components/ui/skeleton";
-import { CurrencyFlag, CurrencyPicker, FilterAnyMonochromeIcon, IntentPicker, PaymentMethodIcons, PaymentMethodPicker, type IntentPickerOption } from "@/domains/orderbook/OfferMeta";
+import {
+  CurrencyFlag,
+  CurrencyPicker,
+  FilterAnyMonochromeIcon,
+  IntentPicker,
+  PaymentMethodIcons,
+  PaymentMethodPicker,
+  type IntentPickerOption
+} from "@/domains/orderbook/OfferMeta";
 import type { GuidedTradeCriteria } from "@/domains/orderbook/guidedTrade";
-import { isSwapPaymentMethod, matchedPaymentMethods, paymentIconSrc, paymentMethodOptions } from "@/domains/orderbook/paymentMethods";
+import {
+  isSwapPaymentMethod,
+  matchedPaymentMethods,
+  paymentIconSrc,
+  paymentMethodOptions
+} from "@/domains/orderbook/paymentMethods";
 import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
-import { bondDisplayValue, expiryRingValue, formatExpiryTitle, knownSatsValue, orderSatsPreview } from "@/domains/orderbook/offerDisplay";
+import {
+  bondDisplayValue,
+  expiryRingValue,
+  formatExpiryTitle,
+  knownSatsValue,
+  orderSatsPreview
+} from "@/domains/orderbook/offerDisplay";
 import { formatFiat, formatSats } from "@/lib/format";
 import { toUserMessage } from "@/lib/userError";
-import {
-  hasApproximateF2FLocation,
-  paymentMethodHasF2F,
-  selectCashF2FOffers
-} from "@/domains/location/f2fLocation";
+import { hasApproximateF2FLocation, paymentMethodHasF2F, selectCashF2FOffers } from "@/domains/location/f2fLocation";
 
 type SortColumn = "amount" | "premium" | "expiry";
 type SortDirection = "asc" | "desc";
@@ -107,12 +128,8 @@ export function OffersPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [guidedLaunch] = useState(
-    () => (location.state as OffersLocationState | null)?.guidedTradeLaunch
-  );
-  const [directOfferLaunch] = useState(
-    () => (location.state as OffersLocationState | null)?.directOfferLaunch
-  );
+  const [guidedLaunch] = useState(() => (location.state as OffersLocationState | null)?.guidedTradeLaunch);
+  const [directOfferLaunch] = useState(() => (location.state as OffersLocationState | null)?.directOfferLaunch);
   const connection = useFederationStore((state) => state.connection);
   const coordinators = useFederationStore((state) => state.coordinators);
   const origin = useFederationStore((state) => state.origin);
@@ -121,7 +138,9 @@ export function OffersPage() {
   const orders = useOrderbookStore((state) => state.orders);
   const loading = useOrderbookStore((state) => state.loading);
   const refreshing = useOrderbookStore((state) => state.refreshing);
+  const cacheState = useOrderbookStore((state) => state.cacheState);
   const error = useOrderbookStore((state) => state.error);
+  const lastUpdated = useOrderbookStore((state) => state.lastUpdated);
   const refreshOrderbook = useOrderbookStore((state) => state.refreshOrderbook);
   const applyLiveOrders = useOrderbookStore((state) => state.applyLiveOrders);
   const hydrateGarage = useGarageStore((state) => state.hydrate);
@@ -169,7 +188,7 @@ export function OffersPage() {
     ? undefined
     : standardTakeAvailability.available
       ? undefined
-      : standardTakeAvailability.message ?? "Create or recover a robot in Garage first.";
+      : (standardTakeAvailability.message ?? "Create or recover a robot in Garage first.");
 
   useEffect(() => {
     if (searchParams.get("guided") !== "1") return;
@@ -179,9 +198,7 @@ export function OffersPage() {
     nextParams.delete("guided");
     setSearchParams(nextParams, { replace: true });
   }, [searchParams, setSearchParams]);
-  const takeSlot = proEnabled
-    ? garageSlots.find((slot) => slot.tokenSHA256 === proTakeSlotId)
-    : activeSlot;
+  const takeSlot = proEnabled ? garageSlots.find((slot) => slot.tokenSHA256 === proTakeSlotId) : activeSlot;
 
   async function refresh(force = false) {
     const currentState = useFederationStore.getState();
@@ -233,13 +250,7 @@ export function OffersPage() {
       hostUrl: currentHostUrl(),
       onOrders: (liveOrders, meta) => {
         const state = useFederationStore.getState();
-        applyLiveOrders(
-          liveOrders,
-          "nostr",
-          state.network,
-          state.origin,
-          meta.partial || !meta.authoritative
-        );
+        applyLiveOrders(liveOrders, "nostr", state.network, state.origin, meta.partial || !meta.authoritative);
       }
     });
   }, [applyLiveOrders, connection, coordinatorSubscriptionKey, nostrSessionEpoch, origin]);
@@ -248,8 +259,8 @@ export function OffersPage() {
     let refreshTimer: number | undefined;
 
     const refreshAfterLifecycle = (reason: RefreshReason) => {
-      const restartNostr = connection === "nostr"
-        && (reason === "online" || reason === "tor-reconnected" || Boolean(error));
+      const restartNostr =
+        connection === "nostr" && (reason === "online" || reason === "tor-reconnected" || Boolean(error));
       if (refreshTimer) window.clearTimeout(refreshTimer);
       refreshTimer = window.setTimeout(() => void refresh(restartNostr || Boolean(error)), 150);
     };
@@ -303,18 +314,23 @@ export function OffersPage() {
   const totalPages = Math.max(1, Math.ceil(filteredOrders.length / pageSize));
   const currentPage = Math.min(page, totalPages);
   const pageStart = (currentPage - 1) * pageSize;
-  const visibleOrders = useMemo(() => filteredOrders.slice(pageStart, pageStart + pageSize), [filteredOrders, pageStart]);
-  const visiblePaymentMethodKey = useMemo(() => visibleOrders.map((order) => order.payment_method).join("|"), [visibleOrders]);
+  const visibleOrders = useMemo(
+    () => filteredOrders.slice(pageStart, pageStart + pageSize),
+    [filteredOrders, pageStart]
+  );
+  const visiblePaymentMethodKey = useMemo(
+    () => visibleOrders.map((order) => order.payment_method).join("|"),
+    [visibleOrders]
+  );
   const selectedOrder = selectedOrderKey
-    ? filteredOrders.find((order) => orderKey(order) === selectedOrderKey)
-      ?? (orderKey(directOfferLaunch?.reviewOrder) === selectedOrderKey ? directOfferLaunch?.reviewOrder : undefined)
+    ? (filteredOrders.find((order) => orderKey(order) === selectedOrderKey) ??
+      (orderKey(directOfferLaunch?.reviewOrder) === selectedOrderKey ? directOfferLaunch?.reviewOrder : undefined))
     : undefined;
   const selectedCoordinator = selectedOrder
     ? coordinators.find((item) => item.shortAlias === selectedOrder.coordinatorShortAlias)
     : undefined;
   const selectedDescription = (privateOrder?.description || selectedOrder?.description || "").trim();
   const showInitialSkeleton = (loading || refreshing) && orders.length === 0;
-
   useEffect(() => {
     setPage(1);
   }, [currencyFilter, intentFilter, methodFilter, sortColumn, sortDirection]);
@@ -412,7 +428,9 @@ export function OffersPage() {
     setProTakeSlotId(undefined);
     const coordinator = coordinators.find((item) => item.shortAlias === order.coordinatorShortAlias);
     const initialSlot = proEnabled ? undefined : activeSlot;
-    const canFetchDetails = Boolean(initialSlot && coordinator && getRobotAuthForCoordinator(initialSlot, coordinator.shortAlias));
+    const canFetchDetails = Boolean(
+      initialSlot && coordinator && getRobotAuthForCoordinator(initialSlot, coordinator.shortAlias)
+    );
     setOrderDetailsResolved(!canFetchDetails);
     setTakeModalOpen(true);
   }
@@ -575,9 +593,7 @@ export function OffersPage() {
 
     setGuidedTradeOpen(false);
     navigate(proEnabled ? "/pro" : "/create", {
-      state: proEnabled
-        ? { openCreate: true, prefillDraft }
-        : { prefillDraft }
+      state: proEnabled ? { openCreate: true, prefillDraft } : { prefillDraft }
     });
   }
 
@@ -589,60 +605,71 @@ export function OffersPage() {
   return (
     <main className="page page-wide">
       <section className="orderbook-layout">
-          <Card className="orderbook-table-card">
+        <Card className="orderbook-table-card">
           <CardHeader className="orderbook-card-header">
             <div className="orderbook-heading-group">
-              <CardTitle className="orderbook-title">Public offers</CardTitle>
-              <Button
-                aria-label="Find a trade step by step"
-                className="orderbook-guided-trade-link"
-                onClick={() => setGuidedTradeOpen(true)}
-                size="sm"
-                title="Find a trade step by step"
-                type="button"
-                variant="ghost"
-              >
-                <Search size={15} />
-                <span>Guided trade</span>
-              </Button>
-              <Button
-                aria-label="View market statistics"
-                className="orderbook-guided-trade-link orderbook-statistics-link"
-                onClick={() => {
-                  beginRouteTransition("/statistics");
-                  navigate("/statistics");
-                }}
-                onFocus={preloadStatisticsRoute}
-                onPointerEnter={preloadStatisticsRoute}
-                size="sm"
-                title="View market statistics"
-                type="button"
-                variant="ghost"
-              >
-                <BarChart3 size={15} />
-                <span className="orderbook-statistics-label">Statistics</span>
-              </Button>
-              {cashF2FOffers.length > 0 ? (
+              <OffersHeadingCopy
+                activeOfferCount={activeOrders.length}
+                cached={cacheState !== "none"}
+                hasError={Boolean(error)}
+                lastUpdated={lastUpdated}
+                live={connection === "nostr"}
+                nowMs={nowMs}
+              />
+              <div className="orderbook-heading-actions">
                 <Button
-                  aria-label={`View ${cashF2FOffers.length} Cash F2F ${cashF2FOffers.length === 1 ? "offer" : "offers"} on a map`}
-                  className="orderbook-guided-trade-link orderbook-f2f-map-link"
-                  onClick={() => setF2FOffersMapOpen(true)}
-                  onFocus={() => void loadF2FOffersMapDialog()}
-                  onPointerEnter={() => void loadF2FOffersMapDialog()}
+                  aria-label="Find a trade step by step"
+                  className="orderbook-guided-trade-link orderbook-guided-trade-link-primary"
+                  onClick={() => setGuidedTradeOpen(true)}
                   size="sm"
-                  title="View Cash F2F offers on a map"
+                  title="Find a trade step by step"
                   type="button"
                   variant="ghost"
                 >
-                  <MapPinned size={15} />
-                  <span>F2F map</span>
-                  <small>{cashF2FOffers.length}</small>
+                  <Search size={15} />
+                  <span>Guided trade</span>
                 </Button>
-              ) : null}
+                <Button
+                  aria-label="View market statistics"
+                  className="orderbook-guided-trade-link orderbook-statistics-link"
+                  onClick={() => {
+                    beginRouteTransition("/statistics");
+                    navigate("/statistics");
+                  }}
+                  onFocus={preloadStatisticsRoute}
+                  onPointerEnter={preloadStatisticsRoute}
+                  size="sm"
+                  title="View market statistics"
+                  type="button"
+                  variant="ghost"
+                >
+                  <BarChart3 size={15} />
+                  <span className="orderbook-statistics-label">Statistics</span>
+                </Button>
+                {cashF2FOffers.length > 0 ? (
+                  <Button
+                    aria-label={`View ${cashF2FOffers.length} Cash F2F ${cashF2FOffers.length === 1 ? "offer" : "offers"} on a map`}
+                    className="orderbook-guided-trade-link orderbook-f2f-map-link"
+                    onClick={() => setF2FOffersMapOpen(true)}
+                    onFocus={() => void loadF2FOffersMapDialog()}
+                    onPointerEnter={() => void loadF2FOffersMapDialog()}
+                    size="sm"
+                    title="View Cash F2F offers on a map"
+                    type="button"
+                    variant="ghost"
+                  >
+                    <MapPinned size={15} />
+                    <span>F2F map</span>
+                    <small>{cashF2FOffers.length}</small>
+                  </Button>
+                ) : null}
+              </div>
             </div>
             <div className="orderbook-refresh-state">
-              {refreshing ? <span className="orderbook-refreshing">Refreshing</span> : null}
-              {!refreshing && error && orders.length > 0 ? <span className="orderbook-refreshing">Reconnecting</span> : null}
+              {refreshing ? <span className="orderbook-refreshing">Updating</span> : null}
+              {!refreshing && error && orders.length > 0 ? (
+                <span className="orderbook-refreshing">Reconnecting</span>
+              ) : null}
               <Button
                 size="icon"
                 variant="ghost"
@@ -658,6 +685,10 @@ export function OffersPage() {
           </CardHeader>
           <CardContent>
             <div className="table-toolbar orderbook-toolbar">
+              <div className="orderbook-mobile-filter-heading">
+                <span>Filter offers</span>
+                <small>{filteredOrders.length} shown</small>
+              </div>
               <div className="orderbook-filter-strip orderbook-secondary-filters" aria-label="Filter public offers">
                 <div className="filter-select-field">
                   <span>Buy/Sell</span>
@@ -670,7 +701,9 @@ export function OffersPage() {
                       setIntentFilter(value as IntentFilter);
                       setMethodFilter("all");
                     }}
-                    onOpenChange={(open) => setOpenFilter((current) => open ? "intent" : current === "intent" ? null : current)}
+                    onOpenChange={(open) =>
+                      setOpenFilter((current) => (open ? "intent" : current === "intent" ? null : current))
+                    }
                   />
                 </div>
                 <div className="filter-select-field">
@@ -678,14 +711,19 @@ export function OffersPage() {
                   <CurrencyPicker
                     label="Filter by currency"
                     open={openFilter === "currency"}
-                    options={[{ label: "ANY", value: "all" }, ...currencyOptions.map((currency) => ({ label: currency, value: currency }))]}
+                    options={[
+                      { label: "ANY", value: "all" },
+                      ...currencyOptions.map((currency) => ({ label: currency, value: currency }))
+                    ]}
                     value={currencyFilter}
                     onChange={(value) => {
                       if (value === currencyFilter) return;
                       setCurrencyFilter(value);
                       setMethodFilter("all");
                     }}
-                    onOpenChange={(open) => setOpenFilter((current) => open ? "currency" : current === "currency" ? null : current)}
+                    onOpenChange={(open) =>
+                      setOpenFilter((current) => (open ? "currency" : current === "currency" ? null : current))
+                    }
                   />
                 </div>
                 <div className="filter-select-field filter-select-field-wide">
@@ -697,37 +735,67 @@ export function OffersPage() {
                     options={methodOptions}
                     value={methodFilter}
                     onChange={setMethodFilter}
-                    onOpenChange={(open) => setOpenFilter((current) => open ? "method" : current === "method" ? null : current)}
+                    onOpenChange={(open) =>
+                      setOpenFilter((current) => (open ? "method" : current === "method" ? null : current))
+                    }
                   />
                 </div>
               </div>
             </div>
 
             <div className="offer-mobile-sort" aria-label="Sort public offers">
-              <span>Sort</span>
-              <MobileSortButton active={sortColumn === "amount"} direction={sortDirection} onClick={() => toggleSort("amount")}>
-                Amount
-              </MobileSortButton>
-              <MobileSortButton active={sortColumn === "premium"} direction={sortDirection} onClick={() => toggleSort("premium")}>
-                Premium
-              </MobileSortButton>
-              <MobileSortButton active={sortColumn === "expiry"} direction={sortDirection} onClick={() => toggleSort("expiry")}>
-                Expiry
-              </MobileSortButton>
+              <span className="offer-mobile-sort-heading">
+                <ArrowUpDown size={14} /> Sort offers
+              </span>
+              <div className="offer-mobile-sort-options">
+                <MobileSortButton
+                  active={sortColumn === "amount"}
+                  direction={sortDirection}
+                  onClick={() => toggleSort("amount")}
+                >
+                  Amount
+                </MobileSortButton>
+                <MobileSortButton
+                  active={sortColumn === "premium"}
+                  direction={sortDirection}
+                  onClick={() => toggleSort("premium")}
+                >
+                  Premium
+                </MobileSortButton>
+                <MobileSortButton
+                  active={sortColumn === "expiry"}
+                  direction={sortDirection}
+                  onClick={() => toggleSort("expiry")}
+                >
+                  Expiry
+                </MobileSortButton>
+              </div>
             </div>
 
             <div className="offer-table-scroll">
               <div className="offer-table">
                 <div className="offer-table-header" role="row">
                   <span className="offer-table-header-cell">Type</span>
-                  <SortHeader active={sortColumn === "amount"} direction={sortDirection} onClick={() => toggleSort("amount")}>
+                  <SortHeader
+                    active={sortColumn === "amount"}
+                    direction={sortDirection}
+                    onClick={() => toggleSort("amount")}
+                  >
                     Amount
                   </SortHeader>
-                  <SortHeader active={sortColumn === "premium"} direction={sortDirection} onClick={() => toggleSort("premium")}>
+                  <SortHeader
+                    active={sortColumn === "premium"}
+                    direction={sortDirection}
+                    onClick={() => toggleSort("premium")}
+                  >
                     Premium
                   </SortHeader>
                   <span className="offer-table-header-cell">Payment Method</span>
-                  <SortHeader active={sortColumn === "expiry"} direction={sortDirection} onClick={() => toggleSort("expiry")}>
+                  <SortHeader
+                    active={sortColumn === "expiry"}
+                    direction={sortDirection}
+                    onClick={() => toggleSort("expiry")}
+                  >
                     Expiry
                   </SortHeader>
                   <span className="offer-table-header-cell offer-table-header-center">Coordinator</span>
@@ -751,9 +819,21 @@ export function OffersPage() {
 
                 {showInitialSkeleton ? <OfferSkeletonRows /> : null}
 
-                {visibleOrders.map((order) => (
-                  <button className="offer-row" key={orderKey(order)} onClick={() => openTakeModal(order)} type="button">
-                    <span className={isTakerBuying(order) ? "offer-direction offer-direction-buy" : "offer-direction offer-direction-sell"}>
+                {visibleOrders.map((order, index) => (
+                  <button
+                    className={isTakerBuying(order) ? "offer-row offer-row-buy" : "offer-row offer-row-sell"}
+                    key={orderKey(order)}
+                    onClick={() => openTakeModal(order)}
+                    style={{ "--offer-row-index": index } as CSSProperties}
+                    type="button"
+                  >
+                    <span
+                      className={
+                        isTakerBuying(order)
+                          ? "offer-direction offer-direction-buy"
+                          : "offer-direction offer-direction-sell"
+                      }
+                    >
                       <DirectionIcon order={order} />
                       <small>{order.is_swap ? "SWAP" : isTakerBuying(order) ? "BUY" : "SELL"}</small>
                     </span>
@@ -765,10 +845,16 @@ export function OffersPage() {
                       <OfferMethodLine order={order} />
                     </span>
                     <ExpiryDisplay expiresAt={order.expires_at} nowMs={nowMs} />
-                    <CoordinatorPill
-                      coordinator={coordinators.find((item) => item.shortAlias === order.coordinatorShortAlias)}
-                      showName
-                    />
+                    <span className="offer-row-review">
+                      <CoordinatorPill
+                        coordinator={coordinators.find((item) => item.shortAlias === order.coordinatorShortAlias)}
+                        showName
+                      />
+                      <span className="offer-review-affordance">
+                        <span>Review</span>
+                        <ArrowRight size={15} />
+                      </span>
+                    </span>
                   </button>
                 ))}
               </div>
@@ -864,17 +950,14 @@ export function OffersPage() {
 
       {takeRobotPickerOpen ? (
         <Suspense
-          fallback={(
+          fallback={
             <AppTransitionDialog
               title="Preparing your Robot Fleet"
               message="Finding an available robot for this offer."
             />
-          )}
+          }
         >
-          <LazyProTakeRobotPicker
-            onClose={() => setTakeRobotPickerOpen(false)}
-            onSelect={selectTakeRobot}
-          />
+          <LazyProTakeRobotPicker onClose={() => setTakeRobotPickerOpen(false)} onSelect={selectTakeRobot} />
         </Suspense>
       ) : null}
 
@@ -891,8 +974,9 @@ export function OffersPage() {
 
       {confirmTakeOpen && takeSlot ? (
         <TokenBackupDialog
-          previouslyUsed={Boolean(takeSlot.lastOrderId)
-            || Object.values(takeSlot.robots).some((robot) => Boolean(robot.lastOrderId))}
+          previouslyUsed={
+            Boolean(takeSlot.lastOrderId) || Object.values(takeSlot.robots).some((robot) => Boolean(robot.lastOrderId))
+          }
           robotName={takeSlot.nickname}
           token={takeSlot.token}
           taking={taking}
@@ -907,11 +991,65 @@ export function OffersPage() {
   );
 }
 
+function OffersHeadingCopy({
+  activeOfferCount,
+  cached,
+  hasError,
+  lastUpdated,
+  live,
+  nowMs
+}: {
+  activeOfferCount: number;
+  cached: boolean;
+  hasError: boolean;
+  lastUpdated?: number;
+  live: boolean;
+  nowMs: number;
+}) {
+  return (
+    <div className="orderbook-heading-copy">
+      <div className="orderbook-title-line">
+        <CardTitle className="orderbook-title">Public offers</CardTitle>
+        {activeOfferCount > 0 ? (
+          <span
+            className={
+              hasError || cached ? "orderbook-live-pill orderbook-live-pill-confirmed" : "orderbook-live-pill"
+            }
+          >
+            <span className="orderbook-live-dot" aria-hidden="true" />
+            {hasError ? "Last confirmed" : cached ? "Cached" : live ? "Live" : "Current"}
+          </span>
+        ) : null}
+      </div>
+      {activeOfferCount > 0 ? (
+        <p className="orderbook-update-context">
+          <span>
+            {activeOfferCount} {activeOfferCount === 1 ? "offer" : "offers"}
+          </span>
+          {lastUpdated ? (
+            <>
+              <span aria-hidden="true">·</span>
+              <time dateTime={new Date(lastUpdated).toISOString()}>
+                Updated {formatOrderbookUpdateAge(lastUpdated, nowMs)}
+              </time>
+            </>
+          ) : null}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function OfferSkeletonRows() {
   return (
     <>
       {Array.from({ length: 10 }, (_, index) => (
-        <div className="offer-row offer-row-skeleton" key={index} aria-hidden>
+        <div
+          className="offer-row offer-row-skeleton"
+          key={index}
+          style={{ "--offer-row-index": index } as CSSProperties}
+          aria-hidden
+        >
           <Skeleton className="offer-skeleton-side" />
           <span className="offer-main-cell">
             <Skeleton className="offer-skeleton-amount" />
@@ -938,7 +1076,15 @@ function SortHeader({
   onClick: () => void;
 }) {
   return (
-    <button className={active ? "offer-table-header-cell offer-sort-button offer-sort-button-active" : "offer-table-header-cell offer-sort-button"} onClick={onClick} type="button">
+    <button
+      className={
+        active
+          ? "offer-table-header-cell offer-sort-button offer-sort-button-active"
+          : "offer-table-header-cell offer-sort-button"
+      }
+      onClick={onClick}
+      type="button"
+    >
       <span>{children}</span>
       <ArrowUpDown size={13} />
       {active ? <span className="sr-only">sorted {direction}</span> : null}
@@ -981,7 +1127,9 @@ function F2FOffersMapLoadingDialog({ onClose }: { onClose: () => void }) {
     >
       <span className="ui-spinner" aria-hidden="true" />
       <strong>Loading Cash F2F map…</strong>
-      <Button onClick={onClose} size="sm" type="button" variant="ghost">Cancel</Button>
+      <Button onClick={onClose} size="sm" type="button" variant="ghost">
+        Cancel
+      </Button>
     </Dialog>
   );
 }
@@ -996,7 +1144,9 @@ function F2FLocationLoadingDialog({ onClose }: { onClose: () => void }) {
     >
       <span className="ui-spinner" aria-hidden="true" />
       <strong>Loading meeting map…</strong>
-      <Button onClick={onClose} size="sm" type="button" variant="ghost">Cancel</Button>
+      <Button onClick={onClose} size="sm" type="button" variant="ghost">
+        Cancel
+      </Button>
     </Dialog>
   );
 }
@@ -1049,8 +1199,8 @@ function TakeOfferModal({
       : penaltyActive
         ? `This robot can take another order after ${new Date(penaltyDeadline).toLocaleString()}.`
         : undefined;
-  const hasF2FLocation = paymentMethodHasF2F(order.payment_method)
-    && hasApproximateF2FLocation(order.latitude, order.longitude);
+  const hasF2FLocation =
+    paymentMethodHasF2F(order.payment_method) && hasApproximateF2FLocation(order.latitude, order.longitude);
 
   return (
     <Dialog
@@ -1060,148 +1210,149 @@ function TakeOfferModal({
       overlayClassName="take-offer-overlay"
       panelClassName="take-offer-sheet"
     >
-        <button className="take-modal-close" onClick={onClose} type="button" aria-label="Close take offer">
-          <X size={20} />
-        </button>
+      <button className="take-modal-close" onClick={onClose} type="button" aria-label="Close take offer">
+        <X size={20} />
+      </button>
 
-        <header className="take-offer-header">
-          <span className={isTakerBuying(order) ? "offer-direction offer-direction-buy" : "offer-direction offer-direction-sell"}>
-            <DirectionIcon order={order} />
-          </span>
-          <div>
-            <p className="app-eyebrow">{orderTypeLabel(order)}</p>
-            <h2 id="take-offer-title">
-              <FiatAmount amountOverride={amountOverride} order={order} size={22} />
-            </h2>
-            <p>{formatOfferSats(order, coordinator, amountOverride)}</p>
-          </div>
-        </header>
-
-        <TradeFlowPreview coordinator={coordinator} order={order} takeAmount={takeAmount} />
-
-        <dl className="summary-list offer-summary">
-          <SummaryItem
-            help="Premium adjusts the offer relative to the coordinator market price. Negative values are discounts."
-            label="Premium"
-            value={formatPremium(order.premium)}
-          />
-          <SummaryItem
-            help="The Lightning hold invoice each peer locks as a good-behavior bond."
-            icon={<Lock size={14} aria-hidden />}
-            label="Bond"
-            value={formatBond(order)}
-          />
-          <SummaryItem
-            help="How long the offer remains available in the orderbook before it expires without a taker."
-            label="Expiry"
-            value={formatExpiryTitle(order.expires_at)}
-          />
-          <SummaryItem
-            help={order.is_swap ? "Where the Lightning swap settles." : "The fiat payment methods accepted by the maker."}
-            label={order.is_swap ? "Swap destination" : "Payment Method"}
-            value={order.payment_method || "Not specified"}
-          />
-          <SummaryItem
-            help="The order host provides Lightning and communication infrastructure, sets trade fees, and handles disputes."
-            label="Coordinator"
-            value={coordinator?.longAlias ?? order.coordinatorShortAlias}
-          />
-        </dl>
-
-        {hasF2FLocation ? (
-          <Button
-            className="take-offer-f2f-map"
-            onClick={() => setShowF2FMap(true)}
-            type="button"
-            variant="secondary"
-          >
-            <MapPin size={16} />
-            View approximate meeting area
-          </Button>
-        ) : null}
-
-        {description ? (
-          <section className="take-offer-description" aria-label="Maker order description">
-            <strong>Maker instructions</strong>
-            <p>{description}</p>
-          </section>
-        ) : null}
-
-        {order.has_range ? (
-          <label className="field-block">
-            Trade amount
-            <input
-              inputMode="decimal"
-              min={order.min_amount}
-              max={order.max_amount}
-              type="number"
-              value={takeAmount}
-              onChange={(event) => setTakeAmount(event.target.value)}
-            />
-          </label>
-        ) : null}
-
-        {hasPassword ? (
-          <label className="field-block">
-            Private offer password
-            <input
-              autoComplete="off"
-              placeholder="Enter the password shared by the maker"
-              type="password"
-              value={offerPassword}
-              onChange={(event) => setOfferPassword(event.target.value)}
-            />
-          </label>
-        ) : null}
-
-        {blockedReason ? (
-          <div className="status-panel" hidden={taking}>
-            <AlertCircle size={16} />
-            <span>{blockedReason}</span>
-          </div>
-        ) : null}
-        {error ? (
-          <div className="status-panel status-panel-warning">
-            <AlertCircle size={16} />
-            <span>{error}</span>
-          </div>
-        ) : null}
-        {!error && validationErrors.length > 0 ? (
-          <div className="status-panel status-panel-warning">
-            <AlertCircle size={16} />
-            <span>{validationErrors[0]}</span>
-          </div>
-        ) : null}
-        {!error && validationErrors.length === 0 && passwordMissing ? (
-          <div className="status-panel status-panel-warning">
-            <AlertCircle size={16} />
-            <span>Enter the private offer password.</span>
-          </div>
-        ) : null}
-
-        <div className="take-offer-actions">
-          <Button variant="secondary" onClick={onClose} disabled={taking}>
-            Cancel
-          </Button>
-          <Button
-            disabled={Boolean(blockedReason) || validationErrors.length > 0 || passwordMissing || (hasPassword && loadingDetails)}
-            loading={taking || preparingTake || (hasPassword && loadingDetails)}
-            onClick={onTake}
-          >
-            <ArrowRight size={16} />
-            Take offer
-          </Button>
+      <header className="take-offer-header">
+        <span
+          className={
+            isTakerBuying(order) ? "offer-direction offer-direction-buy" : "offer-direction offer-direction-sell"
+          }
+        >
+          <DirectionIcon order={order} />
+        </span>
+        <div>
+          <p className="app-eyebrow">{orderTypeLabel(order)}</p>
+          <h2 id="take-offer-title">
+            <FiatAmount amountOverride={amountOverride} order={order} size={22} />
+          </h2>
+          <p>{formatOfferSats(order, coordinator, amountOverride)}</p>
         </div>
-        {showF2FMap ? (
-          <Suspense fallback={<F2FLocationLoadingDialog onClose={() => setShowF2FMap(false)} />}>
-            <LazyF2FLocationDialog
-              latitude={order.latitude}
-              longitude={order.longitude}
-              onClose={() => setShowF2FMap(false)}
-              readOnly
-            />
-          </Suspense>
-        ) : null}
+      </header>
+
+      <TradeFlowPreview coordinator={coordinator} order={order} takeAmount={takeAmount} />
+
+      <dl className="summary-list offer-summary">
+        <SummaryItem
+          help="Premium adjusts the offer relative to the coordinator market price. Negative values are discounts."
+          label="Premium"
+          value={formatPremium(order.premium)}
+        />
+        <SummaryItem
+          help="The Lightning hold invoice each peer locks as a good-behavior bond."
+          icon={<Lock size={14} aria-hidden />}
+          label="Bond"
+          value={formatBond(order)}
+        />
+        <SummaryItem
+          help="How long the offer remains available in the orderbook before it expires without a taker."
+          label="Expiry"
+          value={formatExpiryTitle(order.expires_at)}
+        />
+        <SummaryItem
+          help={order.is_swap ? "Where the Lightning swap settles." : "The fiat payment methods accepted by the maker."}
+          label={order.is_swap ? "Swap destination" : "Payment Method"}
+          value={order.payment_method || "Not specified"}
+        />
+        <SummaryItem
+          help="The order host provides Lightning and communication infrastructure, sets trade fees, and handles disputes."
+          label="Coordinator"
+          value={coordinator?.longAlias ?? order.coordinatorShortAlias}
+        />
+      </dl>
+
+      {hasF2FLocation ? (
+        <Button className="take-offer-f2f-map" onClick={() => setShowF2FMap(true)} type="button" variant="secondary">
+          <MapPin size={16} />
+          View approximate meeting area
+        </Button>
+      ) : null}
+
+      {description ? (
+        <section className="take-offer-description" aria-label="Maker order description">
+          <strong>Maker instructions</strong>
+          <p>{description}</p>
+        </section>
+      ) : null}
+
+      {order.has_range ? (
+        <label className="field-block">
+          Trade amount
+          <input
+            inputMode="decimal"
+            min={order.min_amount}
+            max={order.max_amount}
+            type="number"
+            value={takeAmount}
+            onChange={(event) => setTakeAmount(event.target.value)}
+          />
+        </label>
+      ) : null}
+
+      {hasPassword ? (
+        <label className="field-block">
+          Private offer password
+          <input
+            autoComplete="off"
+            placeholder="Enter the password shared by the maker"
+            type="password"
+            value={offerPassword}
+            onChange={(event) => setOfferPassword(event.target.value)}
+          />
+        </label>
+      ) : null}
+
+      {blockedReason ? (
+        <div className="status-panel" hidden={taking}>
+          <AlertCircle size={16} />
+          <span>{blockedReason}</span>
+        </div>
+      ) : null}
+      {error ? (
+        <div className="status-panel status-panel-warning">
+          <AlertCircle size={16} />
+          <span>{error}</span>
+        </div>
+      ) : null}
+      {!error && validationErrors.length > 0 ? (
+        <div className="status-panel status-panel-warning">
+          <AlertCircle size={16} />
+          <span>{validationErrors[0]}</span>
+        </div>
+      ) : null}
+      {!error && validationErrors.length === 0 && passwordMissing ? (
+        <div className="status-panel status-panel-warning">
+          <AlertCircle size={16} />
+          <span>Enter the private offer password.</span>
+        </div>
+      ) : null}
+
+      <div className="take-offer-actions">
+        <Button variant="secondary" onClick={onClose} disabled={taking}>
+          Cancel
+        </Button>
+        <Button
+          disabled={
+            Boolean(blockedReason) || validationErrors.length > 0 || passwordMissing || (hasPassword && loadingDetails)
+          }
+          loading={taking || preparingTake || (hasPassword && loadingDetails)}
+          onClick={onTake}
+        >
+          <ArrowRight size={16} />
+          Take offer
+        </Button>
+      </div>
+      {showF2FMap ? (
+        <Suspense fallback={<F2FLocationLoadingDialog onClose={() => setShowF2FMap(false)} />}>
+          <LazyF2FLocationDialog
+            latitude={order.latitude}
+            longitude={order.longitude}
+            onClose={() => setShowF2FMap(false)}
+            readOnly
+          />
+        </Suspense>
+      ) : null}
     </Dialog>
   );
 }
@@ -1222,18 +1373,24 @@ function OrderDescriptionDialog({
       overlayClassName="confirm-overlay"
       panelClassName="confirm-sheet order-description-sheet"
     >
-        <div className="confirm-header">
-          <span className="confirm-icon-shell"><AlertCircle size={20} /></span>
-          <div>
-            <h3 id="order-description-title">Order description</h3>
-            <p className="muted-copy">The maker may have included instructions for the trade. Read and understand them before proceeding.</p>
-          </div>
+      <div className="confirm-header">
+        <span className="confirm-icon-shell">
+          <AlertCircle size={20} />
+        </span>
+        <div>
+          <h3 id="order-description-title">Order description</h3>
+          <p className="muted-copy">
+            The maker may have included instructions for the trade. Read and understand them before proceeding.
+          </p>
         </div>
-        <blockquote className="order-description-copy">{description}</blockquote>
-        <div className="confirm-actions">
-          <Button variant="secondary" onClick={onBack}>Go back</Button>
-          <Button onClick={onContinue}>I understand</Button>
-        </div>
+      </div>
+      <blockquote className="order-description-copy">{description}</blockquote>
+      <div className="confirm-actions">
+        <Button variant="secondary" onClick={onBack}>
+          Go back
+        </Button>
+        <Button onClick={onContinue}>I understand</Button>
+      </div>
     </Dialog>
   );
 }
@@ -1273,57 +1430,54 @@ function TokenBackupDialog({
       overlayClassName="confirm-overlay token-backup-overlay"
       panelClassName="confirm-sheet token-backup-sheet"
     >
+      <div>
+        <h3 id="token-backup-title">Store your robot token</h3>
+        <p className="muted-copy">
+          You may need it to recover this robot and the trade. Store it safely before locking a bond.
+        </p>
+      </div>
+      <div className="token-backup-value">
         <div>
-          <h3 id="token-backup-title">Store your robot token</h3>
-          <p className="muted-copy">
-            You may need it to recover this robot and the trade. Store it safely before locking a bond.
-          </p>
+          <small>Back it up</small>
+          <code>{token}</code>
         </div>
-        <div className="token-backup-value">
-          <div>
-            <small>Back it up</small>
-            <code>{token}</code>
-          </div>
-          <div className="token-backup-actions">
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={() => downloadRobotTokenBackup(token, robotName)}
-              aria-label={`Download ${robotName} token backup as JSON`}
-              title="Download JSON backup"
-            >
-              <Download size={18} />
-            </Button>
-            <Button size="icon" variant="ghost" onClick={() => void copyToken()} aria-label="Copy robot token">
-              {copied ? <Check size={18} /> : <Copy size={18} />}
-            </Button>
-          </div>
+        <div className="token-backup-actions">
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={() => downloadRobotTokenBackup(token, robotName)}
+            aria-label={`Download ${robotName} token backup as JSON`}
+            title="Download JSON backup"
+          >
+            <Download size={18} />
+          </Button>
+          <Button size="icon" variant="ghost" onClick={() => void copyToken()} aria-label="Copy robot token">
+            {copied ? <Check size={18} /> : <Copy size={18} />}
+          </Button>
         </div>
-        {previouslyUsed ? (
-          <div className="token-reuse-note" role="note">
-            <AlertTriangle size={16} aria-hidden="true" />
-            <span>This is the same robot identity used for an earlier order. Continue with it, or go back and choose a fresh robot for stronger privacy separation.</span>
-          </div>
-        ) : null}
-        <div className="confirm-actions">
-          <Button variant="secondary" disabled={taking} onClick={onBack}>Go back</Button>
-          <Button loading={taking} onClick={onDone}>Done</Button>
+      </div>
+      {previouslyUsed ? (
+        <div className="token-reuse-note" role="note">
+          <AlertTriangle size={16} aria-hidden="true" />
+          <span>
+            This is the same robot identity used for an earlier order. Continue with it, or go back and choose a fresh
+            robot for stronger privacy separation.
+          </span>
         </div>
+      ) : null}
+      <div className="confirm-actions">
+        <Button variant="secondary" disabled={taking} onClick={onBack}>
+          Go back
+        </Button>
+        <Button loading={taking} onClick={onDone}>
+          Done
+        </Button>
+      </div>
     </Dialog>
   );
 }
 
-function SummaryItem({
-  help,
-  icon,
-  label,
-  value
-}: {
-  help?: string;
-  icon?: ReactNode;
-  label: string;
-  value: string;
-}) {
+function SummaryItem({ help, icon, label, value }: { help?: string; icon?: ReactNode; label: string; value: string }) {
   return (
     <div>
       <dt>
@@ -1373,29 +1527,31 @@ function TradeFlowPreview({
   takeAmount: string;
 }) {
   const buying = isTakerBuying(order);
-  const sendDetail = order.is_swap ? (buying ? order.payment_method || "On-chain bitcoin" : "Lightning escrow") : buying ? order.payment_method || "Fiat payment" : "Lightning escrow";
-  const receiveDetail = order.is_swap ? (buying ? "Bitcoin on-chain" : order.payment_method || "On-chain bitcoin") : buying ? "Bitcoin over Lightning" : order.payment_method || "Fiat payment";
+  const sendDetail = order.is_swap
+    ? buying
+      ? order.payment_method || "On-chain bitcoin"
+      : "Lightning escrow"
+    : buying
+      ? order.payment_method || "Fiat payment"
+      : "Lightning escrow";
+  const receiveDetail = order.is_swap
+    ? buying
+      ? "Bitcoin on-chain"
+      : order.payment_method || "On-chain bitcoin"
+    : buying
+      ? "Bitcoin over Lightning"
+      : order.payment_method || "Fiat payment";
   const amountOverride = selectedTakeAmount(order, takeAmount);
   const fiat = <FiatAmount amountOverride={amountOverride} order={order} size={18} />;
   const sats = <BtcAmountPreview amountOverride={amountOverride} coordinator={coordinator} order={order} />;
 
   return (
     <div className="take-flow-summary" aria-label="Trade preview">
-      <TradeFlowCard
-        label="You send"
-        tone="send"
-        value={buying ? fiat : sats}
-        detail={sendDetail}
-      />
+      <TradeFlowCard label="You send" tone="send" value={buying ? fiat : sats} detail={sendDetail} />
       <span className="take-flow-arrow" aria-hidden>
         <ArrowRight size={18} />
       </span>
-      <TradeFlowCard
-        label="You receive"
-        tone="receive"
-        value={buying ? sats : fiat}
-        detail={receiveDetail}
-      />
+      <TradeFlowCard label="You receive" tone="receive" value={buying ? sats : fiat} detail={receiveDetail} />
     </div>
   );
 }
@@ -1435,7 +1591,15 @@ function TradeFlowCard({
   );
 }
 
-function FiatAmount({ amountOverride, order, size = 18 }: { amountOverride?: number; order: PublicOrder; size?: number }) {
+function FiatAmount({
+  amountOverride,
+  order,
+  size = 18
+}: {
+  amountOverride?: number;
+  order: PublicOrder;
+  size?: number;
+}) {
   const { amount, currency } = formatOfferFiatParts(order, amountOverride);
 
   return (
@@ -1507,10 +1671,23 @@ function compareOrders(left: PublicOrder, right: PublicOrder, column: SortColumn
 }
 
 function sortValue(order: PublicOrder, column: SortColumn): number {
-  if (column === "amount") return knownSatsValue(order.satoshis) ?? knownSatsValue(order.satoshis_now) ?? safeNumber(order.amount);
+  if (column === "amount")
+    return knownSatsValue(order.satoshis) ?? knownSatsValue(order.satoshis_now) ?? safeNumber(order.amount);
   if (column === "premium") return safeNumber(order.premium);
   const expiryMs = order.expires_at ? Date.parse(order.expires_at) : Number.POSITIVE_INFINITY;
   return Number.isFinite(expiryMs) ? expiryMs : Number.POSITIVE_INFINITY;
+}
+
+function formatOrderbookUpdateAge(updatedAt: number, now: number): string {
+  const elapsedMinutes = Math.max(0, Math.floor((now - updatedAt) / 60_000));
+  if (elapsedMinutes < 1) return "just now";
+  if (elapsedMinutes < 60) return `${elapsedMinutes}m ago`;
+
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  if (elapsedHours < 24) return `${elapsedHours}h ago`;
+
+  const elapsedDays = Math.floor(elapsedHours / 24);
+  return `${elapsedDays}d ago`;
 }
 
 function orderTypeLabel(order: PublicOrder): string {

@@ -113,10 +113,20 @@ const summaryItems: Array<{
   icon: typeof AlertTriangle;
 }> = [
   { key: "needs-action", label: "Needs action", icon: AlertTriangle },
-  { key: "active", label: "Active trades", icon: BriefcaseBusiness },
+  { key: "active", label: "In progress", icon: BriefcaseBusiness },
   { key: "public", label: "Public offers", icon: Store },
   { key: "renewable", label: "Renewable", icon: RotateCcw }
 ];
+
+function ProWorkspaceScope({ orderCount, robotCount }: { orderCount: number; robotCount: number }) {
+  return (
+    <span className="pro-workspace-scope">
+      {robotCount} {robotCount === 1 ? "robot" : "robots"}
+      <span aria-hidden="true"> · </span>
+      {orderCount} open {orderCount === 1 ? "order" : "orders"}
+    </span>
+  );
+}
 
 export function ProWorkspacePage() {
   const enabled = useProPreferencesStore((state) => state.enabled);
@@ -365,7 +375,7 @@ export function ProWorkspacePage() {
     const coordinatorOrder = slot
       ? Object.entries(slot.robots).find(
           ([alias, robot]) => alias !== "local" && Boolean(robot.activeOrderId || robot.renewableOrderId)
-      )
+        )
       : undefined;
     const orderId =
       coordinatorOrder?.[1].activeOrderId ?? coordinatorOrder?.[1].renewableOrderId ?? slot?.activeOrderId;
@@ -438,9 +448,11 @@ export function ProWorkspacePage() {
           const nickname = generateRoboname(identity.hashId);
           updateSlotIdentityDetails(token, { nickname });
           void renameVaultRobot(token, nickname);
-          setActionNotice((current) => current?.robot?.slotId === identity.tokenSHA256
-            ? { ...current, detail: nickname, robot: { ...current.robot, nickname } }
-            : current);
+          setActionNotice((current) =>
+            current?.robot?.slotId === identity.tokenSHA256
+              ? { ...current, detail: nickname, robot: { ...current.robot, nickname } }
+              : current
+          );
         })
         .catch(() => undefined);
       window.setTimeout(() => {
@@ -448,10 +460,10 @@ export function ProWorkspacePage() {
           .then(({ generatePgpKeyPair }) => generatePgpKeyPair(token))
           .then((keyPair) =>
             updateSlotIdentityDetails(token, {
-            keys: {
-              pubKey: keyPair.publicKeyArmored,
-              encPrivKey: keyPair.encryptedPrivateKeyArmored
-            }
+              keys: {
+                pubKey: keyPair.publicKeyArmored,
+                encPrivKey: keyPair.encryptedPrivateKeyArmored
+              }
             })
           )
           .catch(() => undefined);
@@ -617,9 +629,9 @@ export function ProWorkspacePage() {
       const outcome = await settleRefreshInForeground(reconciliation, MANUAL_REFRESH_FOREGROUND_MS);
       setAnnouncement(
         outcome === "complete"
-        ? "Trade Desk refreshed"
-        : outcome === "failed"
-          ? "Some trade statuses could not be refreshed"
+          ? "Trade Desk refreshed"
+          : outcome === "failed"
+            ? "Some trade statuses could not be refreshed"
             : "Latest available statuses shown. Slower coordinator checks continue in the background."
       );
     } finally {
@@ -633,17 +645,21 @@ export function ProWorkspacePage() {
     <main className="page page-wide pro-workspace-page">
       <header className="pro-workspace-header">
         <div className="pro-workspace-heading">
-          <p className="app-eyebrow">Pro Desk</p>
-          <div className="pro-fleet-sync-status" data-tone={fleetProtection.tone}>
-            <span className="pro-fleet-sync-copy" role="status" aria-live="polite" aria-label={fleetProtection.label}>
-              <FleetProtectionIcon
-                className={fleetProtection.tone === "syncing" ? "pro-fleet-sync-icon-active" : undefined}
-                size={14}
-                aria-hidden="true"
-              />
-              <strong>{fleetProtection.label}</strong>
+          <p className="app-eyebrow">Pro mode</p>
+          <h2>Trade Desk</h2>
+          <div className="pro-workspace-context">
+            <ProWorkspaceScope orderCount={trades.length} robotCount={slots.length} />
+            <span className="pro-fleet-sync-status" data-tone={fleetProtection.tone}>
+              <span className="pro-fleet-sync-copy" role="status" aria-live="polite" aria-label={fleetProtection.label}>
+                <FleetProtectionIcon
+                  className={fleetProtection.tone === "syncing" ? "pro-fleet-sync-icon-active" : undefined}
+                  size={14}
+                  aria-hidden="true"
+                />
+                <strong>{fleetProtection.label}</strong>
+              </span>
+              <InfoHint title={fleetProtection.detail} />
             </span>
-            <InfoHint title={fleetProtection.detail} />
           </div>
         </div>
         <div className="pro-workspace-commands">
@@ -668,7 +684,9 @@ export function ProWorkspacePage() {
               onClick={() => setCreatePickerOpen(true)}
               variant="outline"
             >
-              <CirclePlus size={18} /> <span>Create offer</span>
+              <CirclePlus size={18} />
+              <span className="pro-header-action-long">Create offer</span>
+              <span className="pro-header-action-short">Offer</span>
             </Button>
           ) : (
             <Button
@@ -680,7 +698,8 @@ export function ProWorkspacePage() {
               title={fleetFull ? FLEET_ROBOT_LIMIT_MESSAGE : "Add robots"}
               variant="outline"
             >
-              <AddRobotGlyph size={18} /> <span>{fleetFull ? "Fleet full" : "Add Robots"}</span>
+              <AddRobotGlyph size={18} />
+              <span>{fleetFull ? "Fleet full" : "Add Robots"}</span>
             </Button>
           )}
         </div>
@@ -689,6 +708,15 @@ export function ProWorkspacePage() {
       <p className="sr-only" aria-live="polite">
         {announcement}
       </p>
+      {actionNotice ? (
+        <ProActionNotice
+          detail={actionNotice.detail}
+          noticeKey={actionNotice.id}
+          onClose={dismissActionNotice}
+          robot={actionNotice.robot}
+          title={actionNotice.title}
+        />
+      ) : null}
       {!garageRecoveryOpen && (garageSetupOpen || vaultStatus === "unconfigured" || vaultStatus === "needs-backup") ? (
         <GarageSetupDialog
           onComplete={finishFleetSetup}
@@ -705,16 +733,25 @@ export function ProWorkspacePage() {
           const Icon = item.icon;
           const selected = filter === item.key && lastView === "trades";
           const stale = summaryHasStale(trades, item.key);
+          const count = counts[item.key];
+          const className = [
+            "pro-summary-item",
+            `pro-summary-item-${item.key}`,
+            count > 0 ? "has-value" : "is-zero",
+            selected ? "active" : ""
+          ]
+            .filter(Boolean)
+            .join(" ");
           return (
             <button
-              className={selected ? "pro-summary-item active" : "pro-summary-item"}
+              className={className}
               key={item.key}
               type="button"
               aria-pressed={selected}
               onClick={() => selectSummaryFilter(item.key)}
             >
               <Icon size={17} aria-hidden="true" />
-              <strong>{counts[item.key]}</strong>
+              <strong>{count}</strong>
               <span>
                 {item.label}
                 {stale ? <small>Stale</small> : null}
@@ -793,6 +830,7 @@ export function ProWorkspacePage() {
             <HistoryList coordinators={coordinators} entries={tradeHistory?.entries ?? []} />
           ) : (
             <RobotList
+              onAddRobot={() => void requestRobotCreation()}
               onCreate={startCreateOffer}
               onDelete={setDeleteSlotId}
               onDownload={(slotId) => {
@@ -834,13 +872,25 @@ export function ProWorkspacePage() {
 
       {vaultStatus === "ready" ? (
         <div className="garage-utility-bar pro-fleet-utility-bar" aria-label="Fleet controls">
-          <button className="garage-utility-btn" type="button" onClick={() => setFleetKeyOpen(true)}>
+          <button
+            className="garage-utility-btn pro-fleet-utility-primary"
+            type="button"
+            onClick={() => setFleetKeyOpen(true)}
+          >
             <KeyRound size={18} /> <span>Back up Fleet</span>
           </button>
-          <button className="garage-utility-btn" type="button" onClick={() => setPresetsOpen(true)}>
+          <button
+            className="garage-utility-btn pro-fleet-utility-secondary"
+            type="button"
+            onClick={() => setPresetsOpen(true)}
+          >
             <BookmarkCheck size={18} /> <span>Offer presets</span>
           </button>
-          <button className="garage-utility-btn" type="button" onClick={() => setAbandonFleetOpen(true)}>
+          <button
+            className="garage-utility-btn pro-fleet-utility-tertiary"
+            type="button"
+            onClick={() => setAbandonFleetOpen(true)}
+          >
             <LogOut size={18} /> <span>Abandon Fleet</span>
           </button>
         </div>
@@ -853,20 +903,20 @@ export function ProWorkspacePage() {
           overlayClassName="pro-trade-dialog-overlay"
           panelClassName="pro-trade-dialog"
         >
-            <button className="take-modal-close" onClick={closeTrade} type="button" aria-label="Close trade">
-              <X size={20} />
-            </button>
+          <button className="take-modal-close" onClick={closeTrade} type="button" aria-label="Close trade">
+            <X size={20} />
+          </button>
           <Suspense
             fallback={
               <AppTransitionFeedback compact title="Preparing trade" message="Loading the private trade controls..." />
             }
           >
-              <LazyOrderPage
-                embeddedLocator={selectedTrade}
-                onEmbeddedClose={closeTrade}
-                onEmbeddedOrderChange={replaceSelectedTrade}
-              />
-            </Suspense>
+            <LazyOrderPage
+              embeddedLocator={selectedTrade}
+              onEmbeddedClose={closeTrade}
+              onEmbeddedOrderChange={replaceSelectedTrade}
+            />
+          </Suspense>
         </Dialog>
       ) : null}
 
@@ -1040,14 +1090,14 @@ export function ProWorkspacePage() {
           overlayClassName="confirm-overlay"
           panelClassName="confirm-sheet pro-abandon-fleet-sheet"
         >
-            <div>
-              <h3 id="abandon-fleet-title">Abandon Fleet?</h3>
-            </div>
-            <p>
+          <div>
+            <h3 id="abandon-fleet-title">Abandon Fleet?</h3>
+          </div>
+          <p>
             This removes the Fleet key and every associated robot from this device. It does not cancel coordinator
             orders. Robot identities can also be restored individually with their own tokens.
-            </p>
-            <div className="pro-abandon-fleet-actions">
+          </p>
+          <div className="pro-abandon-fleet-actions">
             <Button
               variant="outline"
               onClick={() => {
@@ -1063,18 +1113,8 @@ export function ProWorkspacePage() {
             <Button disabled={abandoningFleet} variant="ghost" onClick={() => setAbandonFleetOpen(false)}>
               Keep Fleet
             </Button>
-            </div>
+          </div>
         </Dialog>
-      ) : null}
-
-      {actionNotice ? (
-        <ProActionNotice
-          detail={actionNotice.detail}
-          noticeKey={actionNotice.id}
-          onClose={dismissActionNotice}
-          robot={actionNotice.robot}
-          title={actionNotice.title}
-        />
       ) : null}
     </main>
   );

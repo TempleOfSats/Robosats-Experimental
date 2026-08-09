@@ -88,6 +88,51 @@ describe("ChatStagePanel presence", () => {
     });
     expect(document.querySelector(".chat-presence")).toBeNull();
   });
+
+  it("keeps the reader's position and offers a jump when a new message arrives", async () => {
+    mocks.fetchChatMessages.mockResolvedValue({
+      peerConnected: true,
+      peerPubkey: "",
+      messages: [{ index: 1, encryptedMessage: "#Ready", nick: "Peer", time: "2026-01-01T11:59:00Z" }]
+    });
+    await renderPanel();
+    await vi.waitFor(() => expect(mocks.socket).toBeDefined());
+    await vi.waitFor(() => expect(document.body.textContent).toContain("#Ready"));
+
+    const history = document.querySelector<HTMLDivElement>(".chat-messages")!;
+    Object.defineProperties(history, {
+      clientHeight: { configurable: true, value: 200 },
+      scrollHeight: { configurable: true, value: 1_000 }
+    });
+    history.scrollTop = 120;
+    const scrollTo = vi.fn();
+    history.scrollTo = scrollTo;
+    await act(async () => history.dispatchEvent(new Event("scroll", { bubbles: true })));
+
+    await act(async () => {
+      mocks.socket?.onmessage?.({
+        data: JSON.stringify({ index: 2, message: "#Payment sent", nick: "Peer", time: "2026-01-01T12:00:00Z" })
+      });
+    });
+
+    await vi.waitFor(() =>
+      expect(document.querySelector(".chat-new-messages")?.textContent).toContain("1 new message")
+    );
+    const jump = document.querySelector<HTMLButtonElement>(".chat-new-messages")!;
+    await act(async () => jump.click());
+    expect(scrollTo).toHaveBeenCalledWith({ behavior: "smooth", top: 1_000 });
+    expect(document.querySelector(".chat-new-messages")).toBeNull();
+
+    history.scrollTop = 120;
+    await act(async () => history.dispatchEvent(new Event("scroll", { bubbles: true })));
+    await act(async () => {
+      mocks.socket?.onmessage?.({
+        data: JSON.stringify({ index: 3, message: "#Synced", nick: "Mine", time: "2026-01-01T12:01:00Z" })
+      });
+    });
+    await vi.waitFor(() => expect(document.body.textContent).toContain("#Synced"));
+    expect(document.querySelector(".chat-new-messages")).toBeNull();
+  });
 });
 
 describe("chat message reconciliation", () => {
