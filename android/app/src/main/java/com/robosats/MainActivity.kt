@@ -39,6 +39,11 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.webkit.WebViewAssetLoader
 import com.robosats.models.EncryptedStorage
+import com.robosats.models.NotificationPermissionResultAction
+import com.robosats.models.NotificationPreferences
+import com.robosats.models.NotificationStartupAction
+import com.robosats.models.notificationPermissionResultAction
+import com.robosats.models.notificationStartupAction
 import com.robosats.services.NotificationsService
 import com.robosats.tor.ArtiTorManager
 import com.robosats.tor.TorStatus
@@ -108,8 +113,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (!granted) EncryptedStorage.setEncryptedStorage(NOTIFICATIONS_KEY, "false")
-        if (granted && notificationsEnabled()) startNotificationService()
+        when (notificationPermissionResultAction(granted, notificationsEnabled())) {
+            NotificationPermissionResultAction.DISABLE -> NotificationPreferences.setEnabled(false)
+            NotificationPermissionResultAction.START_SERVICE -> startNotificationService()
+            NotificationPermissionResultAction.NONE -> Unit
+        }
         dispatchNotificationState()
     }
 
@@ -628,14 +636,19 @@ class MainActivity : AppCompatActivity() {
     )
 
     private fun startNotificationsIfEnabled() {
-        if (!notificationsStartAttempted && notificationsEnabled() && notificationPermissionGranted()) {
-            startNotificationService()
+        when (notificationStartupAction(notificationsStartAttempted, notificationsEnabled(), notificationPermissionGranted())) {
+            NotificationStartupAction.NONE -> Unit
+            NotificationStartupAction.START_SERVICE -> startNotificationService()
+            NotificationStartupAction.REQUEST_PERMISSION -> {
+                notificationsStartAttempted = true
+                notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
         }
     }
 
     fun setNotificationsEnabled(enabled: Boolean) {
         runOnUiThread {
-            EncryptedStorage.setEncryptedStorage(NOTIFICATIONS_KEY, enabled.toString())
+            NotificationPreferences.setEnabled(enabled)
             if (!enabled) {
                 notificationsStartAttempted = false
                 stopService(Intent(this, NotificationsService::class.java))
@@ -655,7 +668,7 @@ class MainActivity : AppCompatActivity() {
         .put("permissionRequired", Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
 
     private fun notificationsEnabled() =
-        EncryptedStorage.getEncryptedStorage(NOTIFICATIONS_KEY) == "true"
+        NotificationPreferences.areEnabled()
 
     private fun notificationPermissionGranted() =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
@@ -708,7 +721,6 @@ class MainActivity : AppCompatActivity() {
 
         private const val APP_ASSET_HOST = "appassets.androidplatform.net"
         private const val APP_URL = "https://$APP_ASSET_HOST/index.html"
-        private const val NOTIFICATIONS_KEY = "settings_notifications"
         private const val PROGRESS_TICK_MS = 80L
         private const val MESSAGE_CYCLE_MS = 3800L
         private const val STATUS_FADE_MS = 160L

@@ -32,6 +32,7 @@ import com.robosats.R
 import com.robosats.RoboIdentities
 import com.robosats.models.EncryptedStorage
 import com.robosats.models.NostrClient
+import com.robosats.models.NotificationPreferences
 import com.robosats.models.NostrClient.garagePubKeys
 import com.robosats.models.NostrClient.getRobotKeyPair
 import com.robosats.tor.ArtiTorManager
@@ -68,7 +69,6 @@ class NotificationsService : Service() {
 
     companion object {
         const val ACTION_STOP_SERVICE = "com.robosats.exp.action.STOP_NOTIFICATIONS"
-        private const val NOTIFICATIONS_KEY = "settings_notifications"
     }
 
     private val clientNotificationListener =
@@ -169,7 +169,7 @@ class NotificationsService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP_SERVICE) {
             Log.d("RobosatsNotifications", "Received stop service action")
-            EncryptedStorage.setEncryptedStorage(NOTIFICATIONS_KEY, "false")
+            NotificationPreferences.setEnabled(false)
             stopSelf()
             return START_NOT_STICKY
         }
@@ -350,7 +350,7 @@ class NotificationsService : Service() {
     }
 
     private fun notificationsAllowed(): Boolean {
-        if (EncryptedStorage.getEncryptedStorage(NOTIFICATIONS_KEY) != "true") return false
+        if (!NotificationPreferences.areEnabled()) return false
         if (!NotificationManagerCompat.from(this).areNotificationsEnabled()) return false
         return Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED

@@ -13,7 +13,7 @@ pub struct Preferences {
 impl Default for Preferences {
     fn default() -> Self {
         Self {
-            notifications_enabled: false,
+            notifications_enabled: true,
         }
     }
 }
@@ -55,4 +55,26 @@ fn restrict_permissions(path: &Path) -> io::Result<()> {
 #[cfg(not(unix))]
 fn restrict_permissions(_path: &Path) -> io::Result<()> {
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Preferences;
+
+    #[test]
+    fn notifications_are_enabled_by_default() {
+        assert!(Preferences::default().notifications_enabled);
+    }
+
+    #[test]
+    fn explicit_notification_opt_out_survives_serialization() {
+        let stored = serde_json::to_vec(&Preferences {
+            notifications_enabled: false,
+        })
+        .expect("preferences serialize");
+        let restored: Preferences =
+            serde_json::from_slice(&stored).expect("preferences deserialize");
+
+        assert!(!restored.notifications_enabled);
+    }
 }
