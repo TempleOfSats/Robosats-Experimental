@@ -755,32 +755,6 @@
   margin-inline: auto;
 }
 
-.trade-quiet-order-heading {
-  width: min(100%, 36rem);
-  margin: 0 auto 1.75rem;
-}
-
-.trade-quiet-order-heading .app-eyebrow {
-  margin: 0;
-}
-
-.trade-order-eyebrow {
-  min-width: 0;
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  color: var(--primary);
-  font-weight: 700;
-}
-
-.trade-order-eyebrow .trade-order-summary-order {
-  min-width: 0;
-  color: inherit;
-  font: inherit;
-  font-weight: inherit;
-}
-
 .page-trade .page-heading h2 {
   font-size: var(--type-h2-size);
   line-height: 1.15;
@@ -788,10 +762,6 @@
 
 .page-trade .page-heading p:last-child {
   margin-top: 0.3rem;
-}
-
-.page-trade .page-heading .trade-order-eyebrow {
-  margin: 0 0 0.85rem;
 }
 
 .page-trade .page-heading > .ui-badge {
@@ -1309,6 +1279,37 @@
   line-height: 1.55;
 }
 
+.trade-stage-deadline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 0.9rem;
+  color: var(--muted-foreground);
+  font-size: 0.76rem;
+}
+
+.trade-stage-deadline svg {
+  flex: 0 0 auto;
+  color: var(--primary);
+}
+
+.trade-stage-deadline span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  white-space: nowrap;
+}
+
+.trade-stage-deadline small {
+  color: var(--muted-foreground);
+}
+
+.trade-stage-deadline strong {
+  color: var(--foreground);
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+}
+
 .trade-reward-action {
   width: fit-content;
   max-width: 100%;
@@ -1616,7 +1617,9 @@
 .trade-order-summary-chevron {
   flex: 0 0 auto;
   color: var(--muted-foreground);
-  transition: transform 160ms ease, color 120ms ease;
+  transition:
+    transform 160ms ease,
+    color 120ms ease;
 }
 
 .trade-order-disclosure[open] .trade-order-summary-chevron {
@@ -1826,6 +1829,12 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.75rem;
   margin-top: 1rem;
+}
+
+.trade-action-stale-notice {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.82rem;
 }
 
 .trade-action-command-confirm-fiat-sent,

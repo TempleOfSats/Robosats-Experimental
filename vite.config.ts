@@ -100,6 +100,13 @@ export default defineConfig(({ command, mode }) => {
                 includeDependenciesRecursively: false
               },
               {
+                name: "trade-summary",
+                test: /src[\\/](?:components[\\/]ui[\\/]tabs|domains[\\/]orders[\\/]TradeReceipt)\.tsx$/,
+                priority: 35,
+                minSize: 0,
+                includeDependenciesRecursively: false
+              },
+              {
                 name: "initial",
                 tags: ["$initial"],
                 priority: 30,

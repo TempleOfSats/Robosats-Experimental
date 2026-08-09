@@ -23,19 +23,6 @@ const LazyCoordinatorDetailDialog = lazy(() =>
   import("@/domains/coordinators/CoordinatorsPage").then((module) => ({ default: module.CoordinatorDetailDialog }))
 );
 
-export function OrderEyebrow({ order }: { order: OrderDto }) {
-  const currencyCode = currencyCodeFromId(order.currency) ?? String(order.currency);
-  return (
-    <p className="app-eyebrow trade-order-eyebrow">
-      <span>Order #{order.id || "preview"}</span>
-      <span aria-hidden="true">·</span>
-      <small className="trade-order-summary-order">
-        {formatOrderAmount(order, currencyCode)} · {order.payment_method || "Method not specified"}
-      </small>
-    </p>
-  );
-}
-
 export function OrderDetailsPanel({
   coordinator,
   coordinatorAlias,

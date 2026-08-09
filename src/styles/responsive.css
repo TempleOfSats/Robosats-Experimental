@@ -891,8 +891,12 @@
 }
 
 @keyframes confirm-fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .confirm-sheet {
@@ -1001,4 +1005,75 @@
   justify-content: flex-end;
   gap: 0.65rem;
   margin-top: 0.5rem;
+}
+
+.trade-action-preview {
+  --trade-preview-tone: var(--warning);
+  border-left: 3px solid var(--trade-preview-tone);
+}
+
+.trade-action-preview-danger {
+  --trade-preview-tone: var(--destructive);
+}
+
+.trade-action-preview .confirm-header {
+  display: grid;
+  gap: 0.22rem;
+}
+
+.trade-action-preview-label {
+  color: var(--trade-preview-tone);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.trade-action-preview .confirm-body {
+  color: var(--muted-foreground);
+}
+
+.trade-action-preview-consequence {
+  margin: 0.15rem 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 1rem 0;
+  color: var(--foreground);
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.trade-action-preview-error {
+  margin: 0;
+}
+
+@media (max-width: 560px) {
+  .trade-action-preview {
+    width: 100%;
+    max-height: calc(100svh - 1rem);
+    align-self: end;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    padding: 1.1rem 1rem calc(1rem + env(safe-area-inset-bottom));
+  }
+
+  .trade-action-preview-overlay {
+    align-items: end;
+    padding: 0;
+  }
+
+  .trade-action-preview .confirm-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .trade-action-preview .confirm-actions .ui-button {
+    height: auto;
+    min-height: 2.75rem;
+    padding-block: 0.75rem;
+    white-space: normal;
+  }
+
+  .trade-action-preview .confirm-actions .ui-button:last-child {
+    grid-column: 2;
+    grid-row: 1;
+  }
 }

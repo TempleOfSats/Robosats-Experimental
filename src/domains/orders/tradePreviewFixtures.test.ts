@@ -17,4 +17,8 @@ describe("trade preview fixtures", () => {
   it("does not create an order for an unknown preview", () => {
     expect(tradePreviewOrder("not-a-scenario")).toBeUndefined();
   });
+
+  it("keeps the payout preview in the queued routing state", () => {
+    expect(tradePreviewOrder("payout")).toMatchObject({ status: 13, tx_queued: true, is_buyer: true });
+  });
 });

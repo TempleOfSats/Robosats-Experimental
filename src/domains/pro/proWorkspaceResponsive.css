@@ -430,14 +430,6 @@
     font-size: var(--type-caption-size);
   }
 
-  .pro-history-detail-identity {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  .pro-history-detail-identity > .ui-badge {
-    grid-column: 2;
-    justify-self: start;
-  }
 }
 
 @media (max-width: 380px) {

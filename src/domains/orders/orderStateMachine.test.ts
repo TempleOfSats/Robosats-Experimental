@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   disputeOutcomeForCurrentRobot,
+  expiredBondOutcome,
   getTradeViewState
 } from "@/domains/orders/orderStateMachine";
 import type { OrderDto } from "@/domains/orders/order.types";
@@ -66,9 +67,27 @@ describe("getTradeViewState", () => {
 
   it("preserves buyer and seller setup branches", () => {
     expect(getTradeViewState({ ...baseOrder, status: 7, is_buyer: true, is_seller: false }).panel).toBe("escrow_wait");
-    expect(getTradeViewState({ ...baseOrder, status: 7, is_buyer: false, is_seller: true }).panel).toBe("escrow_invoice");
+    expect(getTradeViewState({ ...baseOrder, status: 7, is_buyer: false, is_seller: true }).panel).toBe(
+      "escrow_invoice"
+    );
     expect(getTradeViewState({ ...baseOrder, status: 8, is_buyer: true, is_seller: false }).panel).toBe("payout");
     expect(getTradeViewState({ ...baseOrder, status: 8, is_buyer: false, is_seller: true }).panel).toBe("payout_wait");
+  });
+
+  it("explains the peer deadline without exposing a payout method", () => {
+    const sellerWait = getTradeViewState({
+      ...baseOrder,
+      status: 8,
+      is_maker: true,
+      is_taker: false,
+      is_buyer: false,
+      is_seller: true,
+      payment_method: "PIX"
+    });
+
+    expect(sellerWait.message.body).toContain("before the deadline");
+    expect(sellerWait.message.body).not.toContain("on-chain");
+    expect(sellerWait.message.body).not.toContain("PIX");
   });
 
   it("waits after a dispute statement has already been submitted", () => {
@@ -88,19 +107,23 @@ describe("getTradeViewState", () => {
     const buyer = { ...baseOrder, status: 15, is_buyer: true, is_seller: false, retries: 1 };
     expect(getTradeViewState({ ...buyer, invoice_expired: false }).requiredAction).toBe("wait");
     expect(getTradeViewState({ ...buyer, invoice_expired: true }).requiredAction).toBe("retry_invoice");
-    expect(getTradeViewState({
-      ...baseOrder,
-      status: 15,
-      is_buyer: false,
-      is_seller: true,
-      retries: 1
-    }).panel).toBe("success");
-    expect(getTradeViewState({
-      ...baseOrder,
-      status: 15,
-      is_buyer: true,
-      is_seller: false
-    })).toMatchObject({
+    expect(
+      getTradeViewState({
+        ...baseOrder,
+        status: 15,
+        is_buyer: false,
+        is_seller: true,
+        retries: 1
+      }).panel
+    ).toBe("success");
+    expect(
+      getTradeViewState({
+        ...baseOrder,
+        status: 15,
+        is_buyer: true,
+        is_seller: false
+      })
+    ).toMatchObject({
       panel: "routing_failed",
       requiredAction: "wait"
     });
@@ -134,6 +157,21 @@ describe("getTradeViewState", () => {
         body: "Please wait for the taker to lock a bond. If the taker does not lock a bond in time, the order will be made public again."
       }
     });
+  });
+
+  it("keeps paused orders distinct from the taker-found state", () => {
+    expect(getTradeViewState({ ...baseOrder, status: 2 }).message.heading).toBe("Your order is paused");
+    expect(getTradeViewState({ ...baseOrder, status: 3 }).message.heading).toBe("Waiting for the taker bond");
+  });
+
+  it("reports a no-penalty bond return for a public order that expires untaken", () => {
+    expect(
+      expiredBondOutcome({
+        is_maker: true,
+        expiry_reason: 0,
+        expiry_message: "Expired not taken"
+      })
+    ).toBe("Your maker bond was returned without penalty.");
   });
 
   it("describes dispute results from the current robot perspective", () => {

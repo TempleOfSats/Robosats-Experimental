@@ -63,7 +63,7 @@ describe("desktop trade feedback", () => {
     observe({ status: 2, chat_last_index: 2 });
     expect(playTradeAudioMock).toHaveBeenCalledOnce();
     expect(showDesktopOrderNotificationMock).toHaveBeenCalledOnce();
-    expect(showDesktopOrderNotificationMock).toHaveBeenLastCalledWith(123, "lake", "Taker found", "hash");
+    expect(showDesktopOrderNotificationMock).toHaveBeenLastCalledWith(123, "lake", "Paused", "hash");
 
     observe({ status: 2, chat_last_index: 3 });
     expect(playTradeAudioMock).toHaveBeenLastCalledWith("chat-open");
@@ -87,7 +87,7 @@ describe("desktop trade feedback", () => {
     observe({ status: 2 });
 
     expect(
-      (showDesktopOrderNotificationMock.mock.calls as unknown[][]).filter(([, , message]) => message === "Taker found")
+      (showDesktopOrderNotificationMock.mock.calls as unknown[][]).filter(([, , message]) => message === "Paused")
     ).toHaveLength(1);
   });
 

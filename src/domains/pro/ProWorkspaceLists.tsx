@@ -26,6 +26,7 @@ import { RobotAvatar } from "@/domains/identity/RobotAvatar";
 import { formatExpiryCountdown, formatExpiryTitle } from "@/domains/orderbook/offerDisplay";
 import { currencyCodeFromId } from "@/domains/orderbook/currencies";
 import { matchedPaymentMethods } from "@/domains/orderbook/paymentMethods";
+import { TradeReceipt, type TradeReceiptModel } from "@/domains/orders/TradeReceipt";
 import { toProTradePresentation } from "@/domains/pro/proPresentation";
 import { deriveProRobotLifecycle } from "@/domains/pro/proRobotLifecycle";
 import { classifyProTrade, summarizeProRobots } from "@/domains/pro/proSelectors";
@@ -34,6 +35,7 @@ import type { ProTradeLocator, ProTradeSnapshot, SlotSyncState } from "@/domains
 import type { TradeHistoryEntry, TradeHistoryOutcome } from "@/domains/pro/tradeHistory";
 import { formatLastRefresh, groupLabel } from "@/domains/pro/proWorkspacePresentation";
 import { writeClipboard } from "@/lib/clipboard";
+import { downloadTextFile } from "@/domains/transport/downloadFile";
 import { formatFiat, formatSats } from "@/lib/format";
 
 export function TradeList({
@@ -452,7 +454,9 @@ export function HistoryList({
                 <RobotAvatar hashId={entry.robotHashId} label={entry.robotName} size="sm" />
                 <span>
                   <strong>{entry.robotName}</strong>
-                  <small>{entry.role === "buyer" ? "Bought BTC" : "Sold BTC"}</small>
+                  <small>
+                    {entry.currency === 1000 ? "Bitcoin swap" : entry.role === "buyer" ? "Bought BTC" : "Sold BTC"}
+                  </small>
                 </span>
               </span>
               <span className="pro-history-trade">
@@ -482,99 +486,70 @@ export function HistoryList({
           ariaLabelledby="pro-history-detail-title"
           onClose={() => setSelected(undefined)}
           overlayClassName="pro-trade-dialog-overlay"
-          panelClassName="confirm-sheet pro-history-detail"
+          panelClassName="confirm-sheet pro-history-detail pro-history-receipt-dialog"
         >
-          <header className="garage-switcher-header">
-            <div>
-              <p className="app-eyebrow">{historyDetailTitle(selected.outcome)}</p>
-              <h3 data-dialog-initial-focus id="pro-history-detail-title" tabIndex={-1}>
-                Order #{selected.orderId}
-              </h3>
-            </div>
-            <button
-              className="icon-button"
-              type="button"
-              onClick={() => setSelected(undefined)}
-              aria-label="Close trade history"
-            >
-              <X size={18} />
-            </button>
-          </header>
-          <div className="pro-history-detail-identity">
-            <RobotAvatar hashId={selected.robotHashId} label={selected.robotName} size="md" />
-            <span>
-              <strong>{selected.robotName}</strong>
-              <small>{selected.role === "buyer" ? "Bought BTC" : "Sold BTC"}</small>
-            </span>
-            <Badge tone={historyOutcome(selected.outcome).tone} icon={historyOutcomeIcon(selected.outcome)}>
-              {historyOutcome(selected.outcome).label}
-            </Badge>
-          </div>
-          <dl className="pro-history-detail-list">
-            <div>
-              <dt>Amount</dt>
-              <dd>{formatHistoryAmount(selected)}</dd>
-            </div>
-            <div>
-              <dt>Payment method</dt>
-              <dd>{selected.paymentMethod || "Not specified"}</dd>
-            </div>
-            <div>
-              <dt>Premium</dt>
-              <dd>{formatSignedPercent(selected.premium)}</dd>
-            </div>
-            <div>
-              <dt>
-                {selected.outcome === "dispute-won" || selected.outcome === "dispute-lost"
-                  ? "Contract bitcoin"
-                  : selected.role === "buyer"
-                    ? "Bitcoin bought"
-                    : "Bitcoin sent"}
-              </dt>
-              <dd>{formatHistorySats(selected.satoshis)}</dd>
-            </div>
-            <div>
-              <dt>Role</dt>
-              <dd>{selected.origin === "maker" ? "Offer maker" : "Offer taker"}</dd>
-            </div>
-            <div>
-              <dt>Coordinator</dt>
-              <dd>{coordinatorName(coordinators, selected.coordinatorShortAlias)}</dd>
-            </div>
-            <div>
-              <dt>{historyCompletionLabel(selected.outcome)}</dt>
-              <dd>{new Date(selected.completedAt).toLocaleString()}</dd>
-            </div>
-          </dl>
-          {selected.settlementInvoice && selected.settlementInvoicePurpose ? (
-            <section className="pro-history-invoice">
-              <div>
-                <strong>
-                  {selected.settlementInvoicePurpose === "payout-received" ? "Payout invoice" : "Escrow invoice"}
-                </strong>
-                <small>
-                  {selected.settlementInvoicePurpose === "payout-received"
-                    ? "Bitcoin received through this invoice"
-                    : "Escrow paid through this invoice"}
-                </small>
-              </div>
-              <code>{selected.settlementInvoice}</code>
+          <button
+            className="icon-button pro-history-detail-close"
+            type="button"
+            onClick={() => setSelected(undefined)}
+            aria-label="Close trade history"
+          >
+            <X size={18} />
+          </button>
+          <TradeReceipt
+            actions={
               <Button
-                size="sm"
+                className="trade-receipt-secondary-only"
+                onClick={() => downloadHistoryOverview(selected)}
                 variant="outline"
-                onClick={() => {
-                  void writeClipboard(selected.settlementInvoice!)
-                    .then(() => setCopiedInvoice(true))
-                    .catch(() => setCopiedInvoice(false));
-                }}
               >
-                <Copy size={14} /> {copiedInvoice ? "Copied" : "Copy invoice"}
+                <Download size={15} /> Download overview
               </Button>
-            </section>
-          ) : null}
-          <p className="pro-history-retention-note">
-            This summary is kept in your encrypted Fleet history stored over nostr.
-          </p>
+            }
+            focusTitle
+            model={historyTradeReceipt(selected, coordinatorName(coordinators, selected.coordinatorShortAlias))}
+            titleId="pro-history-detail-title"
+            breakdown={
+              <>
+                <dl className="pro-history-detail-list">
+                  <div>
+                    <dt>Offer role</dt>
+                    <dd>{selected.origin === "maker" ? "Offer maker" : "Offer taker"}</dd>
+                  </div>
+                  <div>
+                    <dt>Premium</dt>
+                    <dd>{formatSignedPercent(selected.premium)}</dd>
+                  </div>
+                </dl>
+                {selected.settlementInvoice && selected.settlementInvoicePurpose ? (
+                  <section className="pro-history-invoice">
+                    <div>
+                      <strong>
+                        {selected.settlementInvoicePurpose === "payout-received" ? "Payout invoice" : "Escrow invoice"}
+                      </strong>
+                      <small>
+                        {selected.settlementInvoicePurpose === "payout-received"
+                          ? "Bitcoin received through this invoice"
+                          : "Escrow paid through this invoice"}
+                      </small>
+                    </div>
+                    <code>{selected.settlementInvoice}</code>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        void writeClipboard(selected.settlementInvoice!)
+                          .then(() => setCopiedInvoice(true))
+                          .catch(() => setCopiedInvoice(false));
+                      }}
+                    >
+                      <Copy size={14} /> {copiedInvoice ? "Copied" : "Copy invoice"}
+                    </Button>
+                  </section>
+                ) : null}
+              </>
+            }
+          />
         </Dialog>
       ) : null}
     </>
@@ -616,31 +591,96 @@ function historyOutcome(outcome: TradeHistoryOutcome): {
   return { icon: CalendarClock, label: "Cancelled together", tone: "muted" };
 }
 
-function historyOutcomeIcon(outcome: TradeHistoryOutcome) {
-  const Icon = historyOutcome(outcome).icon;
-  return <Icon size={12} />;
-}
-
 function formatHistoryAmount(entry: TradeHistoryEntry): string {
   if (entry.amount === undefined) return "Amount unavailable";
   const currency = currencyCodeFromId(entry.currency) ?? String(entry.currency);
-  return entry.currency === 1000 ? formatSats(entry.amount) : formatFiat(entry.amount, currency);
+  return entry.currency === 1000
+    ? formatSats(Math.round(entry.amount * 100_000_000))
+    : formatFiat(entry.amount, currency);
 }
 
 function formatHistorySats(value: number): string {
   return value > 0 ? formatSats(value) : "Not recorded";
 }
 
-function historyDetailTitle(outcome: TradeHistoryOutcome): string {
-  if (outcome === "completed") return "Trade completed";
-  if (outcome === "collaboratively-cancelled") return "Trade cancelled";
-  return "Dispute resolved";
+function historyTradeReceipt(entry: TradeHistoryEntry, hostName: string): TradeReceiptModel {
+  const identity = {
+    robotName: entry.robotName,
+    robotHashId: entry.robotHashId,
+    orderId: entry.orderId,
+    coordinatorName: hostName,
+    timestamp: new Date(entry.completedAt).toLocaleString()
+  };
+  const fiat = formatHistoryAmount(entry);
+  const bitcoin = formatHistorySats(entry.satoshis);
+  const isBitcoinSwap = entry.currency === 1000;
+  const context =
+    entry.amount === undefined
+      ? undefined
+      : `${isBitcoinSwap && entry.role === "buyer" ? "after sending" : "for"} ${fiat}`;
+  const contractRows = [
+    { label: isBitcoinSwap ? "Contract amount" : "Contract fiat", value: fiat },
+    { label: isBitcoinSwap ? "Bitcoin settlement" : "Contract bitcoin", value: bitcoin }
+  ];
+
+  if (entry.outcome === "collaboratively-cancelled") {
+    return {
+      ...identity,
+      outcome: "cancelled",
+      title: "Collaboratively cancelled",
+      statementLabel: "Both robots agreed to cancel",
+      primaryValue: "No payout",
+      statementContext: "Both peers' bonds were returned without penalty. The trade ended without a bitcoin payout.",
+      rows: contractRows
+    };
+  }
+  if (entry.outcome === "dispute-won" || entry.outcome === "dispute-lost") {
+    const won = entry.outcome === "dispute-won";
+    return {
+      ...identity,
+      outcome: won ? "dispute-won" : "dispute-lost",
+      title: won ? "Dispute resolved in your favor" : "Dispute resolved for your peer",
+      statementLabel: "Coordinator decision",
+      primaryValue: won ? "Your robot won" : "Your peer won",
+      statementContext: "This history records the contract amount, not an attributed dispute award.",
+      rows: contractRows
+    };
+  }
+  return {
+    ...identity,
+    outcome: "completed",
+    title: isBitcoinSwap ? "Bitcoin swap completed" : "Trade completed",
+    statementLabel: isBitcoinSwap
+      ? `Bitcoin ${entry.role === "buyer" ? "received" : "sent"}`
+      : `You ${entry.role === "buyer" ? "bought" : "sold"} bitcoin`,
+    primaryValue: bitcoin,
+    statementContext: context,
+    rows: contractRows
+  };
 }
 
-function historyCompletionLabel(outcome: TradeHistoryOutcome): string {
-  if (outcome === "completed") return "Trade completed";
-  if (outcome === "collaboratively-cancelled") return "Cancelled";
-  return "Dispute resolved";
+function downloadHistoryOverview(entry: TradeHistoryEntry) {
+  const overview = {
+    format: "robosats-trade-history-overview",
+    version: 1,
+    order_id: entry.orderId,
+    robot: entry.robotName,
+    coordinator: entry.coordinatorShortAlias,
+    role: entry.role,
+    origin: entry.origin,
+    amount: entry.amount,
+    currency: entry.currency,
+    payment_method: entry.paymentMethod,
+    premium_percent: entry.premium,
+    contract_satoshis: entry.satoshis,
+    outcome: entry.outcome,
+    completed_at: entry.completedAt
+  };
+  downloadTextFile(
+    `robosats-trade-${entry.orderId}-overview.json`,
+    JSON.stringify(overview, null, 2),
+    "application/json"
+  );
 }
 
 function formatHistoryDate(value: number): string {

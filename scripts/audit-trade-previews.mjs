@@ -103,9 +103,14 @@ try {
             await cancelOrder.click();
             const confirmation = page.locator(".confirm-sheet");
             await confirmation.waitFor({ state: "visible", timeout: 3_000 });
-            await confirmation.getByRole("button", { name: "Cancel" }).click();
+            await confirmation.getByRole("button", { name: "Cancel order" }).click();
             await confirmation.waitFor({ state: "hidden", timeout: 3_000 });
           }
+        }
+
+        if (scenario === "chat-seller") {
+          await page.getByRole("button", { name: /^Confirm .* received$/ }).click();
+          await page.locator(".trade-action-preview").waitFor({ state: "visible", timeout: 3_000 });
         }
 
         if (

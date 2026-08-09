@@ -23,7 +23,6 @@
 .maker-page .page-heading h2,
 .page-settings .page-heading h2,
 .statistics-page .page-heading h2,
-.trade-completion-hero h2,
 .coordinator-table-heading h2 {
   font-size: var(--type-h2-size);
   font-weight: var(--weight-semibold);

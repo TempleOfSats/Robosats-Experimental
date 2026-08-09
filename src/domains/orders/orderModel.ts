@@ -55,6 +55,7 @@ export function normalizeOrderDto(data: OrderApiResponse): OrderDto {
     failure_reason: toOptionalString(data.failure_reason),
     invoice_expired: toBoolean(data.invoice_expired),
     expiry_message: toOptionalString(data.expiry_message),
+    expiry_reason: toOptionalNumber(data.expiry_reason),
     num_satoshis: toNumber(data.num_satoshis),
     sent_satoshis: toNumber(data.sent_satoshis),
     txid: toOptionalString(data.txid),
@@ -66,7 +67,6 @@ export function normalizeOrderDto(data: OrderApiResponse): OrderDto {
     latitude: toNumber(data.latitude),
     longitude: toNumber(data.longitude),
     penalty: toOptionalString(data.penalty),
-    expiry_reason: toOptionalString(data.expiry_reason),
     tx_queued: toBoolean(data.tx_queued),
     address: toOptionalString(data.address),
     maker_summary: toOptionalRecord(data.maker_summary),
@@ -129,6 +129,12 @@ function toNumber(value: unknown, fallback = 0): number {
 function toNullableNumber(value: unknown): number | null {
   if (value == null || value === "") return null;
   return toNumber(value);
+}
+
+function toOptionalNumber(value: unknown): number | undefined {
+  if (value == null || value === "") return undefined;
+  const parsed = toNumber(value, Number.NaN);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function positiveNumber(value: number | null | undefined): number | undefined {

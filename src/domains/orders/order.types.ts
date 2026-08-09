@@ -75,6 +75,7 @@ export interface OrderDto {
   failure_reason?: string;
   invoice_expired?: boolean;
   expiry_message?: string;
+  expiry_reason?: number;
   num_satoshis?: number;
   sent_satoshis?: number;
   txid?: string;
@@ -86,7 +87,6 @@ export interface OrderDto {
   latitude?: number;
   longitude?: number;
   penalty?: string;
-  expiry_reason?: string;
   tx_queued?: boolean;
   address?: string;
   maker_summary?: Record<string, unknown>;
