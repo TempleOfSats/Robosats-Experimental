@@ -1,4 +1,5 @@
 {
+  "entry": ["src/main.tsx", "docs/tutorial/tutorial.js"],
   // dependency-cruiser loads SWC dynamically to parse TypeScript 7.
   "ignoreDependencies": ["@swc/core"]
 }
