@@ -180,7 +180,7 @@ describe("OffersPage filters", () => {
     expect(container.querySelectorAll(".offer-row-sell")).toHaveLength(1);
     expect(container.querySelectorAll(".offer-review-affordance")).toHaveLength(2);
     expect(container.querySelector(".offer-review-affordance")?.textContent).toContain("Review");
-    expect(container.querySelector(".orderbook-mobile-filter-heading")?.textContent).toContain("2 shown");
+    expect(container.querySelector(".orderbook-mobile-filter-heading")).toBeNull();
     expect(container.querySelector(".offer-mobile-sort-heading")).toBeNull();
     expect(container.querySelector('[role="group"][aria-label="Sort public offers"]')).not.toBeNull();
     expect(container.querySelectorAll(".offer-mobile-sort-options button")).toHaveLength(3);

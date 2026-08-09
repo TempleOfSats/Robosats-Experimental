@@ -421,6 +421,7 @@ export const useGarageStore: UseBoundStore<StoreApi<GarageState>> = create<Garag
       const networkResults = await Promise.all(
         refreshTargets.map(async (coordinator) => {
           const sessionId = sessions.get(coordinator.shortAlias)!;
+          const startingKeys = coordinatorKeysOrFallback(slot.robots[coordinator.shortAlias], keys);
           let applied = false;
           let transportFailed = false;
           try {
@@ -441,8 +442,8 @@ export const useGarageStore: UseBoundStore<StoreApi<GarageState>> = create<Garag
                 token: slot.token,
                 shortAlias: coordinator.shortAlias,
                 tokenSHA256: slot.tokenSHA256,
-                pubKey: snapshot.pubKey ?? keys.pubKey,
-                encPrivKey: snapshot.encPrivKey ?? keys.encPrivKey,
+                pubKey: snapshot.pubKey ?? startingKeys.pubKey,
+                encPrivKey: snapshot.encPrivKey ?? startingKeys.encPrivKey,
                 nostrPubKey: snapshot.nostrPubKey ?? slot.nostrPubKey,
                 earnedRewards: snapshot.earnedRewards,
                 stealthInvoices: snapshot.stealthInvoices,
@@ -463,6 +464,7 @@ export const useGarageStore: UseBoundStore<StoreApi<GarageState>> = create<Garag
             transportFailed = true;
             const currentSlot = useGarageStore.getState().slots.find((item) => item.token === slot.token);
             const currentRobot = currentSlot?.robots[coordinator.shortAlias];
+            const currentKeys = coordinatorKeysOrFallback(currentRobot, startingKeys);
             applied = applyRobotRefreshResult(set, slot, coordinator.shortAlias, sessionId, {
               shortAlias: coordinator.shortAlias,
               orderSnapshot: undefined,
@@ -471,8 +473,8 @@ export const useGarageStore: UseBoundStore<StoreApi<GarageState>> = create<Garag
                 token: slot.token,
                 shortAlias: coordinator.shortAlias,
                 tokenSHA256: slot.tokenSHA256,
-                pubKey: keys.pubKey,
-                encPrivKey: keys.encPrivKey,
+                pubKey: currentKeys.pubKey,
+                encPrivKey: currentKeys.encPrivKey,
                 nostrPubKey: currentRobot?.nostrPubKey ?? slot.nostrPubKey,
                 loading: false,
                 error: toUserMessage(error, "Could not check this coordinator.")
@@ -931,14 +933,15 @@ function markTargetRobotsLoading(
   return coordinators.reduce<Record<string, RobotRecord>>(
     (robots, coordinator) => {
       const existingRobot = robots[coordinator.shortAlias] ?? Object.values(robots)[0];
+      const retainedKeys = coordinatorKeysOrFallback(slot.robots[coordinator.shortAlias], keys);
       robots[coordinator.shortAlias] = {
         ...existingRobot,
         token: existingRobot?.token ?? slot.token,
         shortAlias: coordinator.shortAlias,
         tokenSHA256: existingRobot?.tokenSHA256 ?? slot.tokenSHA256,
         nostrPubKey: existingRobot?.nostrPubKey ?? slot.nostrPubKey,
-        pubKey: keys.pubKey,
-        encPrivKey: keys.encPrivKey,
+        pubKey: retainedKeys.pubKey,
+        encPrivKey: retainedKeys.encPrivKey,
         loading: true,
         error: undefined
       };
@@ -946,6 +949,15 @@ function markTargetRobotsLoading(
     },
     { ...slot.robots }
   );
+}
+
+function coordinatorKeysOrFallback(
+  robot: RobotRecord | undefined,
+  fallback: { pubKey: string; encPrivKey: string }
+): { pubKey: string; encPrivKey: string } {
+  return robot?.pubKey && robot.encPrivKey
+    ? { pubKey: robot.pubKey, encPrivKey: robot.encPrivKey }
+    : fallback;
 }
 
 function reconcileOrderState(

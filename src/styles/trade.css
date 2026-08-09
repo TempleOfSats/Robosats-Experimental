@@ -1184,15 +1184,6 @@
   overflow-wrap: anywhere;
 }
 
-.payment-step-copy {
-  max-width: 19rem;
-  margin: 0;
-  color: var(--muted-foreground);
-  font-size: 0.78rem;
-  line-height: 1.45;
-  text-align: center;
-}
-
 .payment-expiry {
   width: 100%;
   min-width: 0;

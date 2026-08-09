@@ -30,6 +30,7 @@
 
   .app-runtime-desktop .app-sidebar {
     min-height: auto;
+    top: auto;
   }
 
   .brand-block {

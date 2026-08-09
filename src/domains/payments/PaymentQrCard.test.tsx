@@ -14,7 +14,6 @@ describe("PaymentQrCard", () => {
     expect(html).not.toContain("Pay once");
     expect(html).toContain("Taker bond");
     expect(html).toContain("Taker bond amount");
-    expect(html).toContain("This bond confirms your commitment to take the trade.");
     expect(html).not.toContain("invoice-details");
     expect(html).not.toContain("payment-card-footer");
     expect(html).not.toContain("Payment hash");
@@ -37,7 +36,19 @@ describe("PaymentQrCard", () => {
     expect(html).toContain("payment-countdown");
     expect(html).not.toContain("Expires at");
     expect(html).toContain("Cancel order");
-    expect(html).toContain("This hold locks the bitcoin until you confirm the fiat arrived.");
+  });
+
+  it.each([
+    ["maker_bond", "This bond publishes your offer and is returned if it expires untaken."],
+    ["taker_bond", "This bond confirms your commitment to take the trade."],
+    ["escrow", "This hold locks the bitcoin until you confirm the fiat arrived."]
+  ] as const)("omits the %s explanatory copy", (concept, removedCopy) => {
+    const html = renderToStaticMarkup(
+      <PaymentQrCard concept={concept} title="Payment" value="lnbc1testinvoice" amountSats={12_578} />
+    );
+
+    expect(html).not.toContain("payment-step-copy");
+    expect(html).not.toContain(removedCopy);
   });
 
   it("shows a stable loading state until both invoice and amount are ready", () => {

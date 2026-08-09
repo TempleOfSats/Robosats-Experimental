@@ -161,7 +161,6 @@ function PaymentReadyContent({
   title: string;
   webLnState: "idle" | "paying" | "success" | "error";
 }) {
-  const stepCopy = paymentStepCopy(concept);
   return (
     <>
       <button
@@ -195,7 +194,6 @@ function PaymentReadyContent({
           <span>{paymentAmountLabel(concept)}</span>
           <strong className="payment-amount tabular amount-mono">{formatSats(amountSats)}</strong>
         </div>
-        {stepCopy ? <p className="payment-step-copy">{stepCopy}</p> : null}
         {expiresAt ? (
           <div className="payment-expiry">
             <Clock3 size={16} />
@@ -264,19 +262,6 @@ function PaymentActionStatus({ state }: { state: "idle" | "paying" | "success" |
     );
   }
   return null;
-}
-
-function paymentStepCopy(concept: PaymentConcept): string | undefined {
-  switch (concept) {
-    case "maker_bond":
-      return "This bond publishes your offer and is returned if it expires untaken.";
-    case "taker_bond":
-      return "This bond confirms your commitment to take the trade.";
-    case "escrow":
-      return "This hold locks the bitcoin until you confirm the fiat arrived.";
-    default:
-      return undefined;
-  }
 }
 
 function paymentAmountLabel(concept: PaymentConcept): string {

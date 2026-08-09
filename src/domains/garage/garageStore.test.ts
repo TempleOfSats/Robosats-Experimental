@@ -479,6 +479,59 @@ describe("garage order sync", () => {
     expect(robot.encPrivKey).toBe("coordinator-priv");
   });
 
+  it("keeps coordinator-specific signing keys available while a robot refresh is pending", async () => {
+    useGarageStore.setState({ slots: [slotWithDistinctCoordinatorKeys()], currentToken: "token", hydrated: true });
+    const snapshot = deferred<ReturnType<typeof robotSnapshot>>();
+    fetchRobotMock.mockReturnValue(snapshot.promise);
+
+    const refresh = useGarageStore.getState().refreshRobots([coordinator]);
+    await vi.waitFor(() => expect(fetchRobotMock).toHaveBeenCalledOnce());
+
+    const pendingRobot = useGarageStore.getState().slots[0].robots.lake;
+    try {
+      expect(pendingRobot.loading).toBe(true);
+      expect(pendingRobot.pubKey).toBe("coordinator-pub");
+      expect(pendingRobot.encPrivKey).toBe("coordinator-priv");
+    } finally {
+      snapshot.resolve(robotSnapshot({ pubKey: "coordinator-pub", encPrivKey: "coordinator-priv" }));
+      await refresh;
+    }
+  });
+
+  it("keeps coordinator-specific signing keys when a robot refresh fails", async () => {
+    useGarageStore.setState({ slots: [slotWithDistinctCoordinatorKeys()], currentToken: "token", hydrated: true });
+    fetchRobotMock.mockRejectedValue(new Error("Tor request failed"));
+
+    await useGarageStore.getState().refreshRobots([coordinator]);
+
+    const robot = useGarageStore.getState().slots[0].robots.lake;
+    expect(robot.error).toBeTruthy();
+    expect(robot.pubKey).toBe("coordinator-pub");
+    expect(robot.encPrivKey).toBe("coordinator-priv");
+
+    fetchRobotMock.mockResolvedValue(
+      robotSnapshot({ pubKey: "recovered-coordinator-pub", encPrivKey: "recovered-coordinator-priv" })
+    );
+    await useGarageStore.getState().refreshRobots([coordinator]);
+
+    const recoveredRobot = useGarageStore.getState().slots[0].robots.lake;
+    expect(recoveredRobot.error).toBeUndefined();
+    expect(recoveredRobot.pubKey).toBe("recovered-coordinator-pub");
+    expect(recoveredRobot.encPrivKey).toBe("recovered-coordinator-priv");
+  });
+
+  it("retains canonical signing keys when a successful snapshot omits optional keys", async () => {
+    useGarageStore.setState({ slots: [slotWithDistinctCoordinatorKeys()], currentToken: "token", hydrated: true });
+    fetchRobotMock.mockResolvedValue(robotSnapshot());
+
+    await useGarageStore.getState().refreshRobots([coordinator]);
+
+    const robot = useGarageStore.getState().slots[0].robots.lake;
+    expect(robot.error).toBeUndefined();
+    expect(robot.pubKey).toBe("coordinator-pub");
+    expect(robot.encPrivKey).toBe("coordinator-priv");
+  });
+
   it("refreshes an explicit slot without changing the selected robot", async () => {
     const alpha = { ...slotWithCoordinatorKeys(), token: "alpha", tokenSHA256: "slot-alpha", nickname: "Alpha" };
     const beta = { ...slotWithCoordinatorKeys(), token: "beta", tokenSHA256: "slot-beta", nickname: "Beta" };
@@ -930,6 +983,28 @@ function slotWithCoordinatorKeys(
         encPrivKey: "private-key",
         nostrPubKey: "lake-nostr",
         ...order
+      }
+    }
+  };
+}
+
+function slotWithDistinctCoordinatorKeys(): RobotSlot {
+  const canonicalSlot = slotWithCoordinatorKeys();
+  return {
+    ...canonicalSlot,
+    robots: {
+      local: {
+        token: "token",
+        tokenSHA256: "local-token",
+        shortAlias: "local",
+        pubKey: "public-key",
+        encPrivKey: "private-key",
+        nostrPubKey: "local-nostr"
+      },
+      lake: {
+        ...canonicalSlot.robots.lake,
+        pubKey: "coordinator-pub",
+        encPrivKey: "coordinator-priv"
       }
     }
   };

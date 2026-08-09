@@ -346,10 +346,6 @@
   border-width: 1.5px;
 }
 
-.orderbook-mobile-filter-heading {
-  display: none;
-}
-
 .search-box {
   display: flex;
   align-items: center;
@@ -1923,30 +1919,12 @@
 
 @media (max-width: 600px) {
   .orderbook-table-card .orderbook-secondary-filters {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.55rem;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.4rem;
   }
 
   .orderbook-table-card .orderbook-secondary-filters .filter-select-field-wide {
-    grid-column: 1 / -1;
-  }
-
-  .orderbook-mobile-filter-heading {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-    color: var(--foreground);
-    font-size: var(--type-compact-size);
-    font-weight: var(--weight-semibold);
-    line-height: var(--type-compact-line);
-  }
-
-  .orderbook-mobile-filter-heading small {
-    color: var(--text-supporting);
-    font-size: var(--type-caption-size);
-    font-weight: var(--weight-medium);
-    line-height: var(--type-caption-line);
+    grid-column: auto;
   }
 
   .orderbook-table-card .offer-mobile-sort {
