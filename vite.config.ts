@@ -113,6 +113,18 @@ export default defineConfig(({ command, mode }) => {
                 minSize: 0
               },
               {
+                name: "offers",
+                // Keep the orderbook journey in one request group. Higher
+                // priority initial, Nostr, and cryptography groups preserve
+                // their existing cache and lazy-loading boundaries.
+                test: /src[\\/]domains[\\/]orderbook[\\/]OffersPage\.tsx$/,
+                priority: 25,
+                minSize: 0,
+                entriesAware: true,
+                entriesAwareMergeThreshold: 8_000,
+                includeDependenciesRecursively: true
+              },
+              {
                 name: "route-icons",
                 test: /node_modules[\\/]lucide-react[\\/]/,
                 priority: 20,
