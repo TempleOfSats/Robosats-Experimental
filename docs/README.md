@@ -14,6 +14,7 @@ You do not need to understand the cryptography before your first trade. Start wi
 | You already used the classic RoboSats frontend | [Coming from the classic frontend](classic-frontend-transition.md) |
 | You want one focused robot and one order at a time | [Standard Garage guide](standard-garage-guide.md) |
 | You want several robots, reusable offers, and cross-device recovery | [Pro Mode and Robot Fleet guide](pro-mode-guide.md) |
+| You prefer a screenshot-led walkthrough | [Beep & Bop visual guide](tutorial/index.html) |
 
 The **Standard Garage** is the simplest workspace. **Pro Mode** is an organizational layer for experienced or frequent traders. The underlying coordinator protocol is the same in both.
 
@@ -25,6 +26,7 @@ The **Standard Garage** is the simplest workspace. **Pro Mode** is an organizati
 | [Coming from the classic frontend](classic-frontend-transition.md) | Find familiar concepts and understand what moved or changed |
 | [Standard Garage](standard-garage-guide.md) | Create or recover one robot and complete buyer or seller flows |
 | [Pro Mode and Robot Fleet](pro-mode-guide.md) | Manage independent robots, presets, live orders, history, and Fleet recovery |
+| [Beep & Bop visual guide](tutorial/index.html) | Follow Standard and Pro Mode through current, annotated app screens |
 | [Robot identity, PGP, and Nostr](identity-and-privacy.md) | Understand robot tokens, encrypted chat, Nostr keys, and Fleet privacy |
 | [Cash F2F map](f2f-map-guide.md) | Publish or find a face-to-face cash offer without exposing an exact venue |
 | [Market statistics](market-statistics-guide.md) | Read live liquidity, completed volume, premiums, and public market activity |
