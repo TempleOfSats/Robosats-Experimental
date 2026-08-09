@@ -32,12 +32,6 @@
   margin-top: 0.1rem;
 }
 
-.pro-workspace-scope {
-  color: var(--text-supporting);
-  font-size: var(--type-compact-size);
-  line-height: var(--type-compact-line);
-}
-
 .pro-fleet-sync-status,
 .pro-fleet-sync-copy {
   display: inline-flex;
@@ -49,15 +43,6 @@
   max-width: 100%;
   gap: 0.2rem;
   color: var(--muted-foreground);
-}
-
-.pro-fleet-sync-status::before {
-  content: "";
-  width: 0.2rem;
-  height: 0.2rem;
-  margin-inline: 0.1rem 0.2rem;
-  border-radius: 50%;
-  background: var(--border-strong);
 }
 
 .pro-fleet-sync-copy {

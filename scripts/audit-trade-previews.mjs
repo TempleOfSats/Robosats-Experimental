@@ -82,7 +82,9 @@ try {
         clipped: false,
         horizontalOverflow: false,
         layoutColumns: "",
+        panelsStacked: true,
         pageHeight: 0,
+        payoutRouteDecorations: 0,
         viewportWidth: viewport.width,
         visiblePanels: 0,
       };
@@ -145,6 +147,10 @@ try {
             const rect = panel.getBoundingClientRect();
             return rect.left < -1 || rect.right > innerWidth + 1;
           });
+          const panelsStacked = visiblePanels.slice(1).every((panel, index) => {
+            const previous = visiblePanels[index];
+            return panel.getBoundingClientRect().top >= previous.getBoundingClientRect().bottom - 1;
+          });
           const overflowingElements = [...document.querySelectorAll("main *")]
             .filter((element) => {
               const style = getComputedStyle(element);
@@ -169,8 +175,10 @@ try {
             layoutColumns: layout
               ? getComputedStyle(layout).gridTemplateColumns
               : "",
+            panelsStacked,
             pageHeight: root.scrollHeight,
             overflowingElements,
+            payoutRouteDecorations: document.querySelectorAll(".payout-route-path, .payout-route-target").length,
             viewportWidth: root.clientWidth,
             visiblePanels: visiblePanels.length,
           };
@@ -213,6 +221,8 @@ const failures = report.filter(
     entry.errors.length > 0 ||
     entry.horizontalOverflow ||
     entry.clipped ||
+    !entry.panelsStacked ||
+    entry.payoutRouteDecorations > 0 ||
     entry.overflowingElements.length > 0 ||
     entry.visiblePanels < 1,
 );

@@ -201,7 +201,7 @@
 
   .offer-mobile-sort {
     display: grid;
-    grid-template-columns: auto repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     align-items: center;
     gap: 0.3rem;
     margin: 0.55rem 0 0.65rem;
@@ -209,10 +209,6 @@
     font-size: 0.75rem;
     font-weight: 600;
     text-transform: none;
-  }
-
-  .offer-mobile-sort > span {
-    padding-right: 0.2rem;
   }
 
   .offer-mobile-sort-button {
@@ -770,38 +766,10 @@
   }
 }
 
-@media (max-width: 1180px) {
-  .page-trade > .trade-progress,
-  .page-trade > .order-error-panel {
-    width: min(100%, 36rem);
-  }
-
-  .trade-main-layout {
-    width: min(100%, 36rem);
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .trade-main-layout > .trade-panel-slot + .trade-panel-slot {
-    position: static;
-  }
-}
-
-@media (max-width: 900px) {
-  .trade-main-layout {
-    grid-template-columns: 1fr;
-  }
-}
-
 @media (min-width: 701px) and (max-width: 900px) {
   .page-trade .page-heading {
     flex-direction: row;
     align-items: center;
-  }
-
-  .trade-main-layout {
-    width: min(100%, 36rem);
-    grid-template-columns: minmax(0, 1fr);
-    justify-content: center;
   }
 }
 

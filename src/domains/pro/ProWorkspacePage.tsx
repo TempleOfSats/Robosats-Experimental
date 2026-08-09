@@ -118,16 +118,6 @@ const summaryItems: Array<{
   { key: "renewable", label: "Renewable", icon: RotateCcw }
 ];
 
-function ProWorkspaceScope({ orderCount, robotCount }: { orderCount: number; robotCount: number }) {
-  return (
-    <span className="pro-workspace-scope">
-      {robotCount} {robotCount === 1 ? "robot" : "robots"}
-      <span aria-hidden="true"> · </span>
-      {orderCount} open {orderCount === 1 ? "order" : "orders"}
-    </span>
-  );
-}
-
 export function ProWorkspacePage() {
   const enabled = useProPreferencesStore((state) => state.enabled);
   const lastView = useProPreferencesStore((state) => state.lastView);
@@ -648,7 +638,6 @@ export function ProWorkspacePage() {
           <p className="app-eyebrow">Pro mode</p>
           <h2>Trade Desk</h2>
           <div className="pro-workspace-context">
-            <ProWorkspaceScope orderCount={trades.length} robotCount={slots.length} />
             <span className="pro-fleet-sync-status" data-tone={fleetProtection.tone}>
               <span className="pro-fleet-sync-copy" role="status" aria-live="polite" aria-label={fleetProtection.label}>
                 <FleetProtectionIcon

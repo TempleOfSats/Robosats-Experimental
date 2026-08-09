@@ -303,22 +303,6 @@
   overflow: hidden;
 }
 
-.garage-robot-hero::before {
-  content: "";
-  position: absolute;
-  z-index: 0;
-  inset: -30% 8% auto;
-  height: 18rem;
-  border-radius: 50%;
-  background: radial-gradient(circle, color-mix(in srgb, var(--primary) 13%, transparent), transparent 68%);
-  pointer-events: none;
-}
-
-.garage-robot-hero > * {
-  position: relative;
-  z-index: 1;
-}
-
 .garage-settings-btn {
   position: absolute;
   top: 0.75rem;
@@ -340,8 +324,6 @@
 }
 
 .garage-robot-avatar-shell {
-  position: relative;
-  isolation: isolate;
   display: grid;
   place-items: center;
   width: min(12.25rem, 58vw);
@@ -351,40 +333,6 @@
     radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--info) 18%, transparent), transparent 68%),
     color-mix(in srgb, var(--card) 78%, var(--muted));
   animation: garage-identity-reveal 420ms cubic-bezier(0.2, 0, 0, 1) both;
-}
-
-.garage-robot-avatar-shell::before,
-.garage-robot-avatar-shell::after {
-  content: "";
-  position: absolute;
-  border-radius: inherit;
-  pointer-events: none;
-}
-
-.garage-robot-avatar-shell::before {
-  inset: -0.7rem;
-  background: conic-gradient(
-    from 35deg,
-    color-mix(in srgb, var(--primary) 34%, transparent),
-    color-mix(in srgb, var(--info) 24%, transparent),
-    transparent 44%,
-    color-mix(in srgb, var(--primary) 28%, transparent),
-    transparent 78%
-  );
-  filter: blur(0.8rem);
-  opacity: 0.48;
-  animation: garage-identity-halo 12s linear infinite;
-}
-
-.garage-robot-avatar-shell::after {
-  inset: -0.12rem;
-  border: 1px solid color-mix(in srgb, var(--primary) 28%, transparent);
-  box-shadow: 0 0 1.5rem color-mix(in srgb, var(--primary) 10%, transparent);
-}
-
-.garage-robot-avatar-shell > * {
-  position: relative;
-  z-index: 1;
 }
 
 .garage-robot-status-stack {
@@ -654,11 +602,11 @@
 }
 
 .garage-page .garage-profile-stage .action-tile.action-tile-primary {
-  border-color: color-mix(in srgb, var(--primary) 52%, var(--border));
+  border-color: color-mix(in srgb, var(--primary) 28%, var(--border));
   background:
-    linear-gradient(135deg, color-mix(in srgb, var(--primary) 18%, transparent), transparent 78%),
-    color-mix(in srgb, var(--primary) 7%, var(--card));
-  box-shadow: 0 0.7rem 1.8rem color-mix(in srgb, var(--primary) 10%, transparent);
+    linear-gradient(135deg, color-mix(in srgb, var(--primary) 9%, transparent), transparent 78%),
+    color-mix(in srgb, var(--primary) 4%, var(--card));
+  box-shadow: 0 0.45rem 1.25rem color-mix(in srgb, var(--primary) 5%, transparent);
 }
 
 .garage-profile-stage .action-tile-secondary {
@@ -678,8 +626,8 @@
 
 .garage-profile-stage .action-tile-primary:hover,
 .garage-profile-stage .action-tile-primary:focus-visible {
-  border-color: var(--primary);
-  box-shadow: 0 0.9rem 2rem color-mix(in srgb, var(--primary) 15%, transparent);
+  border-color: color-mix(in srgb, var(--primary) 48%, var(--border));
+  box-shadow: 0 0.7rem 1.5rem color-mix(in srgb, var(--primary) 8%, transparent);
 }
 
 .action-tile-arrow {
@@ -741,15 +689,8 @@
   }
 }
 
-@keyframes garage-identity-halo {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   .garage-robot-avatar-shell,
-  .garage-robot-avatar-shell::before,
   .garage-profile-stage .action-tile,
   .action-tile-arrow {
     animation: none;
