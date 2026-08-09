@@ -43,23 +43,28 @@ if ([...initialGraph].some((path) => /openpgp|roboidentitiesClient|F2FLocationDi
 }
 
 const routeBudgets = [
-  ["RobotGaragePage", 20],
-  ["OffersPage", 20],
-  ["SettingsPage", 12],
-  ["ProWorkspacePage", 36],
-  ["CreateOrderPage", 20],
-  ["OrderPage", 20]
+  ["RobotGaragePage", ".RobotGaragePage.", 20],
+  ["OffersPage", /\.(?:OffersPage\.|offers~OffersPage(?:[.~]))/, 12, 46_000],
+  ["SettingsPage", ".SettingsPage.", 12],
+  ["ProWorkspacePage", ".ProWorkspacePage.", 36],
+  ["CreateOrderPage", ".CreateOrderPage.", 20],
+  ["OrderPage", ".OrderPage.", 20]
 ];
 const routeGraphCounts = [];
-for (const [name, budget] of routeBudgets) {
-  const routePath = files.find((path) => basename(path).includes(`.${name}.`) && path.endsWith(".js"));
+for (const [name, chunkMatch, requestBudget, transferBudget] of routeBudgets) {
+  const routePath = files.find((path) => matchesChunk(basename(path), chunkMatch) && path.endsWith(".js"));
   if (!routePath) throw new Error(`Could not locate the ${name} production chunk.`);
   const routeGraph = await staticImportGraph(routePath);
-  const additionalRequests = [...routeGraph].filter((path) => !initialGraph.has(path)).length;
-  if (additionalRequests > budget) {
+  const additionalGraph = [...routeGraph].filter((path) => !initialGraph.has(path));
+  const additionalRequests = additionalGraph.length;
+  const transferBytes = await encodedTransferSize(additionalGraph);
+  if (additionalRequests > requestBudget) {
     throw new Error(`${name} JavaScript request graph exceeds its budget: ${additionalRequests} files`);
   }
-  routeGraphCounts.push(`${name} ${additionalRequests}`);
+  if (transferBudget && transferBytes > transferBudget) {
+    throw new Error(`${name} JavaScript transfer exceeds its budget: ${transferBytes} bytes`);
+  }
+  routeGraphCounts.push(`${name} ${additionalRequests}/${transferBytes} B`);
 }
 
 for (const path of files) {
@@ -143,7 +148,7 @@ async function assertAcyclicStaticImports(paths) {
     if (state.get(path) === "visited") return;
     if (state.get(path) === "visiting") {
       const cycleStart = stack.indexOf(path);
-      const cycle = [...stack.slice(cycleStart), path].map(basename).join(" -> ");
+      const cycle = [...stack.slice(cycleStart), path].map((cyclePath) => basename(cyclePath)).join(" -> ");
       throw new Error(`Circular static JavaScript dependency emitted in production build: ${cycle}`);
     }
 
@@ -166,6 +171,22 @@ async function staticImports(path) {
     ...content.matchAll(/\bimport\s*["'](\.\/[^"']+\.js)["']/g)
   ].map((match) => match[1]);
   return specifiers.map((specifier) => resolve(dirname(path), specifier));
+}
+
+function matchesChunk(fileName, match) {
+  return typeof match === "string" ? fileName.includes(match) : match.test(fileName);
+}
+
+async function encodedTransferSize(paths) {
+  let bytes = 0;
+  for (const path of paths) {
+    try {
+      bytes += (await stat(`${path}.br`)).size;
+    } catch {
+      bytes += (await stat(path)).size;
+    }
+  }
+  return bytes;
 }
 
 async function listFiles(directory) {
