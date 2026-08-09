@@ -21,12 +21,13 @@ describe("CompletedTradePanel", () => {
       })
     );
 
-    expect(html).toContain("Trade finished!");
-    expect(html).toContain("Fiat received");
+    expect(html).toContain("Trade completed");
+    expect(html).toContain("You sold bitcoin");
     expect(html).toContain("12 USD");
-    expect(html).toContain("Bitcoin sent");
     expect(html).toContain("18,991 sats");
     expect(html).toContain("33 sats");
+    expect(receiptSummary(html)).not.toContain("Fiat received</dt>");
+    expect(receiptSummary(html)).not.toContain("Bitcoin sent</dt>");
   });
 
   it("shows the taker buyer's final amounts", () => {
@@ -46,19 +47,66 @@ describe("CompletedTradePanel", () => {
       })
     );
 
-    expect(html).toContain("Fiat sent");
-    expect(html).toContain("Bitcoin received");
+    expect(html).toContain("You bought bitcoin");
+    expect(html).toContain("for 12 USD");
     expect(html).toContain("18,915 sats");
     expect(html).toContain("5 sats");
+    expect(receiptSummary(html)).not.toContain("Fiat sent</dt>");
+    expect(receiptSummary(html)).not.toContain("Bitcoin received</dt>");
   });
 
-  it("keeps a queued payout in its waiting presentation", () => {
+  it("keeps the seller receipt final while the buyer payout is queued", () => {
     const html = render(completedOrder({ tx_queued: true, txid: undefined }));
 
-    expect(html).toContain("Payout accepted");
-    expect(html).toContain("will keep checking until the transaction is broadcast");
-    expect(html).not.toContain("Rate your trade");
-    expect(html).not.toContain("Trade summary");
+    expect(html).toContain("Trade completed");
+    expect(html).toContain("Start another trade");
+  });
+
+  it("renders dispute resolution without inventing an award amount", () => {
+    const html = render(completedOrder({ status: 18, is_maker: true, is_taker: false }));
+
+    expect(html).toContain("Dispute resolved in your favor");
+    expect(html).toContain("Your robot won");
+    expect(html).toContain("Contract bitcoin");
+    expect(html).not.toContain("awarded");
+  });
+
+  it("explains the bond outcome on a unilateral cancellation", () => {
+    const html = render(
+      completedOrder({
+        status: 4,
+        is_maker: true,
+        is_taker: false,
+        is_buyer: false,
+        is_seller: true,
+        taker_locked: false
+      })
+    );
+
+    expect(html).toContain("This order was cancelled");
+    expect(html).toContain("Your bond was returned without penalty.");
+  });
+
+  it("explains that collaborative cancellation returns both bonds", () => {
+    const html = render(completedOrder({ status: 12 }));
+
+    expect(html).toContain("Both peers&#x27; bonds were returned without penalty.");
+  });
+
+  it("renders unavailable instead of zero when bitcoin cannot be proven", () => {
+    const html = render(
+      completedOrder({
+        satoshis: 0,
+        escrow_satoshis: 0,
+        invoice_amount: 0,
+        trade_satoshis: 0,
+        num_satoshis: 0,
+        sent_satoshis: 0
+      })
+    );
+
+    expect(html).toContain("Unavailable");
+    expect(html).not.toContain("0 sats");
   });
 });
 
@@ -91,6 +139,33 @@ it("shows swap and mining fees for a swap trade buyer", () => {
   expect(html).toContain("300 sats");
 });
 
+it("uses bitcoin-swap language and satoshi units for BTC-denominated contracts", () => {
+  const html = render(
+    completedOrder({
+      amount: 0.001,
+      currency: 1000,
+      is_maker: false,
+      is_taker: true,
+      is_buyer: true,
+      is_seller: false,
+      taker_summary: {
+        is_buyer: true,
+        sent_fiat: 0.001,
+        received_sats: 98_500,
+        trade_fee_sats: 100
+      }
+    })
+  );
+
+  expect(html).toContain("Bitcoin swap completed");
+  expect(html).toContain("Bitcoin received");
+  expect(html).toContain("after sending 100,000 sats");
+  expect(html).toContain("100,000 sats");
+  expect(html).toContain("98,500 sats");
+  expect(html).not.toContain("Contract fiat");
+  expect(html).not.toContain("You bought bitcoin");
+});
+
 it("does not show swap rows for a non-swap trade", () => {
   const html = render(
     completedOrder({
@@ -120,8 +195,14 @@ function render(order: OrderDto): string {
       onPublishRating={vi.fn()}
       onStartAgain={vi.fn()}
       order={order}
+      robotHashId="robot-hash"
+      robotName="CurrentRobot"
     />
   );
+}
+
+function receiptSummary(html: string): string {
+  return html.split('<details class="trade-receipt-breakdown">')[0];
 }
 
 function completedOrder(overrides: Partial<OrderDto>): OrderDto {

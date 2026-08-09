@@ -40,10 +40,20 @@ export type TradePreviewCase = {
 };
 
 export const TRADE_PREVIEW_CASES: readonly TradePreviewCase[] = [
-  { id: "trust-coordinator", label: "Trust coordinator", group: "Publish", description: "Review the coordinator before locking a bond." },
-  { id: "maker-bond", label: "Maker bond", group: "Publish", description: "Maker reviews and locks the publication bond." },
+  {
+    id: "trust-coordinator",
+    label: "Trust coordinator",
+    group: "Publish",
+    description: "Review the coordinator before locking a bond."
+  },
+  {
+    id: "maker-bond",
+    label: "Maker bond",
+    group: "Publish",
+    description: "Maker reviews and locks the publication bond."
+  },
   { id: "public", label: "Public order", group: "Publish", description: "Published offer waiting for a taker." },
-  { id: "paused", label: "Taker found", group: "Publish", description: "Public offer paused while a taker starts." },
+  { id: "paused", label: "Paused order", group: "Publish", description: "Maker-paused offer hidden from new takers." },
   { id: "taker-wait", label: "Awaiting taker bond", group: "Publish", description: "Maker waits for the taker bond." },
   { id: "take", label: "Take order", group: "Publish", description: "Taker reviews and locks the taker bond." },
   { id: "cancelled", label: "Cancelled", group: "Publish", description: "Order cancelled before completion." },
@@ -52,24 +62,89 @@ export const TRADE_PREVIEW_CASES: readonly TradePreviewCase[] = [
   { id: "setup-seller", label: "Seller setup", group: "Setup", description: "Seller prepares trade collateral." },
   { id: "escrow-wait", label: "Waiting for escrow", group: "Setup", description: "Buyer waits for seller collateral." },
   { id: "escrow-lock", label: "Lock escrow", group: "Setup", description: "Seller locks the collateral invoice." },
-  { id: "payout-submit", label: "Submit payout", group: "Setup", description: "Buyer enters the receiving invoice or address." },
-  { id: "payout-wait", label: "Waiting for payout", group: "Setup", description: "Seller waits for buyer payout setup." },
+  {
+    id: "payout-submit",
+    label: "Submit payout",
+    group: "Setup",
+    description: "Buyer enters the receiving invoice or address."
+  },
+  {
+    id: "payout-wait",
+    label: "Waiting for payout",
+    group: "Setup",
+    description: "Seller waits for buyer payout setup."
+  },
   { id: "chat-buyer", label: "Buyer chat", group: "Trade", description: "Buyer chat and fiat-sent controls." },
   { id: "chat-seller", label: "Seller chat", group: "Trade", description: "Seller chat and fiat-received controls." },
-  { id: "collaborative-cancel", label: "Collaborative cancel", group: "Trade", description: "Both peers cancelled the trade." },
+  {
+    id: "collaborative-cancel",
+    label: "Collaborative cancel",
+    group: "Trade",
+    description: "Both peers cancelled the trade."
+  },
   { id: "dispute", label: "Dispute statement", group: "Dispute", description: "Submit evidence and contact details." },
-  { id: "dispute-peer-wait", label: "Waiting for peer", group: "Dispute", description: "Statement submitted; waiting for the peer." },
+  {
+    id: "dispute-peer-wait",
+    label: "Waiting for peer",
+    group: "Dispute",
+    description: "Statement submitted; waiting for the peer."
+  },
   { id: "resolution", label: "Coordinator review", group: "Dispute", description: "Both statements are under review." },
-  { id: "dispute-won-taker", label: "Taker won dispute", group: "Dispute", description: "Taker-side dispute resolution." },
-  { id: "dispute-lost-maker", label: "Maker lost dispute", group: "Dispute", description: "Maker-side loss resolution." },
-  { id: "dispute-won-maker", label: "Maker won dispute", group: "Dispute", description: "Maker-side dispute resolution." },
-  { id: "dispute-lost-taker", label: "Taker lost dispute", group: "Dispute", description: "Taker-side loss resolution." },
+  {
+    id: "dispute-won-taker",
+    label: "Taker won dispute",
+    group: "Dispute",
+    description: "Taker-side dispute resolution."
+  },
+  {
+    id: "dispute-lost-maker",
+    label: "Maker lost dispute",
+    group: "Dispute",
+    description: "Maker-side loss resolution."
+  },
+  {
+    id: "dispute-won-maker",
+    label: "Maker won dispute",
+    group: "Dispute",
+    description: "Maker-side dispute resolution."
+  },
+  {
+    id: "dispute-lost-taker",
+    label: "Taker lost dispute",
+    group: "Dispute",
+    description: "Taker-side loss resolution."
+  },
   { id: "payout", label: "Routing payout", group: "Payout", description: "Coordinator is routing the payout." },
-  { id: "payout-seller", label: "Seller payout wait", group: "Payout", description: "Seller waits for buyer payout completion." },
-  { id: "routing-auto", label: "Automatic retry", group: "Payout", description: "Temporary route failure with automatic retry." },
-  { id: "routing-retry", label: "Replace invoice", group: "Payout", description: "Expired invoice requires a replacement." },
-  { id: "routing-seller", label: "Seller completed", group: "Payout", description: "Seller sees the completed payout state." },
-  { id: "success", label: "Trade complete", group: "Payout", description: "Completed trade, receipt, and rating controls." }
+  {
+    id: "payout-seller",
+    label: "Seller payout wait",
+    group: "Payout",
+    description: "Seller waits for buyer payout completion."
+  },
+  {
+    id: "routing-auto",
+    label: "Automatic retry",
+    group: "Payout",
+    description: "Temporary route failure with automatic retry."
+  },
+  {
+    id: "routing-retry",
+    label: "Replace invoice",
+    group: "Payout",
+    description: "Expired invoice requires a replacement."
+  },
+  {
+    id: "routing-seller",
+    label: "Seller completed",
+    group: "Payout",
+    description: "Seller sees the completed payout state."
+  },
+  {
+    id: "success",
+    label: "Trade complete",
+    group: "Payout",
+    description: "Completed trade, receipt, and rating controls."
+  }
 ];
 
 const expiresAt = new Date(Date.now() + 20 * 60 * 1000).toISOString();
@@ -147,7 +222,14 @@ export function tradePreviewOrder(value: string | null): OrderDto | undefined {
     case "cancelled":
       return { ...baseOrder, status: 4, status_message: "Cancelled order" };
     case "expired":
-      return { ...baseOrder, ...makerSeller, status: 5, expiry_message: "The public order expired before another robot took it.", status_message: "Expired order" };
+      return {
+        ...baseOrder,
+        ...makerSeller,
+        status: 5,
+        expiry_reason: 0,
+        expiry_message: "The public order expired before another robot took it.",
+        status_message: "Expired order"
+      };
     case "setup-buyer":
       return {
         ...baseOrder,
@@ -169,11 +251,30 @@ export function tradePreviewOrder(value: string | null): OrderDto | undefined {
     case "escrow-wait":
       return { ...baseOrder, status: 7, taker_locked: true, status_message: "Waiting for seller collateral" };
     case "escrow-lock":
-      return { ...baseOrder, ...makerSeller, status: 7, taker_locked: true, status_message: "Waiting for trade collateral" };
+      return {
+        ...baseOrder,
+        ...makerSeller,
+        status: 7,
+        taker_locked: true,
+        status_message: "Waiting for trade collateral"
+      };
     case "payout-submit":
-      return { ...baseOrder, status: 8, taker_locked: true, escrow_locked: true, status_message: "Waiting for buyer payout" };
+      return {
+        ...baseOrder,
+        status: 8,
+        taker_locked: true,
+        escrow_locked: true,
+        status_message: "Waiting for buyer payout"
+      };
     case "payout-wait":
-      return { ...baseOrder, ...makerSeller, status: 8, taker_locked: true, escrow_locked: true, status_message: "Waiting for buyer payout" };
+      return {
+        ...baseOrder,
+        ...makerSeller,
+        status: 8,
+        taker_locked: true,
+        escrow_locked: true,
+        status_message: "Waiting for buyer payout"
+      };
     case "chat-buyer":
       return {
         ...baseOrder,
@@ -204,9 +305,22 @@ export function tradePreviewOrder(value: string | null): OrderDto | undefined {
         status_message: "In dispute"
       };
     case "dispute-peer-wait":
-      return { ...baseOrder, status: 11, taker_locked: true, escrow_locked: true, statement_submitted: true, status_message: "Waiting for peer statement" };
+      return {
+        ...baseOrder,
+        status: 11,
+        taker_locked: true,
+        escrow_locked: true,
+        statement_submitted: true,
+        status_message: "Waiting for peer statement"
+      };
     case "collaborative-cancel":
-      return { ...baseOrder, status: 12, taker_locked: true, escrow_locked: true, status_message: "Collaboratively cancelled" };
+      return {
+        ...baseOrder,
+        status: 12,
+        taker_locked: true,
+        escrow_locked: true,
+        status_message: "Collaboratively cancelled"
+      };
     case "resolution":
       return {
         ...baseOrder,
@@ -222,10 +336,20 @@ export function tradePreviewOrder(value: string | null): OrderDto | undefined {
         status: 13,
         taker_locked: true,
         escrow_locked: true,
+        tx_queued: true,
         status_message: "Sending sats"
       };
     case "payout-seller":
-      return { ...baseOrder, ...makerSeller, status: 13, taker_locked: true, escrow_locked: true, num_satoshis: 836120, sent_satoshis: 836120, status_message: "Sending sats" };
+      return {
+        ...baseOrder,
+        ...makerSeller,
+        status: 13,
+        taker_locked: true,
+        escrow_locked: true,
+        num_satoshis: 836120,
+        sent_satoshis: 836120,
+        status_message: "Sending sats"
+      };
     case "success":
       return {
         ...baseOrder,
@@ -254,17 +378,58 @@ export function tradePreviewOrder(value: string | null): OrderDto | undefined {
         status_message: "Successful trade"
       };
     case "routing-auto":
-      return { ...baseOrder, status: 15, taker_locked: true, escrow_locked: true, invoice_expired: false, retries: 2, failure_reason: "Temporary route unavailable", status_message: "Routing retry scheduled" };
+      return {
+        ...baseOrder,
+        status: 15,
+        taker_locked: true,
+        escrow_locked: true,
+        invoice_expired: false,
+        retries: 2,
+        failure_reason: "Temporary route unavailable",
+        status_message: "Routing retry scheduled"
+      };
     case "routing-retry":
-      return { ...baseOrder, status: 15, taker_locked: true, escrow_locked: true, invoice_expired: true, retries: 3, failure_reason: "Invoice expired", status_message: "Replacement invoice required" };
+      return {
+        ...baseOrder,
+        status: 15,
+        taker_locked: true,
+        escrow_locked: true,
+        invoice_expired: true,
+        retries: 3,
+        failure_reason: "Invoice expired",
+        status_message: "Replacement invoice required"
+      };
     case "routing-seller":
-      return { ...baseOrder, ...makerSeller, status: 15, taker_locked: true, escrow_locked: true, num_satoshis: 836120, sent_satoshis: 836120, status_message: "Trade complete" };
+      return {
+        ...baseOrder,
+        ...makerSeller,
+        status: 15,
+        taker_locked: true,
+        escrow_locked: true,
+        num_satoshis: 836120,
+        sent_satoshis: 836120,
+        status_message: "Trade complete"
+      };
     case "dispute-won-taker":
       return { ...baseOrder, status: 17, taker_locked: true, escrow_locked: true, status_message: "Dispute won" };
     case "dispute-lost-maker":
-      return { ...baseOrder, ...makerSeller, status: 17, taker_locked: true, escrow_locked: true, status_message: "Dispute lost" };
+      return {
+        ...baseOrder,
+        ...makerSeller,
+        status: 17,
+        taker_locked: true,
+        escrow_locked: true,
+        status_message: "Dispute lost"
+      };
     case "dispute-won-maker":
-      return { ...baseOrder, ...makerSeller, status: 18, taker_locked: true, escrow_locked: true, status_message: "Dispute won" };
+      return {
+        ...baseOrder,
+        ...makerSeller,
+        status: 18,
+        taker_locked: true,
+        escrow_locked: true,
+        status_message: "Dispute won"
+      };
     case "dispute-lost-taker":
       return { ...baseOrder, status: 18, taker_locked: true, escrow_locked: true, status_message: "Dispute lost" };
     default:

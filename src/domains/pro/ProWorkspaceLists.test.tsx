@@ -180,8 +180,10 @@ describe("Pro workspace lists", () => {
     const title = document.querySelector<HTMLElement>("#pro-history-detail-title");
     expect(title?.hasAttribute("data-dialog-initial-focus")).toBe(true);
     expect(document.activeElement).toBe(title);
-    expect(document.body.textContent).toContain("Bitcoin sent18,991 sats");
+    expect(document.body.textContent).toContain("You sold bitcoin18,991 sats");
+    expect(document.body.textContent).toContain("Contract bitcoin18,991 sats");
     expect(document.body.textContent).toContain("Escrow paid through this invoice");
+    expect(document.body.textContent).toContain("Download overview");
     expect(document.body.textContent).not.toContain("Bitcoin sold18,991 sats");
   });
 
@@ -222,8 +224,32 @@ describe("Pro workspace lists", () => {
     if (!row) throw new Error("Missing zero-amount history row");
     await act(async () => row.click());
 
-    expect(document.body.textContent).toContain("Bitcoin sentNot recorded");
-    expect(document.body.textContent).not.toContain("Bitcoin sent0 sats");
+    expect(document.body.textContent).toContain("You sold bitcoinNot recorded");
+    expect(document.body.textContent).toContain("Contract bitcoinNot recorded");
+    expect(document.body.textContent).not.toContain("Contract bitcoin0 sats");
+  });
+
+  it("presents a BTC-denominated history entry as a bitcoin swap", async () => {
+    root = createRoot(document.querySelector("#root")!);
+    await act(async () => {
+      root?.render(
+        <HistoryList
+          coordinators={[]}
+          entries={[{ ...sellerHistoryEntry, amount: 0.001, currency: 1000, role: "buyer" }]}
+        />
+      );
+    });
+
+    const row = document.querySelector<HTMLButtonElement>('[aria-label="Open finished order 92045 for Seller"]');
+    if (!row) throw new Error("Missing swap history row");
+    expect(row.textContent).toContain("Bitcoin swap");
+    expect(row.textContent).toContain("100,000 sats");
+    await act(async () => row.click());
+
+    expect(document.body.textContent).toContain("Bitcoin swap completed");
+    expect(document.body.textContent).toContain("Bitcoin received18,991 sats");
+    expect(document.body.textContent).toContain("Contract amount100,000 sats");
+    expect(document.body.textContent).not.toContain("Contract fiat");
   });
 });
 

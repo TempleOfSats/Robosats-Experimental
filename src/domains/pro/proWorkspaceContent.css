@@ -341,32 +341,27 @@
 }
 
 .pro-history-detail {
+  position: relative;
   width: min(calc(100vw - 2rem), 36rem);
 }
 
-.pro-history-detail-identity {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 0.75rem;
-  border-bottom: 1px solid var(--border-subtle);
-  padding-bottom: 1rem;
+.pro-history-receipt-dialog {
+  padding: 0;
 }
 
-.pro-history-detail-identity > span {
-  min-width: 0;
-  display: grid;
+.pro-history-receipt-dialog .trade-receipt {
+  border: 0;
 }
 
-.pro-history-detail-identity > .ui-badge {
-  white-space: nowrap;
+.pro-history-detail-close {
+  position: absolute;
+  z-index: 1;
+  top: 0.85rem;
+  right: 0.85rem;
 }
 
-.pro-history-detail-identity small,
-.pro-history-retention-note {
-  color: var(--text-supporting);
-  font-size: var(--type-caption-size);
-  line-height: var(--type-caption-line);
+.pro-history-receipt-dialog .trade-receipt-header {
+  padding-right: 4.25rem;
 }
 
 .pro-history-detail-list {
@@ -396,6 +391,7 @@
 .pro-history-invoice {
   display: grid;
   gap: 0.75rem;
+  margin-top: 0.875rem;
   padding: 0.875rem;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
@@ -426,10 +422,6 @@
 
 .pro-history-invoice .ui-button {
   justify-self: start;
-}
-
-.pro-history-retention-note {
-  margin: 0;
 }
 
 .pro-robot-list {

@@ -262,10 +262,6 @@
   }
 }
 
-:root[data-theme="light"] .trade-order-eyebrow {
-  color: var(--brand-amber-ink);
-}
-
 :root[data-theme="light"] .app-sidebar,
 :root[data-theme="light"] .app-header {
   background: var(--layer-navigation);
@@ -1767,22 +1763,6 @@
 
   .chat-bubble {
     max-width: 84%;
-  }
-
-  .trade-completion-hero {
-    padding: 1.6rem 1rem 1.35rem;
-  }
-
-  .trade-completion-summary > div {
-    padding: 0.8rem 0.45rem;
-  }
-
-  .trade-completion-summary dt {
-    font-size: 0.75rem;
-  }
-
-  .trade-completion-summary dd {
-    font-size: 0.76rem;
   }
 
   .trade-completion-rating {

@@ -34,15 +34,11 @@ export function PaymentQrCard({
   onCopy = writeClipboard
 }: PaymentQrCardProps) {
   const paymentUri = openWalletHref ?? value;
-  const paymentReady = Boolean(value.trim())
-    && typeof amountSats === "number"
-    && Number.isFinite(amountSats)
-    && amountSats > 0;
-  const paymentExpiresAt = useMemo(
-    () => resolvePaymentExpiry(concept, value, expiresAt),
-    [concept, expiresAt, value]
-  );
-  const hasWebLn = !previewMode && typeof window !== "undefined" && Boolean((window as Window & { webln?: WebLnProvider }).webln);
+  const paymentReady =
+    Boolean(value.trim()) && typeof amountSats === "number" && Number.isFinite(amountSats) && amountSats > 0;
+  const paymentExpiresAt = useMemo(() => resolvePaymentExpiry(concept, value, expiresAt), [concept, expiresAt, value]);
+  const hasWebLn =
+    !previewMode && typeof window !== "undefined" && Boolean((window as Window & { webln?: WebLnProvider }).webln);
   const [qrTheme, setQrTheme] = useState(() => readUiPreferences().qrTheme);
   const [webLnState, setWebLnState] = useState<"idle" | "paying" | "success" | "error">("idle");
 
@@ -74,10 +70,23 @@ export function PaymentQrCard({
                 aria-label={openWalletHref ? `Open ${title} in wallet` : `${title} QR code`}
                 disabled={!openWalletHref}
                 onClick={() => openWalletHref && !previewMode && window.open(openWalletHref)}
-                title={openWalletHref ? previewMode ? "Wallet launch disabled in fixture mode" : "Open in Lightning wallet" : undefined}
+                title={
+                  openWalletHref
+                    ? previewMode
+                      ? "Wallet launch disabled in fixture mode"
+                      : "Open in Lightning wallet"
+                    : undefined
+                }
                 type="button"
               >
-                <QRCodeSVG value={paymentUri} size={304} level="Q" includeMargin bgColor={qrTheme === "screen" ? "#101010" : "#ffffff"} fgColor={qrTheme === "screen" ? "#f5f5f2" : "#000000"} />
+                <QRCodeSVG
+                  value={paymentUri}
+                  size={304}
+                  level="Q"
+                  includeMargin
+                  bgColor={qrTheme === "screen" ? "#101010" : "#ffffff"}
+                  fgColor={qrTheme === "screen" ? "#f5f5f2" : "#000000"}
+                />
                 <span className="payment-qr-logo" aria-hidden="true">
                   <img src="/static/assets/vector/R-notext.svg" alt="" />
                 </span>
@@ -87,6 +96,7 @@ export function PaymentQrCard({
                   <span>Amount to lock</span>
                   <strong className="payment-amount tabular amount-mono">{formatSats(amountSats)}</strong>
                 </div>
+                {paymentStepCopy(concept) ? <p className="payment-step-copy">{paymentStepCopy(concept)}</p> : null}
                 {paymentExpiresAt ? (
                   <div className="payment-expiry">
                     <Clock3 size={16} />
@@ -109,15 +119,7 @@ export function PaymentQrCard({
                     </Button>
                   ) : null}
                 </div>
-                {webLnState === "success" ? (
-                  <p className="payment-action-status payment-action-status-success" role="status">
-                    Payment completed in your WebLN wallet.
-                  </p>
-                ) : webLnState === "error" ? (
-                  <p className="payment-action-status payment-action-status-error" role="alert">
-                    Your WebLN wallet could not complete the payment. Check it and try again.
-                  </p>
-                ) : null}
+                <PaymentActionStatus state={webLnState} />
               </div>
             </>
           ) : (
@@ -134,6 +136,37 @@ export function PaymentQrCard({
       </CardContent>
     </Card>
   );
+}
+
+function PaymentActionStatus({ state }: { state: "idle" | "paying" | "success" | "error" }) {
+  if (state === "success") {
+    return (
+      <p className="payment-action-status payment-action-status-success" role="status">
+        Payment completed in your WebLN wallet.
+      </p>
+    );
+  }
+  if (state === "error") {
+    return (
+      <p className="payment-action-status payment-action-status-error" role="alert">
+        Your WebLN wallet could not complete the payment. Check it and try again.
+      </p>
+    );
+  }
+  return null;
+}
+
+function paymentStepCopy(concept: PaymentConcept): string | undefined {
+  switch (concept) {
+    case "maker_bond":
+      return "This bond publishes your offer and is returned if it expires untaken.";
+    case "taker_bond":
+      return "This bond confirms your commitment to take the trade.";
+    case "escrow":
+      return "This hold locks the bitcoin until you confirm the fiat arrived.";
+    default:
+      return undefined;
+  }
 }
 
 interface WebLnProvider {

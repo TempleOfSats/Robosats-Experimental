@@ -4,8 +4,8 @@ export function tradeStatusLabel(order: Pick<OrderDto, "status" | "status_messag
   const labels: Record<number, string> = {
     0: "Publishing",
     1: "Waiting for taker",
-    2: "Taker found",
-    3: "Awaiting bond",
+    2: "Paused",
+    3: "Taker found",
     4: "Cancelled",
     5: "Expired",
     6: "Setup in progress",

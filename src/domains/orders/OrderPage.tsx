@@ -12,12 +12,10 @@ import {
   ShieldAlert,
   AlertTriangle,
   Trophy,
-  XCircle,
   Zap
 } from "lucide-react";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
 import type { CoordinatorContact, CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
-import { currencyCodeFromId } from "@/domains/orderbook/currencies";
 import {
   getRobotAuthForCoordinator,
   selectCurrentSlot,
@@ -35,7 +33,11 @@ import {
   shouldLeaveTradeAfterAction,
   type TradeActionCommand
 } from "@/domains/orders/orderActions";
-import { disputeOutcomeForCurrentRobot, getTradeViewState } from "@/domains/orders/orderStateMachine";
+import {
+  disputeOutcomeForCurrentRobot,
+  expiredBondOutcome,
+  getTradeViewState
+} from "@/domains/orders/orderStateMachine";
 import {
   orderLoadIdentityMatches,
   orderForLocator,
@@ -50,11 +52,10 @@ import {
   type OrderLoadRecoveryPhase
 } from "@/domains/orders/orderLoadRecovery";
 import { tradePreviewOrder } from "@/domains/orders/tradePreviewFixtures";
-import { orderReferenceSats } from "@/domains/orders/orderModel";
+import { shouldShowFinishedReceipt } from "@/domains/orders/tradeConfidence";
 import type { OrderDto, SubmitOrderActionPayload } from "@/domains/orders/order.types";
 import { buildProvisionalMakerOrder, buildRenewOrderPayload, createOrder } from "@/domains/maker/makerApi";
 import { ingestCoordinatorOrder, recordCoordinatorSettlement } from "@/domains/orders/orderActivity";
-import { tradeStatusLabel } from "@/domains/orders/orderStatus";
 import type { Auth } from "@/domains/transport/apiClient";
 import { tradeMotionClass } from "@/domains/motion/tradeMotion";
 import { PaymentQrCard } from "@/domains/payments/PaymentQrCard";
@@ -67,7 +68,7 @@ import { availableLnProxyServers, wrapLnProxyInvoice } from "@/domains/payments/
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { formatFiat, formatSats } from "@/lib/format";
+import { formatSats } from "@/lib/format";
 import { deriveRobotIdentity } from "@/domains/identity/robotIdentity";
 import { writeClipboard } from "@/lib/clipboard";
 import { requestReviewToken } from "@/domains/reviews/reviewApi";
@@ -81,7 +82,7 @@ import { useTorConnection } from "@/domains/transport/torConnection";
 import { registerVisibleTrade } from "@/domains/notifications/orderFeedbackVisibility";
 import { AppTransitionDialog } from "@/domains/navigation/AppTransitionFeedback";
 import { ColdOrderLoadState } from "@/domains/orders/OrderLoadState";
-import { OrderDetailsPanel, OrderEyebrow, shouldOpenOrderDetailsByDefault } from "@/domains/orders/OrderDetailsPanel";
+import { OrderDetailsPanel, shouldOpenOrderDetailsByDefault } from "@/domains/orders/OrderDetailsPanel";
 import { TradeProgress } from "@/domains/orders/TradeProgress";
 import { CompletedTradePanel } from "@/domains/orders/CompletedTradePanel";
 
@@ -89,6 +90,7 @@ const LazyRewardWithdrawalDialog = lazy(() =>
   import("@/domains/rewards/RewardWithdrawalDialog").then((module) => ({ default: module.RewardWithdrawalDialog }))
 );
 const TRADE_LAB_ENABLED = import.meta.env.DEV || import.meta.env.VITE_ENABLE_TRADE_LAB === "true";
+const MAX_DISPUTE_STATEMENT_LENGTH = 500_000;
 
 export function OrderPage({
   embeddedLocator,
@@ -308,33 +310,13 @@ export function OrderPage({
   const currentRobotHashId =
     currentSlot?.hashId || (order.is_maker ? order.maker_hash_id : order.is_taker ? order.taker_hash_id : "");
   const isPayoutRoutingState = view.panel === "sending_sats" || view.panel === "routing_failed";
-  const isQuietPaymentState =
-    view.panel === "sending_sats" || view.panel === "routing_failed" || view.panel === "success";
+  const isFinishedReceipt = shouldShowFinishedReceipt(order, view);
 
   return (
     <main
       className={`page page-trade${embeddedLocator ? " page-trade-embedded" : ""}${isPayoutRoutingState ? " page-trade-routing" : ""}`}
     >
-      {!isQuietPaymentState ? (
-        <div className="page-heading">
-          <div>
-            <OrderEyebrow order={order} />
-            <h2>{view.title}</h2>
-          </div>
-          {view.tone === "danger" ? (
-            <Badge tone="danger">
-              <XCircle size={12} />
-              {tradeStatusLabel(order)}
-            </Badge>
-          ) : null}
-        </div>
-      ) : (
-        <div className="trade-quiet-order-heading">
-          <OrderEyebrow order={order} />
-        </div>
-      )}
-
-      <TradeProgress order={order} />
+      {!isFinishedReceipt ? <TradeProgress order={order} /> : null}
 
       {visibleError ? (
         <div className="status-panel status-panel-warning order-error-panel">
@@ -447,18 +429,22 @@ export function OrderPage({
             onSubmitCommand={async (action) => {
               if (previewOrder) {
                 setPreviewNotice(`${action.label} simulated locally. No request was sent.`);
-                return;
+                return undefined;
               }
-              if (!coordinator || !currentSlot || !action.payload) return;
+              if (!coordinator || !currentSlot || !action.payload) {
+                return "Load this live order with its robot before submitting the action.";
+              }
               await submitAction({ coordinator, orderId: order.id, slot: currentSlot, payload: action.payload });
               const updated = useOrderStore.getState();
-              if (!updated.actionError && shouldLeaveTradeAfterAction(action, updated.order)) {
+              if (updated.actionError) return updated.actionError;
+              if (shouldLeaveTradeAfterAction(action, updated.order)) {
                 if (onEmbeddedClose) {
                   if (shouldDismissEmbeddedTrade(updated.order)) onEmbeddedClose();
                 } else {
                   navigate("/offers", { replace: true });
                 }
               }
+              return undefined;
             }}
             onSubmitPayout={async (payload, clearInvoice) => {
               if (previewOrder) {
@@ -486,7 +472,7 @@ export function OrderPage({
           />
         </div>
 
-        {!isQuietPaymentState ? (
+        {!isPayoutRoutingState && !isFinishedReceipt ? (
           <div className="trade-panel-slot">
             <OrderDetailsPanel
               coordinator={coordinator}
@@ -706,7 +692,7 @@ function ContractPanel({
   onRenew: (password?: string) => Promise<void>;
   onStartAgain: () => void;
   onSubmitAction: (payload: SubmitOrderActionPayload) => Promise<void>;
-  onSubmitCommand: (action: TradeActionCommand) => Promise<void>;
+  onSubmitCommand: (action: TradeActionCommand) => Promise<string | undefined>;
   onSubmitPayout: (payload: SubmitOrderActionPayload, clearInvoice?: string) => Promise<void>;
 }) {
   const isInvoicePaymentStep = view.requiredAction === "pay_bond" || view.requiredAction === "pay_escrow";
@@ -714,7 +700,7 @@ function ContractPanel({
   const isDisputeStep = view.panel === "dispute_statement";
   const isPayoutStep = view.requiredAction === "submit_payout" || view.requiredAction === "retry_invoice";
   const isRenewalStep = view.requiredAction === "renew";
-  const isSuccessStep = view.panel === "success";
+  const isFinishedStep = shouldShowFinishedReceipt(order, view);
   const isRoutingStep = view.panel === "sending_sats" || view.panel === "routing_failed";
   const isPublicMakerWait = view.panel === "public_order" && order.is_maker;
 
@@ -736,7 +722,7 @@ function ContractPanel({
         !isDisputeStep &&
         !isPayoutStep &&
         !isRenewalStep &&
-        !isSuccessStep &&
+        !isFinishedStep &&
         !isRoutingStep ? (
         <Card className="trade-contract-card">
           <CardHeader className="trade-contract-title-row">
@@ -761,6 +747,11 @@ function ContractPanel({
               <ShieldAlert size={22} />
               <p>{view.message.body}</p>
             </div>
+            {view.panel === "escrow_wait" ? (
+              <TradeStageDeadline expiresAt={order.expires_at} label="Seller collateral" />
+            ) : view.panel === "payout_wait" ? (
+              <TradeStageDeadline expiresAt={order.expires_at} label="Buyer payout information" />
+            ) : null}
             {rewardClaim}
             <TradeActionSurface actions={actions} canSubmit={canSubmit} loading={loading} onSubmit={onSubmitCommand} />
           </CardContent>
@@ -795,6 +786,7 @@ function ContractPanel({
         order={order}
         previewMode={previewMode}
         previewTrustPrompt={previewTrustPrompt}
+        rewardClaim={rewardClaim}
         signingRobot={signingRobot}
         slotToken={slotToken}
         onRenew={onRenew}
@@ -832,7 +824,7 @@ function ChatTradeActions({
   canSubmit: boolean;
   loading: boolean;
   order: OrderDto;
-  onSubmit: (action: TradeActionCommand) => Promise<void>;
+  onSubmit: (action: TradeActionCommand) => Promise<string | undefined>;
 }) {
   const primaryActions = actions.filter((action) => action.placement === "primary");
   const optionActions = actions.filter((action) => action.placement === "options");
@@ -863,7 +855,7 @@ function ChatTradeActions({
   );
 }
 
-function TradeActionSurface({
+export function TradeActionSurface({
   actions,
   canSubmit,
   loading,
@@ -872,42 +864,66 @@ function TradeActionSurface({
   actions: TradeActionCommand[];
   canSubmit: boolean;
   loading: boolean;
-  onSubmit: (action: TradeActionCommand) => Promise<void>;
+  onSubmit: (action: TradeActionCommand) => Promise<string | undefined>;
 }) {
   const [pendingAction, setPendingAction] = useState<TradeActionCommand | null>(null);
   const [activeActionKey, setActiveActionKey] = useState<string | null>(null);
+  const [confirmationError, setConfirmationError] = useState("");
+  const [staleActionNotice, setStaleActionNotice] = useState("");
   const orderedActions = [...actions].sort((left, right) => left.displayOrder - right.displayOrder);
+  const confirming = Boolean(pendingAction && activeActionKey === pendingAction.key);
+
+  useEffect(() => {
+    if (pendingAction && !actions.some((action) => action.key === pendingAction.key)) {
+      setStaleActionNotice(`The order changed, so ${pendingAction.label.toLowerCase()} is no longer available.`);
+      setPendingAction(null);
+      setConfirmationError("");
+    }
+  }, [actions, pendingAction]);
 
   if (actions.length === 0) {
-    return null;
+    return staleActionNotice ? (
+      <p className="trade-action-stale-notice" role="status">
+        {staleActionNotice}
+      </p>
+    ) : null;
   }
 
   const submitCommand = async (action: TradeActionCommand) => {
     setActiveActionKey(action.key);
     try {
-      await onSubmit(action);
+      return await onSubmit(action);
     } finally {
       setActiveActionKey(null);
     }
   };
 
   const handleActionClick = (action: TradeActionCommand) => {
-    if (action.requiresConfirmation && action.payload) {
+    setStaleActionNotice("");
+    if (action.confirmation && action.payload) {
+      setConfirmationError("");
       setPendingAction(action);
     } else {
       void submitCommand(action);
     }
   };
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     if (pendingAction) {
-      void submitCommand(pendingAction);
+      setConfirmationError("");
+      const error = await submitCommand(pendingAction);
+      if (error) {
+        setConfirmationError(error);
+        return;
+      }
       setPendingAction(null);
     }
   };
 
   const handleCancel = () => {
+    if (confirming) return;
     setPendingAction(null);
+    setConfirmationError("");
   };
 
   return (
@@ -916,7 +932,7 @@ function TradeActionSurface({
         {orderedActions.map((action) => {
           const disabledReason =
             action.disabledReason ?? (!canSubmit ? "Load a live order with an active robot first" : undefined);
-          const isCritical = action.requiresConfirmation;
+          const isCritical = Boolean(action.confirmation);
           const isActive = activeActionKey === action.key;
           return (
             <div className={`trade-action-command trade-action-command-${action.key}`} key={action.key}>
@@ -937,37 +953,73 @@ function TradeActionSurface({
         })}
       </div>
 
-      {/* Review and confirm dialog for critical actions */}
-      {pendingAction && (
-        <Dialog
-          ariaLabel="Confirm action"
-          onClose={handleCancel}
-          overlayClassName="confirm-overlay"
-          panelClassName="confirm-sheet"
-        >
-          <div className="confirm-header">
-            <div className="confirm-icon-shell">
-              <AlertTriangle size={24} />
-            </div>
-            <h3>{pendingAction.label}?</h3>
-          </div>
-          <p className="confirm-body">{pendingAction.description}</p>
-          <div className="confirm-actions">
-            <Button variant="secondary" onClick={handleCancel} type="button">
-              Cancel
-            </Button>
-            <Button
-              variant={pendingAction.variant === "destructive" ? "destructive" : "primary"}
-              onClick={handleConfirm}
-              type="button"
-            >
-              <Check size={16} />
-              Confirm
-            </Button>
-          </div>
-        </Dialog>
-      )}
+      {pendingAction ? (
+        <TradeActionPreview
+          action={pendingAction}
+          confirming={confirming}
+          error={confirmationError}
+          onCancel={handleCancel}
+          onConfirm={handleConfirm}
+        />
+      ) : null}
     </>
+  );
+}
+
+function TradeActionPreview({
+  action,
+  confirming,
+  error,
+  onCancel,
+  onConfirm
+}: {
+  action: TradeActionCommand;
+  confirming: boolean;
+  error: string;
+  onCancel: () => void;
+  onConfirm: () => Promise<void>;
+}) {
+  const titleId = `trade-action-preview-title-${action.key}`;
+  const instructionId = `trade-action-preview-instruction-${action.key}`;
+  const primaryLabel = action.confirmation?.primaryLabel ?? action.label;
+
+  return (
+    <Dialog
+      ariaDescribedby={instructionId}
+      ariaLabelledby={titleId}
+      closeOnEscape={!confirming}
+      onClose={onCancel}
+      overlayClassName="confirm-overlay trade-action-preview-overlay"
+      panelClassName={`confirm-sheet trade-action-preview trade-action-preview-${action.confirmation?.tone ?? "attention"}`}
+    >
+      <div className="confirm-header">
+        <span className="trade-action-preview-label">Review action</span>
+        <h3 id={titleId}>{action.confirmation?.title ?? action.label}</h3>
+      </div>
+      <p className="confirm-body" id={instructionId}>
+        {action.confirmation?.instruction ?? action.description}
+      </p>
+      <p className="trade-action-preview-consequence">{action.confirmation?.consequence}</p>
+      {error ? (
+        <p className="field-error trade-action-preview-error" role="alert">
+          {error}
+        </p>
+      ) : null}
+      <div className="confirm-actions">
+        <Button data-dialog-initial-focus disabled={confirming} variant="outline" onClick={onCancel} type="button">
+          Go back
+        </Button>
+        <Button
+          loading={confirming}
+          loadingLabel={action.confirmation?.submittingLabel}
+          variant={action.confirmation?.tone === "danger" ? "destructive" : "primary"}
+          onClick={() => void onConfirm()}
+          type="button"
+        >
+          {error ? `Try again: ${primaryLabel}` : primaryLabel}
+        </Button>
+      </div>
+    </Dialog>
   );
 }
 
@@ -982,6 +1034,7 @@ function TradePaymentPanel({
   order,
   previewMode,
   previewTrustPrompt,
+  rewardClaim,
   footer,
   signingRobot,
   slotToken,
@@ -1001,6 +1054,7 @@ function TradePaymentPanel({
   order: OrderDto;
   previewMode: boolean;
   previewTrustPrompt: boolean;
+  rewardClaim: ReactNode;
   footer?: ReactNode;
   signingRobot?: RobotRecord;
   slotToken?: string;
@@ -1015,6 +1069,22 @@ function TradePaymentPanel({
   const [coordinatorAcknowledged, setCoordinatorAcknowledged] = useState(() =>
     previewTrustPrompt ? false : !coordinatorUrl || localStorage.getItem(trustKey) === "true"
   );
+
+  if (shouldShowFinishedReceipt(order, view)) {
+    return (
+      <CompletedTradePanel
+        canSubmit={canSubmit}
+        coordinatorName={coordinatorName}
+        loading={loading}
+        onPublishRating={onPublishRating}
+        onStartAgain={onStartAgain}
+        order={order}
+        rewardClaim={rewardClaim}
+        robotHashId={currentOrderRobotHashId(order)}
+        robotName={myNick}
+      />
+    );
+  }
 
   if (
     [
@@ -1055,19 +1125,6 @@ function TradePaymentPanel({
         shortAlias={order.shortAlias}
         slotToken={slotToken}
         previewMode={previewMode}
-      />
-    );
-  }
-
-  if (view.panel === "success") {
-    return (
-      <CompletedTradePanel
-        canSubmit={canSubmit}
-        coordinatorName={coordinatorName}
-        loading={loading}
-        onPublishRating={onPublishRating}
-        onStartAgain={onStartAgain}
-        order={order}
       />
     );
   }
@@ -1199,6 +1256,12 @@ function TradePaymentPanel({
   );
 }
 
+function currentOrderRobotHashId(order: OrderDto): string {
+  if (order.is_maker) return order.maker_hash_id;
+  if (order.is_taker) return order.taker_hash_id;
+  return "";
+}
+
 function TradeStatusCard({
   badge,
   body,
@@ -1244,6 +1307,39 @@ function TradeStatusCard({
   );
 }
 
+function TradeStageDeadline({ expiresAt, label }: { expiresAt?: string; label: string }) {
+  const deadline = expiresAt ? new Date(expiresAt).getTime() : Number.NaN;
+  const [remainingMs, setRemainingMs] = useState(() => Math.max(0, deadline - Date.now()));
+
+  useEffect(() => {
+    const update = () => setRemainingMs(Math.max(0, deadline - Date.now()));
+    update();
+    if (!Number.isFinite(deadline) || deadline <= Date.now()) return;
+    const timer = window.setInterval(update, 1_000);
+    return () => window.clearInterval(timer);
+  }, [deadline]);
+
+  if (!Number.isFinite(deadline)) return null;
+  return (
+    <div className="trade-stage-deadline" title={new Date(deadline).toLocaleString()}>
+      <Clock size={15} aria-hidden="true" />
+      <span>
+        <small>{label}</small>
+        <strong>Expires in {formatTradeCountdown(remainingMs)}</strong>
+      </span>
+    </div>
+  );
+}
+
+function formatTradeCountdown(remainingMs: number): string {
+  if (remainingMs <= 0) return "Expired";
+  const totalSeconds = Math.floor(remainingMs / 1_000);
+  const hours = Math.floor(totalSeconds / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+  return [hours, minutes, seconds].map((part) => String(part).padStart(2, "0")).join(":");
+}
+
 function ExpiredOrderRenewalCard({
   order,
   onRenew
@@ -1256,6 +1352,7 @@ function ExpiredOrderRenewalCard({
   const [renewError, setRenewError] = useState("");
   const passwordRequired = Boolean(order.has_password);
   const passwordErrorId = `renew-order-${order.id}-error`;
+  const bondOutcome = expiredBondOutcome(order);
 
   async function renew() {
     if (passwordRequired && !password.trim()) {
@@ -1284,6 +1381,11 @@ function ExpiredOrderRenewalCard({
           <Clock size={22} />
           <p>{order.expiry_message || "The public offer expired before another robot took it."}</p>
         </div>
+        {bondOutcome ? (
+          <p className="trade-expiry-bond-outcome" role="status">
+            {bondOutcome}
+          </p>
+        ) : null}
         {passwordRequired ? (
           <label className="field-block">
             <span>Order password</span>
@@ -1431,9 +1533,6 @@ function PayoutSubmissionCard({
   const onchainBreakdown = onchainPayoutBreakdown(order.invoice_amount, order.swap_fee_rate, parsedMiningFeeRate);
   const invalidMiningFee =
     !Number.isFinite(parsedMiningFeeRate) || parsedMiningFeeRate < 2 || parsedMiningFeeRate > 500;
-  const currencyCode = currencyCodeFromId(order.currency) ?? String(order.currency);
-  const amountBeingPaid =
-    order.currency === 1000 ? formatSats(orderReferenceSats(order)) : formatFiat(order.amount, currencyCode);
 
   return (
     <Card className="payout-entry-card">
@@ -1443,7 +1542,7 @@ function PayoutSubmissionCard({
           {retryInvoice ? (
             "Submit a new Lightning invoice to retry your payout."
           ) : (
-            <>Before you send {amountBeingPaid}, make sure you can receive the bitcoin.</>
+            <>Provide a receiving destination for the bitcoin payout.</>
           )}
         </p>
       </CardHeader>
@@ -1774,9 +1873,9 @@ function DisputeStatementCard({
         const messages = await loadDisputeMessages();
         submittedStatement = JSON.stringify({ statement: submittedStatement, messages }, null, 2);
       }
-      if (submittedStatement.length > 50_000) {
+      if (submittedStatement.length > MAX_DISPUTE_STATEMENT_LENGTH) {
         setLocalError(
-          "The statement and attached logs exceed 50,000 characters. Shorten the statement or submit without chat logs."
+          "The statement and attached logs exceed 500,000 characters. Shorten the statement or submit without chat logs."
         );
         return;
       }
@@ -1867,6 +1966,10 @@ function DisputeStatementCard({
                 Build a complete case and provide a reachable burner contact. The coordinator cannot otherwise read your
                 private trade chat.
               </p>
+              <p className="muted-copy">
+                Each peer has 24 hours from dispute opening to submit a statement. After that, the coordinator manually
+                reviews the evidence; disputes are usually resolved within a few days.
+              </p>
             </div>
           </div>
           <label className="field-block">
@@ -1875,6 +1978,7 @@ function DisputeStatementCard({
               aria-describedby={error ? "dispute-statement-error" : undefined}
               aria-invalid={Boolean(error)}
               value={statement}
+              maxLength={MAX_DISPUTE_STATEMENT_LENGTH}
               onChange={(event) => setStatement(event.target.value)}
               placeholder="I sent fiat at HH:MM using the agreed method. The seller has not confirmed..."
               rows={7}
