@@ -2207,8 +2207,6 @@ function PayoutRoutingCard({
         <div className="payout-route-scene" aria-label={status} role="status">
           <div className="payout-bolt-stage" aria-hidden="true">
             <svg viewBox="0 0 168 184">
-              <path className="payout-route-path" d="M84 40 C84 76 57 111 84 157" />
-              <circle className="payout-route-target" cx="84" cy="160" r="12" />
               {payoutBoltLanes.map(({ delay, lane }) => (
                 <path className={`payout-bolt-glow ${delay} ${lane}`} d={boltPath} key={`glow-${lane}`} />
               ))}

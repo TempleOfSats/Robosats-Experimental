@@ -1951,15 +1951,7 @@
 
   .orderbook-table-card .offer-mobile-sort {
     grid-template-columns: minmax(0, 1fr);
-    gap: 0.4rem;
     margin: 0.7rem 0 0.6rem;
-  }
-
-  .offer-mobile-sort-heading {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    color: var(--foreground);
   }
 
   .offer-mobile-sort-options {

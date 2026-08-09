@@ -88,11 +88,7 @@ export function PaymentQrCard({
     <Card className={`payment-card payment-card-${concept}`} aria-label={title}>
       <CardContent>
         <header className="payment-card-heading">
-          <span>
-            <small>Lightning payment</small>
-            <strong>{title}</strong>
-          </span>
-          <span className="payment-once">Pay once</span>
+          <strong>{title}</strong>
         </header>
         <div className="payment-card-body">
           {paymentReady ? (

@@ -7,75 +7,12 @@
   gap: 0.75rem;
 }
 
-.orderbook-heading-copy {
-  min-width: 0;
-  display: grid;
-  gap: 0.12rem;
-}
-
-.orderbook-title-line,
 .orderbook-heading-actions {
   min-width: 0;
   display: flex;
   align-items: center;
-}
-
-.orderbook-title-line {
-  gap: 0.55rem;
-}
-
-.orderbook-heading-actions {
   flex-wrap: wrap;
   gap: 0.15rem;
-}
-
-.orderbook-live-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  color: var(--success-foreground);
-  border: 1px solid color-mix(in srgb, var(--success) 36%, var(--border-subtle));
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--success-surface) 72%, transparent);
-  padding: 0.14rem 0.48rem;
-  font-size: var(--type-caption-size);
-  font-weight: var(--weight-semibold);
-  line-height: var(--type-caption-line);
-}
-
-.orderbook-live-pill-confirmed {
-  color: var(--warning-foreground);
-  border-color: color-mix(in srgb, var(--warning) 36%, var(--border-subtle));
-  background: color-mix(in srgb, var(--warning-surface) 72%, transparent);
-}
-
-.orderbook-live-dot {
-  width: 0.4rem;
-  height: 0.4rem;
-  flex: 0 0 auto;
-  border-radius: 999px;
-  background: currentColor;
-  box-shadow: 0 0 0 0.2rem color-mix(in srgb, currentColor 12%, transparent);
-}
-
-.orderbook-update-context {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  margin: 0;
-  overflow: hidden;
-  color: var(--text-supporting);
-  font-size: var(--type-caption-size);
-  font-weight: var(--weight-medium);
-  line-height: var(--type-caption-line);
-  white-space: nowrap;
-}
-
-.orderbook-update-context > span:first-child,
-.orderbook-update-context time {
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .orderbook-guided-trade-link {
@@ -803,20 +740,8 @@
     gap: 0.45rem;
   }
 
-  .orderbook-heading-copy {
-    gap: 0.08rem;
-  }
-
-  .orderbook-title-line {
-    gap: 0.4rem;
-  }
-
   .orderbook-heading-actions {
     gap: 0.1rem;
-  }
-
-  .orderbook-live-pill {
-    padding-inline: 0.42rem;
   }
 
   .orderbook-guided-trade-link {

@@ -138,9 +138,7 @@ export function OffersPage() {
   const orders = useOrderbookStore((state) => state.orders);
   const loading = useOrderbookStore((state) => state.loading);
   const refreshing = useOrderbookStore((state) => state.refreshing);
-  const cacheState = useOrderbookStore((state) => state.cacheState);
   const error = useOrderbookStore((state) => state.error);
-  const lastUpdated = useOrderbookStore((state) => state.lastUpdated);
   const refreshOrderbook = useOrderbookStore((state) => state.refreshOrderbook);
   const applyLiveOrders = useOrderbookStore((state) => state.applyLiveOrders);
   const hydrateGarage = useGarageStore((state) => state.hydrate);
@@ -608,14 +606,7 @@ export function OffersPage() {
         <Card className="orderbook-table-card">
           <CardHeader className="orderbook-card-header">
             <div className="orderbook-heading-group">
-              <OffersHeadingCopy
-                activeOfferCount={activeOrders.length}
-                cached={cacheState !== "none"}
-                hasError={Boolean(error)}
-                lastUpdated={lastUpdated}
-                live={connection === "nostr"}
-                nowMs={nowMs}
-              />
+              <CardTitle className="orderbook-title">Public offers</CardTitle>
               <div className="orderbook-heading-actions">
                 <Button
                   aria-label="Find a trade step by step"
@@ -743,10 +734,7 @@ export function OffersPage() {
               </div>
             </div>
 
-            <div className="offer-mobile-sort" aria-label="Sort public offers">
-              <span className="offer-mobile-sort-heading">
-                <ArrowUpDown size={14} /> Sort offers
-              </span>
+            <div className="offer-mobile-sort" aria-label="Sort public offers" role="group">
               <div className="offer-mobile-sort-options">
                 <MobileSortButton
                   active={sortColumn === "amount"}
@@ -988,55 +976,6 @@ export function OffersPage() {
         />
       ) : null}
     </main>
-  );
-}
-
-function OffersHeadingCopy({
-  activeOfferCount,
-  cached,
-  hasError,
-  lastUpdated,
-  live,
-  nowMs
-}: {
-  activeOfferCount: number;
-  cached: boolean;
-  hasError: boolean;
-  lastUpdated?: number;
-  live: boolean;
-  nowMs: number;
-}) {
-  return (
-    <div className="orderbook-heading-copy">
-      <div className="orderbook-title-line">
-        <CardTitle className="orderbook-title">Public offers</CardTitle>
-        {activeOfferCount > 0 ? (
-          <span
-            className={
-              hasError || cached ? "orderbook-live-pill orderbook-live-pill-confirmed" : "orderbook-live-pill"
-            }
-          >
-            <span className="orderbook-live-dot" aria-hidden="true" />
-            {hasError ? "Last confirmed" : cached ? "Cached" : live ? "Live" : "Current"}
-          </span>
-        ) : null}
-      </div>
-      {activeOfferCount > 0 ? (
-        <p className="orderbook-update-context">
-          <span>
-            {activeOfferCount} {activeOfferCount === 1 ? "offer" : "offers"}
-          </span>
-          {lastUpdated ? (
-            <>
-              <span aria-hidden="true">·</span>
-              <time dateTime={new Date(lastUpdated).toISOString()}>
-                Updated {formatOrderbookUpdateAge(lastUpdated, nowMs)}
-              </time>
-            </>
-          ) : null}
-        </p>
-      ) : null}
-    </div>
   );
 }
 
@@ -1676,18 +1615,6 @@ function sortValue(order: PublicOrder, column: SortColumn): number {
   if (column === "premium") return safeNumber(order.premium);
   const expiryMs = order.expires_at ? Date.parse(order.expires_at) : Number.POSITIVE_INFINITY;
   return Number.isFinite(expiryMs) ? expiryMs : Number.POSITIVE_INFINITY;
-}
-
-function formatOrderbookUpdateAge(updatedAt: number, now: number): string {
-  const elapsedMinutes = Math.max(0, Math.floor((now - updatedAt) / 60_000));
-  if (elapsedMinutes < 1) return "just now";
-  if (elapsedMinutes < 60) return `${elapsedMinutes}m ago`;
-
-  const elapsedHours = Math.floor(elapsedMinutes / 60);
-  if (elapsedHours < 24) return `${elapsedHours}h ago`;
-
-  const elapsedDays = Math.floor(elapsedHours / 24);
-  return `${elapsedDays}d ago`;
 }
 
 function orderTypeLabel(order: PublicOrder): string {

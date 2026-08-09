@@ -153,52 +153,26 @@
 
 .payment-card {
   position: relative;
-  border-color: color-mix(in srgb, var(--primary) 36%, var(--border));
+  border-color: color-mix(in srgb, var(--primary) 14%, var(--border-subtle));
   box-shadow:
-    inset 0 2px 0 color-mix(in srgb, var(--primary) 72%, transparent),
-    var(--surface-shadow);
+    inset 0 1px 0 color-mix(in srgb, var(--primary) 22%, transparent),
+    var(--surface-shadow-soft);
   animation: payment-card-in 180ms cubic-bezier(0.2, 0, 0, 1);
 }
 
 .payment-card-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
   margin-bottom: 1rem;
   border-bottom: 1px solid var(--border-subtle);
   padding-bottom: 0.85rem;
 }
 
-.payment-card-heading > span:first-child {
-  min-width: 0;
-  display: grid;
-  gap: 0.1rem;
-}
-
-.payment-card-heading small {
-  color: var(--brand-amber-ink);
-  font-size: var(--type-caption-size);
-  font-weight: 700;
-}
-
 .payment-card-heading strong {
+  display: block;
   overflow: hidden;
   font-size: var(--type-card-title-size);
   line-height: var(--type-card-title-line);
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.payment-once {
-  flex: 0 0 auto;
-  border: 1px solid var(--warning-border);
-  border-radius: 999px;
-  padding: 0.15rem 0.5rem;
-  background: var(--warning-surface);
-  color: var(--warning-foreground);
-  font-size: var(--type-caption-size);
-  font-weight: 700;
 }
 
 .payment-card-header {
@@ -216,9 +190,9 @@
 
 .payment-card-body {
   display: grid;
-  grid-template-columns: minmax(12rem, 15.5rem) minmax(0, 1fr);
-  justify-items: stretch;
-  gap: clamp(1rem, 3vw, 1.5rem);
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+  gap: 1rem;
   align-items: center;
 }
 
@@ -1177,13 +1151,13 @@
 }
 
 .payment-primary {
-  width: 100%;
+  width: min(100%, 19rem);
   min-width: 0;
   display: grid;
   gap: 1rem;
   overflow-wrap: anywhere;
-  justify-items: start;
-  text-align: left;
+  justify-items: center;
+  text-align: center;
 }
 
 .payment-amount-block {
@@ -1212,7 +1186,7 @@
   color: var(--muted-foreground);
   font-size: 0.78rem;
   line-height: 1.45;
-  text-align: left;
+  text-align: center;
 }
 
 .payment-expiry {
@@ -1223,7 +1197,7 @@
   align-items: flex-start;
   gap: 0.35rem;
   color: var(--muted-foreground);
-  justify-content: start;
+  justify-content: center;
 }
 
 .payment-expiry svg {
@@ -1240,7 +1214,7 @@
   display: grid;
   gap: 0.15rem;
   line-height: 1.35;
-  text-align: left;
+  text-align: center;
 }
 
 .payment-countdown {
@@ -1253,7 +1227,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
-  justify-content: flex-start;
+  justify-content: center;
 }
 
 .payment-action-status {
@@ -1275,7 +1249,7 @@
 }
 
 .payment-card-footer {
-  width: 100%;
+  width: min(100%, 19rem);
   margin: 1rem auto 0;
   border-top: 1px solid var(--border);
   padding-top: 1rem;
@@ -1907,36 +1881,8 @@
   overflow: visible;
 }
 
-.payout-route-path {
-  fill: none;
-  stroke: color-mix(in srgb, var(--primary) 58%, var(--border));
-  stroke-width: 1.5;
-  stroke-linecap: round;
-  stroke-dasharray: 4 6;
-  animation: payout-route-dash 1.8s linear infinite;
-}
-
-.payout-route-target {
-  fill: color-mix(in srgb, var(--success) 10%, var(--background));
-  stroke: var(--success);
-  stroke-width: 1.5;
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: payout-route-target 1.8s ease-in-out infinite;
-}
-
 .payout-routing-card-retry {
   border-color: var(--warning-border);
-}
-
-.payout-routing-card-retry .payout-route-path {
-  stroke: var(--warning-foreground);
-  stroke-dasharray: 2 7;
-}
-
-.payout-routing-card-retry .payout-route-target {
-  fill: var(--warning-surface);
-  stroke: var(--warning-foreground);
 }
 
 .payout-routing-card-retry .payout-routing-copy > strong {
@@ -2038,24 +1984,6 @@
 .payout-routing-copy > strong {
   color: var(--brand-amber-ink);
   font-size: 0.9rem;
-}
-
-@keyframes payout-route-dash {
-  to {
-    stroke-dashoffset: -20;
-  }
-}
-
-@keyframes payout-route-target {
-  0%,
-  100% {
-    opacity: 0.72;
-    transform: scale(0.94);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1.04);
-  }
 }
 
 @keyframes payout-route-blink {
@@ -2271,31 +2199,6 @@
 }
 
 @media (max-width: 620px) {
-  .payment-card-body {
-    grid-template-columns: minmax(0, 1fr);
-    justify-items: center;
-  }
-
-  .payment-primary {
-    width: min(100%, 19rem);
-    justify-items: center;
-    text-align: center;
-  }
-
-  .payment-step-copy,
-  .payment-expiry span {
-    text-align: center;
-  }
-
-  .payment-expiry,
-  .payment-actions {
-    justify-content: center;
-  }
-
-  .payment-card-footer {
-    width: min(100%, 19rem);
-  }
-
   .chat-participants {
     gap: 0.45rem;
   }
@@ -2317,14 +2220,6 @@
 }
 
 @media (max-width: 420px) {
-  .payment-card-heading {
-    align-items: flex-start;
-  }
-
-  .payment-once {
-    margin-top: 0.08rem;
-  }
-
   .trade-wait-route {
     min-width: 2.8rem;
   }
@@ -2349,8 +2244,6 @@
   .trade-wait-route::after,
   .trade-wait-route i,
   .chat-presence-online::before,
-  .payout-route-path,
-  .payout-route-target,
   .payout-bolt,
   .payout-bolt-glow,
   .payout-route-eye {
