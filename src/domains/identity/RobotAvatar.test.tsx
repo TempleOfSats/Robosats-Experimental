@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 
 const generateRobohash = vi.hoisted(() => vi.fn(async (hashId: string) => `avatar:${hashId}`));
 
-vi.mock("@/domains/identity/roboidentitiesClient", () => ({ generateRobohash }));
+vi.mock("@/domains/identity/roboavatarClient", () => ({ generateRobohash }));
 
 import { RobotAvatar } from "@/domains/identity/RobotAvatar";
 

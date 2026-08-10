@@ -18,7 +18,7 @@ export function showDesktopOrderNotification(
   if (!/^[a-f0-9]{64}$/i.test(robotHashId ?? "")) {
     return showDesktopNotification(request).catch(() => false);
   }
-  return import("@/domains/identity/roboidentitiesClient")
+  return import("@/domains/identity/roboavatarClient")
     .then(({ generateRobohash }) => generateRobohash(robotHashId!))
     .then(rasterizeNotificationAvatar)
     .then((dataUrl) => ({ cacheKey: robotHashId!, dataUrl }))

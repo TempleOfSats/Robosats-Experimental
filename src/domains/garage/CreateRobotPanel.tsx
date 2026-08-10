@@ -37,7 +37,7 @@ export function CreateRobotPanel({
   useEffect(() => {
     // Load the renderer before the identity step opens.
     const timer = window.setTimeout(() => {
-      void import("@/domains/identity/roboidentitiesClient").catch(() => undefined);
+      void import("@/domains/identity/roboavatarClient").catch(() => undefined);
     }, 180);
     return () => window.clearTimeout(timer);
   }, []);
@@ -60,7 +60,7 @@ export function CreateRobotPanel({
     const identity = deriveRobotIdentity(nextToken);
     const fallbackName = fallbackRobotName(identity.hashId);
     latestToken.current = nextToken;
-    prewarmRobotIdentity(identity.hashId);
+    prewarmRobotAvatar(identity.hashId);
     window.setTimeout(() => setRolling(false), 420);
     setToken(nextToken);
     setDraftIdentity(identity);
@@ -90,7 +90,7 @@ export function CreateRobotPanel({
     setDraftNickname(fallbackName);
     setError("");
     setStep("identity");
-    prewarmRobotIdentity(identity.hashId);
+    prewarmRobotAvatar(identity.hashId);
 
     void resolveRobotName(identity.hashId, fallbackName).then((nickname) => {
       setDraftNickname((current) => (current === fallbackName ? nickname : current));
@@ -254,16 +254,16 @@ function fallbackRobotName(hashId: string): string {
 
 async function resolveRobotName(hashId: string, fallback: string): Promise<string> {
   try {
-    const { generateRoboname } = await import("@/domains/identity/roboidentitiesClient");
+    const { generateRoboname } = await import("@/domains/identity/robonameClient");
     return generateRoboname(hashId);
   } catch {
     return fallback;
   }
 }
 
-function prewarmRobotIdentity(hashId: string): void {
-  void import("@/domains/identity/roboidentitiesClient")
-    .then(({ prewarmRobotIdentity }) => prewarmRobotIdentity(hashId))
+function prewarmRobotAvatar(hashId: string): void {
+  void import("@/domains/identity/roboavatarClient")
+    .then(({ prewarmRobotAvatar }) => prewarmRobotAvatar(hashId))
     .catch(() => undefined);
 }
 

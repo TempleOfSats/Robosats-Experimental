@@ -1,34 +1,18 @@
-import { sha256 } from "js-sha256";
-import { ROBO_ADJECTIVES, ROBO_NOUNS } from "@/domains/identity/generated/robonameData";
-
 const assetPackUrl = new URL("./generated/robot-identities.rsid", import.meta.url);
 const groupOffsets = [0, 11, 21, 31, 43] as const;
 const groupLengths = [11, 10, 10, 12, 13] as const;
 const backgroundOffset = 56;
 const backgroundLength = 21;
 const packMagic = "RSIDPK01";
-const maxNicknameLength = 18;
 const avatarViewBoxSize = 256;
 
 let assetPackPromise: Promise<ArrayBuffer> | undefined;
 const packedImagePromises = new Map<number, Promise<string>>();
 
-export function generateBrowserRoboname(hashId: string): string {
-  let hash = hashId;
-  for (let iteration = 0; iteration < 10_000; iteration += 1) {
-    const nickname = nicknameForHash(hash);
-    if (nickname.length <= maxNicknameLength) return nickname;
-    hash = sha256(`${hash}42`);
-  }
-  return "";
-}
-
 export async function generateBrowserRobohash(hashId: string): Promise<string> {
   const digest = await sha512Hex(hashId);
   const selection = selectRobotIdentity(digest);
-  const [background, ...parts] = await Promise.all(
-    [selection.background, ...selection.parts].map(readPackedImage)
-  );
+  const [background, ...parts] = await Promise.all([selection.background, ...selection.parts].map(readPackedImage));
   const images = parts
     .map(
       (part) =>
@@ -53,18 +37,6 @@ export function selectRobotIdentity(digest: string): {
     background: backgroundOffset + Number(chunks[6] % BigInt(backgroundLength)),
     hue: Number(chunks[7] % 360n)
   };
-}
-
-function nicknameForHash(hash: string): string {
-  const maxNumber = 999n;
-  const nounCount = BigInt(ROBO_NOUNS.length);
-  const poolSize = maxNumber * nounCount * BigInt(ROBO_ADJECTIVES.length);
-  const nicknameId = (BigInt(`0x${hash}`) * poolSize) / (1n << 256n);
-  const adjectiveId = nicknameId / (maxNumber * nounCount);
-  const remainder = nicknameId - adjectiveId * maxNumber * nounCount;
-  const nounId = remainder / maxNumber;
-  const number = remainder - nounId * maxNumber;
-  return `${ROBO_ADJECTIVES[Number(adjectiveId)]}${ROBO_NOUNS[Number(nounId)]}${number}`;
 }
 
 function splitDigest(digest: string): bigint[] {

@@ -38,7 +38,7 @@ await assertAcyclicStaticImports(files.filter((path) => path.endsWith(".js")));
 if (initialGraph.size > 6) {
   throw new Error(`Initial JavaScript request graph exceeds its budget: ${initialGraph.size} files`);
 }
-if ([...initialGraph].some((path) => /openpgp|roboidentitiesClient|F2FLocationDialog/.test(path))) {
+if ([...initialGraph].some((path) => /openpgp|robo(?:avatar|name)Client|F2FLocationDialog/.test(path))) {
   throw new Error("OpenPGP, map, and robot-generation code must remain lazy-loaded.");
 }
 
@@ -110,18 +110,31 @@ if (compressedSources.length === 0) {
   throw new Error("Production build did not emit any precompressed representations.");
 }
 
-const identityFiles = sourceFiles.filter((path) => /roboidentitiesClient|robot-identities/.test(path));
-const identityTransferBytes = identityFiles.reduce((total, path) => {
+const avatarFiles = sourceFiles.filter((path) => /roboavatarClient|robot-identities/.test(path));
+const avatarTransferBytes = avatarFiles.reduce((total, path) => {
   if (path.endsWith(".rsid")) return total + readFileSync(`${path}.br`).length;
   return total + gzipSync(readFileSync(path), { level: 9 }).length;
 }, 0);
-if (identityFiles.length !== 2 || identityTransferBytes > 205_000) {
-  throw new Error(`Browser identity payload exceeds its budget: ${identityTransferBytes} bytes`);
+if (avatarFiles.length !== 2 || avatarTransferBytes > 145_000) {
+  throw new Error(`Browser avatar payload exceeds its budget: ${avatarTransferBytes} bytes`);
+}
+
+const nameFiles = sourceFiles.filter((path) => /robonameClient/.test(path));
+const nameTransferBytes = nameFiles.reduce(
+  (total, path) => total + gzipSync(readFileSync(path), { level: 9 }).length,
+  0
+);
+if (nameFiles.length !== 1 || nameTransferBytes > 70_000) {
+  throw new Error(`Browser robot-name payload exceeds its budget: ${nameTransferBytes} bytes`);
+}
+if (avatarTransferBytes + nameTransferBytes > 205_000) {
+  throw new Error(`Combined browser identity payload exceeds its budget: ${avatarTransferBytes + nameTransferBytes} bytes`);
 }
 
 console.log(
   `Production bundle excludes the Trade Lab and identity WASM, versions static assets as ${staticRevision}, ` +
-    `precompresses ${compressedSources.length} files (${identityTransferBytes} byte identity payload), ` +
+    `precompresses ${compressedSources.length} files (${avatarTransferBytes} byte avatar-only payload, ` +
+    `${nameTransferBytes} byte deferred name payload), ` +
     `and limits JavaScript requests to ${initialGraph.size} initially (${routeGraphCounts.join(", ")} additional).`
 );
 

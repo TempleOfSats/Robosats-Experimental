@@ -494,8 +494,8 @@ function prewarmVisualAssets(): void {
 
   if (activeSlot?.hashId) {
     swallow(
-      import("@/domains/identity/roboidentitiesClient").then(({ prewarmRobotIdentity }) =>
-        prewarmRobotIdentity(activeSlot.hashId)
+      import("@/domains/identity/roboavatarClient").then(({ prewarmRobotAvatar }) =>
+        prewarmRobotAvatar(activeSlot.hashId)
       )
     );
   }
