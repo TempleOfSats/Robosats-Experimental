@@ -369,18 +369,7 @@ export function RobotList({
               <span>
                 <strong>{summary.nickname}</strong>
                 <span className="pro-robot-state">
-                  {lifecycle.canOpenTrade ? (
-                    <button
-                      className="pro-robot-trade-status"
-                      type="button"
-                      onClick={() => onOpenTrade(summary.slotId)}
-                      aria-label={`Open ${summary.nickname}'s ${lifecycle.statusLabel.toLowerCase()}`}
-                    >
-                      <Badge tone={lifecycle.statusTone}>{lifecycle.statusLabel}</Badge>
-                    </button>
-                  ) : (
-                    <Badge tone={lifecycle.statusTone}>{lifecycle.statusLabel}</Badge>
-                  )}
+                  <Badge tone={lifecycle.statusTone}>{lifecycle.statusLabel}</Badge>
                   {tradeIdentifier ? (
                     <small className="pro-robot-trade-identity" aria-label={tradeIdentifier.label}>
                       <span className="pro-robot-trade-amount">{tradeIdentifier.amount}</span>
@@ -399,28 +388,28 @@ export function RobotList({
               </span>
             </div>
             <div className="pro-robot-actions">
-              <Button
-                aria-label={
-                  lifecycle.canStartOrder
-                    ? `Create an offer with ${summary.nickname}`
-                    : `${summary.nickname} is unavailable`
-                }
-                className="pro-robot-create-button"
-                disabled={!lifecycle.canStartOrder}
-                size="sm"
-                onClick={() => onCreate(summary.slotId)}
-                title={
-                  lifecycle.canStartOrder
-                    ? `Create an offer with ${summary.nickname}`
-                    : (lifecycle.availability.message ??
-                      "Finish this robot's current order before creating another offer")
-                }
-                variant="outline"
-              >
-                <CirclePlus size={16} />
-                <span className="pro-robot-action-label pro-robot-action-long">Create offer</span>
-                <span className="pro-robot-action-label pro-robot-action-short">Offer</span>
-              </Button>
+              {lifecycle.canOpenTrade ? (
+                <Button
+                  aria-label={`Open trade with ${summary.nickname}`}
+                  className="pro-robot-primary-action pro-robot-open-button"
+                  onClick={() => onOpenTrade(summary.slotId)}
+                  size="sm"
+                  variant={lifecycle.status === "needs-attention" ? "primary" : "outline"}
+                >
+                  Open trade
+                </Button>
+              ) : lifecycle.canStartOrder ? (
+                <Button
+                  aria-label={`Create an offer with ${summary.nickname}`}
+                  className="pro-robot-primary-action pro-robot-create-button"
+                  size="sm"
+                  onClick={() => onCreate(summary.slotId)}
+                  title={`Create an offer with ${summary.nickname}`}
+                  variant="outline"
+                >
+                  <CirclePlus size={16} /> Create offer
+                </Button>
+              ) : null}
               <details className="pro-robot-more">
                 <summary aria-label={`More actions for ${summary.nickname}`} title="More robot actions">
                   <Ellipsis size={18} />

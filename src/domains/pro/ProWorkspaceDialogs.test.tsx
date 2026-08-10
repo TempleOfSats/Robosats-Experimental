@@ -3,6 +3,8 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { OfferPresetsDialog } from "@/domains/pro/OfferPresetsDialog";
+import type { OfferPreset } from "@/domains/pro/portableSettings";
 import { CreateOfferRobotPicker, ProActionNotice } from "@/domains/pro/ProWorkspaceDialogs";
 import type { OfferReadyRobots } from "@/domains/pro/proRobotLifecycle";
 import { shouldAutoSelectReadyRobot } from "@/domains/pro/ProTakeRobotPicker";
@@ -102,6 +104,62 @@ describe("ProActionNotice", () => {
   });
 });
 
+describe("OfferPresetsDialog", () => {
+  it("keeps Use visible and routes secondary preset actions through one overflow", async () => {
+    const onDuplicate = vi.fn();
+    await act(async () => {
+      root?.render(
+        <OfferPresetsDialog
+          onClose={vi.fn()}
+          onCreate={vi.fn()}
+          onDuplicate={onDuplicate}
+          onEdit={vi.fn()}
+          onRemove={vi.fn()}
+          onUse={vi.fn()}
+          presets={[offerPreset]}
+        />
+      );
+    });
+
+    expect(buttonWithText("Use")).toBeDefined();
+    const summary = document.querySelector<HTMLElement>('summary[aria-label="More actions for Weekday buy"]');
+    expect(summary).toBeDefined();
+    expect(summary?.getAttribute("tabindex")).toBe("0");
+    const duplicate = buttonWithText("Duplicate");
+    if (!duplicate) throw new Error("Missing duplicate preset action");
+    duplicate.closest("details")?.setAttribute("open", "");
+    await act(async () => duplicate.click());
+    expect(onDuplicate).toHaveBeenCalledWith(offerPreset);
+    expect(duplicate.closest("details")?.hasAttribute("open")).toBe(false);
+    expect(document.activeElement).toBe(summary);
+  });
+
+  it("moves focus into preset removal confirmation", async () => {
+    await act(async () => {
+      root?.render(
+        <OfferPresetsDialog
+          onClose={vi.fn()}
+          onCreate={vi.fn()}
+          onDuplicate={vi.fn()}
+          onEdit={vi.fn()}
+          onRemove={vi.fn()}
+          onUse={vi.fn()}
+          presets={[offerPreset]}
+        />
+      );
+    });
+
+    const remove = buttonWithText("Remove");
+    if (!remove) throw new Error("Missing remove preset action");
+    remove.closest("details")?.setAttribute("open", "");
+    await act(async () => remove.click());
+
+    const keep = buttonWithText("Keep");
+    expect(document.body.textContent).toContain("Remove this preset?");
+    expect(document.activeElement).toBe(keep);
+  });
+});
+
 async function renderPicker(
   robots: OfferReadyRobots,
   options: {
@@ -147,3 +205,23 @@ function robot(slotId: string, nickname: string, previouslyUsed: boolean): Offer
     previouslyUsed
   };
 }
+
+const offerPreset = {
+  id: "00112233445566778899aabbccddeeff",
+  name: "Weekday buy",
+  direction: 0,
+  isSwap: false,
+  currency: "EUR",
+  amount: "500",
+  paymentMethods: ["Instant SEPA"],
+  premium: 0,
+  bond: 3,
+  publicDuration: 24,
+  escrowDuration: 24,
+  description: "",
+  password: "",
+  revision: 1,
+  deviceId: "ffeeddccbbaa99887766554433221100",
+  deleted: false,
+  updatedAt: 1
+} satisfies OfferPreset;

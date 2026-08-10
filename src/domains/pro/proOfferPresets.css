@@ -41,6 +41,16 @@
   justify-content: flex-end;
 }
 
+.pro-presets-new {
+  border-color: color-mix(in srgb, var(--secondary) 62%, var(--border));
+  color: var(--secondary);
+}
+
+.pro-presets-new:hover,
+.pro-presets-new:focus-visible {
+  background: color-mix(in srgb, var(--secondary) 8%, transparent);
+}
+
 .pro-presets-list {
   min-height: 0;
   display: grid;
@@ -50,15 +60,31 @@
 }
 
 .pro-preset-card {
+  position: relative;
   min-width: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 1rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--card);
-  padding: 0.75rem;
+  overflow: visible;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-subtle);
+  padding: 0.75rem 0.75rem 0.75rem 0.9rem;
+}
+
+.pro-preset-card::before {
+  content: "";
+  position: absolute;
+  inset: 0.55rem auto 0.55rem 0;
+  width: 0.14rem;
+  border-radius: 0 999px 999px 0;
+  background: var(--buy);
+  opacity: 0.8;
+}
+
+.pro-preset-card[data-direction="sell"]::before {
+  background: var(--sell);
 }
 
 .pro-preset-card-copy {
@@ -99,6 +125,112 @@
   display: flex;
   align-items: center;
   gap: 0.25rem;
+}
+
+.pro-preset-more {
+  position: relative;
+}
+
+.pro-preset-more summary {
+  width: 2rem;
+  height: 2rem;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--muted-foreground);
+  cursor: pointer;
+  list-style: none;
+}
+
+.pro-preset-more summary::-webkit-details-marker {
+  display: none;
+}
+
+.pro-preset-more summary:hover,
+.pro-preset-more summary:focus-visible,
+.pro-preset-more[open] summary {
+  background: var(--control-hover-background);
+  color: var(--foreground);
+}
+
+.pro-preset-more summary:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.pro-preset-more-menu {
+  position: absolute;
+  z-index: 25;
+  top: calc(100% + 0.35rem);
+  right: 0;
+  width: 10.5rem;
+  display: grid;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  padding: 0.3rem;
+  box-shadow: var(--shadow-lg);
+}
+
+.pro-preset-more-menu button {
+  min-height: 2.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--foreground);
+  padding: 0.45rem 0.6rem;
+  font: inherit;
+  font-size: var(--type-compact-size);
+  text-align: left;
+  cursor: pointer;
+}
+
+.pro-preset-more-menu button:last-child {
+  color: var(--danger-foreground);
+}
+
+.pro-preset-more-menu button:hover,
+.pro-preset-more-menu button:focus-visible {
+  background: var(--control-hover-background);
+}
+
+.pro-preset-more-menu button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+@media (min-width: 601px) {
+  .pro-preset-card:has(.pro-preset-more[open]) {
+    align-items: flex-start;
+  }
+
+  .pro-preset-card-actions {
+    align-items: flex-start;
+  }
+
+  .pro-preset-more[open] {
+    width: 10.5rem;
+    display: grid;
+    justify-items: end;
+  }
+
+  .pro-preset-more[open] .pro-preset-more-menu {
+    position: static;
+    width: 100%;
+    margin-top: 0.35rem;
+  }
+}
+
+@media (pointer: coarse) {
+  .pro-preset-more summary {
+    width: var(--touch-target-coarse);
+    height: var(--touch-target-coarse);
+  }
 }
 
 .pro-preset-remove-confirm > span {

@@ -180,14 +180,6 @@
     padding-inline: 0.65rem;
   }
 
-  .pro-robot-action-long {
-    display: none;
-  }
-
-  .pro-robot-action-short {
-    display: inline;
-  }
-
   .pro-robot-identity {
     gap: 0.45rem;
   }
@@ -212,11 +204,6 @@
   .pro-robot-state .pro-robot-trade-identity {
     display: inline-flex;
     max-width: 14rem;
-  }
-
-  .pro-robot-state .pro-robot-trade-method,
-  .pro-robot-state .pro-robot-trade-method + span {
-    display: none;
   }
 
   .pro-history-header {
@@ -457,14 +444,49 @@
   }
 
   .pro-robot-row {
-    min-height: 4.5rem;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 0.35rem;
-    padding: 0.55rem 0.65rem;
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.65rem;
+    padding: 0.75rem;
   }
 
-  .pro-robot-actions .ui-button {
-    padding-inline: 0.55rem;
+  .pro-robot-identity {
+    align-items: flex-start;
+    gap: 0.65rem;
+  }
+
+  .pro-robot-identity > span {
+    display: grid;
+    gap: 0.25rem;
+  }
+
+  .pro-robot-state {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 0.25rem 0.45rem;
+  }
+
+  .pro-robot-state .pro-robot-trade-identity {
+    max-width: 100%;
+  }
+
+  .pro-robot-actions {
+    width: 100%;
+    grid-column: 1;
+    justify-content: stretch;
+    gap: 0.4rem;
+  }
+
+  .pro-robot-actions .pro-robot-primary-action {
+    height: 2.75rem;
+    min-height: 2.75rem;
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+
+  .pro-robot-more summary {
+    width: 2.75rem;
+    height: 2.75rem;
   }
 
   .pro-robot-more-menu {
@@ -530,6 +552,43 @@
 
   .pro-history-coordinator span {
     font-size: var(--type-caption-size);
+  }
+
+  .pro-sheet-overlay {
+    place-items: end center;
+    padding: 0.75rem 0 0;
+  }
+
+  .pro-sheet-overlay > .ui-dialog-panel {
+    width: 100%;
+    max-width: none;
+    max-height: calc(100dvh - 0.75rem);
+    margin: 0;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    border-bottom: 0;
+  }
+
+  .pro-sheet-overlay > .confirm-sheet {
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+
+  .pro-sheet-overlay > .pro-create-robot-picker .garage-switcher-list {
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+  }
+
+  .pro-preset-more summary {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+
+  .pro-preset-more-menu {
+    position: fixed;
+    z-index: 240;
+    top: auto;
+    right: 0.75rem;
+    bottom: max(0.75rem, env(safe-area-inset-bottom));
+    left: 0.75rem;
+    width: auto;
   }
 }
 

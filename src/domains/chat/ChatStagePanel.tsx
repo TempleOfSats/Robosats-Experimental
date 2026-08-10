@@ -546,8 +546,8 @@ export function ChatStagePanel({
           >
             <RobotAvatar hashId={myHashId} label={myNick || "Your robot"} size="sm" />
             <span>
-              <strong title={myNick || "Your robot"}>{myNick || "Your robot"}</strong>
-              <small>You</small>
+              <strong>You</strong>
+              <small title={myNick || "Your robot"}>{myNick || "Your robot"}</small>
             </span>
           </div>
           <span className="chat-participant-divider" aria-hidden>
@@ -561,7 +561,7 @@ export function ChatStagePanel({
             <RobotAvatar hashId={peerHashId} label={peerNick || "Trade peer"} size="sm" />
             <span>
               <strong title={peerNick || "Trade peer"}>{peerNick || "Trade peer"}</strong>
-              <small>Peer</small>
+              <small>Trade peer</small>
             </span>
           </div>
           {!isPreChat && hasLivePresence ? presenceLabel(peerConnected, peerNick) : null}
@@ -627,7 +627,7 @@ export function ChatStagePanel({
                         : "Type a message to your peer..."
                       : "Chat is read-only while the coordinator reviews."
                 }
-                rows={3}
+                rows={1}
                 value={draft}
               />
               <Button

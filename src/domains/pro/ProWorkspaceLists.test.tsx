@@ -70,6 +70,8 @@ describe("Pro workspace lists", () => {
     );
 
     expect(html).toContain("€12 · Revolut · #92195");
+    expect(html).toContain('aria-label="Open trade with Reward Robot"');
+    expect(html).not.toContain('aria-label="Create an offer with Reward Robot"');
   });
 
   it("leaves the trade identity out when order data is unavailable", () => {

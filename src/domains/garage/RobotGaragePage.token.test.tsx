@@ -102,6 +102,13 @@ describe("Garage robot token controls", () => {
       recoveryTools?.querySelector("summary")?.click();
     });
     expect(findButton("Show token")).toBeDefined();
+
+    const manageTools = document.querySelector<HTMLDetailsElement>(".garage-manage-tools");
+    await act(async () => manageTools?.querySelector("summary")?.click());
+    expect(manageTools?.open).toBe(true);
+    await clickButton("Recover from token");
+    expect(manageTools?.open).toBe(false);
+    expect(document.body.textContent).toContain("Recover robot");
   });
 });
 
@@ -116,6 +123,9 @@ async function clickButton(label: string): Promise<void> {
 
 function findButton(label: string): HTMLButtonElement | undefined {
   return [...document.querySelectorAll<HTMLButtonElement>("button")].find(
-    (candidate) => candidate.getAttribute("aria-label") === label || candidate.getAttribute("title") === label
+    (candidate) =>
+      candidate.getAttribute("aria-label") === label ||
+      candidate.getAttribute("title") === label ||
+      candidate.textContent?.trim() === label
   );
 }

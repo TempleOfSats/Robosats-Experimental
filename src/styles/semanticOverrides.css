@@ -222,7 +222,6 @@
 
 @media (prefers-reduced-motion: reduce) {
   .payout-bolt,
-  .payout-bolt-glow,
   .payout-route-eye {
     animation: none;
   }

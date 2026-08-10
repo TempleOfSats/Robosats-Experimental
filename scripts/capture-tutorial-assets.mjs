@@ -116,7 +116,7 @@ async function captureStandardJourney(browserInstance) {
     await page.locator(".robot-wizard").waitFor({ state: "visible", timeout: 30_000 });
     await capture(page, "garage-empty");
 
-    await page.getByRole("button", { name: "Generate token" }).click();
+    await page.getByRole("button", { name: "Generate my robot" }).click();
     const tokenInput = page.getByLabel("Robot token");
     await tokenInput.waitFor({ state: "visible" });
     await redactInput(tokenInput, "[Robot token hidden for tutorial]");

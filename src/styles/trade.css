@@ -812,7 +812,7 @@
   display: flex;
   align-items: center;
   gap: 0.6rem;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid transparent;
   border-radius: 999px;
   background: color-mix(in srgb, var(--muted) 42%, transparent);
   padding: 0.45rem 0.65rem 0.45rem 0.45rem;
@@ -825,9 +825,13 @@
 }
 
 .chat-participant small {
+  min-width: 0;
+  overflow: hidden;
   color: var(--muted-foreground);
   font-size: 0.75rem;
   font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chat-participant strong {
@@ -1051,6 +1055,8 @@
 .chat-composer textarea {
   width: 100%;
   min-width: 0;
+  min-height: 3rem;
+  max-height: 9rem;
   resize: vertical;
   border: 0;
   border-radius: var(--radius-md);
@@ -1058,6 +1064,7 @@
   color: var(--foreground);
   padding: 0.75rem;
   font: inherit;
+  field-sizing: content;
 }
 
 .chat-composer textarea:focus {
@@ -1827,7 +1834,7 @@
 .payout-routing-card {
   width: min(100%, 32rem);
   margin-inline: auto;
-  border-color: color-mix(in srgb, var(--primary) 40%, var(--border));
+  border-color: color-mix(in srgb, var(--primary) 24%, var(--border));
 }
 
 .page-trade-routing .trade-main-layout {
@@ -1890,8 +1897,7 @@
   color: var(--warning-foreground);
 }
 
-.payout-bolt,
-.payout-bolt-glow {
+.payout-bolt {
   --payout-lane-x: 0px;
   fill: none;
   stroke: var(--primary);
@@ -1903,17 +1909,14 @@
   animation-duration: 1.8s;
   animation-timing-function: linear;
   animation-iteration-count: infinite;
-}
-
-.payout-bolt {
   stroke-width: 2.2;
   animation-name: payout-bolt-shoot;
 }
 
-.payout-bolt-glow {
-  stroke: color-mix(in srgb, var(--primary) 42%, transparent);
-  stroke-width: 4.6;
-  animation-name: payout-bolt-shoot-glow;
+.payout-routing-card-retry .payout-bolt {
+  stroke: var(--warning-foreground);
+  stroke-dasharray: 5 4;
+  animation-duration: 2.2s;
 }
 
 .payout-bolt-stage .t1 {
@@ -1987,6 +1990,16 @@
   font-size: 0.9rem;
 }
 
+.payout-routing-status {
+  margin-top: 0.25rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted) 58%, transparent);
+  color: var(--muted-foreground);
+  padding: 0.28rem 0.58rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
 @keyframes payout-route-blink {
   0%,
   46%,
@@ -2011,25 +2024,6 @@
   70% {
     opacity: 1;
     transform: translate(var(--payout-lane-x), 96px) scale(1.03);
-  }
-  100% {
-    opacity: 0;
-    transform: translate(var(--payout-lane-x), 136px) scale(0.96);
-  }
-}
-
-@keyframes payout-bolt-shoot-glow {
-  0% {
-    opacity: 0;
-    transform: translate(0, -2px) scale(0.88);
-  }
-  12% {
-    opacity: 0.28;
-    transform: translate(0, 4px) scale(1);
-  }
-  70% {
-    opacity: 0.1;
-    transform: translate(var(--payout-lane-x), 96px) scale(1.07);
   }
   100% {
     opacity: 0;
@@ -2206,7 +2200,10 @@
   }
 
   .chat-participant {
-    border-radius: var(--radius-lg);
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    padding: 0;
   }
 
   .chat-participant-divider {
@@ -2218,6 +2215,23 @@
   .chat-participant-divider::after {
     content: "↔";
     font-size: 0.85rem;
+  }
+
+  .chat-composer {
+    grid-template-columns: minmax(0, 1fr) 2.75rem;
+    gap: 0.4rem;
+    padding: 0.35rem;
+  }
+
+  .chat-composer textarea {
+    min-height: 2.75rem;
+    padding: 0.62rem 0.7rem;
+  }
+
+  .chat-send-button {
+    width: 2.75rem;
+    min-width: 2.75rem;
+    height: 2.75rem;
   }
 }
 
@@ -2247,7 +2261,6 @@
   .trade-wait-route i,
   .chat-presence-online::before,
   .payout-bolt,
-  .payout-bolt-glow,
   .payout-route-eye {
     animation: none;
   }

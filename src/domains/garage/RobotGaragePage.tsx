@@ -247,9 +247,9 @@ export function RobotGaragePage() {
       <main className="page page-narrow garage-page">
         <div className="page-heading">
           <div>
-            <p className="app-eyebrow">Dashboard</p>
-            <h2>Your robot identity</h2>
-            <p>Generate a private token, meet your robot, then browse or create an order.</p>
+            <p className="app-eyebrow">Garage</p>
+            <h2>Meet your private robot</h2>
+            <p>Create a memorable identity for trading without sharing who you are.</p>
           </div>
         </div>
         <div className="start-card start-card-unframed">
@@ -392,7 +392,7 @@ export function RobotGaragePage() {
           </Link>
         </div>
 
-        <div className="garage-utility-bar">
+        <div className="garage-utility-bar" aria-label="Robot management">
           <button
             className="garage-utility-btn"
             onClick={() => setShowRobotSwitcher(true)}
@@ -400,41 +400,48 @@ export function RobotGaragePage() {
             title="Switch robot"
           >
             <Home size={18} />
-            <span>Garage</span>
+            <span>Switch robot</span>
           </button>
-
-          <button
-            className="garage-utility-btn"
-            onClick={() => setShowFirstRunWizard(true)}
-            type="button"
-            title="Add a new robot"
-          >
-            <Plus size={18} />
-            <span>Add Robot</span>
-          </button>
-
-          <button
-            className="garage-utility-btn"
-            onClick={() => {
-              setRemoveError("");
-              setShowDeleteConfirmation(true);
-            }}
-            type="button"
-            title="Remove this robot"
-          >
-            <Trash2 size={18} />
-            <span>Remove</span>
-          </button>
-
-          <button
-            className="garage-utility-btn"
-            onClick={() => setShowRecovery(true)}
-            type="button"
-            title="Recover a robot from its token"
-          >
-            <KeyRound size={18} />
-            <span>Recover</span>
-          </button>
+          <details className="garage-manage-tools">
+            <summary className="garage-utility-btn">
+              <Settings size={18} />
+              <span>Manage robot</span>
+            </summary>
+            <div className="garage-manage-menu">
+              <button
+                onClick={(event) => {
+                  closeGarageManageTools(event.currentTarget);
+                  setShowFirstRunWizard(true);
+                }}
+                type="button"
+              >
+                <Plus size={17} />
+                <span>Add a new robot</span>
+              </button>
+              <button
+                onClick={(event) => {
+                  closeGarageManageTools(event.currentTarget);
+                  setShowRecovery(true);
+                }}
+                type="button"
+              >
+                <KeyRound size={17} />
+                <span>Recover from token</span>
+              </button>
+              <button
+                className="garage-manage-remove"
+                onClick={(event) => {
+                  closeGarageManageTools(event.currentTarget);
+                  setRemoveError("");
+                  setShowDeleteConfirmation(true);
+                }}
+                type="button"
+              >
+                <Trash2 size={17} />
+                <span>Remove this robot</span>
+              </button>
+            </div>
+          </details>
         </div>
       </div>
 
@@ -586,6 +593,13 @@ export function RobotGaragePage() {
       ) : null}
     </main>
   );
+}
+
+function closeGarageManageTools(trigger: HTMLButtonElement): void {
+  const details = trigger.closest("details");
+  const summary = details?.querySelector<HTMLElement>("summary");
+  details?.removeAttribute("open");
+  summary?.focus();
 }
 
 function FleetRecoveryDialogs({
