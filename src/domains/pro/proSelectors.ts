@@ -91,7 +91,7 @@ export function summarizeProRobots(
       relevantOrderCount: trades.filter((trade) => !trade.released).length,
       stale: trades.some((trade) => trade.freshness === "error" || trade.freshness === "stale"),
       previouslyUsed: Boolean(slot.lastOrderId)
-        || Object.values(slot.robots).some((robot) => Boolean(robot.lastOrderId))
+        || Object.values(slot.robots).some((robot) => Boolean(robot.lastOrderId || robot.releasedOrderId))
     };
   });
 }

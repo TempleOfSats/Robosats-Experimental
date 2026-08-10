@@ -8,6 +8,7 @@ import { RobotAvatar } from "@/domains/identity/RobotAvatar";
 import { RobotGlyph } from "@/domains/pro/ProWorkspaceIcons";
 import type { OfferReadyRobots } from "@/domains/pro/proRobotLifecycle";
 import { GARAGE_LIMITS } from "@/domains/pro/garageVault";
+import { playHaptic } from "@/lib/haptics";
 import "@/domains/pro/proRobotPicker.css";
 
 export function CreateOfferRobotPicker({
@@ -155,6 +156,7 @@ function selectRobot(
   onSelect: (slotId: string) => void,
   onReuse: (robot: OfferReadyRobots[number]) => void
 ) {
+  playHaptic("selection");
   if (robot.previouslyUsed) onReuse(robot);
   else onSelect(robot.slotId);
 }

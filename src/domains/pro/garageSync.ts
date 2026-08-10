@@ -24,6 +24,7 @@ import { buildNostrRelayUrl } from "@/domains/orderbook/nostrOrderbook";
 import { systemClient } from "@/domains/transport/systemClient";
 import { decryptGaragePayload, deriveGarageDomainKey, encryptGaragePayload, type GarageKeyDomain } from "@/domains/pro/garageCrypto";
 import {
+  garageEnvelopeSyncRecords,
   getGarageSecret,
   recoverySnapshotFromRecords,
   useGarageVaultStore,
@@ -75,6 +76,7 @@ type RelayPullResult = {
 };
 
 type GarageSyncOptions = {
+  awaitReplication?: boolean;
   forcePublish?: boolean;
 };
 
@@ -110,6 +112,7 @@ class GarageSyncEngine {
   private syncInFlight?: Promise<number>;
   private syncRequested = false;
   private forceRequested = false;
+  private awaitReplicationRequested = false;
   private mutationTimer?: ReturnType<typeof setTimeout>;
   private retryTimer?: ReturnType<typeof setTimeout>;
   private fallbackTimer?: ReturnType<typeof setTimeout>;
@@ -183,6 +186,7 @@ class GarageSyncEngine {
   async synchronize(options: GarageSyncOptions = {}): Promise<number> {
     this.syncRequested = true;
     this.forceRequested ||= options.forcePublish === true;
+    this.awaitReplicationRequested ||= options.awaitReplication === true;
     if (this.syncInFlight) return this.syncInFlight;
     this.lastSynchronizationStartedAt = Date.now();
     this.syncInFlight = this.runSynchronization().finally(() => { this.syncInFlight = undefined; });
@@ -191,19 +195,25 @@ class GarageSyncEngine {
 
   private async runSynchronization(): Promise<number> {
     let lastPublicationAt = 0;
+    let routineHeartbeatQueued = false;
     useGarageVaultStore.getState().setSyncState("saving");
     try {
       do {
         this.syncRequested = false;
         const force = this.forceRequested;
         this.forceRequested = false;
-        if (force || heartbeatDue()) useGarageVaultStore.getState().queueHeartbeat();
+        const awaitReplication = this.awaitReplicationRequested;
+        this.awaitReplicationRequested = false;
+        if (force || (!routineHeartbeatQueued && heartbeatDue())) {
+          useGarageVaultStore.getState().queueHeartbeat(force ? undefined : Date.now() - HEARTBEAT_MS);
+          routineHeartbeatQueued = true;
+        }
         const secret = getGarageSecret();
         const relays = this.orderedRelays();
         if (!secret || relays.length === 0) throw new Error("No coordinator relay is available.");
         await this.pullRoutineRecords(secret, relays, force);
         this.ensureSubscription();
-        lastPublicationAt = await this.flushOutbox(secret, relays);
+        lastPublicationAt = await this.flushOutbox(secret, relays, awaitReplication);
       } while (this.syncRequested);
       this.retryIndex = 0;
       useGarageVaultStore.getState().setSyncState("up-to-date", Date.now(), undefined, lastPublicationAt || undefined);
@@ -219,7 +229,11 @@ class GarageSyncEngine {
     }
   }
 
-  private async flushOutbox(secret: Uint8Array, relays: string[]): Promise<number> {
+  private async flushOutbox(
+    secret: Uint8Array,
+    relays: string[],
+    awaitReplication: boolean
+  ): Promise<number> {
     let latestPublishedAt = 0;
     let publicationFailed = false;
     while (true) {
@@ -256,7 +270,13 @@ class GarageSyncEngine {
           revision: record.revision,
           writerDeviceId: record.writerDeviceId
         };
-        const publication = await this.publishWithReplication(relays, item, event, eventObservation);
+        const publication = await this.publishWithReplication(
+          relays,
+          item,
+          event,
+          eventObservation,
+          awaitReplication
+        );
         if (publication.accepted) {
           latestPublishedAt = Math.max(latestPublishedAt, publication.publishedAt);
           return true;
@@ -448,7 +468,8 @@ class GarageSyncEngine {
     relays: string[],
     item: GarageOutboxItem,
     event: Event,
-    observed: GarageObservedEvent
+    observed: GarageObservedEvent,
+    awaitReplication: boolean
   ): Promise<{ accepted: boolean; publishedAt: number }> {
     const accepted = new Set(item.acceptedRelays.filter((relay) => relays.includes(relay)));
     const required = Math.min(2, relays.length);
@@ -472,7 +493,7 @@ class GarageSyncEngine {
       this.deferReplication(item);
     };
     if (firstSettled) resolveFirst(true);
-    void new Promise<void>((resolveAll) => {
+    const allAcknowledgements = new Promise<void>((resolveAll) => {
       let settled = 0;
       const finish = () => {
         if (settled < targets.length) return;
@@ -508,9 +529,10 @@ class GarageSyncEngine {
       finish();
     });
     const locallyAccepted = await firstAcknowledgement;
-    if (locallyAccepted && accepted.size < required) defer();
+    if (awaitReplication) await allAcknowledgements;
+    else if (locallyAccepted && accepted.size < required) defer();
     return {
-      accepted: locallyAccepted,
+      accepted: awaitReplication ? accepted.size >= required : locallyAccepted,
       publishedAt: latestPublishedAt
     };
   }
@@ -565,6 +587,27 @@ export function decodeGarageRecordEvent(event: Event, secret: Uint8Array): Obser
   } catch {
     return undefined;
   }
+}
+
+export function garageBackupVerificationInput(): {
+  expectedRecords: GarageSyncRecord[];
+  secret: Uint8Array;
+} {
+  const secret = getGarageSecret();
+  const envelope = useGarageVaultStore.getState().envelope;
+  if (!secret || !envelope) throw new Error("Fleet is not ready for backup verification.");
+  return { secret, expectedRecords: garageEnvelopeSyncRecords(envelope) };
+}
+
+export function garageRecordsCoverExpected(
+  remoteRecords: ObservedGarageSyncRecord[],
+  expectedRecords: GarageSyncRecord[]
+): boolean {
+  const remoteByKey = new Map(remoteRecords.map((observed) => [syncRecordKey(observed.record), observed]));
+  return expectedRecords.every((expected) => {
+    const remote = remoteByKey.get(syncRecordKey(expected));
+    return Boolean(remote && compareSyncRecords(remote.record, expected, remote.eventId) >= 0);
+  });
 }
 
 export async function queryGarageRecords(
@@ -889,8 +932,10 @@ function eventDomain(event: Event, secret: Uint8Array): GarageKeyDomain | undefi
 function heartbeatDue(now = Date.now()): boolean {
   const envelope = useGarageVaultStore.getState().envelope;
   if (!envelope) return false;
-  const observed = Object.values(envelope.observed);
-  return observed.length === 0 || now - Math.min(...observed.map((item) => item.publishedAt)) >= HEARTBEAT_MS;
+  const staleBefore = now - HEARTBEAT_MS;
+  return garageEnvelopeSyncRecords(envelope).some((record) =>
+    (envelope.observed[syncRecordKey(record)]?.publishedAt ?? 0) < staleBefore
+  );
 }
 
 function isForeground(): boolean {

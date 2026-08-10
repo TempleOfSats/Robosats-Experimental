@@ -53,6 +53,7 @@ import type { PublicOrder } from "@/domains/orderbook/orderbook.types";
 import { CurrencyFlag, PaymentMethodIcons } from "@/domains/orderbook/OfferMeta";
 import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
 import { formatFiat, formatSats } from "@/lib/format";
+import { playHaptic } from "@/lib/haptics";
 import { toUserMessage } from "@/lib/userError";
 import { writeClipboard } from "@/lib/clipboard";
 
@@ -493,6 +494,7 @@ export function RobotGaragePage() {
           onFleetRecovery={offerFleetRecovery}
           onRecover={(token) => {
             recoverRobotToken(token, addSlot, updateSlotIdentityDetails);
+            playHaptic("success");
             setShowRecovery(false);
             requestRobotDataRefresh();
           }}
@@ -865,11 +867,7 @@ export function RobotSettingsDialog({
         options={slots.map((item) => ({
           value: item.token,
           label: item.nickname,
-          description: item.activeOrderId
-            ? `Order #${item.activeOrderId}`
-            : item.lastOrderId
-              ? `Last #${item.lastOrderId}`
-              : "No orders",
+          description: slotOrderStatus(item),
           icon: <RobotAvatar hashId={item.hashId} label={item.nickname} size="md" />
         }))}
         value={activeToken}
@@ -954,19 +952,16 @@ function RobotSwitcher({
           <button
             key={slot.token}
             className={`garage-switcher-item ${slot.token === activeToken ? "active" : ""}`}
-            onClick={() => onSelect(slot.token)}
+            onClick={() => {
+              if (slot.token !== activeToken) playHaptic("selection");
+              onSelect(slot.token);
+            }}
             type="button"
           >
             <RobotAvatar hashId={slot.hashId} label={slot.nickname} size="md" />
             <div className="garage-switcher-item-info">
               <span className="garage-switcher-item-name">{slot.nickname}</span>
-              <span className="garage-switcher-item-status">
-                {slot.activeOrderId
-                  ? `Order #${slot.activeOrderId}`
-                  : slot.lastOrderId
-                    ? `Last #${slot.lastOrderId}`
-                    : "No orders"}
-              </span>
+              <span className="garage-switcher-item-status">{slotOrderStatus(slot)}</span>
             </div>
           </button>
         ))}
@@ -1270,5 +1265,13 @@ function coordinatorStatus(robot?: RobotRecord): string {
   if (robot?.lastOrderId) return `Last order #${robot.lastOrderId}`;
   if (robot?.error) return robot.error;
   if (robot?.loading) return "Checking...";
+  if (robot?.releasedOrderId) return `No active orders · Last seen #${robot.releasedOrderId}`;
   return "No orders found";
+}
+
+function slotOrderStatus(slot: RobotSlot): string {
+  if (slot.activeOrderId) return `Order #${slot.activeOrderId}`;
+  if (slot.lastOrderId) return `Last #${slot.lastOrderId}`;
+  const releasedOrderId = Object.values(slot.robots).find((robot) => robot.releasedOrderId)?.releasedOrderId;
+  return releasedOrderId ? `No active orders · Last seen #${releasedOrderId}` : "No orders";
 }

@@ -98,6 +98,7 @@ final class WebBridge: NSObject {
             },
             setNotificationsEnabled() {},
             reconnectTorTransport() { post('reconnectTorTransport'); },
+            performHaptic(intent) { post('performHaptic', { intent }); },
             httpRequest(requestId, method, url, headersJson, body) {
               post('httpRequest', { requestId, verb: method, url, headersJson, body });
             },
@@ -142,6 +143,9 @@ final class WebBridge: NSObject {
             }
         case "reconnectTorTransport":
             reconnectTor()
+        case "performHaptic":
+            guard let intent = message["intent"] as? String else { return }
+            performHaptic(intent)
         case "httpRequest":
             handleHTTPRequest(message)
         case "openWebSocket":
@@ -168,6 +172,21 @@ final class WebBridge: NSObject {
         case "clientReady":
             AppDiagnostics.shared.record("Web", "Frontend reported ready")
             readinessChanged(true)
+        default:
+            break
+        }
+    }
+
+    private func performHaptic(_ intent: String) {
+        switch intent {
+        case "selection":
+            UISelectionFeedbackGenerator().selectionChanged()
+        case "commit":
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        case "success":
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+        case "reject":
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
         default:
             break
         }

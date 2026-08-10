@@ -72,6 +72,7 @@ import { formatSats } from "@/lib/format";
 import { deriveRobotIdentity } from "@/domains/identity/robotIdentity";
 import { RobotAvatar } from "@/domains/identity/RobotAvatar";
 import { writeClipboard } from "@/lib/clipboard";
+import { playHaptic } from "@/lib/haptics";
 import { requestReviewToken } from "@/domains/reviews/reviewApi";
 import { publishCoordinatorRating } from "@/domains/coordinators/coordinatorRatings";
 import { fetchChatMessages } from "@/domains/chat/chatApi";
@@ -986,9 +987,12 @@ export function TradeActionSurface({
   }
 
   const submitCommand = async (action: TradeActionCommand) => {
+    playHaptic("commit");
     setActiveActionKey(action.key);
     try {
-      return await onSubmit(action);
+      const error = await onSubmit(action);
+      if (!error) playHaptic("success");
+      return error;
     } finally {
       setActiveActionKey(null);
     }

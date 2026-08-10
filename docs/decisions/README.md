@@ -9,6 +9,7 @@ turning implementation history into a design manual.
 - [ADR-0002: Domain-owned shared state and side effects](0002-domain-owned-state-and-side-effects.md)
 - [ADR-0003: One portable maintenance gate](0003-portable-maintenance-gate.md)
 - [ADR-0004: Explicit Tor reconnect](0004-explicit-tor-reconnect.md)
+- [ADR-0005: Native semantic haptics](0005-native-semantic-haptics.md)
 
 ## Adding a decision
 

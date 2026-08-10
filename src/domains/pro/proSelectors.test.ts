@@ -110,6 +110,27 @@ describe("PRO trade selectors", () => {
     ).toEqual(["Ready Robot"]);
   });
 
+  it("marks last and released orders as prior use without changing availability", () => {
+    const unused = robotSlot("unused-token", "Unused Robot");
+    const last = robotSlot("last-token", "Last Order Robot");
+    last.robots.local.lastOrderId = 7;
+    const released = robotSlot("released-token", "Released Order Robot");
+    released.robots.local.releasedOrderId = 8;
+    const slots = [unused, last, released];
+    const summaries = summarizeProRobots(slots, {});
+
+    expect(summaries.map((robot) => [robot.nickname, robot.previouslyUsed])).toEqual([
+      ["Unused Robot", false],
+      ["Last Order Robot", true],
+      ["Released Order Robot", true]
+    ]);
+    expect(selectOfferReadyRobots(slots, summaries, {}).map((robot) => robot.nickname)).toEqual([
+      "Unused Robot",
+      "Last Order Robot",
+      "Released Order Robot"
+    ]);
+  });
+
   it("keeps a successful status baseline visible during routine refreshes", () => {
     expect(hasProRobotStatusBaseline()).toBe(false);
     const refreshing = {

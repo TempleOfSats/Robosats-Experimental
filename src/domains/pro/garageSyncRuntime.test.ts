@@ -3,6 +3,7 @@ import type { Event } from "nostr-tools/pure";
 import { SimplePool } from "nostr-tools/pool";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import { resetLiveRelaySubscriptionsForTests } from "@/domains/nostr/sharedRelayPool";
+import { verifyGarageBackup } from "@/domains/pro/garageBackupVerification";
 import { garageSecretStore } from "@/domains/pro/garageSecretStore";
 import { buildGarageRecordEvent, decodeGarageRecordEvent, garageSyncEngine } from "@/domains/pro/garageSync";
 import { activeGarageEntries, decodeGarageToken, deriveGarageRobotToken, garageTokenId } from "@/domains/pro/garageVault";
@@ -169,6 +170,46 @@ describe("Garage synchronization runtime", () => {
       coordinator("slow", "https://slow.example"),
       coordinator("accepting", "https://accepting.example")
     ], { forcePublish: true });
+    expect(useGarageVaultStore.getState().pendingOutbox()).toHaveLength(0);
+  });
+
+  it("keeps backup verification pending until the complete Fleet can be read from two relays", async () => {
+    await useGarageVaultStore.getState().setup();
+    useGarageVaultStore.getState().markBackedUp();
+    await useGarageVaultStore.getState().createDerivedRobot("Verified robot");
+    const relayEvents = new Map<string, Event[]>();
+    let secondRelayAvailable = false;
+    vi.spyOn(SimplePool.prototype, "querySync").mockImplementation(async (relays) => {
+      const relay = relays[0] ?? "";
+      if (relay.includes("second.example") && !secondRelayAvailable) throw new Error("offline");
+      return relayEvents.get(relay) ?? [];
+    });
+    vi.spyOn(SimplePool.prototype, "publish").mockImplementation((relays, event) => {
+      const relay = relays[0] ?? "";
+      if (relay.includes("second.example") && !secondRelayAvailable) {
+        return [Promise.reject(new Error("offline"))];
+      }
+      relayEvents.set(relay, [...(relayEvents.get(relay) ?? []), event]);
+      return [Promise.resolve("accepted")];
+    });
+    const coordinators = [
+      coordinator("first", "https://first.example"),
+      coordinator("second", "https://second.example")
+    ];
+    garageSyncEngine.start(() => coordinators, false);
+    await expect(verifyGarageBackup(coordinators)).resolves.toMatchObject({
+      requiredRelays: 2,
+      verified: false,
+      verifiedRelays: 1
+    });
+    expect(useGarageVaultStore.getState().pendingOutbox().length).toBeGreaterThan(0);
+
+    secondRelayAvailable = true;
+    await expect(verifyGarageBackup(coordinators)).resolves.toMatchObject({
+      requiredRelays: 2,
+      verified: true,
+      verifiedRelays: 2
+    });
     expect(useGarageVaultStore.getState().pendingOutbox()).toHaveLength(0);
   });
 

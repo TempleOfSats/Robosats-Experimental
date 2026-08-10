@@ -5,8 +5,10 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.ConnectivityManager
+import android.os.Build
 import android.util.Base64
 import android.util.Log
+import android.view.HapticFeedbackConstants
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.widget.Toast
@@ -113,6 +115,26 @@ class WebAppInterface(
     @JavascriptInterface
     fun setNotificationsEnabled(enabled: Boolean) {
         context.setNotificationsEnabled(enabled)
+    }
+
+    @JavascriptInterface
+    fun performHaptic(intent: String) {
+        val feedback = when (intent) {
+            "selection" -> HapticFeedbackConstants.CLOCK_TICK
+            "commit" -> HapticFeedbackConstants.KEYBOARD_TAP
+            "success" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                HapticFeedbackConstants.CONFIRM
+            } else {
+                HapticFeedbackConstants.VIRTUAL_KEY
+            }
+            "reject" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                HapticFeedbackConstants.REJECT
+            } else {
+                HapticFeedbackConstants.CONTEXT_CLICK
+            }
+            else -> return
+        }
+        webView.post { webView.performHapticFeedback(feedback) }
     }
 
     @JavascriptInterface

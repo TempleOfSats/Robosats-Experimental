@@ -8,6 +8,7 @@ interface RoboSatsNativeBridge {
     getTorDiagnostics(): string;
     getNotificationState(): string;
     setNotificationsEnabled(enabled: boolean): void;
+    performHaptic?(intent: "selection" | "commit" | "success" | "reject"): void;
     httpRequest(requestId: string, method: string, url: string, headersJson: string, body: string): void;
     cancelHttpRequest?(requestId: string): void;
     recoverTorTransport?(): void;

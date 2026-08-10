@@ -97,6 +97,7 @@ export function SettingsPage() {
   const initializeGarageVault = useGarageVaultStore((state) => state.initialize);
   const garageSyncStatus = useGarageVaultStore((state) => state.syncStatus);
   const garageLastSyncAt = useGarageVaultStore((state) => state.lastSyncAt);
+  const exportFleetToken = useGarageVaultStore((state) => state.exportToken);
 
   useEffect(() => {
     hydrateGarage();
@@ -458,7 +459,7 @@ export function SettingsPage() {
       ) : null}
       {showFleetKey && garageVaultStatus === "ready" ? (
         <Suspense fallback={<AppTransitionDialog title="Preparing Fleet backup" message="Opening your private Fleet key..." />}>
-          <FleetKeyDialog onClose={() => setShowFleetKey(false)} />
+          <FleetKeyDialog fleetKey={exportFleetToken()} onClose={() => setShowFleetKey(false)} />
         </Suspense>
       ) : null}
 

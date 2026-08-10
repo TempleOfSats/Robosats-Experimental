@@ -15,6 +15,7 @@ import {
   type GarageRelayQueryProgress
 } from "@/domains/pro/garageSync";
 import { activeOfferPresets } from "@/domains/pro/portableSettings";
+import { playHaptic } from "@/lib/haptics";
 
 type RecoveryStage = "idle" | "searching" | "saving" | "complete";
 
@@ -51,6 +52,7 @@ export function GarageRecoveryDialog({
     setRelayProgress(undefined);
     setStage("searching");
     setError("");
+    playHaptic("commit");
     let materialized = false;
     try {
       await waitForFeedbackPaint();
@@ -88,6 +90,7 @@ export function GarageRecoveryDialog({
       if (mounted.current) {
         setStage("complete");
         setReconciling(false);
+        playHaptic("success");
       }
     } catch (restoreError) {
       if (mounted.current) {

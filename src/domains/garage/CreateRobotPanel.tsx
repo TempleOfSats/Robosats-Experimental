@@ -11,6 +11,7 @@ import { generateRobotToken, isProFleetToken } from "@/domains/garage/token";
 import { downloadRobotTokenBackup } from "@/domains/garage/tokenBackup";
 import { cn } from "@/lib/cn";
 import { writeClipboard } from "@/lib/clipboard";
+import { playHaptic } from "@/lib/haptics";
 
 type WizardStep = "token" | "identity" | "ready";
 
@@ -121,8 +122,10 @@ export function CreateRobotPanel({
       });
       finalizeRobotSlot(cleanToken, identity.hashId, nickname, updateSlotIdentityDetails);
       setStep("ready");
+      playHaptic("success");
       return true;
     } catch {
+      playHaptic("reject");
       setError("Could not create local encryption keys. Try again.");
       return false;
     } finally {

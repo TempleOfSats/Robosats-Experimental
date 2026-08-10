@@ -494,6 +494,10 @@
     flex: 1;
   }
 
+  .maker-wizard-content:has(.maker-coordinator-box .visual-select-open) > .maker-wizard-footer {
+    visibility: hidden;
+  }
+
   .garage-page .page-heading {
     text-align: left;
   }
