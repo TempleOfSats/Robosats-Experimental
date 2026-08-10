@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   liquidityDepth,
   liquidityMarkets,
+  liquidityOrderCounts,
   liquidityTotal,
   missingLiquidityLimitAliases,
   weightedLiquidityPremium,
@@ -30,6 +31,17 @@ describe("liquidity model", () => {
     expect(liquidityMarkets(entries)[0].buyBtc).toBeCloseTo(0.3);
     expect(liquidityMarkets(entries)[0]).toMatchObject({ currency: "USD", offers: 3, sellBtc: 0.4 });
     expect(weightedLiquidityPremium(entries)).toBeCloseTo(-1.3);
+  });
+
+  it("counts offers at each observed premium in one pass", () => {
+    const counts = liquidityOrderCounts(
+      [...entries, entries[0], { ...entries[0], premium: 1.0000005 }],
+      [-2, 0, 1]
+    );
+
+    expect(counts.get(1)).toBe(3);
+    expect(counts.get(-2)).toBe(1);
+    expect(counts.get(0)).toBe(0);
   });
 
   it("requests only coordinator limits needed to price public orders", () => {

@@ -1,18 +1,29 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import type { PublicOrder } from "@/domains/orderbook/orderbook.types";
 
 const fetchCoordinatorBook = vi.hoisted(() => vi.fn());
+const fetchNostrOrderbook = vi.hoisted(() => vi.fn());
 
 vi.mock("@/domains/coordinators/coordinatorApi", () => ({
   fetchCoordinatorBook
+}));
+vi.mock("@/domains/orderbook/nostrOrderbook", () => ({
+  fetchNostrOrderbook
 }));
 
 import { useOrderbookStore } from "@/domains/orderbook/orderbookStore";
 
 describe("orderbook store reliability", () => {
   beforeEach(() => {
+    const values = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: vi.fn((key: string) => values.get(key) ?? null),
+      setItem: vi.fn((key: string, value: string) => values.set(key, value)),
+      removeItem: vi.fn((key: string) => values.delete(key))
+    });
     fetchCoordinatorBook.mockReset();
+    fetchNostrOrderbook.mockReset();
     useOrderbookStore.setState({
       orders: [],
       loading: false,
@@ -24,6 +35,10 @@ describe("orderbook store reliability", () => {
       sourceNetwork: undefined,
       sourceOrigin: undefined
     });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("does not erase confirmed offers when a live Nostr snapshot is partial", () => {
@@ -42,6 +57,30 @@ describe("orderbook store reliability", () => {
 
     useOrderbookStore.getState().applyLiveOrders([], "nostr", "mainnet", "onion", false);
     expect(useOrderbookStore.getState().orders).toEqual([]);
+  });
+
+  it("persists an authoritative Nostr snapshot once", async () => {
+    const lake = coordinator("lake", "https://lake.example");
+    const confirmed = order(1, "lake");
+    fetchNostrOrderbook.mockImplementation(async (
+      _coordinators: unknown,
+      _network: unknown,
+      options: { onOrders: (orders: PublicOrder[], meta: { authoritative: boolean; partial: boolean }) => void }
+    ) => {
+      options.onOrders([confirmed], { authoritative: true, partial: false });
+      return [confirmed];
+    });
+
+    await useOrderbookStore.getState().refreshOrderbook([lake], {
+      connection: "nostr",
+      force: true,
+      network: "mainnet",
+      origin: "onion"
+    });
+
+    expect(useOrderbookStore.getState().orders).toEqual([confirmed]);
+    expect(globalThis.localStorage.getItem).toHaveBeenCalledOnce();
+    expect(globalThis.localStorage.setItem).toHaveBeenCalledOnce();
   });
 
   it("retains an unreachable coordinator's offers when another API refresh succeeds", async () => {

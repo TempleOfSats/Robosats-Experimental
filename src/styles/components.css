@@ -569,6 +569,11 @@
 
 .ui-dialog-panel {
   outline: 0;
+  overscroll-behavior: contain;
+}
+
+[data-dialog-overlay="true"] {
+  overscroll-behavior: contain;
 }
 
 .ui-button.bg-destructive {

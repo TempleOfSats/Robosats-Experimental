@@ -82,6 +82,20 @@ export function liquidityMarkets(entries: LiquidityEntry[]): LiquidityMarket[] {
   );
 }
 
+export function liquidityOrderCounts(entries: LiquidityEntry[], premiums: Iterable<number>): Map<number, number> {
+  const observed = entries.map((entry) => entry.premium).sort((left, right) => left - right);
+  const counts = new Map<number, number>();
+  let lower = 0;
+  let upper = 0;
+  for (const premium of [...premiums].sort((left, right) => left - right)) {
+    while (lower < observed.length && observed[lower] <= premium - 0.000001) lower += 1;
+    if (upper < lower) upper = lower;
+    while (upper < observed.length && observed[upper] < premium + 0.000001) upper += 1;
+    counts.set(premium, upper - lower);
+  }
+  return counts;
+}
+
 export function liquidityTotal(entries: LiquidityEntry[], side: LiquiditySide): number {
   return sumVolume(entries, (entry) => entry.side === side);
 }

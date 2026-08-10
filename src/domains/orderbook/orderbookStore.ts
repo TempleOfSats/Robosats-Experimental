@@ -6,7 +6,6 @@ import { fetchNostrOrderbook } from "@/domains/orderbook/nostrOrderbook";
 import { activePublicOrders } from "@/domains/orderbook/orderbookFilters";
 import {
   isFreshOrderbookCache,
-  readOrderbookCache,
   readStaleOrderbookCache,
   writeOrderbookCache
 } from "@/domains/orderbook/orderbookCache";
@@ -119,7 +118,9 @@ async function runOrderbookRefresh(
   const startedAt = performance.now();
   let cachedPaintMs: number | undefined;
   let firstPartialMs: number | undefined;
-  const cached = readOrderbookCache(connection, network, origin) ?? readStaleOrderbookCache(connection, network, origin);
+  // The stale-window reader also accepts fresh entries, so one storage read
+  // is enough to classify either cache state.
+  const cached = readStaleOrderbookCache(connection, network, origin);
   const cachedOrders = cached ? activePublicOrders(cached.orders) : [];
   const cachedState = cached && isFreshOrderbookCache(cached.savedAt) ? "fresh" : "stale";
 
@@ -177,23 +178,12 @@ async function runOrderbookRefresh(
       if (!receivedAuthoritativeSnapshot) {
         throw new Error("Nostr relays are still reconnecting. Showing the last confirmed offers.");
       }
-      writeOrderbookCache(connection, network, origin, orders);
       logOrderbookTiming({
         connection,
         cachedPaintMs,
         finalMs: performance.now() - startedAt,
         firstPartialMs,
         orderCount: orders.length
-      });
-      set({
-        orders,
-        loading: false,
-        refreshing: false,
-        cacheState: "none",
-        lastUpdated: Date.now(),
-        sourceConnection: connection,
-        sourceNetwork: network,
-        sourceOrigin: origin
       });
       return;
     }

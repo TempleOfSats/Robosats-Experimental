@@ -113,15 +113,21 @@ export const useOrderStore = create<OrderState>((set, get) => ({
         shortAlias: coordinator.shortAlias
       };
       if (requestId !== requestSequence) return { status: "unchanged", order: get().order };
-      syncGarageOrder(slot, coordinator.shortAlias, order);
+      const current = get();
+      const stableOrder = stableOrderSnapshot(current.order, order);
+      const identity = loadIdentity(coordinator, slot, orderId);
+      const stableIdentity = orderLoadIdentityMatches(current.orderIdentity, identity)
+        ? current.orderIdentity
+        : identity;
+      syncGarageOrder(slot, coordinator.shortAlias, stableOrder);
       set({
-        order,
-        orderIdentity: loadIdentity(coordinator, slot, orderId),
+        order: stableOrder,
+        orderIdentity: stableIdentity,
         loading: false,
         refreshing: false,
         loadFailure: undefined
       });
-      return { status: "loaded", order };
+      return { status: "loaded", order: stableOrder };
     } catch (error) {
       if (requestId !== requestSequence) return { status: "unchanged", order: get().order };
       const currentOrder = get().order;
@@ -281,6 +287,11 @@ export function orderForLocator(
   orderId: number
 ): OrderDto | undefined {
   return order?.id === orderId && order.shortAlias === shortAlias ? order : undefined;
+}
+
+function stableOrderSnapshot(current: OrderDto | undefined, next: OrderDto): OrderDto {
+  if (!current) return next;
+  return JSON.stringify(current) === JSON.stringify(next) ? current : next;
 }
 
 function loadIdentity(

@@ -1,5 +1,5 @@
 import type { PointerEvent as ReactPointerEvent } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 type StateUpdate<T> = T | ((current: T) => T);
 type HookRuntime = {
@@ -34,6 +34,12 @@ type MapOptions = Parameters<typeof useF2FWorldMap>[0];
 type MapResult = ReturnType<typeof useF2FWorldMap>;
 
 describe("F2F world map pointer interactions", () => {
+  let animationFrames: ReturnType<typeof stubAnimationFrames>;
+
+  beforeEach(() => {
+    animationFrames = stubAnimationFrames();
+  });
+
   afterEach(() => {
     vi.unstubAllGlobals();
   });
@@ -88,8 +94,32 @@ describe("F2F world map pointer interactions", () => {
 
     map.handlePointerDown(pointerEvent(svg.element, 1, 180, 75));
     map.handlePointerMove(pointerEvent(svg.element, 1, 181, 75));
+    animationFrames.flush();
 
     expect(renderMap(runtime, options).center).toEqual([15, -0.5]);
+  });
+
+  it("coalesces repeated pan movements into one frame using the latest position", () => {
+    const runtime = createHookRuntime();
+    const options: MapOptions = {
+      dragThreshold: 0,
+      initialCenter: [15, 0],
+      initialZoom: 2,
+      maxZoom: 16,
+      minZoom: 1
+    };
+    const map = renderMap(runtime, options);
+    const svg = createSvg();
+    map.svgRef.current = svg.element;
+
+    map.handlePointerDown(pointerEvent(svg.element, 1, 180, 75));
+    map.handlePointerMove(pointerEvent(svg.element, 1, 181, 75));
+    map.handlePointerMove(pointerEvent(svg.element, 1, 182, 75));
+    map.handlePointerMove(pointerEvent(svg.element, 1, 183, 75));
+
+    expect(animationFrames.request).toHaveBeenCalledOnce();
+    animationFrames.flush();
+    expect(renderMap(runtime, options).center).toEqual([15, -1.5]);
   });
 
   it("reads geometry only for the pointer that owns an active drag", () => {
@@ -112,6 +142,7 @@ describe("F2F world map pointer interactions", () => {
     expect(svg.getBoundingClientRect).not.toHaveBeenCalled();
 
     map.handlePointerMove(pointerEvent(svg.element, 1, 181, 75));
+    animationFrames.flush();
 
     expect(svg.getBoundingClientRect).toHaveBeenCalledOnce();
     expect(renderMap(runtime, options).center).toEqual([15, -0.5]);
@@ -129,6 +160,7 @@ describe("F2F world map pointer interactions", () => {
     map.handlePointerDown(pointerEvent(svg.element, 1, 100, 75));
     map.handlePointerDown(pointerEvent(svg.element, 2, 200, 75));
     map.handlePointerMove(pointerEvent(svg.element, 2, 220, 75));
+    animationFrames.flush();
 
     map = renderMap(runtime, options);
     expect(map.zoom).toBeCloseTo(9.6);
@@ -265,4 +297,27 @@ function stubDomPoint() {
       }
     }
   );
+}
+
+function stubAnimationFrames() {
+  let nextId = 1;
+  const callbacks = new Map<number, FrameRequestCallback>();
+  const request = vi.fn((callback: FrameRequestCallback) => {
+    const id = nextId++;
+    callbacks.set(id, callback);
+    return id;
+  });
+  vi.stubGlobal("requestAnimationFrame", request);
+  vi.stubGlobal(
+    "cancelAnimationFrame",
+    vi.fn((id: number) => callbacks.delete(id))
+  );
+  return {
+    flush() {
+      const pending = [...callbacks.entries()];
+      callbacks.clear();
+      pending.forEach(([, callback]) => callback(0));
+    },
+    request
+  };
 }

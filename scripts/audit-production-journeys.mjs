@@ -19,7 +19,17 @@ preview.stderr.on("data", (chunk) => {
 
 const cases = [
   ...themeCases("dark"),
-  ...themeCases("light")
+  ...themeCases("light"),
+  {
+    name: "dark-desktop-font-timeout-recovery",
+    path: "/settings",
+    proEnabled: false,
+    theme: "dark",
+    fontAssetDelayMs: 7_000,
+    expectFontAtReveal: false,
+    maxRevealMs: 6_500,
+    viewport: { width: 1440, height: 900 }
+  }
 ];
 const failures = [];
 let browser;
@@ -34,20 +44,54 @@ try {
 
   for (const scenario of cases) {
     const context = await browser.newContext({ viewport: scenario.viewport });
-    await context.addInitScript(({ proEnabled, theme }) => {
-      localStorage.setItem("robosats_exp_ui_preferences", JSON.stringify({
-        theme,
-        fontScale: 1,
-        language: "en",
-        qrTheme: "paper"
-      }));
-      localStorage.setItem("robosats_exp_pro_preferences_v1", JSON.stringify({
-        enabled: proEnabled,
-        setupSeen: proEnabled,
-        lastView: "robots",
-        lastFilter: "all"
-      }));
-    }, { proEnabled: scenario.proEnabled, theme: scenario.theme });
+    await context.addInitScript(
+      ({ proEnabled, theme }) => {
+        globalThis.__robosatsAuditFontLoadedAtReveal = null;
+        globalThis.__robosatsAuditRevealAt = null;
+        document.addEventListener(
+          "DOMContentLoaded",
+          () => {
+            const body = document.body;
+            const publicSansLoaded = () =>
+              [...document.fonts].some(
+                (font) => font.family.replace(/["']/g, "").trim() === "Public Sans Variable" && font.status === "loaded"
+              );
+            const recordFontState = () => {
+              if (globalThis.__robosatsAuditFontLoadedAtReveal === null && !body.classList.contains("app-booting")) {
+                globalThis.__robosatsAuditFontLoadedAtReveal = publicSansLoaded();
+                globalThis.__robosatsAuditRevealAt = performance.now();
+              }
+            };
+            const observer = new MutationObserver(() => {
+              recordFontState();
+              if (globalThis.__robosatsAuditFontLoadedAtReveal !== null) observer.disconnect();
+            });
+            observer.observe(body, { attributeFilter: ["class"] });
+            recordFontState();
+          },
+          { once: true }
+        );
+        localStorage.setItem(
+          "robosats_exp_ui_preferences",
+          JSON.stringify({
+            theme,
+            fontScale: 1,
+            language: "en",
+            qrTheme: "paper"
+          })
+        );
+        localStorage.setItem(
+          "robosats_exp_pro_preferences_v1",
+          JSON.stringify({
+            enabled: proEnabled,
+            setupSeen: proEnabled,
+            lastView: "robots",
+            lastFilter: "all"
+          })
+        );
+      },
+      { proEnabled: scenario.proEnabled, theme: scenario.theme }
+    );
 
     const page = await context.newPage();
     const pageErrors = [];
@@ -66,8 +110,11 @@ try {
     await page.route("**/*", async (route) => {
       const url = new URL(route.request().url());
       if (url.origin === baseUrl || url.protocol === "data:" || url.protocol === "blob:") {
-        if (scenario.localAssetDelayMs && isLocalAssetRequest(route.request())) {
-          await new Promise((resolve) => setTimeout(resolve, scenario.localAssetDelayMs));
+        const requestDelayMs = route.request().resourceType() === "font"
+          ? (scenario.fontAssetDelayMs ?? scenario.localAssetDelayMs)
+          : scenario.localAssetDelayMs;
+        if (requestDelayMs && isLocalAssetRequest(route.request())) {
+          await new Promise((resolve) => setTimeout(resolve, requestDelayMs));
         }
         await route.continue();
       } else {
@@ -84,16 +131,23 @@ try {
         throw new Error(`HTTP ${response?.status() ?? "no response"}`);
       }
       await page.locator("html[data-robosats-app-ready='true']").waitFor({ timeout: 15_000 });
+      await page.locator("body:not(.app-booting)").waitFor({ timeout: 10_000 });
       await page.locator("#main-content").waitFor({ state: "visible", timeout: 10_000 });
       await page.waitForTimeout(250);
 
       const metrics = await page.evaluate(() => {
         const main = document.querySelector("#main-content");
+        const publicSansLoaded = [...document.fonts].some(
+          (font) => font.family.replace(/["']/g, "").trim() === "Public Sans Variable" && font.status === "loaded"
+        );
         return {
           errorBoundary: Boolean(document.querySelector(".app-error-boundary")),
+          fontLoaded: publicSansLoaded,
+          fontLoadedAtReveal: globalThis.__robosatsAuditFontLoadedAtReveal,
+          revealMs: globalThis.__robosatsAuditRevealAt,
           horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 2,
           mainText: main?.textContent?.trim() ?? "",
-          latinFontPreloaded: performance
+          latinFontRequested: performance
             .getEntriesByType("resource")
             .some((entry) => entry.name.includes("public-sans-latin-wght-normal")),
           theme: document.documentElement.dataset.theme
@@ -102,7 +156,31 @@ try {
       if (metrics.errorBoundary) throw new Error("Application error boundary rendered");
       if (metrics.horizontalOverflow) throw new Error("Page has horizontal viewport overflow");
       if (!metrics.mainText) throw new Error("Main content is empty");
-      if (!metrics.latinFontPreloaded) throw new Error("Latin font preload was not requested");
+      if (scenario.expectFontAtReveal === false) {
+        if (metrics.fontLoadedAtReveal !== false) {
+          throw new Error("Font-timeout recovery did not reveal with the fallback font");
+        }
+        if (!Number.isFinite(metrics.revealMs) || metrics.revealMs > scenario.maxRevealMs) {
+          throw new Error(`Font-timeout recovery revealed too late: ${metrics.revealMs ?? "unknown"}ms`);
+        }
+        const recoveredFont = await page.evaluate(async () => {
+          await document.fonts.load('400 1em "Public Sans Variable"', "RoboSats");
+          return {
+            loaded: [...document.fonts].some(
+              (font) => font.family.replace(/["']/g, "").trim() === "Public Sans Variable" && font.status === "loaded"
+            ),
+            requested: performance
+              .getEntriesByType("resource")
+              .some((entry) => entry.name.includes("public-sans-latin-wght-normal"))
+          };
+        });
+        if (!recoveredFont.requested) throw new Error("Latin font was not requested after the bounded boot fallback");
+        if (!recoveredFont.loaded) throw new Error("Latin font did not recover after the bounded boot fallback");
+      } else {
+        if (!metrics.latinFontRequested) throw new Error("Latin font was not requested on demand");
+        if (!metrics.fontLoaded) throw new Error("Latin font was not loaded after the application became visible");
+        if (!metrics.fontLoadedAtReveal) throw new Error("Latin font was not ready when the loading screen left");
+      }
       if (metrics.theme !== scenario.theme) throw new Error(`Expected ${scenario.theme} theme, received ${metrics.theme}`);
       if (pageErrors.length > 0) throw new Error(`Runtime errors: ${pageErrors.join(" | ")}`);
       if (assetFailures.length > 0) throw new Error(`Local asset failures: ${assetFailures.join(" | ")}`);
@@ -197,6 +275,7 @@ function themeCases(theme) {
       name: `${theme}-desktop-offers-tor-like`,
       path: "/offers",
       proEnabled: false,
+      fontAssetDelayMs: 800,
       localAssetDelayMs: 150,
       viewport: { width: 1440, height: 900 }
     },

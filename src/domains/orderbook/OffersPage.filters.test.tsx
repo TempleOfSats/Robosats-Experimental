@@ -208,6 +208,32 @@ describe("OffersPage filters", () => {
     expect(container.querySelector(".orderbook-update-context")).toBeNull();
   });
 
+  it("uses one consolidated skeleton group and explains a slow Tor connection", async () => {
+    vi.useFakeTimers();
+    useOrderbookStore.setState({ orders: [], loading: true, refreshing: false });
+
+    try {
+      await act(async () => {
+        root.render(
+          <MemoryRouter>
+            <OffersPage />
+          </MemoryRouter>
+        );
+      });
+
+      expect(container.querySelectorAll(".offer-skeleton-rows")).toHaveLength(1);
+      expect(container.querySelectorAll(".offer-skeleton-rows .offer-row-skeleton")).toHaveLength(10);
+      expect(container.querySelector(".orderbook-refresh-state")?.textContent).toContain("Connecting to coordinators");
+
+      await act(async () => vi.advanceTimersByTimeAsync(5_000));
+      expect(container.querySelector(".orderbook-refresh-state")?.textContent).toContain(
+        "Still connecting — Tor may need a little longer"
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("starts a fresh Nostr session when the user explicitly refreshes", async () => {
     const refreshOrderbook = vi.fn(async () => undefined);
     useFederationStore.setState({ connection: "nostr" });

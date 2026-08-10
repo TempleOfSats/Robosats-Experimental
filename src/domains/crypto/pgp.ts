@@ -1,28 +1,10 @@
-import { sha256 } from "js-sha256";
+import type { PgpKeyPair } from "@/domains/crypto/pgpKeyGeneration";
 export { escapeArmoredKeyForHeader } from "@/domains/crypto/pgpHeaders";
-
-export interface PgpKeyPair {
-  publicKeyArmored: string;
-  encryptedPrivateKeyArmored: string;
-}
+export type { PgpKeyPair } from "@/domains/crypto/pgpKeyGeneration";
 
 export async function generatePgpKeyPair(highEntropyToken: string): Promise<PgpKeyPair> {
-  const { generateKey } = await import("openpgp/lightweight");
-  const date = new Date();
-  date.setDate(date.getDate() - 1);
-  const keyPair = await generateKey({
-    type: "ecc",
-    curve: "curve25519Legacy",
-    userIDs: [{ name: `RoboSats ID ${sha256(sha256(highEntropyToken))}` }],
-    passphrase: highEntropyToken,
-    format: "armored",
-    date
-  });
-
-  return {
-    publicKeyArmored: String(keyPair.publicKey),
-    encryptedPrivateKeyArmored: String(keyPair.privateKey)
-  };
+  const { generatePgpKeyPairOffMainThread } = await import("@/domains/crypto/pgpKeyGenerationClient");
+  return generatePgpKeyPairOffMainThread(highEntropyToken);
 }
 
 export async function isCoordinatorCompatiblePgpKeyPair(

@@ -904,8 +904,9 @@
 .confirm-sheet {
   position: relative;
   width: min(100%, 36rem);
-  max-height: min(40rem, calc(100vh - 2rem));
+  max-height: min(40rem, calc(100dvh - 2rem));
   overflow: auto;
+  overscroll-behavior: contain;
   display: grid;
   gap: 1rem;
   border: 1px solid var(--border);

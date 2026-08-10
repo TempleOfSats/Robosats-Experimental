@@ -198,6 +198,19 @@ describe("desktop trade feedback", () => {
 
     expect((playTradeAudioMock.mock.calls as unknown[][]).filter(([event]) => event === "successful")).toHaveLength(2);
   });
+
+  it("bounds remembered order snapshots in long-running sessions", () => {
+    startOrderFeedbackRuntime();
+    for (let id = 1; id <= 65; id += 1) observe({ id, status: 1 });
+    playTradeAudioMock.mockClear();
+    showDesktopOrderNotificationMock.mockClear();
+
+    observe({ id: 1, status: 2 });
+    expect(showDesktopOrderNotificationMock).not.toHaveBeenCalled();
+
+    observe({ id: 65, status: 2 });
+    expect(showDesktopOrderNotificationMock).toHaveBeenCalledOnce();
+  });
 });
 
 function observe(order: Partial<OrderDto>, authoritative = true): void {

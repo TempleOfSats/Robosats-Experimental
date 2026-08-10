@@ -1,5 +1,7 @@
 import {
   type KeyboardEvent,
+  memo,
+  useCallback,
   useMemo,
   useState
 } from "react";
@@ -61,15 +63,15 @@ export function F2FOffersMapDialog({
   const groups = useMemo(() => groupCashF2FOffers(offers), [offers]);
   const selectedGroup = groups.find((group) => group.key === selectedGroupKey);
   const displayedOffers = selectedGroup?.orders ?? offers;
-  const unmappedCount = offers.filter((order) => (
+  const unmappedCount = useMemo(() => offers.filter((order) => (
     !hasApproximateF2FLocation(order.latitude, order.longitude)
-  )).length;
+  )).length, [offers]);
 
-  function showAllAreas() {
+  const showAllAreas = useCallback(() => {
     setSelectedGroupKey(undefined);
     setCenter(MAP_DEFAULT_CENTER);
     setZoom(1);
-  }
+  }, [setCenter, setZoom]);
 
   function selectGroup(key: string, latitude: number, longitude: number) {
     setSelectedGroupKey(key);
@@ -201,62 +203,89 @@ export function F2FOffersMapDialog({
           </div>
         </div>
 
-        <section className="f2f-offers-list" aria-label="Cash F2F offers">
-          <div className="f2f-offers-list-heading">
-            <div>
-              <strong>{selectedGroup ? "Offers in this area" : "All Cash F2F offers"}</strong>
-              <small>
-                {selectedGroup
-                  ? formatApproximateF2FLocation(selectedGroup.latitude, selectedGroup.longitude)
-                  : unmappedCount > 0
-                    ? `${unmappedCount} ${unmappedCount === 1 ? "offer has" : "offers have"} no public map position`
-                    : "Select an area or review an offer"}
-              </small>
-            </div>
-            {selectedGroup ? (
-              <Button onClick={showAllAreas} size="sm" type="button" variant="ghost">Show all</Button>
-            ) : null}
-          </div>
-
-          <div className="f2f-offers-list-scroll">
-            {displayedOffers.map((order) => {
-              const coordinator = coordinators.find((item) => item.shortAlias === order.coordinatorShortAlias);
-              const currency = order.currencyCode ?? String(order.currency);
-              const buying = isTakerBuying(order);
-              return (
-                <button
-                  className="f2f-offer-list-item"
-                  key={`${order.coordinatorShortAlias}-${order.id}`}
-                  onClick={() => onSelectOffer(order)}
-                  type="button"
-                >
-                  <span className={buying ? "offer-direction offer-direction-buy" : "offer-direction offer-direction-sell"}>
-                    {buying ? <ArrowDownLeft size={17} /> : <ArrowUpRight size={17} />}
-                    <small>{buying ? "BUY" : "SELL"}</small>
-                  </span>
-                  <span className="f2f-offer-list-main">
-                    <strong>
-                      <span>{formatOfferAmount(order)}</span>
-                      <span className="f2f-offer-list-currency">{currency}</span>
-                      <CurrencyFlag code={currency} size={16} />
-                    </strong>
-                    <small><PaymentMethodIcons text={order.payment_method} size={16} />{order.payment_method}</small>
-                  </span>
-                  <span className={premiumClassName(order.premium)}>{formatPremium(order.premium)}</span>
-                  <span className="f2f-offer-list-coordinator">
-                    {coordinator ? <img alt="" className="coordinator-avatar coordinator-avatar-xs" src={coordinator.smallAvatarUrl} /> : null}
-                    <small>{coordinator?.longAlias ?? order.coordinatorShortAlias}</small>
-                  </span>
-                  <span className="f2f-offer-list-review">Review</span>
-                </button>
-              );
-            })}
-          </div>
-        </section>
+        <F2FOffersList
+          coordinators={coordinators}
+          displayedOffers={displayedOffers}
+          onSelectOffer={onSelectOffer}
+          onShowAll={showAllAreas}
+          selectedGroup={selectedGroup}
+          unmappedCount={unmappedCount}
+        />
       </div>
     </Dialog>
   );
 }
+
+const F2FOffersList = memo(function F2FOffersList({
+  coordinators,
+  displayedOffers,
+  onSelectOffer,
+  onShowAll,
+  selectedGroup,
+  unmappedCount
+}: {
+  coordinators: CoordinatorSummary[];
+  displayedOffers: PublicOrder[];
+  onSelectOffer: (order: PublicOrder) => void;
+  onShowAll: () => void;
+  selectedGroup: ReturnType<typeof groupCashF2FOffers>[number] | undefined;
+  unmappedCount: number;
+}) {
+  return (
+    <section className="f2f-offers-list" aria-label="Cash F2F offers">
+      <div className="f2f-offers-list-heading">
+        <div>
+          <strong>{selectedGroup ? "Offers in this area" : "All Cash F2F offers"}</strong>
+          <small>
+            {selectedGroup
+              ? formatApproximateF2FLocation(selectedGroup.latitude, selectedGroup.longitude)
+              : unmappedCount > 0
+                ? `${unmappedCount} ${unmappedCount === 1 ? "offer has" : "offers have"} no public map position`
+                : "Select an area or review an offer"}
+          </small>
+        </div>
+        {selectedGroup ? (
+          <Button onClick={onShowAll} size="sm" type="button" variant="ghost">Show all</Button>
+        ) : null}
+      </div>
+
+      <div className="f2f-offers-list-scroll">
+        {displayedOffers.map((order) => {
+          const coordinator = coordinators.find((item) => item.shortAlias === order.coordinatorShortAlias);
+          const currency = order.currencyCode ?? String(order.currency);
+          const buying = isTakerBuying(order);
+          return (
+            <button
+              className="f2f-offer-list-item"
+              key={`${order.coordinatorShortAlias}-${order.id}`}
+              onClick={() => onSelectOffer(order)}
+              type="button"
+            >
+              <span className={buying ? "offer-direction offer-direction-buy" : "offer-direction offer-direction-sell"}>
+                {buying ? <ArrowDownLeft size={17} /> : <ArrowUpRight size={17} />}
+                <small>{buying ? "BUY" : "SELL"}</small>
+              </span>
+              <span className="f2f-offer-list-main">
+                <strong>
+                  <span>{formatOfferAmount(order)}</span>
+                  <span className="f2f-offer-list-currency">{currency}</span>
+                  <CurrencyFlag code={currency} size={16} />
+                </strong>
+                <small><PaymentMethodIcons text={order.payment_method} size={16} />{order.payment_method}</small>
+              </span>
+              <span className={premiumClassName(order.premium)}>{formatPremium(order.premium)}</span>
+              <span className="f2f-offer-list-coordinator">
+                {coordinator ? <img alt="" className="coordinator-avatar coordinator-avatar-xs" src={coordinator.smallAvatarUrl} /> : null}
+                <small>{coordinator?.longAlias ?? order.coordinatorShortAlias}</small>
+              </span>
+              <span className="f2f-offer-list-review">Review</span>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+});
 
 function isTakerBuying(order: PublicOrder): boolean {
   return roleBuysBitcoin(order.type, "taker");

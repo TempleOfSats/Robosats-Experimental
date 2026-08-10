@@ -1,4 +1,4 @@
-import { defineConfig, type Plugin } from "vite";
+import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -42,7 +42,6 @@ export default defineConfig(({ command, mode }) => {
     plugins: [
       react(),
       ...(versionStatic ? [versionStaticAssets(staticRevision)] : []),
-      preloadLatinFont(),
       ...(command === "build" ? [deferApplicationStyles()] : [])
     ],
     resolve: {
@@ -55,15 +54,22 @@ export default defineConfig(({ command, mode }) => {
         { find: "@", replacement: sourcePath }
       ]
     },
+    worker: {
+      rolldownOptions: {
+        output: {
+          entryFileNames: `${assetDirectory}/robosats-exp.[name].[hash].js`,
+          chunkFileNames: `${assetDirectory}/robosats-exp.[name].[hash].js`,
+          assetFileNames: `${assetDirectory}/robosats-exp.[name].[hash].[ext]`
+        }
+      }
+    },
     build: {
       chunkSizeWarningLimit: 750,
-      // Keep first paint free from eager route/crypto fetches. Once a lazy
-      // route is requested, preload its shared dependencies in parallel to
-      // avoid serial request waterfalls over Tor.
+      // The HTML entry may preload only its mandatory static dependencies.
+      // Lazy routes retain their own dependency preloads so route, OpenPGP,
+      // map, and robot-generation boundaries remain demand-driven.
       modulePreload: {
-        polyfill: true,
-        resolveDependencies: (_filename, dependencies, context) =>
-          context.hostType === "html" ? [] : dependencies
+        polyfill: true
       },
       outDir: "dist",
       sourcemap: false,
@@ -125,6 +131,13 @@ export default defineConfig(({ command, mode }) => {
                 includeDependenciesRecursively: true
               },
               {
+                name: "pro-dialogs",
+                test: /src[\\/]domains[\\/]pro[\\/](?:FleetKeyDialog|GarageSetupDialog|GarageRecoveryDialog|ProWorkspaceDialogs)\.tsx$/,
+                priority: 25,
+                minSize: 0,
+                includeDependenciesRecursively: false
+              },
+              {
                 name: "route-icons",
                 test: /node_modules[\\/]lucide-react[\\/]/,
                 priority: 20,
@@ -165,36 +178,6 @@ function versionStaticAssets(revision: string) {
       const versionedPath = resolve(distStaticPath, revision);
       renameSync(unversionedPath, versionedPath);
       rewriteStaticTextFiles(versionedPath, versionedPrefix);
-    }
-  };
-}
-
-function preloadLatinFont(): Plugin {
-  let latinFontPath = "";
-  return {
-    name: "robosats-preload-latin-font",
-    apply: "build",
-    generateBundle(_options, bundle) {
-      for (const fileName of Object.keys(bundle)) {
-        if (/public-sans-latin-wght-normal\.[^/]+\.woff2$/.test(fileName)) {
-          latinFontPath = "/" + fileName;
-        }
-      }
-    },
-    writeBundle(options) {
-      if (!latinFontPath) throw new Error("Public Sans Latin font asset was not emitted");
-      const outDir = options.dir ?? "dist";
-      const htmlPath = resolve(outDir, "index.html");
-      const html = readFileSync(htmlPath, "utf8");
-      if (html.includes('rel="preload" as="font"')) return;
-      if (!html.includes("</head>")) throw new Error("Build output is missing the closing head tag");
-      writeFileSync(
-        htmlPath,
-        html.replace(
-          "</head>",
-          `  <link rel="preload" as="font" type="font/woff2" href="${latinFontPath}" crossorigin>\n  </head>`
-        )
-      );
     }
   };
 }

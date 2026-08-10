@@ -10,7 +10,8 @@ vi.mock("@/domains/identity/RobotAvatar", () => ({
 }));
 
 import { useFederationStore } from "@/domains/coordinators/federationStore";
-import { useGarageStore } from "@/domains/garage/garageStore";
+import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
+import { type RobotSlot, useGarageStore } from "@/domains/garage/garageStore";
 import { CreateOrderPage } from "@/domains/maker/CreateOrderPage";
 import { usePortableSettingsStore } from "@/domains/pro/portableSettingsStore";
 import { defaultProPreferences, useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
@@ -34,6 +35,7 @@ beforeEach(() => {
 afterEach(async () => {
   if (root) await act(async () => root?.unmount());
   root = undefined;
+  vi.restoreAllMocks();
   document.body.innerHTML = "";
 });
 
@@ -76,6 +78,46 @@ describe("Create order presentation", () => {
     expect(document.querySelector('.maker-step-frame-forward[data-step="review"]')).not.toBeNull();
     expect(document.body.textContent).toContain("Wise");
   });
+
+  it("enables review immediately while rejecting only a rapid second pointer click", async () => {
+    vi.spyOn(performance, "now").mockReturnValue(1_000);
+    useFederationStore.setState({ coordinators: [coordinator] });
+    useGarageStore.setState({ slots: [slot], currentToken: slot.token });
+    root = createRoot(document.querySelector("#root")!);
+    await act(async () => {
+      root?.render(
+        <MemoryRouter
+          initialEntries={[
+            {
+              pathname: "/create",
+              state: {
+                prefillDraft: {
+                  amount: "250",
+                  currency: 1,
+                  paymentMethod: "Wise",
+                  type: 0
+                }
+              }
+            }
+          ]}
+        >
+          <CreateOrderPage />
+        </MemoryRouter>
+      );
+      await Promise.resolve();
+    });
+
+    await click(stepButton("Amount"));
+    await click(stepButton("Review offer"));
+    const create = stepButton("Create offer");
+    expect(create.disabled).toBe(false);
+
+    let accepted = true;
+    await act(async () => {
+      accepted = create.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, detail: 2 }));
+    });
+    expect(accepted).toBe(false);
+  });
 });
 
 function stepButton(label: string): HTMLButtonElement {
@@ -92,3 +134,35 @@ async function click(button: HTMLButtonElement): Promise<void> {
     await Promise.resolve();
   });
 }
+
+const coordinator = {
+  shortAlias: "lake",
+  longAlias: "TheBigLake",
+  color: "#000000",
+  url: "https://coordinator.example",
+  avatarUrl: "/lake.webp",
+  smallAvatarUrl: "/lake.small.webp",
+  badgeIcons: [],
+  enabled: true,
+  online: true
+} satisfies CoordinatorSummary;
+
+const slot: RobotSlot = {
+  token: "test-token",
+  hashId: "test-hash",
+  tokenSHA256: "slot-token",
+  nostrPubKey: "nostr-pubkey",
+  nostrSecKey: new Uint8Array(32),
+  entropyBits: 128,
+  hasEnoughEntropy: true,
+  shannonEntropy: 4,
+  nickname: "ReadyRobot",
+  earnedRewards: 0,
+  robots: {
+    lake: {
+      token: "test-token",
+      tokenSHA256: "lake-token",
+      shortAlias: "lake"
+    }
+  }
+};

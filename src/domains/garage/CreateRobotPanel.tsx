@@ -283,6 +283,8 @@ function finalizeRobotSlot(
   });
 
   scheduleBackgroundIdentityWork(() => {
+    const slot = useGarageStore.getState().slots.find((candidate) => candidate.token === token);
+    if (!slot || Object.values(slot.robots).some((robot) => robot.pubKey && robot.encPrivKey)) return;
     void import("@/domains/crypto/pgp")
       .then(({ generatePgpKeyPair }) => generatePgpKeyPair(token))
       .then((keyPair) => {

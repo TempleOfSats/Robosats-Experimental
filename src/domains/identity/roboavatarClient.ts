@@ -10,33 +10,17 @@ export async function generateRobohash(hashId: string): Promise<string> {
   if (!hashId) return "";
   const cacheKey = hashId;
   const cached = avatarCache.get(cacheKey);
-  if (cached) return cached;
-
-  const persisted = await readPersistedAvatar(cacheKey);
-  if (persisted) {
-    avatarCache.set(cacheKey, persisted);
-    return persisted;
-  }
-  const legacyPersisted =
-    (await readPersistedAvatar(`${hashId};large`)) ?? (await readPersistedAvatar(`${hashId};small`));
-  if (legacyPersisted) {
-    avatarCache.set(cacheKey, legacyPersisted);
-    void persistAvatar(cacheKey, legacyPersisted);
-    return legacyPersisted;
+  if (cached) {
+    rememberAvatar(cacheKey, cached);
+    return cached;
   }
 
   const pending = avatarPromiseCache.get(cacheKey);
   if (pending) return pending;
 
-  const promise = generateBrowserRobohash(hashId)
-    .then((image) => {
-      avatarCache.set(cacheKey, image);
-      void persistAvatar(cacheKey, image);
-      return image;
-    })
-    .finally(() => {
-      avatarPromiseCache.delete(cacheKey);
-    });
+  const promise = loadOrGenerateAvatar(hashId).finally(() => {
+    avatarPromiseCache.delete(cacheKey);
+  });
 
   avatarPromiseCache.set(cacheKey, promise);
   return promise;
@@ -47,15 +31,48 @@ export function prewarmRobotAvatar(hashId: string): void {
   void generateRobohash(hashId).catch(() => undefined);
 }
 
-async function readPersistedAvatar(cacheKey: string): Promise<string | undefined> {
+async function loadOrGenerateAvatar(hashId: string): Promise<string> {
+  const persisted = await readPersistedAvatar(hashId);
+  if (persisted) {
+    rememberAvatar(hashId, persisted.image);
+    if (persisted.legacy) void persistAvatar(hashId, persisted.image);
+    return persisted.image;
+  }
+
+  const image = await generateBrowserRobohash(hashId);
+  rememberAvatar(hashId, image);
+  void persistAvatar(hashId, image);
+  return image;
+}
+
+async function readPersistedAvatar(hashId: string): Promise<{ image: string; legacy: boolean } | undefined> {
   if (typeof caches === "undefined") return undefined;
   try {
     const cache = await caches.open(AVATAR_CACHE_NAME);
-    const response = await cache.match(avatarCacheRequest(cacheKey));
-    const value = await response?.text();
-    return /^data:image\/(?:png|svg\+xml);base64,/.test(value ?? "") ? value : undefined;
+    for (const [cacheKey, legacy] of [
+      [hashId, false],
+      [`${hashId};large`, true],
+      [`${hashId};small`, true]
+    ] as const) {
+      const response = await cache.match(avatarCacheRequest(cacheKey));
+      const value = await response?.text();
+      if (value && /^data:image\/(?:png|svg\+xml);base64,/.test(value)) {
+        return { image: value, legacy };
+      }
+    }
+    return undefined;
   } catch {
     return undefined;
+  }
+}
+
+function rememberAvatar(cacheKey: string, image: string): void {
+  avatarCache.delete(cacheKey);
+  avatarCache.set(cacheKey, image);
+  while (avatarCache.size > AVATAR_CACHE_LIMIT) {
+    const oldestKey = avatarCache.keys().next().value;
+    if (oldestKey === undefined) break;
+    avatarCache.delete(oldestKey);
   }
 }
 

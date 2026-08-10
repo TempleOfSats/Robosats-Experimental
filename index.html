@@ -234,6 +234,8 @@
         let appReady = false;
         let pendingStyles = applicationStyles.length;
         let styleLoadFailed = false;
+        let applicationFontReady = !document.fonts;
+        let applicationFontLoadStarted = false;
         let ready = false;
         let finished = false;
         let previousFrame = startedAt;
@@ -277,10 +279,35 @@
 
         const maybeFinish = () => {
           if (!appReady || pendingStyles > 0 || styleLoadFailed) return;
+          if (!applicationFontLoadStarted) {
+            loadApplicationFont();
+            return;
+          }
+          if (!applicationFontReady) return;
           ready = true;
           stageTarget = 100;
           setMessage("RoboSats is ready.");
           finish();
+        };
+
+        const loadApplicationFont = () => {
+          if (applicationFontLoadStarted) return;
+          applicationFontLoadStarted = true;
+          if (!document.fonts) {
+            applicationFontReady = true;
+            maybeFinish();
+            return;
+          }
+
+          let settled = false;
+          const complete = () => {
+            if (settled) return;
+            settled = true;
+            applicationFontReady = true;
+            maybeFinish();
+          };
+          window.setTimeout(complete, 5000);
+          document.fonts.load('400 1em "Public Sans Variable"', "RoboSats").then(complete, complete);
         };
 
         const activateApplicationStyles = () => {

@@ -146,7 +146,7 @@ export function CreateOrderPage() {
   const [selectedShortAlias, setSelectedShortAlias] = useState(() => renewal?.shortAlias ?? "");
   const [currentStep, setCurrentStep] = useState(() => renewal?.prefillDraft ? wizardSteps.length - 1 : 0);
   const [stepDirection, setStepDirection] = useState<"forward" | "backward">("forward");
-  const [reviewReady, setReviewReady] = useState(false);
+  const reviewOpenedAt = useRef(Number.NEGATIVE_INFINITY);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [creatingOfferNotice, setCreatingOfferNotice] = useState(() => renewal?.creatingOfferAs);
@@ -223,18 +223,6 @@ export function CreateOrderPage() {
       updateDraft({ currency: BTC_CURRENCY_ID });
     }
   }, [draft.currency, draft.isSwap]);
-
-  useEffect(() => {
-    if (currentStep !== wizardSteps.length - 1) {
-      setReviewReady(false);
-      return;
-    }
-
-    // Keep a rapid second click on Continue from activating the newly mounted
-    // Create button in the same screen position.
-    const timer = window.setTimeout(() => setReviewReady(true), 650);
-    return () => window.clearTimeout(timer);
-  }, [currentStep]);
 
   function updateDraft(patch: Partial<CreateOrderDraft>) {
     setDraft((current) => ({ ...current, ...patch }));
@@ -336,6 +324,7 @@ export function CreateOrderPage() {
 
     setSubmitError("");
     setStepDirection("forward");
+    if (currentStep === wizardSteps.length - 2) reviewOpenedAt.current = performance.now();
     setCurrentStep((step) => Math.min(wizardSteps.length - 1, step + 1));
   }
 
@@ -351,7 +340,6 @@ export function CreateOrderPage() {
       nextStep();
       return;
     }
-    if (!reviewReady) return;
     if (presetEditor) {
       if (!saveCurrentPreset(presetName.trim(), renewal?.presetEditor?.id)) return;
       setProLastView("robots");
@@ -568,7 +556,20 @@ export function CreateOrderPage() {
                     <ArrowRight size={16} />
                   </Button>
                 ) : (
-                  <Button type="submit" size="lg" loading={submitting} disabled={!canSubmit || !reviewReady}>
+                  <Button
+                    type="submit"
+                    size="lg"
+                    loading={submitting}
+                    disabled={!canSubmit}
+                    onClick={(event) => {
+                      // Ignore only the second pointer click that can land on
+                      // this newly mounted button. First clicks and keyboard
+                      // submissions remain immediately available.
+                      if (event.detail > 1 && performance.now() - reviewOpenedAt.current < 650) {
+                        event.preventDefault();
+                      }
+                    }}
+                  >
                     {presetEditor ? <Save size={18} /> : <PlusCircle size={18} />}
                     {presetEditor ? "Save preset" : "Create offer"}
                   </Button>

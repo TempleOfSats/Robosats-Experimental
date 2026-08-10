@@ -18,6 +18,23 @@ const FOCUSABLE_SELECTOR = [
   "[tabindex]:not([tabindex='-1'])"
 ].join(",");
 
+type DocumentLockState = {
+  appRoot?: HTMLElement;
+  appRootWasInert: boolean;
+  body: Pick<CSSStyleDeclaration, "paddingRight" | "position" | "top" | "width">;
+  htmlOverflow: string;
+  locationHref: string;
+  scrollY: number;
+};
+
+let documentLockCount = 0;
+let documentLockState: DocumentLockState | undefined;
+const openDialogOverlays: Array<{
+  element: HTMLElement;
+  previousAriaHidden: string | null;
+  wasInert: boolean;
+}> = [];
+
 type DialogProps = PropsWithChildren<{
   ariaDescribedby?: string;
   ariaLabel?: string;
@@ -45,6 +62,7 @@ export function Dialog({
   panelProps
 }: DialogProps) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
   const returnFocusRef = useRef<HTMLElement | null>(
     typeof document !== "undefined" && document.activeElement instanceof HTMLElement
       ? document.activeElement
@@ -55,6 +73,12 @@ export function Dialog({
   useEffect(() => {
     onCloseRef.current = onClose;
   }, [onClose]);
+
+  useEffect(() => {
+    const overlay = overlayRef.current;
+    if (!overlay) return;
+    return lockDocumentForDialog(overlay);
+  }, []);
 
   useEffect(() => {
     const panel = panelRef.current;
@@ -133,7 +157,7 @@ export function Dialog({
   }
 
   const dialog = (
-    <div className={overlayClassName} onClick={handleBackdropClick} data-dialog-overlay="true">
+    <div className={overlayClassName} onClick={handleBackdropClick} data-dialog-overlay="true" ref={overlayRef}>
       <div
         {...panelProps}
         aria-describedby={ariaDescribedby}
@@ -152,4 +176,80 @@ export function Dialog({
   );
 
   return typeof document === "undefined" ? dialog : createPortal(dialog, document.body);
+}
+
+function lockDocumentForDialog(overlay: HTMLElement): () => void {
+  documentLockCount += 1;
+  if (documentLockCount === 1) {
+    const appRoot = document.querySelector<HTMLElement>(".app-runtime")
+      ?? document.querySelector<HTMLElement>("#root");
+    const scrollbarWidth = Math.max(0, window.innerWidth - document.documentElement.clientWidth);
+    const bodyPaddingRight = Number.parseFloat(window.getComputedStyle(document.body).paddingRight) || 0;
+    documentLockState = {
+      appRoot: appRoot ?? undefined,
+      appRootWasInert: appRoot?.inert ?? false,
+      body: {
+        paddingRight: document.body.style.paddingRight,
+        position: document.body.style.position,
+        top: document.body.style.top,
+        width: document.body.style.width
+      },
+      htmlOverflow: document.documentElement.style.overflow,
+      locationHref: window.location.href,
+      scrollY: window.scrollY
+    };
+    if (appRoot) appRoot.inert = true;
+    document.documentElement.style.overflow = "hidden";
+    document.body.style.position = "fixed";
+    document.body.style.top = `-${window.scrollY}px`;
+    document.body.style.width = "100%";
+    if (scrollbarWidth > 0) document.body.style.paddingRight = `${bodyPaddingRight + scrollbarWidth}px`;
+  }
+  const dialogOverlay = {
+    element: overlay,
+    previousAriaHidden: overlay.getAttribute("aria-hidden"),
+    wasInert: overlay.inert
+  };
+  openDialogOverlays.push(dialogOverlay);
+  updateDialogOverlayIsolation();
+
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const overlayIndex = openDialogOverlays.indexOf(dialogOverlay);
+    if (overlayIndex >= 0) openDialogOverlays.splice(overlayIndex, 1);
+    restoreDialogOverlay(dialogOverlay);
+    updateDialogOverlayIsolation();
+    documentLockCount = Math.max(0, documentLockCount - 1);
+    if (documentLockCount > 0 || !documentLockState) return;
+
+    const state = documentLockState;
+    documentLockState = undefined;
+    if (state.appRoot) state.appRoot.inert = state.appRootWasInert;
+    document.documentElement.style.overflow = state.htmlOverflow;
+    document.body.style.paddingRight = state.body.paddingRight;
+    document.body.style.position = state.body.position;
+    document.body.style.top = state.body.top;
+    document.body.style.width = state.body.width;
+    if (window.location.href === state.locationHref) window.scrollTo(0, state.scrollY);
+  };
+}
+
+function updateDialogOverlayIsolation(): void {
+  const topmost = openDialogOverlays.at(-1);
+  for (const dialog of openDialogOverlays) {
+    if (dialog === topmost) {
+      restoreDialogOverlay(dialog);
+      continue;
+    }
+    dialog.element.inert = true;
+    dialog.element.setAttribute("aria-hidden", "true");
+  }
+}
+
+function restoreDialogOverlay(dialog: (typeof openDialogOverlays)[number]): void {
+  dialog.element.inert = dialog.wasInert;
+  if (dialog.previousAriaHidden === null) dialog.element.removeAttribute("aria-hidden");
+  else dialog.element.setAttribute("aria-hidden", dialog.previousAriaHidden);
 }
