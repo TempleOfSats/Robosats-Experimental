@@ -117,9 +117,9 @@ const LazyF2FOffersMapDialog = lazy(loadF2FOffersMapDialog);
 const LazyF2FLocationDialog = lazy(() =>
   import("@/domains/location/F2FLocationDialog").then((module) => ({ default: module.F2FLocationDialog }))
 );
-const LazyBeginnerTradeWizard = lazy(() =>
-  import("@/domains/orderbook/BeginnerTradeWizard").then((module) => ({ default: module.BeginnerTradeWizard }))
-);
+const loadBeginnerTradeWizard = () =>
+  import("@/domains/orderbook/BeginnerTradeWizard").then((module) => ({ default: module.BeginnerTradeWizard }));
+const LazyBeginnerTradeWizard = lazy(loadBeginnerTradeWizard);
 const LazyProTakeRobotPicker = lazy(() =>
   import("@/domains/pro/ProTakeRobotPicker").then((module) => ({ default: module.ProTakeRobotPicker }))
 );
@@ -139,6 +139,7 @@ export function OffersPage() {
   const loading = useOrderbookStore((state) => state.loading);
   const refreshing = useOrderbookStore((state) => state.refreshing);
   const error = useOrderbookStore((state) => state.error);
+  const lastUpdated = useOrderbookStore((state) => state.lastUpdated);
   const refreshOrderbook = useOrderbookStore((state) => state.refreshOrderbook);
   const applyLiveOrders = useOrderbookStore((state) => state.applyLiveOrders);
   const hydrateGarage = useGarageStore((state) => state.hydrate);
@@ -329,6 +330,9 @@ export function OffersPage() {
     : undefined;
   const selectedDescription = (privateOrder?.description || selectedOrder?.description || "").trim();
   const showInitialSkeleton = (loading || refreshing) && orders.length === 0;
+  const initialLoadingLabel = useInitialOrderbookLoadingLabel(showInitialSkeleton, connection);
+  const guidedPreloadReady = isOrderbookReadyForIntentPreload(orders.length, lastUpdated, error);
+
   useEffect(() => {
     setPage(1);
   }, [currencyFilter, intentFilter, methodFilter, sortColumn, sortDirection]);
@@ -612,6 +616,8 @@ export function OffersPage() {
                   aria-label="Find a trade step by step"
                   className="orderbook-guided-trade-link orderbook-guided-trade-link-primary"
                   onClick={() => setGuidedTradeOpen(true)}
+                  onFocus={() => preloadGuidedTradeWhenReady(guidedPreloadReady)}
+                  onPointerEnter={() => preloadGuidedTradeWhenReady(guidedPreloadReady)}
                   size="sm"
                   title="Find a trade step by step"
                   type="button"
@@ -656,11 +662,14 @@ export function OffersPage() {
                 ) : null}
               </div>
             </div>
-            <div className="orderbook-refresh-state">
-              {refreshing ? <span className="orderbook-refreshing">Updating</span> : null}
-              {!refreshing && error && orders.length > 0 ? (
-                <span className="orderbook-refreshing">Reconnecting</span>
-              ) : null}
+            <div className="orderbook-refresh-state" aria-live="polite">
+              <OrderbookRefreshCopy
+                error={error}
+                hasOrders={orders.length > 0}
+                initialLoadingLabel={initialLoadingLabel}
+                refreshing={refreshing}
+                showInitialSkeleton={showInitialSkeleton}
+              />
               <Button
                 size="icon"
                 variant="ghost"
@@ -977,13 +986,12 @@ export function OffersPage() {
 
 function OfferSkeletonRows() {
   return (
-    <>
+    <div className="offer-skeleton-rows" aria-hidden>
       {Array.from({ length: 10 }, (_, index) => (
         <div
           className="offer-row offer-row-skeleton"
           key={index}
           style={{ "--offer-row-index": index } as CSSProperties}
-          aria-hidden
         >
           <Skeleton className="offer-skeleton-side" />
           <span className="offer-main-cell">
@@ -995,8 +1003,52 @@ function OfferSkeletonRows() {
           <Skeleton className="offer-skeleton-host" />
         </div>
       ))}
-    </>
+    </div>
   );
+}
+
+function OrderbookRefreshCopy({
+  error,
+  hasOrders,
+  initialLoadingLabel,
+  refreshing,
+  showInitialSkeleton
+}: {
+  error?: string;
+  hasOrders: boolean;
+  initialLoadingLabel: string;
+  refreshing: boolean;
+  showInitialSkeleton: boolean;
+}) {
+  if (showInitialSkeleton) return <span className="orderbook-refreshing">{initialLoadingLabel}</span>;
+  if (refreshing) return <span className="orderbook-refreshing">Updating</span>;
+  if (error && hasOrders) return <span className="orderbook-refreshing">Reconnecting</span>;
+  return null;
+}
+
+function useInitialOrderbookLoadingLabel(showInitialSkeleton: boolean, connection: "api" | "nostr"): string {
+  const [slowInitialLoad, setSlowInitialLoad] = useState(false);
+
+  useEffect(() => {
+    if (!showInitialSkeleton) {
+      setSlowInitialLoad(false);
+      return;
+    }
+
+    const timer = window.setTimeout(() => setSlowInitialLoad(true), 5_000);
+    return () => window.clearTimeout(timer);
+  }, [showInitialSkeleton]);
+
+  if (slowInitialLoad) return "Still connecting — Tor may need a little longer";
+  return connection === "nostr" ? "Connecting to relays" : "Connecting to coordinators";
+}
+
+function isOrderbookReadyForIntentPreload(orderCount: number, lastUpdated?: number, error?: string): boolean {
+  return orderCount > 0 || Boolean(lastUpdated) || Boolean(error);
+}
+
+function preloadGuidedTradeWhenReady(orderbookReady: boolean): void {
+  if (orderbookReady) void loadBeginnerTradeWizard();
 }
 
 function SortHeader({

@@ -1,9 +1,11 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { finishRouteTransition, normalizeRoutePath } from "@/domains/navigation/routeTransition";
 
 type AppErrorBoundaryProps = {
   children: ReactNode;
+  routePath?: string;
   scope?: "app" | "route";
 };
 
@@ -19,6 +21,9 @@ export class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorB
   }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
+    if (this.props.scope === "route" && typeof window !== "undefined") {
+      finishRouteTransition(this.props.routePath ?? normalizeRoutePath(window.location.href));
+    }
     if (import.meta.env.DEV) console.error("RoboSats interface failure", error, info);
   }
 

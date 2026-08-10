@@ -42,6 +42,7 @@ import {
 import {
   liquidityDepth,
   liquidityMarkets,
+  liquidityOrderCounts,
   liquidityTotal,
   missingLiquidityLimitAliases,
   weightedLiquidityPremium,
@@ -704,20 +705,34 @@ function LiquidityDepthChart({
   points: LiquidityDepthPoint[];
 }) {
   const [hovered, setHovered] = useState<number>();
-  const width = 800;
-  const height = 320;
-  const plot = { bottom: 274, left: 62, right: 782, top: 18 };
-  const minimumPremium = points[0]?.premium ?? -10;
-  const maximumPremium = points.at(-1)?.premium ?? 10;
-  const maximumBtc = Math.max(0, ...points.flatMap((point) => [point.buyBtc, point.sellBtc]));
-  const x = (premium: number) => plot.left + ((premium - minimumPremium) / Math.max(1, maximumPremium - minimumPremium)) * (plot.right - plot.left);
-  const y = (btc: number) => plot.bottom - (btc / Math.max(maximumBtc, 0.00000001)) * (plot.bottom - plot.top);
-  const buyPath = stepPath(points, (point) => x(point.premium), (point) => y(point.buyBtc));
-  const sellPath = stepPath(points, (point) => x(point.premium), (point) => y(point.sellBtc));
-  const selectablePoints = points.flatMap((point, index) => {
-    const orderCount = entries.filter((entry) => premiumsEqual(entry.premium, point.premium)).length;
-    return orderCount > 0 ? [{ index, orderCount, point }] : [];
-  });
+  const geometry = useMemo(() => {
+    const width = 800;
+    const height = 320;
+    const plot = { bottom: 274, left: 62, right: 782, top: 18 };
+    const minimumPremium = points[0]?.premium ?? -10;
+    const maximumPremium = points.at(-1)?.premium ?? 10;
+    const maximumBtc = Math.max(0, ...points.flatMap((point) => [point.buyBtc, point.sellBtc]));
+    const x = (premium: number) => plot.left + ((premium - minimumPremium) / Math.max(1, maximumPremium - minimumPremium)) * (plot.right - plot.left);
+    const y = (btc: number) => plot.bottom - (btc / Math.max(maximumBtc, 0.00000001)) * (plot.bottom - plot.top);
+    const orderCounts = liquidityOrderCounts(entries, points.map((point) => point.premium));
+    return {
+      buyPath: stepPath(points, (point) => x(point.premium), (point) => y(point.buyBtc)),
+      height,
+      orderCounts,
+      plot,
+      selectablePoints: points.flatMap((point, index) => {
+        const orderCount = orderCounts.get(point.premium) ?? 0;
+        return orderCount > 0 ? [{ index, orderCount, point }] : [];
+      }),
+      sellPath: stepPath(points, (point) => x(point.premium), (point) => y(point.sellBtc)),
+      width,
+      x,
+      xTicks: Array.from({ length: 5 }, (_, index) => minimumPremium + ((maximumPremium - minimumPremium) * index) / 4),
+      y,
+      yTicks: Array.from({ length: 5 }, (_, index) => (maximumBtc * index) / 4)
+    };
+  }, [entries, points]);
+  const { buyPath, height, orderCounts, plot, selectablePoints, sellPath, width, x, xTicks, y, yTicks } = geometry;
   const closestPointIndex = (element: SVGSVGElement, clientX: number) => {
     const bounds = element.getBoundingClientRect();
     const pointerX = ((clientX - bounds.left) / bounds.width) * width;
@@ -730,14 +745,11 @@ function LiquidityDepthChart({
   };
   const pointerMove = (event: ReactPointerEvent<SVGSVGElement>) => {
     if (points.length === 0) return;
-    setHovered(closestPointIndex(event.currentTarget, event.clientX));
+    const next = closestPointIndex(event.currentTarget, event.clientX);
+    setHovered((current) => current === next ? current : next);
   };
   const focusPoint = hovered === undefined ? undefined : points[hovered];
-  const focusOrderCount = focusPoint
-    ? entries.filter((entry) => premiumsEqual(entry.premium, focusPoint.premium)).length
-    : 0;
-  const xTicks = Array.from({ length: 5 }, (_, index) => minimumPremium + ((maximumPremium - minimumPremium) * index) / 4);
-  const yTicks = Array.from({ length: 5 }, (_, index) => (maximumBtc * index) / 4);
+  const focusOrderCount = focusPoint ? orderCounts.get(focusPoint.premium) ?? 0 : 0;
 
   if (loading) return <div className="statistics-depth-empty" role="status"><span className="ui-spinner" aria-hidden="true" /><strong>Loading live liquidity</strong><span>Reading current offers from the orderbook...</span></div>;
   if (points.length === 0) return (

@@ -115,16 +115,14 @@ export function OrderPage({
   const hydrateGarage = useGarageStore((state) => state.hydrate);
   const releaseOrderReservation = useGarageStore((state) => state.releaseOrderReservation);
   const torConnection = useTorConnection();
-  const {
-    order: storedOrder,
-    orderIdentity: storedOrderIdentity,
-    submitting,
-    loadFailure,
-    actionError,
-    loadOrder,
-    submitAction,
-    clearOrder
-  } = useOrderStore();
+  const storedOrder = useOrderStore((state) => state.order);
+  const storedOrderIdentity = useOrderStore((state) => state.orderIdentity);
+  const submitting = useOrderStore((state) => state.submitting);
+  const loadFailure = useOrderStore((state) => state.loadFailure);
+  const actionError = useOrderStore((state) => state.actionError);
+  const loadOrder = useOrderStore((state) => state.loadOrder);
+  const submitAction = useOrderStore((state) => state.submitAction);
+  const clearOrder = useOrderStore((state) => state.clearOrder);
   const eligibleSlots = proEnabled || embeddedLocator ? slots : selectStandardGarageSlots(slots);
   const routeSlotId = (location.state as { robotSlotId?: string } | null)?.robotSlotId;
   const routeSlot = routeSlotId ? eligibleSlots.find((slot) => slot.tokenSHA256 === routeSlotId) : undefined;

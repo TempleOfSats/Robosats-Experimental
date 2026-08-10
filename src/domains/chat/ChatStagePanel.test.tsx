@@ -3,8 +3,13 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ChatStagePanel, mergeMessages, restoredExpandedScrollTop } from "@/domains/chat/ChatStagePanel";
-import type { DisplayChatMessage } from "@/domains/chat/chat.types";
+import {
+  ChatStagePanel,
+  decryptChatMessagesNewestFirst,
+  mergeMessages,
+  restoredExpandedScrollTop
+} from "@/domains/chat/ChatStagePanel";
+import type { ChatMessage, DisplayChatMessage } from "@/domains/chat/chat.types";
 import type { Auth } from "@/domains/transport/apiClient";
 
 const mocks = vi.hoisted(() => ({
@@ -170,6 +175,79 @@ describe("chat message reconciliation", () => {
     expect(restoredExpandedScrollTop(120, 600, 900)).toBe(420);
     expect(restoredExpandedScrollTop(120, 600, 550)).toBe(120);
   });
+
+  it("decrypts the visible history window first and yields before older batches", async () => {
+    const messages: ChatMessage[] = Array.from({ length: 55 }, (_, index) => ({
+      index: index + 1,
+      encryptedMessage: `#message-${index + 1}`,
+      nick: "Peer",
+      time: "2026-01-01T00:00:00Z"
+    })).reverse();
+    const batches: number[][] = [];
+    const yieldControl = vi.fn().mockResolvedValue(undefined);
+
+    await decryptChatMessagesNewestFirst(
+      messages,
+      {
+        ownCoordinatorNick: "Mine",
+        ownPrivateKeyArmored: "private",
+        ownPublicKeyArmored: "public",
+        passphrase: "passphrase"
+      },
+      (batch) => batches.push(batch.map((message) => message.index)),
+      yieldControl
+    );
+
+    expect(batches).toEqual([Array.from({ length: 50 }, (_, index) => index + 6), [1, 2, 3, 4, 5]]);
+    expect(yieldControl).toHaveBeenCalledOnce();
+  });
+
+  it("does not report progressively hydrated older history as unread", async () => {
+    let releaseOlderHistory: (() => void) | undefined;
+    const originalScheduler = globalThis.scheduler;
+    Object.defineProperty(globalThis, "scheduler", {
+      configurable: true,
+      value: {
+        yield: vi.fn(
+          () =>
+            new Promise<void>((resolve) => {
+              releaseOlderHistory = resolve;
+            })
+        )
+      }
+    });
+    mocks.fetchChatMessages.mockResolvedValue({
+      peerConnected: true,
+      peerPubkey: "",
+      messages: Array.from({ length: 55 }, (_, index) => ({
+        index: index + 1,
+        encryptedMessage: `#message-${index + 1}`,
+        nick: "Peer",
+        time: "2026-01-01T00:00:00Z"
+      })).reverse()
+    });
+
+    try {
+      await renderPanel();
+      await vi.waitFor(() => expect(document.body.textContent).toContain("#message-55"));
+      expect(messagePlaintexts()).not.toContain("#message-1");
+
+      const history = document.querySelector<HTMLDivElement>(".chat-messages")!;
+      Object.defineProperties(history, {
+        clientHeight: { configurable: true, value: 200 },
+        scrollHeight: { configurable: true, value: 1_000 }
+      });
+      history.scrollTop = 120;
+      await act(async () => history.dispatchEvent(new Event("scroll", { bubbles: true })));
+      await act(async () => releaseOlderHistory?.());
+      await act(async () => history.dispatchEvent(new Event("scroll", { bubbles: true })));
+      await vi.waitFor(() => expect(messagePlaintexts()).toContain("#message-1"));
+
+      expect(document.querySelector(".chat-new-messages")).toBeNull();
+    } finally {
+      Object.defineProperty(globalThis, "scheduler", { configurable: true, value: originalScheduler });
+    }
+  });
 });
 
 describe("pre-chat reconciliation", () => {
@@ -252,4 +330,8 @@ async function renderPanel({
       />
     );
   });
+}
+
+function messagePlaintexts(): string[] {
+  return [...document.querySelectorAll(".chat-message p")].map((element) => element.textContent || "");
 }

@@ -857,6 +857,20 @@
   pointer-events: none;
 }
 
+.offer-skeleton-rows {
+  display: grid;
+  animation: offer-skeleton-pulse 1600ms ease-in-out infinite;
+}
+
+.offer-skeleton-rows .offer-row-skeleton,
+.offer-skeleton-rows .ui-skeleton {
+  animation: none;
+}
+
+.offer-skeleton-rows .ui-skeleton {
+  background: color-mix(in srgb, var(--skeleton-base) 88%, var(--skeleton-highlight));
+}
+
 .offer-row-skeleton::before {
   display: none;
 }
@@ -1972,7 +1986,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .orderbook-table-card .image-select-menu,
-  .offer-row {
+  .offer-row,
+  .offer-skeleton-rows {
     animation: none;
   }
 
@@ -1981,5 +1996,15 @@
   .offer-direction svg,
   .offer-review-affordance svg {
     transition: none;
+  }
+}
+
+@keyframes offer-skeleton-pulse {
+  0%,
+  100% {
+    opacity: 0.7;
+  }
+  50% {
+    opacity: 1;
   }
 }

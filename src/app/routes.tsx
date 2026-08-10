@@ -57,8 +57,9 @@ export function preloadAppRoute(path: string): void {
 }
 
 export function AppRoutes() {
+  const location = useLocation();
   return (
-    <AppErrorBoundary scope="route">
+    <AppErrorBoundary key={location.key} routePath={location.pathname} scope="route">
       <Suspense fallback={<RouteFallback />}>
         <Routes>
           <Route path="/" element={<RootRedirect />} />

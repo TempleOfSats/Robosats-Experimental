@@ -36,6 +36,7 @@ type MapPoint = {
   ratioX: number;
   ratioY: number;
 };
+type PendingMapView = { center: MapPosition; zoom?: number };
 
 type UseF2FWorldMapOptions = {
   dragThreshold: number;
@@ -95,6 +96,8 @@ export function useF2FWorldMap({
     | undefined
   >(undefined);
   const pointersRef = useRef(new Map<number, PointerCoordinates>());
+  const pendingViewRef = useRef<PendingMapView | undefined>(undefined);
+  const viewFrameRef = useRef<number | undefined>(undefined);
   const pinchRef = useRef<
     | {
         anchor: MapPosition;
@@ -125,6 +128,13 @@ export function useF2FWorldMap({
     };
   }, []);
 
+  useEffect(
+    () => () => {
+      if (viewFrameRef.current !== undefined) cancelAnimationFrame(viewFrameRef.current);
+    },
+    []
+  );
+
   const mapPath = useMemo(() => (worldMap ? featureCollectionPath(worldMap) : ""), [worldMap]);
   const viewBox = mapViewBox(center, zoom);
 
@@ -138,6 +148,33 @@ export function useF2FWorldMap({
     const view = zoomedMapView(point, nextZoom, minZoom, maxZoom);
     setZoom(view.zoom);
     setCenter(view.center);
+  }
+
+  function applyMapView(view: PendingMapView) {
+    if (view.zoom !== undefined) setZoom(view.zoom);
+    setCenter(view.center);
+  }
+
+  function scheduleMapView(view: PendingMapView) {
+    pendingViewRef.current = view;
+    if (viewFrameRef.current !== undefined) return;
+    viewFrameRef.current = requestAnimationFrame(() => {
+      viewFrameRef.current = undefined;
+      const pending = pendingViewRef.current;
+      pendingViewRef.current = undefined;
+      if (pending) applyMapView(pending);
+    });
+  }
+
+  function flushMapView() {
+    const pending = pendingViewRef.current;
+    if (!pending) return;
+    pendingViewRef.current = undefined;
+    if (viewFrameRef.current !== undefined) {
+      cancelAnimationFrame(viewFrameRef.current);
+      viewFrameRef.current = undefined;
+    }
+    applyMapView(pending);
   }
 
   function pointAtClient(clientX: number, clientY: number): MapPoint | undefined {
@@ -190,13 +227,17 @@ export function useF2FWorldMap({
       const pinch = pinchRef.current;
       const distance = pointerDistance(first, second);
       if (pinch.distance > 0) {
-        zoomAroundPoint(
-          {
-            position: pinch.anchor,
-            ratioX: pinch.ratioX,
-            ratioY: pinch.ratioY
-          },
-          pinch.zoom * (distance / pinch.distance)
+        scheduleMapView(
+          zoomedMapView(
+            {
+              position: pinch.anchor,
+              ratioX: pinch.ratioX,
+              ratioY: pinch.ratioY
+            },
+            pinch.zoom * (distance / pinch.distance),
+            minZoom,
+            maxZoom
+          )
         );
       }
       return;
@@ -209,10 +250,11 @@ export function useF2FWorldMap({
     const deltaY = event.clientY - drag.clientY;
     if (hasDraggedBeyondThreshold(deltaX, deltaY, dragThreshold)) drag.moved = true;
     if (!drag.moved) return;
-    setCenter(pannedMapCenter(drag.center, zoom, rect, deltaX, deltaY));
+    scheduleMapView({ center: pannedMapCenter(drag.center, zoom, rect, deltaX, deltaY) });
   }
 
   function handlePointerUp(event: PointerEvent<SVGSVGElement>) {
+    flushMapView();
     const drag = dragRef.current;
     const wasPinching = Boolean(pinchRef.current);
     pointersRef.current.delete(event.pointerId);
@@ -228,6 +270,7 @@ export function useF2FWorldMap({
   }
 
   function handlePointerCancel(event: PointerEvent<SVGSVGElement>) {
+    flushMapView();
     pointersRef.current.delete(event.pointerId);
     if (pointersRef.current.size < 2) pinchRef.current = undefined;
     if (dragRef.current?.pointerId === event.pointerId) dragRef.current = undefined;

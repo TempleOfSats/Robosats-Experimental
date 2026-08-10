@@ -90,6 +90,7 @@ export function ChatStagePanel({
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const stickToLatestRef = useRef(true);
   const renderedMessageCountRef = useRef(messages.length);
+  const renderedMaxMessageIndexRef = useRef(maxMessageIndex(messages));
   const errorId = useId();
 
   const isPreChat = variant === "pre-chat";
@@ -137,8 +138,10 @@ export function ChatStagePanel({
   useEffect(() => {
     const previousCount = renderedMessageCountRef.current;
     const addedCount = Math.max(0, messages.length - previousCount);
-    const unreadCount = messages.slice(previousCount).filter((message) => !message.mine).length;
+    const previousMaxMessageIndex = renderedMaxMessageIndexRef.current;
+    const unreadCount = messages.filter((message) => message.index > previousMaxMessageIndex && !message.mine).length;
     renderedMessageCountRef.current = messages.length;
+    renderedMaxMessageIndexRef.current = Math.max(previousMaxMessageIndex, maxMessageIndex(messages));
     updateUnreadMessageState({
       addedCount,
       element: messagesRef.current,
@@ -155,6 +158,7 @@ export function ChatStagePanel({
     setNewMessageCount(0);
     stickToLatestRef.current = true;
     renderedMessageCountRef.current = 0;
+    renderedMaxMessageIndexRef.current = Number.NEGATIVE_INFINITY;
   }, [orderId]);
 
   useLayoutEffect(() => {
@@ -351,37 +355,40 @@ export function ChatStagePanel({
     }
     if (!robotPrivateKey || !robotPublicKey || !slotToken) return;
 
-    const decryptedMessages = await Promise.all(
-      response.messages.map((message) =>
-        decryptDisplayMessage(message, {
-          ownCoordinatorNick: canonicalMyNick,
-          ownPrivateKeyArmored: robotPrivateKey,
-          ownPublicKeyArmored: robotPublicKey,
-          passphrase: slotToken,
-          peerPublicKeyArmored: responsePeerPubkey || peerPubkeyRef.current,
-          senderOnlyResponse: isPreChat
-        })
-      )
+    let feedbackDelivered = false;
+    await decryptChatMessagesNewestFirst(
+      response.messages,
+      {
+        ownCoordinatorNick: canonicalMyNick,
+        ownPrivateKeyArmored: robotPrivateKey,
+        ownPublicKeyArmored: robotPublicKey,
+        passphrase: slotToken,
+        peerPublicKeyArmored: responsePeerPubkey || peerPubkeyRef.current,
+        senderOnlyResponse: isPreChat
+      },
+      (decryptedMessages) => {
+        const visibleMessages = isPreChat ? visiblePreChatMessages(decryptedMessages) : decryptedMessages;
+        const newPeerMessages = visibleMessages.filter(
+          (message) => !knownMessageIndexesRef.current.has(message.index) && !message.mine && !message.decryptFailed
+        );
+        visibleMessages.forEach((message) => knownMessageIndexesRef.current.add(message.index));
+        setMessages((current) => mergeMessages(current, visibleMessages));
+        if (!feedbackDelivered && notifyNewMessages && newPeerMessages.length > 0) {
+          const latest = newPeerMessages.at(-1);
+          setMessageAnnouncement(`New message from ${latest?.nick || peerNick}: ${latest?.plaintext || ""}`);
+        }
+        if (!feedbackDelivered && !isPreChat && notifyNewMessages && shortAlias && newPeerMessages.length > 0) {
+          deliverChatFeedback({
+            lastIndex: Math.max(...newPeerMessages.map((message) => message.index)),
+            orderId,
+            peerName: newPeerMessages.at(-1)?.nick || peerNick,
+            robotHashId: myHashId,
+            shortAlias
+          });
+        }
+        if (notifyNewMessages && newPeerMessages.length > 0) feedbackDelivered = true;
+      }
     );
-    const visibleMessages = isPreChat ? visiblePreChatMessages(decryptedMessages) : decryptedMessages;
-    const newPeerMessages = visibleMessages.filter(
-      (message) => !knownMessageIndexesRef.current.has(message.index) && !message.mine && !message.decryptFailed
-    );
-    visibleMessages.forEach((message) => knownMessageIndexesRef.current.add(message.index));
-    setMessages((current) => mergeMessages(current, visibleMessages));
-    if (notifyNewMessages && newPeerMessages.length > 0) {
-      const latest = newPeerMessages.at(-1);
-      setMessageAnnouncement(`New message from ${latest?.nick || peerNick}: ${latest?.plaintext || ""}`);
-    }
-    if (!isPreChat && notifyNewMessages && shortAlias && newPeerMessages.length > 0) {
-      deliverChatFeedback({
-        lastIndex: Math.max(...newPeerMessages.map((message) => message.index)),
-        orderId,
-        peerName: newPeerMessages.at(-1)?.nick || peerNick,
-        robotHashId: myHashId,
-        shortAlias
-      });
-    }
   }
 
   useEffect(() => {
@@ -724,6 +731,7 @@ export function PreChatDisclosure(props: Omit<Parameters<typeof ChatStagePanel>[
 const PRE_CHAT_MAX_ATTEMPTS = 3;
 
 const VISIBLE_MESSAGE_WINDOW = 50;
+const CHAT_DECRYPT_BATCH_SIZE = VISIBLE_MESSAGE_WINDOW;
 
 function makeScrollHandler(
   ref: React.RefObject<HTMLDivElement | null>,
@@ -991,6 +999,36 @@ async function decryptDisplayMessage(
       signatureStatus: "unknown"
     };
   }
+}
+
+export async function decryptChatMessagesNewestFirst(
+  messages: ChatMessage[],
+  keys: Parameters<typeof decryptDisplayMessage>[1],
+  onBatch: (messages: DisplayChatMessage[]) => void,
+  yieldControl: () => Promise<void> = yieldToMainThread
+): Promise<void> {
+  const orderedMessages = [...messages].sort((left, right) => left.index - right.index);
+  for (let end = orderedMessages.length; end > 0; end -= CHAT_DECRYPT_BATCH_SIZE) {
+    const start = Math.max(0, end - CHAT_DECRYPT_BATCH_SIZE);
+    const batch = await Promise.all(
+      orderedMessages.slice(start, end).map((message) => decryptDisplayMessage(message, keys))
+    );
+    onBatch(batch);
+    if (start > 0) await yieldControl();
+  }
+}
+
+function maxMessageIndex(messages: Array<{ index: number }>): number {
+  return messages.reduce((maximum, message) => Math.max(maximum, message.index), Number.NEGATIVE_INFINITY);
+}
+
+async function yieldToMainThread(): Promise<void> {
+  const scheduler = globalThis.scheduler as { yield?: () => Promise<void> } | undefined;
+  if (scheduler?.yield) {
+    await scheduler.yield();
+    return;
+  }
+  await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 0));
 }
 
 const signatureRank = { unknown: 0, unverified: 1, verified: 2 } as const;

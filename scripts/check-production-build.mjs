@@ -15,14 +15,14 @@ const referencedStaticAssets = new Set();
 if (!/["']\/assets\/[^/"']+\/robosats-exp\.[^"']+\.js["']/.test(indexHtml)) {
   throw new Error("Production entry assets must be namespaced by build revision.");
 }
-if (/rel=["']modulepreload["']/.test(indexHtml)) {
-  throw new Error("Production HTML must not eagerly preload route and cryptography chunks.");
-}
 if (!/<link\b(?=[^>]*\brel=["']preload["'])(?=[^>]*\bas=["']style["'])(?=[^>]*\bdata-robosats-app-style\b)[^>]*>/.test(indexHtml)) {
   throw new Error("Production application styles must preload behind the inline loading screen.");
 }
 if (/<link\b(?=[^>]*\brel=["']stylesheet["'])(?=[^>]*robosats-exp\.index\.)[^>]*>/.test(indexHtml)) {
   throw new Error("Production application styles must not block the inline loading screen.");
+}
+if (/<link\b(?=[^>]*\brel=["']preload["'])(?=[^>]*\bas=["']font["'])[^>]*>/.test(indexHtml)) {
+  throw new Error("Production fonts must load on demand after application styles are active.");
 }
 if (!staticMatch) {
   throw new Error("Production static assets must use a content-hashed namespace.");
@@ -33,22 +33,48 @@ await stat(resolve(distRoot, "static", staticRevision));
 const entryMatch = indexHtml.match(/src=["'](\/assets\/[^"']+\/robosats-exp\.index\.[^"']+\.js)["']/);
 if (!entryMatch) throw new Error("Could not locate the production entry module.");
 const entryPath = resolve(distRoot, entryMatch[1].slice(1));
+const assetRevision = entryMatch[1].match(/^\/assets\/([^/]+)\//)?.[1];
+if (!assetRevision) throw new Error("Could not identify the production asset revision.");
 const initialGraph = await staticImportGraph(entryPath);
 await assertAcyclicStaticImports(files.filter((path) => path.endsWith(".js")));
-if (initialGraph.size > 6) {
+if (initialGraph.size > 4) {
   throw new Error(`Initial JavaScript request graph exceeds its budget: ${initialGraph.size} files`);
+}
+const initialTransferBytes = await encodedTransferSize(initialGraph);
+if (initialTransferBytes > 145_000) {
+  throw new Error(`Initial JavaScript transfer exceeds its budget: ${initialTransferBytes} bytes`);
 }
 if ([...initialGraph].some((path) => /openpgp|robo(?:avatar|name)Client|F2FLocationDialog/.test(path))) {
   throw new Error("OpenPGP, map, and robot-generation code must remain lazy-loaded.");
 }
+assertEntryModulePreloads(indexHtml, entryPath, initialGraph);
+
+const workerFiles = files.filter(
+  (path) => path.endsWith(".js") && basename(path).includes("pgpKeyGeneration.worker")
+);
+if (workerFiles.length !== 1) {
+  throw new Error(`Production build must emit exactly one PGP generation worker, found ${workerFiles.length}.`);
+}
+const workerPath = workerFiles[0];
+const expectedWorkerRoot = resolve(distRoot, "assets", assetRevision);
+if (!workerPath.startsWith(`${expectedWorkerRoot}/`)) {
+  throw new Error("PGP generation worker must be retained inside the build-revision namespace.");
+}
+if (initialGraph.has(workerPath) || indexHtml.includes(basename(workerPath))) {
+  throw new Error("PGP generation worker must remain lazy-loaded.");
+}
+const workerTransferBytes = await encodedTransferSize([workerPath]);
+if (workerTransferBytes > 115_000) {
+  throw new Error(`PGP generation worker exceeds its transfer budget: ${workerTransferBytes} bytes`);
+}
 
 const routeBudgets = [
-  ["RobotGaragePage", ".RobotGaragePage.", 20],
-  ["OffersPage", /\.(?:OffersPage\.|offers~OffersPage(?:[.~]))/, 12, 46_000],
-  ["SettingsPage", ".SettingsPage.", 12],
-  ["ProWorkspacePage", ".ProWorkspacePage.", 36],
-  ["CreateOrderPage", ".CreateOrderPage.", 20],
-  ["OrderPage", ".OrderPage.", 20]
+  ["RobotGaragePage", ".RobotGaragePage.", 14, 50_000],
+  ["OffersPage", /\.(?:OffersPage\.|offers~OffersPage(?:[.~]))/, 10, 45_000],
+  ["SettingsPage", ".SettingsPage.", 7, 28_000],
+  ["ProWorkspacePage", ".ProWorkspacePage.", 21, 65_000],
+  ["CreateOrderPage", ".CreateOrderPage.", 16, 54_000],
+  ["OrderPage", ".OrderPage.", 16, 62_000]
 ];
 const routeGraphCounts = [];
 for (const [name, chunkMatch, requestBudget, transferBudget] of routeBudgets) {
@@ -135,8 +161,39 @@ console.log(
   `Production bundle excludes the Trade Lab and identity WASM, versions static assets as ${staticRevision}, ` +
     `precompresses ${compressedSources.length} files (${avatarTransferBytes} byte avatar-only payload, ` +
     `${nameTransferBytes} byte deferred name payload), ` +
-    `and limits JavaScript requests to ${initialGraph.size} initially (${routeGraphCounts.join(", ")} additional).`
+    `keeps the lazy PGP worker at ${workerTransferBytes} B, ` +
+    `and limits initial JavaScript to ${initialGraph.size}/${initialTransferBytes} B ` +
+    `(${routeGraphCounts.join(", ")} additional by route).`
 );
+
+function assertEntryModulePreloads(html, entryPath, initialGraph) {
+  const preloadUrls = [
+    ...html.matchAll(/<link\b(?=[^>]*\brel=["']modulepreload["'])(?=[^>]*\bhref=["']([^"']+)["'])[^>]*>/g)
+  ].map((match) => match[1]);
+  const preloadPaths = preloadUrls.map((url) => {
+    if (!/^\/assets\/[^?#]+\.js(?:[?#].*)?$/.test(url)) {
+      throw new Error(`Production module preload must reference a local JavaScript asset: ${url}`);
+    }
+    return resolve(distRoot, url.split(/[?#]/, 1)[0].slice(1));
+  });
+  if (new Set(preloadPaths).size !== preloadPaths.length) {
+    throw new Error("Production HTML contains duplicate module preloads.");
+  }
+
+  const expectedPaths = new Set([...initialGraph].filter((path) => path !== entryPath));
+  const actualPaths = new Set(preloadPaths);
+  const missing = [...expectedPaths].filter((path) => !actualPaths.has(path));
+  const unexpected = [...actualPaths].filter((path) => !expectedPaths.has(path));
+  if (missing.length > 0 || unexpected.length > 0) {
+    const details = [
+      missing.length > 0 ? `missing ${missing.map(basename).join(", ")}` : "",
+      unexpected.length > 0 ? `unexpected ${unexpected.map(basename).join(", ")}` : ""
+    ]
+      .filter(Boolean)
+      .join("; ");
+    throw new Error(`Production HTML must preload exactly the mandatory entry dependencies: ${details}`);
+  }
+}
 
 async function staticImportGraph(entryPath) {
   const graph = new Set();

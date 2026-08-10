@@ -19,6 +19,7 @@ type FeedbackSnapshot = Pick<OrderDto, "chat_last_index" | "invoice_expired" | "
 const snapshots = new Map<string, FeedbackSnapshot>();
 const successfulAudioKeys = new Set<string>();
 const recentNotifications = new Map<string, number>();
+const FEEDBACK_MEMORY_LIMIT = 64;
 const NOTIFICATION_DEDUP_TTL_MS = 120_000;
 let stopRuntime: (() => void) | undefined;
 
@@ -44,7 +45,7 @@ function handleObservation(observation: CoordinatorOrderObservation): void {
   const robotHashId = useGarageStore.getState().slots.find(
     (slot) => slot.tokenSHA256 === observation.slotId
   )?.hashId;
-  snapshots.set(key, next);
+  rememberFeedbackSnapshot(key, next);
   if (!previous) return;
 
   if ((next.chat_last_index ?? 0) > (previous.chat_last_index ?? 0)) {
@@ -80,6 +81,17 @@ function handleObservation(observation: CoordinatorOrderObservation): void {
     message,
     robotHashId
   );
+}
+
+function rememberFeedbackSnapshot(key: string, snapshot: FeedbackSnapshot): void {
+  snapshots.delete(key);
+  snapshots.set(key, snapshot);
+  while (snapshots.size > FEEDBACK_MEMORY_LIMIT) {
+    const oldestKey = snapshots.keys().next().value;
+    if (oldestKey === undefined) break;
+    snapshots.delete(oldestKey);
+    successfulAudioKeys.delete(oldestKey);
+  }
 }
 
 function feedbackAudio(

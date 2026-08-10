@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type MouseEvent, type PropsWithChildren } from "react";
-import { useLocation } from "react-router-dom";
+import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type PropsWithChildren } from "react";
+import { useLocation, useNavigationType } from "react-router-dom";
 import type { RoboSatsPlatform } from "@/app/platform";
 import {
   beginRouteTransition,
@@ -17,39 +17,100 @@ import { isTauriDesktop } from "@/domains/transport/tauriBridge";
 export function AppShell({ children, platform }: PropsWithChildren<{ platform: RoboSatsPlatform }>) {
   const desktop = isTauriDesktop();
   const location = useLocation();
+  const navigationType = useNavigationType();
   const currentPath = useRef(normalizeRoutePath(location.pathname));
+  const routeScroll = useRef({
+    key: location.key,
+    path: currentPath.current,
+    positions: new Map<string, number>()
+  });
+  const pendingScrollRestore = useRef<{ path: string; top: number } | undefined>(undefined);
   const [routeTransition, setRouteTransition] = useState<RouteTransitionDetail>();
 
-  useEffect(() => {
-    currentPath.current = normalizeRoutePath(location.pathname);
-  }, [location.pathname]);
+  useLayoutEffect(() => {
+    const nextPath = normalizeRoutePath(location.pathname);
+    const scroll = routeScroll.current;
+    if (scroll.key === location.key) {
+      currentPath.current = nextPath;
+      return;
+    }
+
+    scroll.positions.set(scroll.key, window.scrollY);
+    const top = navigationType === "POP" ? (scroll.positions.get(location.key) ?? 0) : 0;
+    pendingScrollRestore.current = {
+      path: nextPath,
+      top
+    };
+    const samePath = scroll.path === nextPath;
+    scroll.key = location.key;
+    scroll.path = nextPath;
+    currentPath.current = nextPath;
+    window.scrollTo(0, 0);
+    if (samePath) {
+      window.scrollTo(0, top);
+      pendingScrollRestore.current = undefined;
+    }
+  }, [location.key, location.pathname, navigationType]);
 
   useEffect(() => {
+    const previous = window.history.scrollRestoration;
+    window.history.scrollRestoration = "manual";
+    return () => {
+      window.history.scrollRestoration = previous;
+    };
+  }, []);
+
+  useEffect(() => {
+    let feedbackTimer: number | undefined;
     let safetyTimer: number | undefined;
-    const clearSafetyTimer = () => {
+    let pendingTransition: RouteTransitionDetail | undefined;
+    const clearTimers = () => {
+      if (feedbackTimer !== undefined) window.clearTimeout(feedbackTimer);
       if (safetyTimer !== undefined) window.clearTimeout(safetyTimer);
+      feedbackTimer = undefined;
       safetyTimer = undefined;
+    };
+    const settle = (path: string) => {
+      const pendingScroll = pendingScrollRestore.current;
+      if (pendingScroll && isMatchingRouteTransition(pendingScroll.path, path)) {
+        window.scrollTo(0, pendingScroll.top);
+        pendingScrollRestore.current = undefined;
+      }
+      if (!pendingTransition) return;
+      if (!isMatchingRouteTransition(pendingTransition.path, path)) {
+        if (!isMatchingRouteTransition(currentPath.current, path)) return;
+      }
+      clearTimers();
+      pendingTransition = undefined;
+      setRouteTransition(undefined);
     };
     const start = (event: Event) => {
       const detail = (event as CustomEvent<RouteTransitionDetail>).detail;
       if (!detail || normalizeRoutePath(detail.path) === currentPath.current) return;
-      clearSafetyTimer();
-      setRouteTransition(detail);
-      safetyTimer = window.setTimeout(() => setRouteTransition(undefined), 90_000);
+      clearTimers();
+      pendingTransition = detail;
+      setRouteTransition(undefined);
+      feedbackTimer = window.setTimeout(() => {
+        feedbackTimer = undefined;
+        if (pendingTransition && isMatchingRouteTransition(pendingTransition.path, detail.path)) {
+          setRouteTransition(detail);
+        }
+      }, 180);
+      safetyTimer = window.setTimeout(() => {
+        clearTimers();
+        pendingTransition = undefined;
+        setRouteTransition(undefined);
+      }, 90_000);
     };
     const ready = (event: Event) => {
       const path = (event as CustomEvent<{ path: string }>).detail?.path;
       if (!path) return;
-      setRouteTransition((pending) => {
-        if (!pending || !isMatchingRouteTransition(pending.path, path)) return pending;
-        clearSafetyTimer();
-        return undefined;
-      });
+      settle(path);
     };
     window.addEventListener(ROUTE_TRANSITION_START_EVENT, start);
     window.addEventListener(ROUTE_TRANSITION_READY_EVENT, ready);
     return () => {
-      clearSafetyTimer();
+      clearTimers();
       window.removeEventListener(ROUTE_TRANSITION_START_EVENT, start);
       window.removeEventListener(ROUTE_TRANSITION_READY_EVENT, ready);
     };

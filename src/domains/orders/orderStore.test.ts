@@ -73,6 +73,35 @@ describe("order API propagation", () => {
     });
   });
 
+  it("keeps the stored order identity stable when a poll returns the same snapshot", async () => {
+    const snapshot = {
+      id: 123,
+      status: 1,
+      is_maker: true,
+      is_taker: false,
+      shortAlias: coordinator.shortAlias
+    } as OrderDto;
+    const identity = {
+      coordinatorEndpoint: coordinator.url,
+      slotId: slot.tokenSHA256,
+      shortAlias: coordinator.shortAlias,
+      orderId: 123
+    };
+    useOrderStore.setState({ order: snapshot, orderIdentity: identity });
+    fetchOrderMock.mockResolvedValue({ ...snapshot });
+
+    const result = await useOrderStore.getState().loadOrder({
+      coordinator,
+      orderId: 123,
+      reason: "poll",
+      slot
+    });
+
+    expect(result.status).toBe("loaded");
+    expect(useOrderStore.getState().order).toBe(snapshot);
+    expect(useOrderStore.getState().orderIdentity).toBe(identity);
+  });
+
   it("verifies an incomplete action acknowledgement with one GET", async () => {
     useOrderStore.setState({ order: { id: 123, status: 1, is_maker: true } as OrderDto });
     submitOrderActionMock.mockResolvedValue({ id: 123 });

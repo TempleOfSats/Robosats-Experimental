@@ -185,10 +185,6 @@ export function ProWorkspacePage() {
   const [manualRefreshing, setManualRefreshing] = useState(false);
   const [rewardSlotId, setRewardSlotId] = useState<string>();
   const [guidedTradeOpen, setGuidedTradeOpen] = useState(false);
-  const guidedOrders = useOrderbookStore((state) => state.orders);
-  const guidedOrdersLoading = useOrderbookStore((state) => state.loading);
-  const guidedOrdersRefreshing = useOrderbookStore((state) => state.refreshing);
-  const refreshOrderbook = useOrderbookStore((state) => state.refreshOrderbook);
 
   useEffect(() => {
     if (!enabled) return;
@@ -261,7 +257,7 @@ export function ProWorkspacePage() {
       await federation.refreshCoordinators();
       federation = useFederationStore.getState();
     }
-    await refreshOrderbook(federation.coordinators, {
+    await useOrderbookStore.getState().refreshOrderbook(federation.coordinators, {
       connection: federation.connection,
       hostUrl: typeof window === "undefined" ? "" : window.location.host,
       network: federation.network,
@@ -842,24 +838,12 @@ export function ProWorkspacePage() {
       </section>
 
       {guidedTradeOpen ? (
-        <Suspense
-          fallback={
-            <AppTransitionDialog
-              message="Loading the guided trade steps..."
-              onClose={() => setGuidedTradeOpen(false)}
-              title="Preparing trade finder"
-            />
-          }
-        >
-          <LazyBeginnerTradeWizard
-            coordinators={displayCoordinators}
-            loading={(guidedOrdersLoading || guidedOrdersRefreshing) && guidedOrders.length === 0}
-            onClose={() => setGuidedTradeOpen(false)}
-            onCreateOffer={createGuidedOffer}
-            onSelectOffer={reviewGuidedOffer}
-            orders={guidedOrders}
-          />
-        </Suspense>
+        <GuidedTradeDialog
+          coordinators={displayCoordinators}
+          onClose={() => setGuidedTradeOpen(false)}
+          onCreateOffer={createGuidedOffer}
+          onSelectOffer={reviewGuidedOffer}
+        />
       ) : null}
 
       {vaultStatus === "ready" ? (
@@ -1109,6 +1093,43 @@ export function ProWorkspacePage() {
         </Dialog>
       ) : null}
     </main>
+  );
+}
+
+function GuidedTradeDialog({
+  coordinators,
+  onClose,
+  onCreateOffer,
+  onSelectOffer
+}: {
+  coordinators: CoordinatorSummary[];
+  onClose: () => void;
+  onCreateOffer: (criteria: GuidedTradeCriteria) => void;
+  onSelectOffer: (order: PublicOrder, criteria: GuidedTradeCriteria) => void;
+}) {
+  const orders = useOrderbookStore((state) => state.orders);
+  const loading = useOrderbookStore((state) => state.loading);
+  const refreshing = useOrderbookStore((state) => state.refreshing);
+
+  return (
+    <Suspense
+      fallback={
+        <AppTransitionDialog
+          message="Loading the guided trade steps..."
+          onClose={onClose}
+          title="Preparing trade finder"
+        />
+      }
+    >
+      <LazyBeginnerTradeWizard
+        coordinators={coordinators}
+        loading={(loading || refreshing) && orders.length === 0}
+        onClose={onClose}
+        onCreateOffer={onCreateOffer}
+        onSelectOffer={onSelectOffer}
+        orders={orders}
+      />
+    </Suspense>
   );
 }
 

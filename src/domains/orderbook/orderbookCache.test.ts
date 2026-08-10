@@ -57,6 +57,7 @@ describe("orderbook cache", () => {
     writeOrderbookCache("nostr", "mainnet", "onion", orders, now);
 
     expect(readOrderbookCache("nostr", "mainnet", "onion", now + 1000)?.orders).toEqual(orders);
+    expect(readStaleOrderbookCache("nostr", "mainnet", "onion", now + 1000)?.orders).toEqual(orders);
   });
 
   it("rejects cache older than 30 minutes", () => {
