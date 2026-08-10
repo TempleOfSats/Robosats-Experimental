@@ -8,11 +8,15 @@ import { getTradeActionCommands } from "@/domains/orders/orderActions";
 import { getTradeViewState } from "@/domains/orders/orderStateMachine";
 import type { OrderDto } from "@/domains/orders/order.types";
 
+const playHaptic = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/haptics", () => ({ playHaptic }));
+
 let root: Root | undefined;
 
 beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   document.body.innerHTML = '<div id="root"></div>';
+  playHaptic.mockReset();
 });
 
 afterEach(async () => {
@@ -49,10 +53,12 @@ describe("TradeActionSurface", () => {
     await act(async () => buttonWithText("Release 18,826 sats").click());
     expect(document.body.textContent).toContain("The coordinator rejected this release.");
     expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(playHaptic.mock.calls).toEqual([["commit"]]);
 
     await act(async () => buttonWithText("Release 18,826 sats").click());
     expect(onSubmit).toHaveBeenCalledTimes(2);
     expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(playHaptic.mock.calls).toEqual([["commit"], ["commit"], ["success"]]);
   });
 
   it("closes a stale preview and explains that the authoritative action changed", async () => {

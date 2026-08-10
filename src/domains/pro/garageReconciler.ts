@@ -464,14 +464,12 @@ export class GarageReconciler implements GarageReconcileController {
             shortAlias: locator.shortAlias,
             slot
           });
-        } else {
-          useGarageStore.getState().syncOrderSnapshot({
-            token: slot.token,
-            shortAlias: locator.shortAlias,
-            orderId: locator.orderId,
-            status: 4
-          });
         }
+        useGarageStore.getState().releaseOrderReservation(
+          slot.token,
+          locator.shortAlias,
+          locator.orderId
+        );
         useProTradeIndexStore.getState().removeTrade(locator);
         return;
       }
@@ -660,22 +658,20 @@ function slotPriority(
   return 6;
 }
 
-function uniqueOrderIds(robot: RefreshRobotCoordinatorResult): number[] {
-  return [...new Set([
-    robot.activeOrderId,
-    robot.renewableOrderId,
-    robot.lastOrderId
-  ].filter((value): value is number => Boolean(value && value !== robot.releasedOrderId)))];
-}
-
 function unarchivedOrderIds(slot: RobotSlot, robot: RefreshRobotCoordinatorResult): number[] {
   const local = slot.robots[robot.shortAlias];
+  const releasedOrderIds = new Set([
+    robot.releasedOrderId,
+    local?.releasedOrderId
+  ].filter((value): value is number => Boolean(value)));
   const orderIds = [...new Set([
-    ...uniqueOrderIds(robot),
+    robot.activeOrderId,
+    robot.renewableOrderId,
+    robot.lastOrderId,
     local?.activeOrderId,
     local?.renewableOrderId,
     local?.lastOrderId
-  ].filter((value): value is number => Boolean(value && value !== robot.releasedOrderId)))];
+  ].filter((value): value is number => Boolean(value && !releasedOrderIds.has(value))))];
   const history = useGarageVaultStore.getState().history?.entries ?? [];
   return orderIds.filter((orderId) => !history.some((entry) =>
     entry.slotId === slot.tokenSHA256

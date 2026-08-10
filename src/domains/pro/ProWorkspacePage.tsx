@@ -68,6 +68,7 @@ import {
 } from "@/domains/pro/ProWorkspaceDialogs";
 import { AddRobotGlyph, FleetGlyph } from "@/domains/pro/ProWorkspaceIcons";
 import { HistoryList, RobotList, TradeList } from "@/domains/pro/ProWorkspaceLists";
+import { playHaptic } from "@/lib/haptics";
 import {
   matchesFilter,
   summaryCounts,
@@ -136,6 +137,7 @@ export function ProWorkspacePage() {
   const renameVaultRobot = useGarageVaultStore((state) => state.renameRobot);
   const removeVaultRobot = useGarageVaultStore((state) => state.removeRobot);
   const abandonFleet = useGarageVaultStore((state) => state.abandon);
+  const exportFleetToken = useGarageVaultStore((state) => state.exportToken);
   const manifest = useGarageVaultStore((state) => state.manifest);
   const tradeHistory = useGarageVaultStore((state) => state.history);
   const portableManifest = usePortableSettingsStore((state) => state.manifest);
@@ -427,6 +429,7 @@ export function ProWorkspacePage() {
         robot: { slotId: identity.tokenSHA256, hashId: identity.hashId, nickname: fallbackName }
       });
       setAnnouncement("New robot added.");
+      playHaptic("success");
 
       void import("@/domains/identity/roboavatarClient")
         .then(({ prewarmRobotAvatar }) => prewarmRobotAvatar(identity.hashId))
@@ -459,6 +462,7 @@ export function ProWorkspacePage() {
       }, 600);
       return identity.tokenSHA256;
     } catch (error) {
+      playHaptic("reject");
       setAnnouncement(error instanceof Error ? error.message : "Could not add robot.");
       return undefined;
     } finally {
@@ -535,6 +539,7 @@ export function ProWorkspacePage() {
     const actionKey = `${snapshot.key}:${action}`;
     setQuickActionKey(actionKey);
     markProOrderActionStarted(snapshot.locator);
+    playHaptic("commit");
     try {
       const order = await submitOrderAction(
         coordinator.url,
@@ -557,6 +562,7 @@ export function ProWorkspacePage() {
         title: `Offer ${result}`,
         detail: `#${snapshot.locator.orderId} · ${slot.nickname}`
       });
+      playHaptic("success");
     } catch (error) {
       if (action === "cancel" && isAlreadyCancelledError(error)) {
         if (snapshot.order) {
@@ -574,6 +580,7 @@ export function ProWorkspacePage() {
           title: "Offer already cancelled",
           detail: `#${snapshot.locator.orderId} · ${slot.nickname}`
         });
+        playHaptic("success");
         return;
       }
       setAnnouncement(`Could not ${action} order ${snapshot.locator.orderId}. Try again.`);
@@ -1039,7 +1046,9 @@ export function ProWorkspacePage() {
         />
       ) : null}
 
-      {fleetKeyOpen && vaultStatus === "ready" ? <FleetKeyDialog onClose={() => setFleetKeyOpen(false)} /> : null}
+      {fleetKeyOpen && vaultStatus === "ready" ? (
+        <FleetKeyDialog fleetKey={exportFleetToken()} onClose={() => setFleetKeyOpen(false)} />
+      ) : null}
 
       {presetsOpen && vaultStatus === "ready" ? (
         <OfferPresetsDialog

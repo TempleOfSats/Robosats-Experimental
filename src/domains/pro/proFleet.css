@@ -170,6 +170,60 @@
   color: var(--secondary);
 }
 
+.pro-fleet-backup-status {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-subtle);
+  padding: 0.7rem 0.75rem;
+}
+
+.pro-fleet-backup-status[data-state="verified"] {
+  border-color: var(--success-border);
+  background: var(--success-surface);
+}
+
+.pro-fleet-backup-status-icon {
+  width: 1.75rem;
+  height: 1.75rem;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--secondary);
+  background: color-mix(in srgb, var(--secondary) 11%, transparent);
+}
+
+.pro-fleet-backup-status[data-state="verified"] .pro-fleet-backup-status-icon {
+  color: var(--success-foreground);
+  background: color-mix(in srgb, var(--success-foreground) 10%, transparent);
+}
+
+.pro-fleet-backup-status-icon .ui-spinner {
+  width: 1rem;
+  height: 1rem;
+}
+
+.pro-fleet-backup-status-copy {
+  min-width: 0;
+  display: grid;
+  gap: 0.1rem;
+}
+
+.pro-fleet-backup-status-copy strong {
+  font-size: var(--type-compact-size);
+  line-height: var(--type-compact-line);
+}
+
+.pro-fleet-backup-status-copy small {
+  color: var(--muted-foreground);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
+}
+
 .pro-abandon-fleet-sheet h3 {
   margin: 0;
 }
@@ -235,5 +289,10 @@
     grid-template-columns: 1fr;
     justify-items: center;
     text-align: center;
+  }
+
+  .pro-fleet-backup-status > .ui-button {
+    grid-column: 2 / -1;
+    justify-self: start;
   }
 }

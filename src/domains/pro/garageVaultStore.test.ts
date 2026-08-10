@@ -202,6 +202,44 @@ describe("Garage vault persistence", () => {
     );
   });
 
+  it("queues routine heartbeats only for current stale records", async () => {
+    await useGarageVaultStore.getState().setup();
+    useGarageVaultStore.getState().markBackedUp();
+    await useGarageVaultStore.getState().createDerivedRobot("Heartbeat robot");
+    useGarageVaultStore.getState().queueHeartbeat();
+    const publishedAt = 10_000;
+    const pending = useGarageVaultStore.getState().pendingOutbox();
+    for (const { item, record } of pending) {
+      useGarageVaultStore.getState().acknowledgeOutbox(item.key, item.revision, {
+        eventId: item.key.includes("robot") ? "a".repeat(64) : "b".repeat(64),
+        publishedAt,
+        revision: record.revision,
+        writerDeviceId: record.writerDeviceId
+      });
+    }
+    const robotKey = pending.find(({ record }) => record.type === "robot")!.item.key;
+    const envelope = useGarageVaultStore.getState().envelope!;
+    useGarageVaultStore.setState({
+      envelope: {
+        ...envelope,
+        observed: {
+          ...envelope.observed,
+          [robotKey]: { ...envelope.observed[robotKey], publishedAt: 1 },
+          "history-sync:trade-history:obsolete": {
+            eventId: "c".repeat(64),
+            publishedAt: 1,
+            revision: 1,
+            writerDeviceId: envelope.deviceId
+          }
+        }
+      }
+    });
+
+    useGarageVaultStore.getState().queueHeartbeat(5_000);
+
+    expect(useGarageVaultStore.getState().pendingOutbox().map(({ item }) => item.key)).toEqual([robotKey]);
+  });
+
   it("projects only robots derived by the active Garage", async () => {
     await useGarageVaultStore.getState().setup();
     useGarageVaultStore.getState().markBackedUp();

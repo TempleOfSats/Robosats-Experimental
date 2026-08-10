@@ -133,7 +133,7 @@ type GarageVaultState = {
   ) => void;
   acknowledgeOutbox: (key: string, revision: number, observed: GarageObservedEvent) => void;
   deferOutbox: (key: string, revision: number, nextAttemptAt: number) => void;
-  queueHeartbeat: () => void;
+  queueHeartbeat: (staleBefore?: number) => void;
   setSyncState: (status: GarageSyncStatus, lastSyncAt?: number, error?: string, lastPublicationAt?: number) => void;
 };
 
@@ -374,13 +374,18 @@ export const useGarageVaultStore = create<GarageVaultState>((set, get) => ({
     persistEnvelope(garageSecret, next);
     setEnvelopeState(set, next);
   },
-  queueHeartbeat: () => {
+  queueHeartbeat: (staleBefore) => {
     if (!garageSecret || !get().envelope) return;
-    let envelope = get().envelope!;
-    for (const entry of envelope.garage.entries) envelope = queueRecord(envelope, robotEntryToSyncRecord(entry));
-    envelope = queueRecord(envelope, preferencesToSyncRecord(envelope.settings));
-    for (const preset of envelope.settings.presets) envelope = queueRecord(envelope, presetToSyncRecord(preset));
-    for (const entry of envelope.history.entries) envelope = queueRecord(envelope, tradeHistoryToSyncRecord(entry));
+    const current = get().envelope!;
+    let envelope = current;
+    let queued = false;
+    for (const record of garageEnvelopeSyncRecords(current)) {
+      const observedAt = current.observed[syncRecordKey(record)]?.publishedAt;
+      if (staleBefore !== undefined && observedAt !== undefined && observedAt >= staleBefore) continue;
+      envelope = queueRecord(envelope, record);
+      queued = true;
+    }
+    if (!queued) return;
     commitEnvelope(envelope, set);
   },
   setSyncState: (syncStatus, lastSyncAt, error, lastPublicationAt) =>
@@ -417,6 +422,15 @@ export function garageSlotsFromManifest(manifest: GarageManifest | undefined): M
     ...entry,
     token: deriveGarageRobotToken(garageSecret!, entry.id)
   }));
+}
+
+export function garageEnvelopeSyncRecords(envelope: GarageLocalEnvelope): GarageSyncRecord[] {
+  return [
+    ...envelope.garage.entries.map(robotEntryToSyncRecord),
+    preferencesToSyncRecord(envelope.settings),
+    ...envelope.settings.presets.map(presetToSyncRecord),
+    ...envelope.history.entries.map(tradeHistoryToSyncRecord)
+  ];
 }
 
 export function selectProGarageSlots(slots: RobotSlot[], manifest: GarageManifest | undefined): RobotSlot[] {

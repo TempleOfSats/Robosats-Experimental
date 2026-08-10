@@ -204,6 +204,11 @@
   flex-direction: column;
 }
 
+.maker-step-frame:has(.visual-select-open) {
+  position: relative;
+  z-index: 50;
+}
+
 .maker-step-frame-forward {
   animation: maker-step-in-forward 220ms cubic-bezier(0.2, 0, 0, 1) both;
 }

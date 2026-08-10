@@ -610,8 +610,43 @@ describe("GarageReconciler", () => {
 
     const refreshed = useGarageStore.getState().slots[1];
     expect(refreshed.activeOrderId).toBeUndefined();
-    expect(refreshed.lastOrderId).toBe(91234);
+    expect(refreshed.lastOrderId).toBeUndefined();
+    expect(refreshed.robots.lake.releasedOrderId).toBe(91234);
     expect(useProTradeIndexStore.getState().snapshots[prior.key]).toBeUndefined();
+  });
+
+  it("does not rediscover an already-cancelled order on the next robot refresh", async () => {
+    const activeBeta = {
+      ...beta,
+      activeOrderId: 91234,
+      lastOrderId: 91234,
+      robots: {
+        lake: { ...beta.robots.lake, activeOrderId: 91234, lastOrderId: 91234 }
+      }
+    };
+    useGarageStore.setState({ slots: [alpha, activeBeta], currentToken: "alpha", hydrated: true });
+    const fetchOrder = vi.fn(async () => {
+      throw new Error('RoboSats API 400: {"error_code":1043,"bad_request":"This order has been cancelled"}');
+    });
+    const reconciler = makeReconciler({
+      refreshRobotSlot: async () => robotResult(91234),
+      fetchOrder
+    });
+    const locator: ProTradeLocator = { slotId: "slot-beta", shortAlias: "lake", orderId: 91234 };
+
+    await reconciler.reconcileOrder(locator, "order-action");
+    await reconciler.reconcileSlot("slot-beta", "manual");
+
+    const refreshed = useGarageStore.getState().slots[1];
+    const snapshots = useProTradeIndexStore.getState().snapshots;
+    expect(fetchOrder).toHaveBeenCalledOnce();
+    expect(refreshed.robots.lake).toMatchObject({
+      activeOrderId: undefined,
+      lastOrderId: undefined,
+      releasedOrderId: 91234
+    });
+    expect(snapshots["slot-beta:lake:91234"]).toBeUndefined();
+    expect(getRobotOrderAvailability(refreshed, snapshots).available).toBe(true);
   });
 
   it("removes an expired taker reservation after authoritative public status", async () => {

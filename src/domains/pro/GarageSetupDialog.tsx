@@ -7,6 +7,7 @@ import { RobotAvatar } from "@/domains/identity/RobotAvatar";
 import { downloadFleetKeyBackup } from "@/domains/pro/fleetKeyBackup";
 import { useGarageVaultStore } from "@/domains/pro/garageVaultStore";
 import { writeClipboard } from "@/lib/clipboard";
+import { playHaptic } from "@/lib/haptics";
 
 type FleetSetupProps = {
   onComplete?: () => void;
@@ -28,10 +29,13 @@ export function GarageSetupDialog({ onComplete, onRestore, onUseStandardGarage }
   async function createFleet() {
     setWorking(true);
     setError("");
+    playHaptic("commit");
     try {
       await waitForFeedbackPaint();
       setFleetKey(await setup());
+      playHaptic("success");
     } catch (setupError) {
+      playHaptic("reject");
       setError(setupError instanceof Error ? setupError.message : "Could not set up Fleet.");
     } finally {
       setWorking(false);

@@ -47,6 +47,7 @@ import { ingestCoordinatorOrder } from "@/domains/orders/orderActivity";
 import { openConfirmedOrder } from "@/domains/orders/confirmedOrderNavigation";
 import { preloadOrderRoute } from "@/domains/orders/orderRoute";
 import { writeClipboard } from "@/lib/clipboard";
+import { playHaptic } from "@/lib/haptics";
 import { fetchOrder, isCompleteOrderActionResponse, submitOrderAction } from "@/domains/orders/orderApi";
 import { roleBuysBitcoin, roleIntentLabel } from "@/domains/orders/orderRole";
 import type { OrderDto } from "@/domains/orders/order.types";
@@ -533,6 +534,7 @@ export function OffersPage() {
 
     setTaking(true);
     setTakeError(undefined);
+    playHaptic("commit");
     preloadOrderRoute();
     try {
       const actionSlot = await revalidateRobotForNewOrder({
@@ -545,10 +547,12 @@ export function OffersPage() {
       const payload = buildTakeOfferPayload(selectedOrder, takeAmount, offerPassword);
       const order = await submitOrderAction(selectedCoordinator.url, selectedOrder.id, payload, actionAuth);
       if (order.bad_request) {
+        playHaptic("reject");
         setPrivateOrder(order);
         setTakeError(toUserMessage(order.bad_request, "The coordinator could not take this offer."));
         return;
       }
+      playHaptic("success");
       const orderId = order.id || selectedOrder.id;
       const confirmedOrder = {
         ...order,

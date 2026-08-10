@@ -32,6 +32,7 @@ import { coordinatorNeedsRefresh, selectCoordinatorAvailability } from "@/domain
 import { federationLottery } from "@/domains/coordinators/federationLottery";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
 import { toUserMessage } from "@/lib/userError";
+import { playHaptic } from "@/lib/haptics";
 import { getRobotAuthForCoordinator, selectCurrentSlot, selectStandardGarageSlots, useGarageStore } from "@/domains/garage/garageStore";
 import { getRobotOrderAvailability } from "@/domains/garage/robotAvailability";
 import { RobotAvatar } from "@/domains/identity/RobotAvatar";
@@ -373,6 +374,7 @@ export function CreateOrderPage() {
 
     setSubmitting(true);
     setSubmitError("");
+    playHaptic("commit");
     preloadOrderRoute();
 
     try {
@@ -386,13 +388,16 @@ export function CreateOrderPage() {
       const response = await createOrder(selectedCoordinator.url, payload, actionAuth);
       const backendError = response.bad_request ?? response.bad_amount ?? response.bad_payment_method ?? response.bad_password;
       if (backendError) {
+        playHaptic("reject");
         setSubmitError(backendError);
         return;
       }
       if (!response.id) {
+        playHaptic("reject");
         setSubmitError("Coordinator did not return an order id.");
         return;
       }
+      playHaptic("success");
       const provisionalOrder = buildProvisionalMakerOrder(response.id, selectedAlias, payload, actionSlot);
       if (proEnabled) setProLastView("trades");
       openConfirmedOrder(navigate, {

@@ -10,7 +10,7 @@ vi.mock("@/domains/rewards/RewardWithdrawalDialog", () => ({
   RewardWithdrawalDialog: () => <div aria-label="Reward claim confirmation">Withdrawal requested</div>
 }));
 
-import { RobotCoordinatorDialog } from "@/domains/garage/RobotGaragePage";
+import { RobotCoordinatorDialog, RobotSettingsDialog } from "@/domains/garage/RobotGaragePage";
 
 let root: Root | undefined;
 
@@ -46,6 +46,38 @@ describe("coordinator robot rewards", () => {
     });
 
     expect(document.body.textContent).toContain("Withdrawal requested");
+  });
+});
+
+describe("released robot orders", () => {
+  it("shows the last seen order without presenting it as active", async () => {
+    const releasedRobot = { ...rewardRobot, earnedRewards: 0, releasedOrderId: 92620 };
+    const releasedSlot = {
+      ...rewardSlot,
+      earnedRewards: 0,
+      availableRewards: undefined,
+      robots: { temple: releasedRobot }
+    };
+    root = createRoot(document.querySelector("#root")!);
+    await act(async () => {
+      root?.render(
+        <RobotSettingsDialog
+          activeToken={releasedSlot.token}
+          coordinators={[coordinator]}
+          onClose={vi.fn()}
+          onCoordinatorSelect={vi.fn()}
+          onTokenBackup={vi.fn()}
+          onTokenChange={vi.fn()}
+          showKeys={false}
+          slot={releasedSlot}
+          slots={[releasedSlot]}
+          toggleKeys={vi.fn()}
+        />
+      );
+    });
+
+    expect(document.body.textContent).toContain("No active orders · Last seen #92620");
+    expect(document.body.textContent).not.toContain("Active order #92620");
   });
 });
 

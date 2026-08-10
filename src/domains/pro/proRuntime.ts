@@ -12,6 +12,8 @@ import {
   useGarageVaultStore
 } from "@/domains/pro/garageVaultStore";
 import { garageTokenId } from "@/domains/pro/garageVault";
+import { verifyGarageBackup } from "@/domains/pro/garageBackupVerification";
+import type { GarageOutboxItem } from "@/domains/pro/garageSyncRecords";
 import { usePortableSettingsStore } from "@/domains/pro/portableSettingsStore";
 import { startProOrderActivityBridge } from "@/domains/pro/proOrderActivity";
 import { replayPendingOrderChangeNotifications } from "@/domains/orders/orderChangeNotifications";
@@ -171,8 +173,10 @@ function startGarageVaultRuntime(): () => void {
     if (state.status !== "ready" || state.envelope === previous.envelope) return;
     if (state.manifest !== previous.manifest) activateFleet();
     usePortableSettingsStore.getState().hydrateFromVault();
-    if (state.envelope?.outbox.length !== previous.envelope?.outbox.length
-      || state.envelope?.outbox.some((item, index) => item.revision !== previous.envelope?.outbox[index]?.revision)) {
+    if (hasNewFleetOutboxRevision(
+      state.envelope?.outbox ?? [],
+      previous.envelope?.outbox ?? []
+    )) {
       garageSyncEngine.notifyMutation();
     }
   });
@@ -302,4 +306,16 @@ function enabledCoordinatorFingerprint(): string {
     .map((coordinator) => `${coordinator.shortAlias}:${coordinator.url}`)
     .sort()
     .join("|");
+}
+
+export function hasNewFleetOutboxRevision(
+  current: readonly GarageOutboxItem[],
+  previous: readonly GarageOutboxItem[]
+): boolean {
+  const previousRevisions = new Set(previous.map((item) => `${item.key}:${item.revision}`));
+  return current.some((item) => !previousRevisions.has(`${item.key}:${item.revision}`));
+}
+
+export function verifyCurrentFleetBackup() {
+  return verifyGarageBackup(useFederationStore.getState().coordinators);
 }

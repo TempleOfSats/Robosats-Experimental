@@ -10,6 +10,7 @@ import { signCleartextMessage } from "@/domains/crypto/pgp";
 import { getRobotAuthForCoordinator, type RobotSlot } from "@/domains/garage/garageStore";
 import { claimReward } from "@/domains/rewards/rewardApi";
 import { formatSats } from "@/lib/format";
+import { playHaptic } from "@/lib/haptics";
 
 export function RewardWithdrawalPanel({
   coordinators,
@@ -71,13 +72,16 @@ export function RewardWithdrawalPanel({
     }
 
     setSubmitting(true);
+    playHaptic("commit");
     try {
       const signedInvoice = await signCleartextMessage(rawInvoice, rewardRobot.encPrivKey, slot.token);
       const result = await claimReward(coordinator.url, signedInvoice, 0, auth);
       if (result.successfulWithdrawal) {
+        playHaptic("success");
         setInvoice("");
         onClaimed(rewardRobot.shortAlias);
       } else {
+        playHaptic("reject");
         setError(toUserMessage(result.error, "Reward withdrawal was rejected."));
       }
     } catch (claimError) {

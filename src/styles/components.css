@@ -406,6 +406,9 @@
   left: 0;
   max-height: min(20rem, 50vh);
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  touch-action: pan-y;
   display: grid;
   gap: 0.25rem;
   border: 1px solid var(--control-border);
@@ -413,6 +416,11 @@
   background: var(--surface-raised);
   box-shadow: var(--shadow-lg);
   padding: 0.35rem;
+}
+
+.visual-select-menu-above {
+  top: auto;
+  bottom: calc(100% + 0.35rem);
 }
 
 .visual-select-option {

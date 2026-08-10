@@ -1,5 +1,39 @@
 import { Check, ChevronDown } from "lucide-react";
-import { type KeyboardEvent, type ReactNode, useEffect, useId, useRef, useState } from "react";
+import { type KeyboardEvent, type ReactNode, type RefObject, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { playHaptic } from "@/lib/haptics";
+
+const VISUAL_SELECT_MENU_GAP = 6;
+const VISUAL_SELECT_MENU_MAX_HEIGHT = 320;
+const VISUAL_SELECT_VIEWPORT_MARGIN = 12;
+
+type VisualSelectMenuLayout = {
+  maxHeight: number;
+  placement: "above" | "below";
+};
+
+export function visualSelectMenuLayout({
+  anchorBottom,
+  anchorTop,
+  menuHeight,
+  viewportBottom,
+  viewportTop = 0
+}: {
+  anchorBottom: number;
+  anchorTop: number;
+  menuHeight: number;
+  viewportBottom: number;
+  viewportTop?: number;
+}): VisualSelectMenuLayout {
+  const spaceAbove = Math.max(0, anchorTop - viewportTop - VISUAL_SELECT_MENU_GAP);
+  const spaceBelow = Math.max(0, viewportBottom - anchorBottom - VISUAL_SELECT_MENU_GAP);
+  const desiredHeight = Math.min(menuHeight, VISUAL_SELECT_MENU_MAX_HEIGHT);
+  const placement = spaceBelow < desiredHeight && spaceAbove > spaceBelow ? "above" : "below";
+  const availableHeight = placement === "above" ? spaceAbove : spaceBelow;
+  return {
+    maxHeight: Math.min(VISUAL_SELECT_MENU_MAX_HEIGHT, availableHeight),
+    placement
+  };
+}
 
 export interface VisualSelectOption {
   value: string;
@@ -32,6 +66,8 @@ export function VisualSelect({
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const menuLayout = useVisualSelectMenuLayout(open, options.length, rootRef, menuRef);
+  const menuPresentation = visualSelectMenuPresentation(menuLayout);
   const listboxId = useId();
   const selected = options.find((option) => option.value === value) ?? options[0];
 
@@ -120,7 +156,14 @@ export function VisualSelect({
       </button>
 
       {open ? (
-        <div aria-label={ariaLabel} className="visual-select-menu" id={listboxId} ref={menuRef} role="listbox">
+        <div
+          aria-label={ariaLabel}
+          className={menuPresentation.className}
+          id={listboxId}
+          ref={menuRef}
+          role="listbox"
+          style={menuPresentation.style}
+        >
           {options.map((option) => {
             const active = option.value === selected?.value;
             return (
@@ -129,6 +172,7 @@ export function VisualSelect({
                 className={active ? "visual-select-option visual-select-option-active" : "visual-select-option"}
                 key={option.value}
                 onClick={() => {
+                  if (!active) playHaptic("selection");
                   onChange(option.value);
                   setOpen(false);
                 }}
@@ -148,4 +192,74 @@ export function VisualSelect({
       ) : null}
     </div>
   );
+}
+
+function useVisualSelectMenuLayout(
+  open: boolean,
+  optionCount: number,
+  rootRef: RefObject<HTMLDivElement | null>,
+  menuRef: RefObject<HTMLDivElement | null>
+): VisualSelectMenuLayout | undefined {
+  const [menuLayout, setMenuLayout] = useState<VisualSelectMenuLayout>();
+
+  useLayoutEffect(() => {
+    if (!open) return;
+
+    const updateMenuLayout = () => {
+      const root = rootRef.current;
+      const menu = menuRef.current;
+      if (!root || !menu) return;
+      const anchor = root.getBoundingClientRect();
+      const viewport = visualSelectViewportBounds();
+      const nextLayout = visualSelectMenuLayout({
+        anchorBottom: anchor.bottom,
+        anchorTop: anchor.top,
+        menuHeight: menu.scrollHeight,
+        viewportBottom: viewport.bottom,
+        viewportTop: viewport.top
+      });
+      setMenuLayout((current) => current?.maxHeight === nextLayout.maxHeight
+        && current.placement === nextLayout.placement ? current : nextLayout);
+    };
+
+    updateMenuLayout();
+    window.addEventListener("resize", updateMenuLayout);
+    window.addEventListener("scroll", updateMenuLayout);
+    window.visualViewport?.addEventListener("resize", updateMenuLayout);
+    window.visualViewport?.addEventListener("scroll", updateMenuLayout);
+    return () => {
+      window.removeEventListener("resize", updateMenuLayout);
+      window.removeEventListener("scroll", updateMenuLayout);
+      window.visualViewport?.removeEventListener("resize", updateMenuLayout);
+      window.visualViewport?.removeEventListener("scroll", updateMenuLayout);
+    };
+  }, [menuRef, open, optionCount, rootRef]);
+
+  return menuLayout;
+}
+
+function visualSelectMenuPresentation(layout?: VisualSelectMenuLayout): {
+  className: string;
+  style?: { maxHeight: string };
+} {
+  if (!layout) return { className: "visual-select-menu" };
+  return {
+    className: layout.placement === "above"
+      ? "visual-select-menu visual-select-menu-above"
+      : "visual-select-menu",
+    style: { maxHeight: `${layout.maxHeight}px` }
+  };
+}
+
+function visualSelectViewportBounds(): { bottom: number; top: number } {
+  const viewport = window.visualViewport;
+  const top = (viewport?.offsetTop ?? 0) + VISUAL_SELECT_VIEWPORT_MARGIN;
+  let bottom = (viewport?.offsetTop ?? 0) + (viewport?.height ?? window.innerHeight)
+    - VISUAL_SELECT_VIEWPORT_MARGIN;
+  const navigation = document.querySelector<HTMLElement>(".app-sidebar");
+  if (navigation && getComputedStyle(navigation).position === "fixed") {
+    const navigationTop = navigation.getBoundingClientRect().top;
+    if (navigationTop > top && navigationTop < bottom) bottom = navigationTop - VISUAL_SELECT_VIEWPORT_MARGIN;
+  }
+  return { bottom, top };
 }
