@@ -33,6 +33,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  vi.useRealTimers();
   if (root) await act(async () => root?.unmount());
   root = undefined;
   vi.restoreAllMocks();
@@ -79,10 +80,13 @@ describe("Create order presentation", () => {
     expect(document.body.textContent).toContain("Wise");
   });
 
-  it("enables review immediately while rejecting only a rapid second pointer click", async () => {
-    vi.spyOn(performance, "now").mockReturnValue(1_000);
+  it("requires the review screen to settle before enabling offer creation", async () => {
+    vi.useFakeTimers();
     useFederationStore.setState({ coordinators: [coordinator] });
     useGarageStore.setState({ slots: [slot], currentToken: slot.token });
+    const refreshRobotSlot = vi
+      .spyOn(useGarageStore.getState(), "refreshRobotSlot")
+      .mockRejectedValue(new Error("Test stopped after submission started."));
     root = createRoot(document.querySelector("#root")!);
     await act(async () => {
       root?.render(
@@ -109,14 +113,31 @@ describe("Create order presentation", () => {
 
     await click(stepButton("Amount"));
     await click(stepButton("Review offer"));
-    const create = stepButton("Create offer");
+    const create = stepButton("Preparing review");
+    expect(create.disabled).toBe(true);
+
+    await act(async () => {
+      document.querySelector("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      await Promise.resolve();
+    });
+    expect(refreshRobotSlot).not.toHaveBeenCalled();
+
+    await act(async () => {
+      vi.advanceTimersByTime(649);
+    });
+    expect(create.disabled).toBe(true);
+
+    await act(async () => {
+      vi.advanceTimersByTime(1);
+    });
     expect(create.disabled).toBe(false);
 
-    let accepted = true;
-    await act(async () => {
-      accepted = create.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, detail: 2 }));
-    });
-    expect(accepted).toBe(false);
+    await click(create);
+    expect(refreshRobotSlot).toHaveBeenCalledOnce();
+    expect(document.body.textContent).toContain("Test stopped after submission started.");
+
+    await click(create);
+    expect(refreshRobotSlot).toHaveBeenCalledTimes(2);
   });
 });
 

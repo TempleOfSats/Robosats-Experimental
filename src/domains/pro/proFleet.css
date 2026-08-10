@@ -218,6 +218,11 @@
   color: var(--success-foreground);
 }
 
+.pro-sheet-overlay {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
 .pro-garage-setup-overlay {
   isolation: isolate;
   background: var(--overlay-scrim-strong);

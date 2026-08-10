@@ -330,9 +330,9 @@
   aspect-ratio: 1;
   border-radius: 999px;
   background:
-    radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--info) 18%, transparent), transparent 68%),
+    radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--info) 8%, transparent), transparent 68%),
     color-mix(in srgb, var(--card) 78%, var(--muted));
-  animation: garage-identity-reveal 420ms cubic-bezier(0.2, 0, 0, 1) both;
+  animation: garage-identity-reveal 320ms cubic-bezier(0.2, 0, 0, 1) both;
 }
 
 .garage-robot-status-stack {
@@ -602,11 +602,9 @@
 }
 
 .garage-page .garage-profile-stage .action-tile.action-tile-primary {
-  border-color: color-mix(in srgb, var(--primary) 28%, var(--border));
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--primary) 9%, transparent), transparent 78%),
-    color-mix(in srgb, var(--primary) 4%, var(--card));
-  box-shadow: 0 0.45rem 1.25rem color-mix(in srgb, var(--primary) 5%, transparent);
+  border-color: color-mix(in srgb, var(--primary) 24%, var(--border));
+  background: color-mix(in srgb, var(--primary) 5%, var(--card));
+  box-shadow: none;
 }
 
 .garage-profile-stage .action-tile-secondary {
@@ -616,7 +614,7 @@
 
 .garage-profile-stage .action-tile:hover,
 .garage-profile-stage .action-tile:focus-visible {
-  transform: translateY(-2px);
+  transform: translateY(-1px);
 }
 
 .garage-profile-stage .action-tile:focus-visible {
@@ -626,8 +624,8 @@
 
 .garage-profile-stage .action-tile-primary:hover,
 .garage-profile-stage .action-tile-primary:focus-visible {
-  border-color: color-mix(in srgb, var(--primary) 48%, var(--border));
-  box-shadow: 0 0.7rem 1.5rem color-mix(in srgb, var(--primary) 8%, transparent);
+  border-color: color-mix(in srgb, var(--primary) 42%, var(--border));
+  box-shadow: none;
 }
 
 .action-tile-arrow {
@@ -646,6 +644,12 @@
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.5rem;
+}
+
+.garage-page .garage-profile-stage > .garage-utility-bar {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: min(100%, 27rem);
+  margin-inline: auto;
 }
 
 .garage-utility-btn {
@@ -682,6 +686,153 @@
   white-space: nowrap;
 }
 
+.garage-manage-tools {
+  position: relative;
+  min-width: 0;
+}
+
+.garage-manage-tools > summary {
+  width: 100%;
+  list-style: none;
+}
+
+.garage-manage-tools > summary::-webkit-details-marker {
+  display: none;
+}
+
+.garage-manage-tools > summary::after {
+  content: "";
+  width: 0.42rem;
+  height: 0.42rem;
+  margin-left: 0.1rem;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg) translateY(-0.12rem);
+  transition: transform 140ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.garage-manage-tools[open] {
+  z-index: 12;
+}
+
+.garage-manage-tools[open] > summary::after {
+  transform: rotate(225deg) translate(-0.08rem, -0.08rem);
+}
+
+.garage-manage-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 0.45rem);
+  width: min(17rem, calc(100vw - 2rem));
+  display: grid;
+  gap: 0.15rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card);
+  box-shadow: var(--menu-shadow);
+  padding: 0.35rem;
+  animation: garage-menu-in 140ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+.garage-manage-menu button {
+  appearance: none;
+  width: 100%;
+  min-height: 2.65rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--foreground);
+  padding: 0.55rem 0.65rem;
+  font: inherit;
+  font-size: var(--type-compact-size);
+  font-weight: var(--weight-semibold);
+  text-align: left;
+  cursor: pointer;
+}
+
+.garage-manage-menu button:hover,
+.garage-manage-menu button:focus-visible {
+  background: var(--control-hover-background);
+}
+
+.garage-manage-menu button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.garage-manage-menu .garage-manage-remove {
+  color: var(--danger-foreground);
+}
+
+/* First-run setup stays visually focused and avoids nested card chrome. */
+.garage-page.garage-page .page-heading {
+  max-width: 44rem;
+  margin-bottom: 1.1rem;
+  text-align: center;
+}
+
+.garage-page.garage-page .start-card {
+  max-width: 44rem;
+}
+
+.garage-page .robot-wizard {
+  border-color: var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--surface) 88%, var(--surface-subtle));
+}
+
+.garage-page .wizard-section {
+  border-color: var(--border-subtle);
+  padding: clamp(1rem, 2.4vw, 1.35rem);
+}
+
+.garage-page .wizard-section:not(.active) {
+  background: color-mix(in srgb, var(--muted) 24%, transparent);
+}
+
+.garage-page .wizard-section h3 {
+  font-size: var(--type-card-title-size);
+  line-height: var(--type-card-title-line);
+}
+
+.garage-page .wizard-step-body {
+  gap: 0.85rem;
+  padding-top: 1rem;
+  animation-duration: 160ms;
+}
+
+.garage-page .token-start-step {
+  width: min(100%, 34rem);
+  margin-inline: auto;
+}
+
+.garage-page .wizard-step-body .robot-setup-intro {
+  max-width: 27rem;
+  color: var(--muted-foreground);
+}
+
+.garage-page .recover-token-details {
+  width: auto;
+  min-width: min(100%, 16rem);
+}
+
+.garage-page .recover-token-details[open] {
+  width: 100%;
+  margin-top: 0.25rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border-subtle);
+}
+
+@keyframes garage-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.2rem);
+  }
+}
+
 @keyframes garage-identity-reveal {
   from {
     opacity: 0;
@@ -694,6 +845,14 @@
   .garage-profile-stage .action-tile,
   .action-tile-arrow {
     animation: none;
+    transition: none;
+  }
+
+  .garage-manage-menu {
+    animation: none;
+  }
+
+  .garage-manage-tools > summary::after {
     transition: none;
   }
 

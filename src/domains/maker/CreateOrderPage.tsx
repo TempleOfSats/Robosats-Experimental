@@ -146,7 +146,7 @@ export function CreateOrderPage() {
   const [selectedShortAlias, setSelectedShortAlias] = useState(() => renewal?.shortAlias ?? "");
   const [currentStep, setCurrentStep] = useState(() => renewal?.prefillDraft ? wizardSteps.length - 1 : 0);
   const [stepDirection, setStepDirection] = useState<"forward" | "backward">("forward");
-  const reviewOpenedAt = useRef(Number.NEGATIVE_INFINITY);
+  const [reviewReady, setReviewReady] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [creatingOfferNotice, setCreatingOfferNotice] = useState(() => renewal?.creatingOfferAs);
@@ -192,9 +192,10 @@ export function CreateOrderPage() {
     : getRobotOrderAvailability(activeSlot, tradeSnapshots);
   const payload = useMemo(() => buildCreateOrderPayload(draft), [draft]);
   const validationErrors = useMemo(() => validateCreateOrderPayload(payload), [payload]);
-  const canSubmit = presetEditor
-    ? Boolean(presetName.trim() && validationErrors.length === 0)
-    : Boolean(activeSlot && robotAvailability.available && auth && selectedCoordinator?.url && validationErrors.length === 0);
+  const submitRequirementsMet = presetEditor
+    ? Boolean(presetName.trim())
+    : [activeSlot, robotAvailability.available, auth, selectedCoordinator?.url].every(Boolean);
+  const canSubmit = submitRequirementsMet && validationErrors.length === 0;
 
   useEffect(() => {
     if (presetEditor || selectedShortAlias || selectableCoordinators.length === 0) return;
@@ -223,6 +224,16 @@ export function CreateOrderPage() {
       updateDraft({ currency: BTC_CURRENCY_ID });
     }
   }, [draft.currency, draft.isSwap]);
+
+  useEffect(() => {
+    setReviewReady(false);
+    if (currentStep !== wizardSteps.length - 1) return;
+
+    // Require the review screen to settle before its newly mounted submit
+    // button can receive a follow-up mouse, touch, or keyboard activation.
+    const timer = window.setTimeout(() => setReviewReady(true), 650);
+    return () => window.clearTimeout(timer);
+  }, [currentStep]);
 
   function updateDraft(patch: Partial<CreateOrderDraft>) {
     setDraft((current) => ({ ...current, ...patch }));
@@ -324,7 +335,6 @@ export function CreateOrderPage() {
 
     setSubmitError("");
     setStepDirection("forward");
-    if (currentStep === wizardSteps.length - 2) reviewOpenedAt.current = performance.now();
     setCurrentStep((step) => Math.min(wizardSteps.length - 1, step + 1));
   }
 
@@ -433,7 +443,16 @@ export function CreateOrderPage() {
       </div>
 
       <section className="maker-layout">
-        <form className="maker-form" onSubmit={(event) => void submit(event)}>
+        <form
+          className="maker-form"
+          onSubmit={(event) => {
+            if (currentStep === wizardSteps.length - 1 && !reviewReady) {
+              event.preventDefault();
+              return;
+            }
+            void submit(event);
+          }}
+        >
           <Card className="maker-wizard-card">
             <CardHeader className="maker-wizard-card-header">
               <div className="maker-stepper" aria-label="Create order progress">
@@ -560,18 +579,24 @@ export function CreateOrderPage() {
                     type="submit"
                     size="lg"
                     loading={submitting}
-                    disabled={!canSubmit}
-                    onClick={(event) => {
-                      // Ignore only the second pointer click that can land on
-                      // this newly mounted button. First clicks and keyboard
-                      // submissions remain immediately available.
-                      if (event.detail > 1 && performance.now() - reviewOpenedAt.current < 650) {
-                        event.preventDefault();
-                      }
-                    }}
+                    disabled={!canSubmit || !reviewReady}
                   >
-                    {presetEditor ? <Save size={18} /> : <PlusCircle size={18} />}
-                    {presetEditor ? "Save preset" : "Create offer"}
+                    {!reviewReady ? (
+                      <>
+                        <LoaderCircle className="maker-review-settling" size={18} />
+                        Preparing review
+                      </>
+                    ) : presetEditor ? (
+                      <>
+                        <Save size={18} />
+                        Save preset
+                      </>
+                    ) : (
+                      <>
+                        <PlusCircle size={18} />
+                        Create offer
+                      </>
+                    )}
                   </Button>
                 )}
               </div>

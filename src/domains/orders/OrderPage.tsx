@@ -2211,9 +2211,6 @@ function PayoutRoutingCard({
           <div className="payout-bolt-stage" aria-hidden="true">
             <svg viewBox="0 0 168 184">
               {payoutBoltLanes.map(({ delay, lane }) => (
-                <path className={`payout-bolt-glow ${delay} ${lane}`} d={boltPath} key={`glow-${lane}`} />
-              ))}
-              {payoutBoltLanes.map(({ delay, lane }) => (
                 <path className={`payout-bolt ${delay} ${lane}`} d={boltPath} key={lane} />
               ))}
             </svg>
@@ -2233,6 +2230,9 @@ function PayoutRoutingCard({
         <div className="payout-routing-copy">
           <strong>{retrying ? "Looking for a new payment route…" : "Finding a payment route…"}</strong>
           <p>{body}</p>
+          <small className="payout-routing-status" aria-hidden="true">
+            {status}
+          </small>
         </div>
       </CardContent>
     </Card>

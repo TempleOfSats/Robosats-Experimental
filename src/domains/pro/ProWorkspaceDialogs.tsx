@@ -56,7 +56,7 @@ export function CreateOfferRobotPicker({
     <Dialog
       ariaLabelledby="pro-create-robot-title"
       onClose={onClose}
-      overlayClassName="confirm-overlay"
+      overlayClassName="confirm-overlay pro-sheet-overlay"
       panelClassName="garage-switcher-panel pro-create-robot-picker"
     >
         <header className="garage-switcher-header">

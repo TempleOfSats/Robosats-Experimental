@@ -1,4 +1,4 @@
-import { BookmarkCheck, Copy, Pencil, Plus, Trash2, X } from "lucide-react";
+import { BookmarkCheck, Copy, Ellipsis, Pencil, Plus, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -27,7 +27,7 @@ export function OfferPresetsDialog({
     <Dialog
       ariaLabelledby="offer-presets-title"
       onClose={onClose}
-      overlayClassName="confirm-overlay"
+      overlayClassName="confirm-overlay pro-sheet-overlay"
       panelClassName="confirm-sheet pro-presets-sheet"
     >
         <header className="garage-switcher-header">
@@ -39,13 +39,13 @@ export function OfferPresetsDialog({
         </header>
 
         <div className="pro-presets-command">
-          <Button onClick={onCreate}><Plus size={17} /> New preset</Button>
+          <Button className="pro-presets-new" onClick={onCreate} variant="outline"><Plus size={17} /> New preset</Button>
         </div>
 
         {presets.length ? (
           <div className="pro-presets-list">
             {presets.map((preset) => (
-              <article className="pro-preset-card" key={preset.id}>
+              <article className="pro-preset-card" data-direction={preset.direction === 0 ? "buy" : "sell"} key={preset.id}>
                 <div className="pro-preset-card-copy">
                   <div className="pro-preset-card-title">
                     <strong>{preset.name}</strong>
@@ -57,15 +57,31 @@ export function OfferPresetsDialog({
                 {removingId === preset.id ? (
                   <div className="pro-preset-remove-confirm" role="group" aria-label={`Remove ${preset.name}?`}>
                     <span>Remove this preset?</span>
-                    <Button size="sm" variant="ghost" onClick={() => setRemovingId("")}>Keep</Button>
+                    <Button autoFocus size="sm" variant="ghost" onClick={() => setRemovingId("")}>Keep</Button>
                     <Button size="sm" variant="destructive" onClick={() => { onRemove(preset.id); setRemovingId(""); }}>Remove</Button>
                   </div>
                 ) : (
                   <div className="pro-preset-card-actions">
                     <Button size="sm" onClick={() => onUse(preset)}>Use</Button>
-                    <Button size="icon" variant="ghost" onClick={() => onEdit(preset)} aria-label={`Edit ${preset.name}`} title="Edit"><Pencil size={16} /></Button>
-                    <Button size="icon" variant="ghost" onClick={() => onDuplicate(preset)} aria-label={`Duplicate ${preset.name}`} title="Duplicate"><Copy size={16} /></Button>
-                    <Button size="icon" variant="ghost" onClick={() => setRemovingId(preset.id)} aria-label={`Remove ${preset.name}`} title="Remove"><Trash2 size={16} /></Button>
+                    <details className="pro-preset-more">
+                      <summary aria-label={`More actions for ${preset.name}`} tabIndex={0} title="More preset actions">
+                        <Ellipsis size={18} />
+                      </summary>
+                      <div className="pro-preset-more-menu">
+                        <button type="button" onClick={(event) => {
+                          closePresetActions(event.currentTarget);
+                          onEdit(preset);
+                        }}><Pencil size={15} /> Edit</button>
+                        <button type="button" onClick={(event) => {
+                          closePresetActions(event.currentTarget);
+                          onDuplicate(preset);
+                        }}><Copy size={15} /> Duplicate</button>
+                        <button type="button" onClick={(event) => {
+                          closePresetActions(event.currentTarget, false);
+                          setRemovingId(preset.id);
+                        }}><Trash2 size={15} /> Remove</button>
+                      </div>
+                    </details>
                   </div>
                 )}
               </article>
@@ -80,6 +96,13 @@ export function OfferPresetsDialog({
         )}
     </Dialog>
   );
+}
+
+function closePresetActions(trigger: HTMLButtonElement, restoreFocus = true) {
+  const details = trigger.closest("details");
+  const summary = details?.querySelector<HTMLElement>("summary");
+  details?.removeAttribute("open");
+  if (restoreFocus) summary?.focus();
 }
 
 function presetTradeLabel(preset: OfferPreset): string {

@@ -172,13 +172,13 @@ export function CreateRobotPanel({
       <WizardSection title="1. Generate a token" active={step === "token"} complete={step !== "token"}>
         {!hasToken ? (
           <div className="wizard-step-body token-start-step">
-            <p>This temporary key gives you access to a unique private robot identity for your trade.</p>
+            <p className="robot-setup-intro">One recovery token creates a private identity you can use to trade.</p>
             <Button onClick={generateToken} size="lg">
               <Dices className={cn(rolling && "dice-roll")} size={18} />
-              Generate token
+              Generate my robot
             </Button>
             <details className="recover-token-details">
-              <summary>Recover with existing token</summary>
+              <summary>Recover an existing robot</summary>
               <TokenInput
                 token={token}
                 setToken={updateToken}

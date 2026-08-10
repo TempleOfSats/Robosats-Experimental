@@ -91,7 +91,8 @@ describe("normal Garage Fleet recovery", () => {
       );
     });
 
-    await clickButton("Recover");
+    await act(async () => document.querySelector<HTMLElement>(".garage-manage-tools summary")?.click());
+    await clickButton("Recover from token");
     const tokenInput = document.querySelector<HTMLTextAreaElement>('textarea[placeholder="Paste your token"]')!;
     await setInputValue(tokenInput, recoveredToken);
     await clickButton("Recover robot");

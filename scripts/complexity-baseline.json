@@ -5,7 +5,7 @@
   "src/domains/garage/RobotGaragePage.tsx#RobotGaragePage": 32,
   "src/domains/location/F2FLocationDialog.tsx#F2FLocationDialog": 35,
   "src/domains/maker/CreateOrderPage.tsx#CoordinatorPicker": 48,
-  "src/domains/maker/CreateOrderPage.tsx#CreateOrderPage": 61,
+  "src/domains/maker/CreateOrderPage.tsx#CreateOrderPage": 58,
   "src/domains/maker/CreateOrderPage.tsx#submit": 21,
   "src/domains/orderbook/BeginnerTradeWizard.tsx#BeginnerTradeWizard": 37,
   "src/domains/orderbook/OfferMeta.tsx#PaymentMethodPicker": 24,
