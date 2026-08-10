@@ -22,7 +22,7 @@ export const RobotAvatar = memo(function RobotAvatar({
     }
 
     setAvatarSrc("");
-    void import("@/domains/identity/roboidentitiesClient")
+    void import("@/domains/identity/roboavatarClient")
       .then(({ generateRobohash }) => generateRobohash(hashId))
       .then((avatar) => {
         if (!cancelled) setAvatarSrc(avatar);

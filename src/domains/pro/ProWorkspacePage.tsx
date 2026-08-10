@@ -432,9 +432,12 @@ export function ProWorkspacePage() {
       });
       setAnnouncement("New robot added.");
 
-      void import("@/domains/identity/roboidentitiesClient")
-        .then(({ generateRoboname, prewarmRobotIdentity }) => {
-          prewarmRobotIdentity(identity.hashId);
+      void import("@/domains/identity/roboavatarClient")
+        .then(({ prewarmRobotAvatar }) => prewarmRobotAvatar(identity.hashId))
+        .catch(() => undefined);
+
+      void import("@/domains/identity/robonameClient")
+        .then(({ generateRoboname }) => {
           const nickname = generateRoboname(identity.hashId);
           updateSlotIdentityDetails(token, { nickname });
           void renameVaultRobot(token, nickname);

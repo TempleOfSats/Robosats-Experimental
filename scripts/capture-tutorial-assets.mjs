@@ -457,13 +457,13 @@ async function seedProWorkspace(page) {
         "/garageVaultStore.ts",
         "/garageStore.ts",
         "/robotIdentity.ts",
-        "/roboidentitiesClient.ts",
         "/proTradeIndexStore.ts",
         "/proRuntime.ts",
         "/portableSettingsStore.ts"
       ].map(async (fragment) => [fragment, await loadedModuleUrl(page, fragment)])
     )
   );
+  moduleUrls["/robonameClient.ts"] = new URL("/src/domains/identity/robonameClient.ts", baseUrl).href;
 
   await page.evaluate(async (urls) => {
     const [
@@ -478,7 +478,7 @@ async function seedProWorkspace(page) {
       import(urls["/garageVaultStore.ts"]),
       import(urls["/garageStore.ts"]),
       import(urls["/robotIdentity.ts"]),
-      import(urls["/roboidentitiesClient.ts"]),
+      import(urls["/robonameClient.ts"]),
       import(urls["/proTradeIndexStore.ts"]),
       import(urls["/proRuntime.ts"]),
       import(urls["/portableSettingsStore.ts"])

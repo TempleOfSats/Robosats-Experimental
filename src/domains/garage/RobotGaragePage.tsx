@@ -784,9 +784,12 @@ function recoverRobotToken(
     }
   });
 
-  void import("@/domains/identity/roboidentitiesClient")
-    .then(({ generateRoboname, prewarmRobotIdentity }) => {
-      prewarmRobotIdentity(identity.hashId);
+  void import("@/domains/identity/roboavatarClient")
+    .then(({ prewarmRobotAvatar }) => prewarmRobotAvatar(identity.hashId))
+    .catch(() => undefined);
+
+  void import("@/domains/identity/robonameClient")
+    .then(({ generateRoboname }) => {
       updateSlotIdentityDetails(token, { nickname: generateRoboname(identity.hashId) });
     })
     .catch(() => undefined);

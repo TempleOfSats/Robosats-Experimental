@@ -6,7 +6,7 @@ const { isTauriDesktopMock, showDesktopNotificationMock } = vi.hoisted(() => ({
   showDesktopNotificationMock: vi.fn(() => Promise.resolve(true))
 }));
 
-vi.mock("@/domains/identity/roboidentitiesClient", () => ({
+vi.mock("@/domains/identity/roboavatarClient", () => ({
   generateRobohash: generateRobohashMock
 }));
 vi.mock("@/domains/transport/tauriBridge", () => ({
@@ -31,12 +31,12 @@ beforeEach(() => {
     }
   );
   vi.stubGlobal("document", {
-    createElement: () => ({
+    createElement: vi.fn(() => ({
       width: 0,
       height: 0,
       getContext: () => ({ drawImage: vi.fn() }),
       toDataURL: () => "data:image/png;base64,iVBORw0KGgo="
-    })
+    }))
   });
 });
 
@@ -62,6 +62,22 @@ describe("desktop order notifications", () => {
       body: "Trade updated",
       route: "/order/temple/42",
       avatar: { cacheKey: hashId, dataUrl: "data:image/png;base64,iVBORw0KGgo=" }
+    });
+  });
+
+  it("passes an existing PNG to the native bridge without another canvas render", async () => {
+    const hashId = "d".repeat(64);
+    const png = "data:image/png;base64,iVBORw0KGgo=";
+    generateRobohashMock.mockResolvedValue(png);
+
+    await expect(showDesktopOrderNotification(42, "temple", "Trade updated", hashId)).resolves.toBe(true);
+
+    expect(document.createElement).not.toHaveBeenCalled();
+    expect(showDesktopNotificationMock).toHaveBeenCalledWith({
+      title: "Order #42",
+      body: "Trade updated",
+      route: "/order/temple/42",
+      avatar: { cacheKey: hashId, dataUrl: png }
     });
   });
 

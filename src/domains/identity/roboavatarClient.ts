@@ -1,23 +1,10 @@
-import {
-  generateBrowserRobohash,
-  generateBrowserRoboname
-} from "@/domains/identity/roboidentitiesBrowser";
+import { generateBrowserRobohash } from "@/domains/identity/roboavatarBrowser";
 
 const avatarCache = new Map<string, string>();
 const avatarPromiseCache = new Map<string, Promise<string>>();
-const nameCache = new Map<string, string>();
 const AVATAR_CACHE_NAME = "robosats-exp-avatar-cache-v3";
 const AVATAR_CACHE_PATH = "https://robosats.invalid/avatar-cache/v3/";
 const AVATAR_CACHE_LIMIT = 32;
-
-export function generateRoboname(hashId: string): string {
-  if (!hashId) return "Robot";
-  const cached = nameCache.get(hashId);
-  if (cached) return cached;
-  const name = generateBrowserRoboname(hashId);
-  nameCache.set(hashId, name);
-  return name;
-}
 
 export async function generateRobohash(hashId: string): Promise<string> {
   if (!hashId) return "";
@@ -55,17 +42,9 @@ export async function generateRobohash(hashId: string): Promise<string> {
   return promise;
 }
 
-export function prewarmRobotIdentity(hashId: string): void {
+export function prewarmRobotAvatar(hashId: string): void {
   if (!hashId) return;
   void generateRobohash(hashId).catch(() => undefined);
-}
-
-export async function prepareRobotIdentity(hashId: string): Promise<{ avatar: string; nickname: string }> {
-  const avatar = await generateRobohash(hashId);
-  return {
-    avatar,
-    nickname: generateRoboname(hashId)
-  };
 }
 
 async function readPersistedAvatar(cacheKey: string): Promise<string | undefined> {
@@ -86,9 +65,12 @@ async function persistAvatar(cacheKey: string, image: string): Promise<void> {
     const cache = await caches.open(AVATAR_CACHE_NAME);
     const request = avatarCacheRequest(cacheKey);
     await cache.delete(request);
-    await cache.put(request, new Response(image, {
-      headers: { "Content-Type": "text/plain;charset=UTF-8" }
-    }));
+    await cache.put(
+      request,
+      new Response(image, {
+        headers: { "Content-Type": "text/plain;charset=UTF-8" }
+      })
+    );
     const keys = await cache.keys();
     await Promise.all(keys.slice(0, Math.max(0, keys.length - AVATAR_CACHE_LIMIT)).map((key) => cache.delete(key)));
   } catch {

@@ -1,23 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  generateBrowserRobohash,
-  generateBrowserRoboname,
-  selectRobotIdentity
-} from "@/domains/identity/roboidentitiesBrowser";
+import { generateBrowserRobohash, selectRobotIdentity } from "@/domains/identity/roboavatarBrowser";
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("browser robot identities", () => {
-  it.each([
-    ["3ee5dd464116bb1cbe225a07d4577b459cc49da215db0dec7e832d8cec3a6ec2", "BloomingProduce238"],
-    ["0c007605495eb709f5572fcdef6acec89e3fcccf3cd0d919ed305904771c0b4d", "CuriousAdhesive448"],
-    ["e2c7a42525878575087b8bbb6315d9c171925dbe6322272e55e631ada1bb458f", "LeftHook809"]
-  ])("matches the native nickname for %s", (hash, expected) => {
-    expect(generateBrowserRoboname(hash)).toBe(expected);
-  });
-
+describe("browser robot avatars", () => {
   it("maps a SHA-512 digest to stable layers and hue", () => {
     expect(
       selectRobotIdentity(
@@ -31,7 +19,10 @@ describe("browser robot identities", () => {
   });
 
   it("emits one canonical SVG that scales at every display size", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(identityAssetPack())));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(identityAssetPack()))
+    );
 
     const avatar = await generateBrowserRobohash("a".repeat(64));
     const svg = Buffer.from(avatar.slice(avatar.indexOf(",") + 1), "base64").toString("utf8");

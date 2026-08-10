@@ -1,19 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({
-  generateBrowserRobohash: vi.fn(async (hashId: string) => `avatar:${hashId}`),
-  generateBrowserRoboname: vi.fn((hashId: string) => `name:${hashId}`)
-}));
+const generateBrowserRobohash = vi.hoisted(() => vi.fn(async (hashId: string) => `avatar:${hashId}`));
 
-vi.mock("@/domains/identity/roboidentitiesBrowser", () => mocks);
+vi.mock("@/domains/identity/roboavatarBrowser", () => ({ generateBrowserRobohash }));
 
-import { generateRobohash } from "@/domains/identity/roboidentitiesClient";
+import { generateRobohash } from "@/domains/identity/roboavatarClient";
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("robot identity avatar cache", () => {
+describe("robot avatar cache", () => {
   it("generates and caches one scalable avatar per robot", async () => {
     const hashId = "b".repeat(64);
 
@@ -23,8 +20,8 @@ describe("robot identity avatar cache", () => {
     ]);
     await expect(generateRobohash(hashId)).resolves.toBe(`avatar:${hashId}`);
 
-    expect(mocks.generateBrowserRobohash).toHaveBeenCalledOnce();
-    expect(mocks.generateBrowserRobohash).toHaveBeenCalledWith(hashId);
+    expect(generateBrowserRobohash).toHaveBeenCalledOnce();
+    expect(generateBrowserRobohash).toHaveBeenCalledWith(hashId);
   });
 
   it("migrates a previously cached sized avatar without regenerating it", async () => {
@@ -44,6 +41,6 @@ describe("robot identity avatar cache", () => {
 
     await expect(generateRobohash(hashId)).resolves.toBe(legacyAvatar);
 
-    expect(mocks.generateBrowserRobohash).not.toHaveBeenCalledWith(hashId);
+    expect(generateBrowserRobohash).not.toHaveBeenCalledWith(hashId);
   });
 });
