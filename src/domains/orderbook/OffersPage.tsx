@@ -698,8 +698,11 @@ export function OffersPage() {
                     options={intentOptions}
                     value={intentFilter}
                     onChange={(value) => {
-                      setIntentFilter(value as IntentFilter);
-                      setMethodFilter("all");
+                      const nextIntent = value as IntentFilter;
+                      if (intentIsSwap(intentFilter) !== intentIsSwap(nextIntent)) {
+                        setMethodFilter("all");
+                      }
+                      setIntentFilter(nextIntent);
                     }}
                     onOpenChange={(open) =>
                       setOpenFilter((current) => (open ? "intent" : current === "intent" ? null : current))
