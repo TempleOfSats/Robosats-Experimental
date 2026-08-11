@@ -95,6 +95,56 @@ describe("OffersPage filters", () => {
     expect(methodInput.value).toBe("Wise");
   });
 
+  it("preserves payment method across fiat directions and resets only when crossing swap modes", async () => {
+    useOrderbookStore.setState({
+      orders: [
+        order({ id: 1, type: 1, payment_method: "Revolut" }),
+        order({ id: 2, type: 0, payment_method: "Revolut" }),
+        order({
+          id: 3,
+          type: 1,
+          currency: 1000,
+          currencyCode: "BTC",
+          is_swap: true,
+          payment_method: "On-Chain BTC"
+        }),
+        order({
+          id: 4,
+          type: 0,
+          currency: 1000,
+          currencyCode: "BTC",
+          is_swap: true,
+          payment_method: "On-Chain BTC"
+        })
+      ]
+    });
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter>
+          <OffersPage />
+        </MemoryRouter>
+      );
+    });
+
+    const fiatMethod = input("Filter by payment method");
+    await chooseMethod(fiatMethod, "Revolut");
+    await chooseIntent("BUY");
+    expect(fiatMethod.value).toBe("Revolut");
+    await chooseIntent("SELL");
+    expect(fiatMethod.value).toBe("Revolut");
+
+    await chooseIntent("SWAP IN");
+    const swapMethod = input("Filter by swap destination");
+    await vi.waitFor(() => expect(swapMethod.value).toBe(""));
+    await chooseMethod(swapMethod, "On-Chain BTC");
+    await chooseIntent("SWAP OUT");
+    expect(swapMethod.value).toBe("On-Chain BTC");
+
+    await chooseIntent("BUY");
+    await vi.waitFor(() => expect(input("Filter by payment method").value).toBe(""));
+  });
+
   it("uses dedicated icons for each ANY filter while preserving the labels", async () => {
     await act(async () => {
       root.render(
@@ -313,6 +363,17 @@ async function chooseCurrency(currency: string): Promise<void> {
     button.textContent?.includes(currency)
   );
   if (!option) throw new Error(`Missing currency: ${currency}`);
+  await act(async () => option.click());
+}
+
+async function chooseIntent(intent: string): Promise<void> {
+  const picker = container
+    .querySelector<HTMLDetailsElement>('summary[aria-label="Filter public offers by trade direction"]')
+    ?.closest("details");
+  const option = [...(picker?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find(
+    (button) => button.textContent?.trim() === intent
+  );
+  if (!option) throw new Error(`Missing intent: ${intent}`);
   await act(async () => option.click());
 }
 
