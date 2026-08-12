@@ -62,6 +62,7 @@ describe("desktop trade feedback", () => {
     observe({ status: 2, chat_last_index: 2 });
     observe({ status: 2, chat_last_index: 2 });
     expect(playTradeAudioMock).toHaveBeenCalledOnce();
+    expect(playTradeAudioMock).toHaveBeenLastCalledWith("order-paused");
     expect(showDesktopOrderNotificationMock).toHaveBeenCalledOnce();
     expect(showDesktopOrderNotificationMock).toHaveBeenLastCalledWith(123, "lake", "Paused", "hash");
 
@@ -97,6 +98,20 @@ describe("desktop trade feedback", () => {
     observe({ status: 2 }, false);
     expect(playTradeAudioMock).not.toHaveBeenCalled();
     expect(showDesktopOrderNotificationMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [1, 2, "order-paused"],
+    [2, 1, "order-resumed"],
+    [1, 4, "order-cancelled"],
+    [9, 12, "order-collab-cancelled"],
+    [10, 11, "order-dispute-opened"]
+  ] as const)("plays the semantic sound for status %i → %i", (previousStatus, status, audio) => {
+    startOrderFeedbackRuntime();
+    observe({ status: previousStatus });
+    observe({ status });
+
+    expect(playTradeAudioMock).toHaveBeenCalledExactlyOnceWith(audio);
   });
 
   it("keeps Pro background audio quiet while retaining one desktop notification", () => {

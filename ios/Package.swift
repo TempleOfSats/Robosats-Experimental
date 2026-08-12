@@ -37,6 +37,7 @@ let package = Package(
             linkerSettings: [
                 .unsafeFlags(["-L", artiLibraryDirectory, "-larti_mobile"]),
                 .linkedFramework("Security"),
+                .linkedFramework("Network"),
                 .linkedFramework("SystemConfiguration"),
                 .linkedLibrary("resolv"),
                 .linkedLibrary("z"),

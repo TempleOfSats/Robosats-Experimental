@@ -2,7 +2,21 @@ type Tone = readonly [number, number, number, number, OscillatorType, number?, n
 type Recipe = { lowPassHz: number; tones: readonly Tone[] };
 type SafariWindow = Window & typeof globalThis & { webkitAudioContext?: typeof AudioContext };
 
-const RECIPES: Readonly<Record<"takerFound" | "lockedInvoice" | "successful" | "chatOpen", Recipe>> = {
+const RECIPES: Readonly<
+  Record<
+    | "takerFound"
+    | "lockedInvoice"
+    | "successful"
+    | "chatOpen"
+    | "orderPaused"
+    | "orderResumed"
+    | "orderCancelled"
+    | "orderCollabCancelled"
+    | "orderDisputeOpened"
+    | "rewardsWithdrawalSuccess",
+    Recipe
+  >
+> = {
   takerFound: {
     lowPassHz: 7000,
     tones: [
@@ -54,6 +68,65 @@ const RECIPES: Readonly<Record<"takerFound" | "lockedInvoice" | "successful" | "
       [0, 840, 0.01, 1.2, "sine", 0.0012, 925],
       [0.006, 925, 0.019, 0.675, "sine", 0.0008, 750],
       [0, 3040, 0.007, 0.1125, "sine", 0.0004, 2700]
+    ]
+  },
+  orderPaused: {
+    lowPassHz: 6500,
+    tones: [
+      [0, 880, 0.42, 0.374, "sine", 0.012, 820],
+      [0.002, 1320, 0.22, 0.088, "sine", 0.006, 1230],
+      [0.18, 698, 0.64, 0.425, "sine", 0.014, 659],
+      [0.182, 1047, 0.34, 0.105, "sine", 0.008, 988]
+    ]
+  },
+  orderResumed: {
+    lowPassHz: 7000,
+    tones: [
+      [0, 659, 0.36, 0.315, "sine", 0.012, 698],
+      [0.002, 988, 0.18, 0.072, "sine", 0.006, 1047],
+      [0.16, 784, 0.62, 0.42, "sine", 0.012, 880],
+      [0.162, 1176, 0.3, 0.098, "sine", 0.007, 1320]
+    ]
+  },
+  orderCancelled: {
+    lowPassHz: 7500,
+    tones: [
+      [0, 988, 0.25, 0.392, "sine", 0.006, 880],
+      [0.002, 1976, 0.13, 0.096, "sine", 0.003, 1760],
+      [0.14, 659, 0.58, 0.464, "sine", 0.008, 523],
+      [0.142, 1318, 0.26, 0.113, "sine", 0.004, 1046]
+    ]
+  },
+  orderCollabCancelled: {
+    lowPassHz: 7000,
+    tones: [
+      [0, 784, 0.3, 0.238, "sine", 0.008, 740],
+      [0, 988, 0.3, 0.224, "sine", 0.008, 932],
+      [0.14, 622, 0.68, 0.315, "sine", 0.012, 587],
+      [0.14, 740, 0.68, 0.266, "sine", 0.012, 698],
+      [0.142, 1480, 0.2, 0.063, "sine", 0.004, 1396]
+    ]
+  },
+  orderDisputeOpened: {
+    lowPassHz: 8500,
+    tones: [
+      [0, 622, 0.28, 0.267, "sine", 0.006, 616],
+      [0, 880, 0.28, 0.234, "sine", 0.006, 870],
+      [0.002, 1866, 0.12, 0.068, "sine", 0.003, 1835],
+      [0.17, 659, 0.58, 0.332, "sine", 0.006, 650],
+      [0.17, 932, 0.58, 0.293, "sine", 0.006, 918],
+      [0.172, 1977, 0.18, 0.075, "sine", 0.003, 1935]
+    ]
+  },
+  rewardsWithdrawalSuccess: {
+    lowPassHz: 10000,
+    tones: [
+      [0, 523.25, 0.42, 0.243, "sine", 0.008, 520],
+      [0.11, 659.25, 0.5, 0.277, "sine", 0.007, 655],
+      [0.23, 783.99, 0.86, 0.344, "sine", 0.008, 778],
+      [0.23, 1046.5, 0.78, 0.189, "sine", 0.006, 1038],
+      [0.232, 2351.97, 0.32, 0.088, "sine", 0.003, 2320],
+      [0.235, 3135.96, 0.24, 0.07, "sine", 0.003, 3085]
     ]
   }
 };
@@ -165,3 +238,9 @@ export const playTakerFound = (): Promise<boolean> => playRecipe(RECIPES.takerFo
 export const playLockedInvoice = (): Promise<boolean> => playRecipe(RECIPES.lockedInvoice);
 export const playSuccessful = (): Promise<boolean> => playRecipe(RECIPES.successful);
 export const playChatOpen = (): Promise<boolean> => playRecipe(RECIPES.chatOpen);
+export const playOrderPaused = (): Promise<boolean> => playRecipe(RECIPES.orderPaused);
+export const playOrderResumed = (): Promise<boolean> => playRecipe(RECIPES.orderResumed);
+export const playOrderCancelled = (): Promise<boolean> => playRecipe(RECIPES.orderCancelled);
+export const playOrderCollabCancelled = (): Promise<boolean> => playRecipe(RECIPES.orderCollabCancelled);
+export const playOrderDisputeOpened = (): Promise<boolean> => playRecipe(RECIPES.orderDisputeOpened);
+export const playRewardsWithdrawalSuccess = (): Promise<boolean> => playRecipe(RECIPES.rewardsWithdrawalSuccess);

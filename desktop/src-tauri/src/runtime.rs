@@ -19,6 +19,7 @@ enum StartPolicy {
     Normal,
     Force,
     AutomaticRecovery,
+    NetworkRecovery(u64),
     FailedGeneration(u64),
 }
 
@@ -66,6 +67,11 @@ pub struct RuntimeStatus {
     pub socks_port: u16,
     pub arti_version: Option<String>,
     pub restart_count: u8,
+    pub network_available: bool,
+    pub network_handoff_pending: bool,
+    pub network_epoch: u64,
+    pub network_completed_epoch: u64,
+    pub network_recovery_count: u64,
 }
 
 struct RuntimeInner {
@@ -74,6 +80,8 @@ struct RuntimeInner {
     generation: u64,
     app_ready: bool,
     last_controlled_recovery_at: Option<Instant>,
+    network_initialized: bool,
+    network_recovery_generation: Option<u64>,
     diagnostics: VecDeque<TransportDiagnostic>,
 }
 
@@ -95,11 +103,18 @@ impl DesktopRuntime {
                     socks_port,
                     arti_version: None,
                     restart_count: 0,
+                    network_available: true,
+                    network_handoff_pending: false,
+                    network_epoch: 0,
+                    network_completed_epoch: 0,
+                    network_recovery_count: 0,
                 },
                 child: None,
                 generation: 0,
                 app_ready: false,
                 last_controlled_recovery_at: None,
+                network_initialized: false,
+                network_recovery_generation: None,
                 diagnostics: VecDeque::with_capacity(MAX_TRANSPORT_DIAGNOSTICS),
             })),
         }
@@ -166,6 +181,24 @@ impl DesktopRuntime {
         self.start_with_feedback(app, StartPolicy::Force, false);
     }
 
+    pub fn network_changed(&self, app: AppHandle, online: bool) {
+        let transition = {
+            let mut inner = self.inner.lock().expect("runtime mutex poisoned");
+            apply_network_change(&mut inner, online)
+        };
+        match transition {
+            NetworkTransition::None => return,
+            NetworkTransition::Initial => self.emit_status(&app),
+            NetworkTransition::Unavailable => {
+                self.emit_status(&app);
+            }
+            NetworkTransition::Recover(epoch) => {
+                self.emit_status(&app);
+                self.start_with_feedback(app, StartPolicy::NetworkRecovery(epoch), false);
+            }
+        }
+    }
+
     pub fn reset_transport(&self, app: AppHandle) {
         let (generation, port, old_child) = {
             let mut inner = self.inner.lock().expect("runtime mutex poisoned");
@@ -217,6 +250,11 @@ impl DesktopRuntime {
             inner.status.progress = 2;
             inner.status.message = "Starting private connection...".into();
             inner.status.error = None;
+            if matches!(policy, StartPolicy::NetworkRecovery(_)) {
+                inner.status.network_recovery_count += 1;
+                let generation = inner.generation;
+                inner.network_recovery_generation = Some(generation);
+            }
             (
                 inner.generation,
                 inner.status.socks_port,
@@ -338,6 +376,9 @@ impl DesktopRuntime {
                 if inner.generation != generation {
                     return Ok(());
                 }
+                if !inner.status.network_available {
+                    return Ok(());
+                }
                 inner.status.progress = progress.min(99);
                 inner.status.message = clean_stage(&stage);
                 drop(inner);
@@ -347,18 +388,32 @@ impl DesktopRuntime {
                 if port != expected_port {
                     return Err("Arti bound an unexpected proxy port".into());
                 }
-                {
+                let network_available = {
                     let mut inner = self.inner.lock().expect("runtime mutex poisoned");
                     if inner.generation != generation {
                         return Ok(());
                     }
-                    inner.status.state = "ready".into();
-                    inner.status.connected = true;
-                    inner.status.progress = 100;
-                    inner.status.message = "Private connection ready".into();
-                    inner.status.error = None;
+                    inner.network_recovery_generation = None;
                     inner.status.arti_version = Some(version);
-                    inner.status.restart_count = 0;
+                    if inner.status.network_available {
+                        inner.status.state = "ready".into();
+                        inner.status.connected = true;
+                        inner.status.progress = 100;
+                        inner.status.message = "Private connection ready".into();
+                        inner.status.error = None;
+                        inner.status.restart_count = 0;
+                        complete_network_handoff(&mut inner.status);
+                        true
+                    } else {
+                        inner.status.state = "waiting-network".into();
+                        inner.status.connected = false;
+                        inner.status.message = "Waiting for a network...".into();
+                        false
+                    }
+                };
+                if !network_available {
+                    self.emit_status(app);
+                    return Ok(());
                 }
                 ensure_main_window(app, expected_port)?;
                 self.emit_status(app);
@@ -395,23 +450,37 @@ impl DesktopRuntime {
     }
 
     fn fail(&self, app: &AppHandle, generation: u64, error: String, retry: bool) {
-        let restart = {
+        let (restart, waiting_for_network) = {
             let mut inner = self.inner.lock().expect("runtime mutex poisoned");
             if inner.generation != generation {
                 return;
             }
             inner.child = None;
-            inner.status.state = "failed".into();
-            inner.status.connected = false;
-            inner.status.message = "Private connection unavailable".into();
-            inner.status.error = Some(sanitize_error(&error));
-            if retry && inner.status.restart_count < MAX_AUTOMATIC_RESTARTS {
-                inner.status.restart_count += 1;
-                Some(inner.status.restart_count)
+            inner.network_recovery_generation = None;
+            if !inner.status.network_available {
+                inner.status.state = "waiting-network".into();
+                inner.status.connected = false;
+                inner.status.message = "Waiting for a network...".into();
+                inner.status.error = None;
+                (None, true)
             } else {
-                None
+                inner.status.state = "failed".into();
+                inner.status.connected = false;
+                inner.status.message = "Private connection unavailable".into();
+                inner.status.error = Some(sanitize_error(&error));
+                let restart = if retry && inner.status.restart_count < MAX_AUTOMATIC_RESTARTS {
+                    inner.status.restart_count += 1;
+                    Some(inner.status.restart_count)
+                } else {
+                    None
+                };
+                (restart, false)
             }
         };
+        if waiting_for_network {
+            self.emit_status(app);
+            return;
+        }
         if let Some(main) = app.get_webview_window("main") {
             let _ = main.hide();
         }
@@ -516,17 +585,76 @@ fn clean_version(value: &str) -> String {
 }
 
 fn health_check_deferred(status: &RuntimeStatus) -> bool {
-    matches!(status.state.as_str(), "starting" | "connecting")
+    matches!(
+        status.state.as_str(),
+        "starting" | "connecting" | "waiting-network"
+    )
 }
 
 fn start_allowed(inner: &RuntimeInner, policy: StartPolicy) -> bool {
+    if !inner.status.network_available {
+        return false;
+    }
     match policy {
         StartPolicy::Force => true,
         StartPolicy::AutomaticRecovery => !health_check_deferred(&inner.status),
+        StartPolicy::NetworkRecovery(epoch) => {
+            inner.status.network_handoff_pending
+                && epoch > inner.status.network_completed_epoch
+                && inner.network_recovery_generation.is_none()
+        }
         StartPolicy::Normal => !matches!(inner.status.state.as_str(), "connecting" | "ready"),
         StartPolicy::FailedGeneration(generation) => {
             inner.generation == generation && inner.status.state == "failed"
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum NetworkTransition {
+    None,
+    Initial,
+    Unavailable,
+    Recover(u64),
+}
+
+fn apply_network_change(inner: &mut RuntimeInner, online: bool) -> NetworkTransition {
+    if !inner.network_initialized {
+        inner.network_initialized = true;
+        inner.status.network_available = online;
+        if !online {
+            inner.status.network_handoff_pending = true;
+            inner.status.state = "waiting-network".into();
+            inner.status.connected = false;
+            inner.status.message = "Waiting for a network...".into();
+        }
+        return NetworkTransition::Initial;
+    }
+    if inner.status.network_available == online {
+        return NetworkTransition::None;
+    }
+
+    inner.status.network_epoch += 1;
+    inner.status.network_available = online;
+    inner.status.network_handoff_pending = true;
+    inner.status.connected = false;
+    inner.status.error = None;
+    if !online {
+        inner.status.state = "waiting-network".into();
+        inner.status.message = "Waiting for a network...".into();
+        NetworkTransition::Unavailable
+    } else {
+        inner.status.state = "connecting".into();
+        inner.status.progress = inner.status.progress.min(99);
+        inner.status.message = "Restoring the private connection...".into();
+        NetworkTransition::Recover(inner.status.network_epoch)
+    }
+}
+
+fn complete_network_handoff(status: &mut RuntimeStatus) {
+    if status.network_available && status.network_handoff_pending {
+        status.network_completed_epoch = status.network_epoch;
+        status.network_handoff_pending = false;
     }
 }
 
@@ -752,6 +880,64 @@ mod tests {
         assert!(!start_allowed(&inner, StartPolicy::FailedGeneration(3)));
         inner.status.state = "connecting".into();
         assert!(!start_allowed(&inner, StartPolicy::FailedGeneration(4)));
+    }
+
+    #[test]
+    fn network_transitions_are_deduplicated_and_monotonic() {
+        let runtime = DesktopRuntime::new(19050);
+        let mut inner = runtime.inner.lock().expect("runtime mutex poisoned");
+
+        assert_eq!(
+            apply_network_change(&mut inner, true),
+            NetworkTransition::Initial
+        );
+        assert_eq!(
+            apply_network_change(&mut inner, true),
+            NetworkTransition::None
+        );
+        assert_eq!(
+            apply_network_change(&mut inner, false),
+            NetworkTransition::Unavailable
+        );
+        assert_eq!(
+            apply_network_change(&mut inner, false),
+            NetworkTransition::None
+        );
+        assert_eq!(
+            apply_network_change(&mut inner, true),
+            NetworkTransition::Recover(2)
+        );
+        assert_eq!(inner.status.network_epoch, 2);
+        assert!(inner.status.network_handoff_pending);
+    }
+
+    #[test]
+    fn in_flight_network_recovery_blocks_a_duplicate_restart() {
+        let runtime = DesktopRuntime::new(19050);
+        let mut inner = runtime.inner.lock().expect("runtime mutex poisoned");
+        inner.network_initialized = true;
+        inner.status.network_handoff_pending = true;
+        inner.status.network_available = true;
+        inner.status.network_epoch = 3;
+
+        assert!(start_allowed(&inner, StartPolicy::NetworkRecovery(3)));
+        inner.network_recovery_generation = Some(9);
+        assert!(!start_allowed(&inner, StartPolicy::NetworkRecovery(3)));
+    }
+
+    #[test]
+    fn successful_bootstrap_completes_the_newest_network_epoch() {
+        let runtime = DesktopRuntime::new(19050);
+        let mut inner = runtime.inner.lock().expect("runtime mutex poisoned");
+        inner.status.network_available = true;
+        inner.status.network_handoff_pending = true;
+        inner.status.network_epoch = 6;
+        inner.status.network_completed_epoch = 3;
+
+        complete_network_handoff(&mut inner.status);
+
+        assert_eq!(inner.status.network_completed_epoch, 6);
+        assert!(!inner.status.network_handoff_pending);
     }
 
     #[test]

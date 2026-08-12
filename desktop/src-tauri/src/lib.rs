@@ -209,9 +209,7 @@ fn desktop_app_ready(app: AppHandle, runtime: State<'_, DesktopRuntime>) {
 
 #[tauri::command]
 fn desktop_network_changed(app: AppHandle, runtime: State<'_, DesktopRuntime>, online: bool) {
-    if online {
-        runtime.health_check(app);
-    }
+    runtime.network_changed(app, online);
 }
 
 #[tauri::command]

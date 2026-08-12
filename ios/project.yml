@@ -39,6 +39,8 @@ targets:
           - -framework
           - Security
           - -framework
+          - Network
+          - -framework
           - SystemConfiguration
           - -lz
           - -lresolv

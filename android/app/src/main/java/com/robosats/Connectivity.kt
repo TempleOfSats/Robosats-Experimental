@@ -5,10 +5,18 @@ import com.vitorpamplona.ammolite.service.HttpClientManager
 
 class Connectivity {
     companion object {
+        @Volatile
         var isOnMobileData: Boolean = false
+        @Volatile
         var isOnWifiData: Boolean = false
+        @Volatile
         var isValidated: Boolean = false
 
+        fun markUnavailable() {
+            isValidated = false
+        }
+
+        @Synchronized
         fun updateNetworkCapabilities(networkCapabilities: NetworkCapabilities): Boolean {
             val isOnMobileDataNet = networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
             val isOnWifiNet = networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)

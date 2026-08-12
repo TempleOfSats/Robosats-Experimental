@@ -2,7 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
-    @StateObject private var tor = TorManager()
+    @ObservedObject var tor: TorManager
     @State private var webReady = false
 
     var body: some View {

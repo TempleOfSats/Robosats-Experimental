@@ -108,6 +108,7 @@ npm run build:ios:unsigned
 - Robot state is persisted in the iOS Keychain.
 - No continuous background Tor mode or notification service is enabled.
 - Returning to the foreground restarts the local SOCKS listener and refreshes native transport state.
+- One app-owned path monitor pauses stale native requests during Wi-Fi/cellular changes and performs one state-preserving Arti recovery for the newest usable path.
 
 The transport uses iOS-supported `InputStream` and `OutputStream` SOCKS5 configuration for HTTP and WebSocket connections. WebSocket handshakes and frames are handled inside the app so no request can bypass the loopback Arti proxy through `URLSession`. TLS streams retain destination-host certificate validation. This must still be exercised on a physical iPhone before release.
 
