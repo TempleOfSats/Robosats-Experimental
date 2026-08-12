@@ -43,6 +43,10 @@ export type AndroidTorDiagnostics = {
   clientInitialized: boolean;
   proxyRunning: boolean;
   networkAvailable: boolean;
+  networkHandoffPending?: boolean;
+  networkEpoch?: number;
+  networkCompletedEpoch?: number;
+  networkRecoveryCount?: number;
   routing: string;
   appVersion: string;
   error: string | null;

@@ -21,6 +21,8 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { InfoHint } from "@/components/ui/infoHint";
 import { Tabs, tabId } from "@/components/ui/tabs";
+import { tradeAudioEventForOrderTransition } from "@/domains/audio/audioAssets";
+import { playTradeAudio } from "@/domains/audio/audioController";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import { compareCoordinatorsByEstablished } from "@/domains/coordinators/coordinatorOrder";
@@ -549,12 +551,14 @@ export function ProWorkspacePage() {
           : { action: "cancel", cancel_status: snapshot.order?.status },
         auth
       );
+      const audio = tradeAudioEventForOrderTransition(snapshot.order?.status, order.status);
       ingestCoordinatorOrder({
         order,
         orderId: snapshot.locator.orderId,
         shortAlias: coordinator.shortAlias,
         slot
       });
+      if (audio) void playTradeAudio(audio).catch(() => undefined);
       const result = action === "pause" ? "paused" : action === "resume" ? "resumed" : "cancelled";
       setAnnouncement(`Order ${snapshot.locator.orderId} ${result}.`);
       setActionNotice({

@@ -1,7 +1,7 @@
 import type { AndroidNotificationState, AndroidTorDiagnostics } from "@/domains/transport/androidBridge";
 
 type DesktopRuntimeStatus = {
-  state: "starting" | "connecting" | "ready" | "failed" | "loading";
+  state: "starting" | "connecting" | "ready" | "failed" | "loading" | "waiting-network";
   connected: boolean;
   progress: number;
   message: string;
@@ -9,6 +9,11 @@ type DesktopRuntimeStatus = {
   socksPort: number;
   artiVersion?: string | null;
   restartCount: number;
+  networkAvailable: boolean;
+  networkHandoffPending: boolean;
+  networkEpoch: number;
+  networkCompletedEpoch: number;
+  networkRecoveryCount: number;
 };
 
 type DesktopNotificationState = {
@@ -50,7 +55,11 @@ export async function getDesktopTorDiagnostics(): Promise<AndroidTorDiagnostics 
     bootstrapProgress: status.progress,
     clientInitialized: status.state !== "starting",
     proxyRunning: status.connected,
-    networkAvailable: navigator.onLine,
+    networkAvailable: status.networkAvailable,
+    networkHandoffPending: status.networkHandoffPending,
+    networkEpoch: status.networkEpoch,
+    networkCompletedEpoch: status.networkCompletedEpoch,
+    networkRecoveryCount: status.networkRecoveryCount,
     routing: "System webview through app-scoped SOCKS5",
     appVersion,
     error: status.error ?? null
@@ -149,7 +158,6 @@ export function initializeDesktopRuntimeBridge(): void {
   void listen("robosats:native-resume", () => {
     window.dispatchEvent(new Event("robosats:native-resume"));
   });
-
   window.addEventListener("robosats:boot-stage", (event) => {
     const detail = (event as CustomEvent<{ progress?: number; message?: string }>).detail;
     void invoke("desktop_boot_stage", {
@@ -166,6 +174,7 @@ export function initializeDesktopRuntimeBridge(): void {
   window.addEventListener("offline", () => {
     void invoke("desktop_network_changed", { online: false });
   });
+  void invoke("desktop_network_changed", { online: navigator.onLine });
   document.addEventListener("click", (event) => {
     const anchor = (event.target as Element | null)?.closest<HTMLAnchorElement>("a[href]");
     if (!anchor || anchor.target !== "_blank") return;

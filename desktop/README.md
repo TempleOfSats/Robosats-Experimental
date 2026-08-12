@@ -11,6 +11,10 @@ Arti sidecar.
 4. Reveal the frontend after Tor and the app are ready.
 5. Hide the main window and restart Arti if the proxy stops.
 
+The Rust runtime owns online/offline recovery epochs. It keeps duplicate
+webview events from spawning duplicate sidecars and only reports Tor ready
+after the newest usable network path has completed recovery.
+
 The frontend has no shell or sidecar permission. Tauri exposes connection
 status, notifications, external URL opening, and window controls.
 

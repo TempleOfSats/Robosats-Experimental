@@ -4,7 +4,6 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.net.ConnectivityManager
 import android.os.Build
 import android.util.Base64
 import android.util.Log
@@ -91,7 +90,7 @@ class WebAppInterface(
             TorStatus.Off -> "off"
         }
         val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
-        val networkAvailable = context.getSystemService(ConnectivityManager::class.java).activeNetwork != null
+        val recovery = (context.application as RoboSatsApplication).networkRecovery.diagnostics()
         return JSONObject()
             .put("connected", status is TorStatus.Active)
             .put("state", state)
@@ -102,7 +101,11 @@ class WebAppInterface(
             .put("bootstrapProgress", (status as? TorStatus.Connecting)?.progress ?: if (status is TorStatus.Active) 100 else 0)
             .put("clientInitialized", ArtiTorManager.isInitialized())
             .put("proxyRunning", ArtiTorManager.isProxyRunning())
-            .put("networkAvailable", networkAvailable)
+            .put("networkAvailable", Connectivity.isValidated)
+            .put("networkHandoffPending", recovery.handoffPending)
+            .put("networkEpoch", recovery.epoch)
+            .put("networkCompletedEpoch", recovery.completedEpoch)
+            .put("networkRecoveryCount", recovery.recoveryCount)
             .put("routing", "Native HTTP and WebSocket traffic through Tor")
             .put("appVersion", packageInfo.versionName ?: "Unknown")
             .put("error", (status as? TorStatus.Failed)?.reason ?: JSONObject.NULL)

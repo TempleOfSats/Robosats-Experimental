@@ -3,6 +3,7 @@ import { WalletCards } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { VisualSelect } from "@/components/ui/visualSelect";
+import { playTradeAudio } from "@/domains/audio/audioController";
 import { toUserMessage } from "@/lib/userError";
 import { Card, CardContent } from "@/components/ui/card";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
@@ -78,6 +79,7 @@ export function RewardWithdrawalPanel({
       const result = await claimReward(coordinator.url, signedInvoice, 0, auth);
       if (result.successfulWithdrawal) {
         playHaptic("success");
+        void playTradeAudio("rewards-withdrawal-success").catch(() => undefined);
         setInvoice("");
         onClaimed(rewardRobot.shortAlias);
       } else {

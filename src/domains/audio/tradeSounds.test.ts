@@ -134,7 +134,13 @@ describe("procedural trade sounds", () => {
     ["playTakerFound", 12],
     ["playLockedInvoice", 7],
     ["playSuccessful", 11],
-    ["playChatOpen", 3]
+    ["playChatOpen", 3],
+    ["playOrderPaused", 4],
+    ["playOrderResumed", 4],
+    ["playOrderCancelled", 4],
+    ["playOrderCollabCancelled", 5],
+    ["playOrderDisputeOpened", 6],
+    ["playRewardsWithdrawalSuccess", 6]
   ] as const)("%s schedules the supplied recipe (%i oscillators)", async (name, count) => {
     const sounds = await import("./tradeSounds");
     const played = await sounds[name]();

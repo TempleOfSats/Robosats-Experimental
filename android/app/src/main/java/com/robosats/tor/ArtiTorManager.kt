@@ -20,8 +20,6 @@ import java.net.Socket
 object ArtiTorManager {
     private const val defaultPort = 17392
     private const val maxPortAttempts = 10
-    private const val networkResetDebounceMs = 5_000L
-
     private val lifecycleMutex = Mutex()
     private val _status = MutableStateFlow<TorStatus>(TorStatus.Off)
     val status: StateFlow<TorStatus> = _status.asStateFlow()
@@ -29,7 +27,7 @@ object ArtiTorManager {
     private var initialized = false
     private var proxyRunning = false
     private var dataDirectory: File? = null
-    private var lastNetworkResetAt = 0L
+    private var lastNetworkResetEpoch = 0L
     private var lastEndToEndResetAt = 0L
 
     suspend fun start(context: Context): TorStatus = lifecycleMutex.withLock {
@@ -89,10 +87,9 @@ object ArtiTorManager {
         resetUnlocked(context, clearState)
     }
 
-    suspend fun resetAfterNetworkChange(context: Context): TorStatus = lifecycleMutex.withLock {
-        val now = SystemClock.elapsedRealtime()
-        if (now - lastNetworkResetAt < networkResetDebounceMs) return _status.value
-        lastNetworkResetAt = now
+    suspend fun resetAfterNetworkChange(context: Context, networkEpoch: Long): TorStatus = lifecycleMutex.withLock {
+        if (networkEpoch <= lastNetworkResetEpoch) return _status.value
+        lastNetworkResetEpoch = networkEpoch
         resetUnlocked(context, clearState = false)
     }
 

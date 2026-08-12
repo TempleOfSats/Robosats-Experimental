@@ -7,9 +7,6 @@ import android.animation.ValueAnimator
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
-import android.net.ConnectivityManager
-import android.net.Network
-import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -46,6 +43,7 @@ import com.robosats.models.notificationPermissionResultAction
 import com.robosats.models.notificationStartupAction
 import com.robosats.services.NotificationsService
 import com.robosats.tor.ArtiTorManager
+import com.robosats.tor.TorNetworkRecoveryEvent
 import com.robosats.tor.TorStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -72,7 +70,6 @@ class MainActivity : AppCompatActivity() {
     private var pendingFileContent: ByteArray? = null
     private var pendingOrderPath: String? = null
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
-    private var observedNetwork: Network? = null
     private var notificationsStartAttempted = false
     private var webAppReady = false
     private var torReady = false
@@ -87,6 +84,10 @@ class MainActivity : AppCompatActivity() {
     private var resumeRecoveryRunning = false
     private var manualReconnectRunning = false
     private var lastFailureHealthCheckAt = 0L
+    private var lastInterruptedNetworkEpoch = -1L
+
+    private val networkRecovery: com.robosats.tor.TorNetworkRecovery
+        get() = (application as RoboSatsApplication).networkRecovery
 
     private val filePicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         filePathCallback?.onReceiveValue(uri?.let { arrayOf(it) })
@@ -121,28 +122,6 @@ class MainActivity : AppCompatActivity() {
         dispatchNotificationState()
     }
 
-    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
-        override fun onAvailable(network: Network) {
-            if (observedNetwork == null) observedNetwork = network
-        }
-
-        override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
-            if (!capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) return
-            Connectivity.updateNetworkCapabilities(capabilities)
-            val previous = observedNetwork
-            observedNetwork = network
-            if (previous == null || previous == network) return
-            lifecycleScope.launch {
-                updateStatusAnimated(getString(R.string.reconnecting_tor))
-                if (ArtiTorManager.resetAfterNetworkChange(applicationContext) is TorStatus.Active) {
-                    torReady = true
-                    dispatchTorReady()
-                    revealAppWhenReady()
-                }
-            }
-        }
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
@@ -172,9 +151,9 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             ArtiTorManager.status.collect(::renderTorStatus)
         }
-
-        getSystemService(ConnectivityManager::class.java)
-            .registerDefaultNetworkCallback(networkCallback)
+        lifecycleScope.launch {
+            networkRecovery.events.collect(::handleNetworkRecovery)
+        }
 
         connectTor(reset = false)
     }
@@ -322,7 +301,7 @@ class MainActivity : AppCompatActivity() {
             } else {
                 ArtiTorManager.start(applicationContext)
             }
-            if (status is TorStatus.Active) {
+            if (status is TorStatus.Active && !networkRecovery.handoffPending) {
                 torReady = true
                 Log.i("RoboSatsStartup", "Tor proxy ready")
                 dispatchTorReady()
@@ -375,7 +354,9 @@ class MainActivity : AppCompatActivity() {
                     }
                     is TorStatus.Active -> {
                         moveDisplayedProgressToward(100f, 2.4f)
-                        if (displayedProgress >= 99.5f) revealAppWhenReady()
+                        if (displayedProgress >= 99.5f && !networkRecovery.handoffPending) {
+                            revealAppWhenReady()
+                        }
                     }
                     is TorStatus.Failed -> Unit
                 }
@@ -453,6 +434,40 @@ class MainActivity : AppCompatActivity() {
             webView.evaluateJavascript(
                 "window.dispatchEvent(new CustomEvent('robosats:tor-reconnected'));window.dispatchEvent(new CustomEvent('robosats:tor-ready'))",
                 null
+            )
+        }
+    }
+
+    private fun handleNetworkRecovery(event: TorNetworkRecoveryEvent) {
+        when (event) {
+            is TorNetworkRecoveryEvent.Unavailable -> interruptTransportForNetwork(event.epoch)
+            is TorNetworkRecoveryEvent.Reconnecting -> {
+                interruptTransportForNetwork(event.epoch)
+                updateStatusAnimated(getString(R.string.reconnecting_tor))
+            }
+            is TorNetworkRecoveryEvent.Completed -> {
+                if (event.epoch < lastInterruptedNetworkEpoch) return
+                torReady = event.status is TorStatus.Active
+                dispatchNativeResume(0L, transportRefreshed = true)
+                if (torReady) {
+                    dispatchTorReady()
+                    revealAppWhenReady()
+                }
+            }
+        }
+    }
+
+    private fun interruptTransportForNetwork(epoch: Long) {
+        if (epoch <= lastInterruptedNetworkEpoch) return
+        lastInterruptedNetworkEpoch = epoch
+        torReady = false
+        bridge?.closeAll()
+        if (!webAppReady || !activityResumed) return
+        webView.post {
+            if (!activityResumed) return@post
+            webView.evaluateJavascript(
+                "window.__robosatsNativeTransport?.reset('Android network changed')",
+                null,
             )
         }
     }
@@ -695,10 +710,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        runCatching {
-            getSystemService(ConnectivityManager::class.java)
-                .unregisterNetworkCallback(networkCallback)
-        }
         bridge?.closeAll()
         pendingFileContent = null
         webView.removeJavascriptInterface("AndroidAppRobosats")

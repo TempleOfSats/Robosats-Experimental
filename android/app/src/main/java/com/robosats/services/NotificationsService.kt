@@ -12,9 +12,6 @@ import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
-import android.net.ConnectivityManager
-import android.net.Network
-import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.IBinder
 import android.util.Base64
@@ -26,16 +23,17 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.createBitmap
-import com.robosats.Connectivity
 import com.robosats.MainActivity
 import com.robosats.R
 import com.robosats.RoboIdentities
+import com.robosats.RoboSatsApplication
 import com.robosats.models.EncryptedStorage
 import com.robosats.models.NostrClient
 import com.robosats.models.NotificationPreferences
 import com.robosats.models.NostrClient.garagePubKeys
 import com.robosats.models.NostrClient.getRobotKeyPair
 import com.robosats.tor.ArtiTorManager
+import com.robosats.tor.TorNetworkRecoveryEvent
 import com.robosats.tor.TorStatus
 import com.vitorpamplona.ammolite.relays.Client
 import com.vitorpamplona.ammolite.relays.Relay
@@ -54,6 +52,7 @@ import org.json.JSONObject
 import java.util.Timer
 import java.util.TimerTask
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 
 class NotificationsService : Service() {
     private var channelRelaysId = "RelaysConnections"
@@ -65,7 +64,11 @@ class NotificationsService : Service() {
     private val timer = Timer()
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val processedEvents = ConcurrentHashMap<String, Boolean>()
+    private val subscriptionGeneration = AtomicLong()
     private var serviceStarted = false
+
+    private val networkRecovery
+        get() = (application as RoboSatsApplication).networkRecovery
 
     companion object {
         const val ACTION_STOP_SERVICE = "com.robosats.exp.action.STOP_NOTIFICATIONS"
@@ -80,13 +83,11 @@ class NotificationsService : Service() {
                 afterEOSE: Boolean,
             ) {
                 if (event is GiftWrapEvent && processedEvents.putIfAbsent(event.id, true) == null) {
-                    Log.d("RobosatsNotifications", "Relay Event: ${relay.url} - $subscriptionId - ${event.toJson()}")
+                    Log.d("RobosatsNotifications", "Received encrypted relay event")
                     val firstTaggedUser = event.firstTaggedUser()
                     val authors = garagePubKeys()
 
                     if (firstTaggedUser?.isNotEmpty() == true && authors.contains(firstTaggedUser)) {
-                        Log.d("RobosatsNotifications", "Relay Event: ${relay.url} - $subscriptionId")
-
                         var nostrSigner = NostrSignerInternal(getRobotKeyPair(firstTaggedUser))
                         event.unwrap(nostrSigner) { gift ->
                             if (gift is SealedGossipEvent) {
@@ -111,40 +112,6 @@ class NotificationsService : Service() {
             }
         }
 
-    private val networkCallback =
-        object : ConnectivityManager.NetworkCallback() {
-            var lastNetwork: Network? = null
-            var receivedInitialCapabilities = false
-
-            override fun onAvailable(network: Network) {
-                super.onAvailable(network)
-                if (lastNetwork == null) lastNetwork = network
-            }
-
-            override fun onCapabilitiesChanged(
-                network: Network,
-                networkCapabilities: NetworkCapabilities,
-            ) {
-                super.onCapabilitiesChanged(network, networkCapabilities)
-
-                val changed = Connectivity.updateNetworkCapabilities(networkCapabilities)
-                if (!networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) return
-                val isInitialUpdate = !receivedInitialCapabilities
-                receivedInitialCapabilities = true
-                val networkChanged = lastNetwork != null && lastNetwork != network
-                lastNetwork = network
-                Log.d(
-                    "RobosatsNotifications",
-                    "onCapabilitiesChanged: ${network.networkHandle} hasMobileData ${Connectivity.isOnMobileData} hasWifi ${Connectivity.isOnWifiData}",
-                )
-                if ((changed || networkChanged) && !isInitialUpdate) {
-                    scope.launch(Dispatchers.IO) {
-                        restartAfterNetworkChange()
-                    }
-                }
-            }
-        }
-
     override fun onBind(intent: Intent): IBinder? = null
 
     override fun onCreate() {
@@ -153,10 +120,20 @@ class NotificationsService : Service() {
 
         try {
             NostrClient.init()
-
-            val connectivityManager =
-                (getSystemService(ConnectivityManager::class.java) as ConnectivityManager)
-            connectivityManager.registerDefaultNetworkCallback(networkCallback)
+            scope.launch {
+                networkRecovery.events.collect { event ->
+                    when (event) {
+                        is TorNetworkRecoveryEvent.Unavailable,
+                        is TorNetworkRecoveryEvent.Reconnecting -> stopSubscription()
+                        is TorNetworkRecoveryEvent.Completed -> {
+                            if (event.status !is TorStatus.Active) return@collect
+                            val stoppedGeneration = subscriptionGeneration.get()
+                            delay(500)
+                            if (subscriptionGeneration.get() == stoppedGeneration) startSubscription()
+                        }
+                    }
+                }
+            }
 
         } catch (e: Throwable) {
             Log.e("NotificationsService", "Error in onCreate", e)
@@ -188,14 +165,6 @@ class NotificationsService : Service() {
         stopSubscription()
         scope.cancel()
 
-        try {
-            val connectivityManager =
-                (getSystemService(ConnectivityManager::class.java) as ConnectivityManager)
-            connectivityManager.unregisterNetworkCallback(networkCallback)
-        } catch (e: Exception) {
-            Log.d("RobosatsNotifications", "Failed to unregisterNetworkCallback", e)
-        }
-
         super.onDestroy()
     }
 
@@ -218,26 +187,23 @@ class NotificationsService : Service() {
     }
 
     private fun startSubscription() {
+        val generation = subscriptionGeneration.incrementAndGet()
         if (!Client.isSubscribed(clientNotificationListener)) Client.subscribe(clientNotificationListener)
 
         scope.launch {
-            if (ArtiTorManager.start(applicationContext) is TorStatus.Active) NostrClient.start()
+            if (
+                ArtiTorManager.start(applicationContext) is TorStatus.Active &&
+                subscriptionGeneration.get() == generation
+            ) {
+                NostrClient.start()
+            }
         }
     }
 
     private fun stopSubscription() {
+        subscriptionGeneration.incrementAndGet()
         Client.unsubscribe(clientNotificationListener)
         NostrClient.stop()
-    }
-
-    private fun restartAfterNetworkChange() {
-        scope.launch(Dispatchers.IO) {
-            stopSubscription()
-            if (ArtiTorManager.resetAfterNetworkChange(applicationContext) is TorStatus.Active) {
-                delay(500)
-                startSubscription()
-            }
-        }
     }
 
     private fun keepAlive() {
@@ -245,7 +211,9 @@ class NotificationsService : Service() {
             object : TimerTask() {
                 override fun run() {
                     if (notificationsAllowed()) {
-                        NostrClient.checkRelaysHealth()
+                        if (!networkRecovery.handoffPending && ArtiTorManager.status.value is TorStatus.Active) {
+                            NostrClient.checkRelaysHealth()
+                        }
                     } else {
                         Log.i("RobosatsNotifications", "Stopping after notifications were disabled")
                         stopSelf()

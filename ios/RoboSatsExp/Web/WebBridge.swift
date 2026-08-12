@@ -36,6 +36,9 @@ final class WebBridge: NSObject {
         self.diagnostics = diagnostics
         let connected = diagnostics["connected"] as? Bool == true
         var script = "window.__robosatsIOS?.updateDiagnostics(\(Self.json(diagnostics)));"
+        if wasConnected, !connected {
+            script += "window.__robosatsNativeTransport?.reset('iOS network changed');"
+        }
         if notify, connected, !wasConnected {
             script +=
                 "window.dispatchEvent(new Event('robosats:tor-reconnected'));" +
