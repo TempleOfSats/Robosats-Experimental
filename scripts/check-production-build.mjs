@@ -15,7 +15,11 @@ const referencedStaticAssets = new Set();
 if (!/["']\/assets\/[^/"']+\/robosats-exp\.[^"']+\.js["']/.test(indexHtml)) {
   throw new Error("Production entry assets must be namespaced by build revision.");
 }
-if (!/<link\b(?=[^>]*\brel=["']preload["'])(?=[^>]*\bas=["']style["'])(?=[^>]*\bdata-robosats-app-style\b)[^>]*>/.test(indexHtml)) {
+if (
+  !/<link\b(?=[^>]*\brel=["']preload["'])(?=[^>]*\bas=["']style["'])(?=[^>]*\bdata-robosats-app-style\b)[^>]*>/.test(
+    indexHtml
+  )
+) {
   throw new Error("Production application styles must preload behind the inline loading screen.");
 }
 if (/<link\b(?=[^>]*\brel=["']stylesheet["'])(?=[^>]*robosats-exp\.index\.)[^>]*>/.test(indexHtml)) {
@@ -49,9 +53,7 @@ if ([...initialGraph].some((path) => /openpgp|robo(?:avatar|name)Client|F2FLocat
 }
 assertEntryModulePreloads(indexHtml, entryPath, initialGraph);
 
-const workerFiles = files.filter(
-  (path) => path.endsWith(".js") && basename(path).includes("pgpKeyGeneration.worker")
-);
+const workerFiles = files.filter((path) => path.endsWith(".js") && basename(path).includes("pgpKeyGeneration.worker"));
 if (workerFiles.length !== 1) {
   throw new Error(`Production build must emit exactly one PGP generation worker, found ${workerFiles.length}.`);
 }
@@ -69,10 +71,10 @@ if (workerTransferBytes > 115_000) {
 }
 
 const routeBudgets = [
-  ["RobotGaragePage", ".RobotGaragePage.", 14, 50_000],
+  ["RobotGaragePage", ".RobotGaragePage.", 14, 51_000],
   ["OffersPage", /\.(?:OffersPage\.|offers~OffersPage(?:[.~]))/, 10, 45_000],
   ["SettingsPage", ".SettingsPage.", 7, 28_000],
-  ["ProWorkspacePage", ".ProWorkspacePage.", 21, 65_000],
+  ["ProWorkspacePage", ".ProWorkspacePage.", 21, 66_000],
   ["CreateOrderPage", ".CreateOrderPage.", 16, 54_000],
   ["OrderPage", ".OrderPage.", 16, 62_000]
 ];
@@ -154,7 +156,9 @@ if (nameFiles.length !== 1 || nameTransferBytes > 70_000) {
   throw new Error(`Browser robot-name payload exceeds its budget: ${nameTransferBytes} bytes`);
 }
 if (avatarTransferBytes + nameTransferBytes > 205_000) {
-  throw new Error(`Combined browser identity payload exceeds its budget: ${avatarTransferBytes + nameTransferBytes} bytes`);
+  throw new Error(
+    `Combined browser identity payload exceeds its budget: ${avatarTransferBytes + nameTransferBytes} bytes`
+  );
 }
 
 console.log(

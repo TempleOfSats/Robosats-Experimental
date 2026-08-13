@@ -69,6 +69,37 @@ describe("Dialog document isolation", () => {
 
     expect(scrollTo).not.toHaveBeenCalled();
   });
+
+  it("includes a native details summary in the keyboard focus loop", async () => {
+    await act(async () => {
+      root?.render(
+        <Dialog
+          ariaLabel="Advanced actions"
+          onClose={() => undefined}
+          overlayClassName="test-overlay"
+          panelClassName="test-panel"
+        >
+          <button type="button">Primary action</button>
+          <details>
+            <summary>Advanced recovery</summary>
+            <button type="button">Advanced action</button>
+          </details>
+        </Dialog>
+      );
+    });
+    const primary = [...document.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent === "Primary action"
+    )!;
+    const summary = document.querySelector<HTMLElement>("summary")!;
+    for (const element of [primary, summary]) {
+      element.getClientRects = () => [{ width: 1, height: 1 } as DOMRect] as unknown as DOMRectList;
+    }
+    primary.focus();
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey: true }));
+
+    expect(document.activeElement).toBe(summary);
+  });
 });
 
 async function renderDialogs(count: number): Promise<void> {

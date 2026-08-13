@@ -3,6 +3,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { FleetVaultDialogs } from "@/domains/pro/FleetVaultDialogs";
 import { OfferPresetsDialog } from "@/domains/pro/OfferPresetsDialog";
 import type { OfferPreset } from "@/domains/pro/portableSettings";
 import { CreateOfferRobotPicker, ProActionNotice } from "@/domains/pro/ProWorkspaceDialogs";
@@ -71,6 +72,36 @@ describe("CreateOfferRobotPicker", () => {
     await clickButton("Fresh Robot");
     expect(onSelect).toHaveBeenCalledWith("fresh-slot");
     expect(onAddRobot).not.toHaveBeenCalled();
+  });
+});
+
+describe("FleetVaultDialogs", () => {
+  it("explains preservation and offers a safe restore path", async () => {
+    const onRestore = vi.fn();
+    const onUseStandardGarage = vi.fn();
+    await act(async () => {
+      root?.render(
+        <FleetVaultDialogs
+          error="The encrypted Fleet could not be opened."
+          onCloseRecovery={vi.fn()}
+          onComplete={vi.fn()}
+          onRestore={onRestore}
+          onUseStandardGarage={onUseStandardGarage}
+          recoveryOpen={false}
+          setupOpen={false}
+          status="error"
+        />
+      );
+    });
+
+    expect(document.body.textContent).toContain("Saved Fleet needs attention");
+    expect(document.body.textContent).toContain("The encrypted Fleet could not be opened");
+    expect(document.body.textContent).toContain("Nothing was erased");
+
+    await clickButton("Restore Fleet");
+    expect(onRestore).toHaveBeenCalledOnce();
+    await clickButton("Use standard Garage");
+    expect(onUseStandardGarage).toHaveBeenCalledOnce();
   });
 });
 

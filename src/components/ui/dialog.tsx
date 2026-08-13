@@ -14,6 +14,7 @@ const FOCUSABLE_SELECTOR = [
   "button:not([disabled])",
   "input:not([disabled]):not([type='hidden'])",
   "select:not([disabled])",
+  "summary",
   "textarea:not([disabled])",
   "[tabindex]:not([tabindex='-1'])"
 ].join(",");
@@ -99,11 +100,17 @@ export function Dialog({
 
     function getFocusableElements() {
       return Array.from(dialogPanel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR))
-        .filter((element) => (
-          !element.hidden
-          && element.getAttribute("aria-hidden") !== "true"
-          && element.getClientRects().length > 0
-        ));
+        .filter((element) => {
+          const closedDetails = element.closest<HTMLDetailsElement>("details:not([open])");
+          const isClosedDetailsSummary =
+            element.tagName === "SUMMARY" && element.parentElement === closedDetails;
+          return (
+            !element.hidden &&
+            element.getAttribute("aria-hidden") !== "true" &&
+            element.getClientRects().length > 0 &&
+            (!closedDetails || isClosedDetailsSummary)
+          );
+        });
     }
 
     function handleKeyDown(event: KeyboardEvent) {

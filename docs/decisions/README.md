@@ -10,6 +10,9 @@ turning implementation history into a design manual.
 - [ADR-0003: One portable maintenance gate](0003-portable-maintenance-gate.md)
 - [ADR-0004: Explicit Tor reconnect](0004-explicit-tor-reconnect.md)
 - [ADR-0005: Native semantic haptics](0005-native-semantic-haptics.md)
+- [ADR-0006: Offline Fleet robot backup](0006-offline-fleet-robot-backup.md)
+- [ADR-0007: Process-owned native network handoffs](0007-native-network-handoff-ownership.md)
+- [ADR-0008: Early Fleet recovery with safe relay reconciliation](0008-early-fleet-recovery.md)
 
 ## Adding a decision
 

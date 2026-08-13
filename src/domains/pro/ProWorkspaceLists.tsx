@@ -333,8 +333,8 @@ export function RobotList({
           <strong>Your Robot Fleet is ready</strong>
           <p>Build a lineup of separate robot identities, then run every trade from this desk.</p>
           <p>
-            Each robot remains a standard RoboSats identity recoverable in any RoboSats app. Your Fleet key restores the
-            complete collection on any device, while maintaining your identities separate from coordinators.
+            Each robot remains a separate RoboSats identity. Your Fleet key reconnects the collection through encrypted
+            sync; an offline Fleet backup can restore its saved robots without relays.
           </p>
           {onAddRobot ? (
             <Button className="pro-fleet-empty-action" onClick={onAddRobot} size="sm">
