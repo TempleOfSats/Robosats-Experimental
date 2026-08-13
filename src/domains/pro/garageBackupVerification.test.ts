@@ -1,4 +1,7 @@
+import type { Filter } from "nostr-tools/filter";
+import type { Event } from "nostr-tools/pure";
 import type { SimplePool } from "nostr-tools/pool";
+import { normalizeURL } from "nostr-tools/utils";
 import { describe, expect, it, vi } from "vitest";
 import { verifyGarageBackupWithPool } from "@/domains/pro/garageBackupVerification";
 import { buildGarageRecordEvent } from "@/domains/pro/garageSync";
@@ -30,7 +33,7 @@ describe("Garage backup verification", () => {
       if (relay.includes("partial")) return [events[0]];
       return events;
     });
-    const pool = { querySync } as unknown as SimplePool;
+    const pool = directQueryPool(querySync);
 
     await expect(
       verifyGarageBackupWithPool(pool, secret, expected, [
@@ -59,4 +62,71 @@ describe("Garage backup verification", () => {
       verifiedRelays: 1
     });
   });
+
+  it("does not verify records received before the relay closes without EOSE", async () => {
+    const expected: GarageSyncRecord[] = [
+      preferencesToSyncRecord(createPortableSettingsManifest(deviceId, { theme: "dark" }, 1))
+    ];
+    const event = buildGarageRecordEvent(secret, expected[0], 10);
+    const pool = {
+      ensureRelay: async () => ({
+        subscribe: (
+          _filters: Filter[],
+          params: { onclose?: (reason: string) => void; onevent?: (event: Event) => void }
+        ) => {
+          queueMicrotask(() => {
+            params.onevent?.(event);
+            params.onclose?.("relay closed before EOSE");
+          });
+          return { close: () => undefined };
+        }
+      }),
+      listConnectionStatus: () => new Map([[normalizeURL("wss://closed.example"), true]])
+    } as unknown as SimplePool;
+
+    await expect(verifyGarageBackupWithPool(pool, secret, expected, ["wss://closed.example"])).resolves.toMatchObject({
+      reachableRelays: 1,
+      verified: false,
+      verifiedRelays: 0
+    });
+  });
 });
+
+function directQueryPool(querySync: (relays: string[]) => Promise<Event[]>): SimplePool {
+  const statuses = new Map<string, boolean>();
+  return {
+    ensureRelay: async (relay: string) => ({
+      subscribe: (
+        _filters: Filter[],
+        params: {
+          onclose?: (reason: string) => void;
+          oneose?: () => void;
+          onevent?: (event: Event) => void;
+        }
+      ) => {
+        let closed = false;
+        const close = () => {
+          if (closed) return;
+          closed = true;
+          params.onclose?.("closed by test query");
+        };
+        void querySync([relay]).then(
+          (events) => {
+            if (closed) return;
+            statuses.set(normalizeURL(relay), true);
+            events.forEach((event) => params.onevent?.(event));
+            params.oneose?.();
+          },
+          () => {
+            if (closed) return;
+            closed = true;
+            statuses.set(normalizeURL(relay), false);
+            params.onclose?.("relay query failed");
+          }
+        );
+        return { close };
+      }
+    }),
+    listConnectionStatus: () => statuses
+  } as unknown as SimplePool;
+}

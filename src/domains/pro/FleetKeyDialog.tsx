@@ -2,8 +2,9 @@ import { Check, Copy, Download, KeyRound, RefreshCw, ShieldCheck, X } from "luci
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { downloadFleetKeyBackup } from "@/domains/pro/fleetKeyBackup";
+import { downloadOfflineFleetBackup } from "@/domains/pro/fleetKeyBackup";
 import type { GarageBackupVerification } from "@/domains/pro/garageBackupVerification";
+import { useGarageVaultStore } from "@/domains/pro/garageVaultStore";
 import { writeClipboard } from "@/lib/clipboard";
 import { playHaptic } from "@/lib/haptics";
 
@@ -22,7 +23,6 @@ export function FleetKeyDialog({
   onVerify?: () => Promise<GarageBackupVerification>;
 }) {
   const [copied, setCopied] = useState(false);
-  const [keySaved, setKeySaved] = useState(false);
   const [error, setError] = useState("");
   const [verification, setVerification] = useState<FleetBackupVerificationState>({ status: "checking" });
   const verificationAttempt = useRef(0);
@@ -43,7 +43,9 @@ export function FleetKeyDialog({
 
   useEffect(() => {
     void verifyBackup();
-    return () => { verificationAttempt.current += 1; };
+    return () => {
+      verificationAttempt.current += 1;
+    };
   }, [verifyBackup]);
 
   async function copyFleetKey() {
@@ -51,19 +53,27 @@ export function FleetKeyDialog({
     try {
       await writeClipboard(fleetKey);
       setCopied(true);
-      setKeySaved(true);
       window.setTimeout(() => setCopied(false), 1400);
     } catch {
-      setError("Clipboard access is unavailable. Download the Fleet key instead.");
+      setError("Clipboard access is unavailable. Download the offline Fleet backup instead.");
     }
   }
 
   function downloadFleetKey() {
-    downloadFleetKeyBackup(fleetKey);
-    setKeySaved(true);
+    setError("");
+    const manifest = useGarageVaultStore.getState().manifest;
+    if (!manifest) {
+      setError("The local Fleet is not ready to back up yet.");
+      return;
+    }
+    try {
+      downloadOfflineFleetBackup(fleetKey, manifest);
+    } catch {
+      setError("Could not prepare the offline Fleet backup.");
+    }
   }
 
-  const verificationCopy = fleetBackupVerificationCopy(verification, keySaved);
+  const verificationCopy = fleetBackupVerificationCopy(verification);
 
   return (
     <Dialog
@@ -72,53 +82,69 @@ export function FleetKeyDialog({
       overlayClassName="confirm-overlay"
       panelClassName="confirm-sheet pro-fleet-key-sheet"
     >
-        <header className="garage-switcher-header">
-          <div className="pro-fleet-key-heading">
-            <h3 id="fleet-key-title">Back up Fleet key</h3>
-            <span className="pro-fleet-key-mark" aria-hidden="true"><KeyRound size={20} /></span>
-          </div>
-          <button className="icon-button" onClick={onClose} type="button" aria-label="Close Fleet key backup"><X size={18} /></button>
-        </header>
-        <p>
-          Save this private key to restore your synced robots, offer presets and completed-trade history on another device.
-          Keep it private because anyone who has it can control those robot identities.
+      <header className="garage-switcher-header">
+        <div className="pro-fleet-key-heading">
+          <h3 id="fleet-key-title">Back up Fleet</h3>
+          <span className="pro-fleet-key-mark" aria-hidden="true">
+            <KeyRound size={20} />
+          </span>
+        </div>
+        <button className="icon-button" onClick={onClose} type="button" aria-label="Close Fleet backup">
+          <X size={18} />
+        </button>
+      </header>
+      <p>
+        Copy the private key or download an offline backup of the current Robot Fleet. Keep either one private because
+        it controls those robot identities.
+      </p>
+      <div
+        className="pro-fleet-backup-status"
+        data-state={verification.status}
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        <span className="pro-fleet-backup-status-icon" aria-hidden="true">
+          {verification.status === "checking" ? (
+            <span className="ui-spinner" />
+          ) : verification.status === "verified" ? (
+            <ShieldCheck size={19} />
+          ) : (
+            <RefreshCw size={18} />
+          )}
+        </span>
+        <span className="pro-fleet-backup-status-copy">
+          <strong>{verificationCopy.title}</strong>
+          <small>{verificationCopy.detail}</small>
+        </span>
+        {verification.status === "pending" ? (
+          <Button size="sm" variant="ghost" onClick={() => void verifyBackup()}>
+            Retry
+          </Button>
+        ) : null}
+      </div>
+      <div className="pro-garage-token-value">
+        <code>{fleetKey}</code>
+        <div className="pro-fleet-key-actions">
+          <Button size="icon" variant="ghost" aria-label="Copy Fleet key" onClick={() => void copyFleetKey()}>
+            {copied ? <Check size={18} /> : <Copy size={18} />}
+          </Button>
+          <Button
+            size="icon"
+            title="Download offline Fleet backup"
+            variant="ghost"
+            aria-label="Download offline Fleet backup"
+            onClick={downloadFleetKey}
+          >
+            <Download size={18} />
+          </Button>
+        </div>
+      </div>
+      {error ? (
+        <p className="form-error" role="alert">
+          {error}
         </p>
-        <div
-          className="pro-fleet-backup-status"
-          data-state={verification.status}
-          role="status"
-          aria-live="polite"
-          aria-atomic="true"
-        >
-          <span className="pro-fleet-backup-status-icon" aria-hidden="true">
-            {verification.status === "checking"
-              ? <span className="ui-spinner" />
-              : verification.status === "verified"
-                ? <ShieldCheck size={19} />
-                : <RefreshCw size={18} />}
-          </span>
-          <span className="pro-fleet-backup-status-copy">
-            <strong>{verificationCopy.title}</strong>
-            <small>{verificationCopy.detail}</small>
-          </span>
-          {verification.status === "pending" ? (
-            <Button size="sm" variant="ghost" onClick={() => void verifyBackup()}>
-              Retry
-            </Button>
-          ) : null}
-        </div>
-        <div className="pro-garage-token-value">
-          <code>{fleetKey}</code>
-          <div className="pro-fleet-key-actions">
-            <Button size="icon" variant="ghost" aria-label="Copy Fleet key" onClick={() => void copyFleetKey()}>
-              {copied ? <Check size={18} /> : <Copy size={18} />}
-            </Button>
-            <Button size="icon" variant="ghost" aria-label="Download Fleet key" onClick={downloadFleetKey}>
-              <Download size={18} />
-            </Button>
-          </div>
-        </div>
-        {error ? <p className="form-error" role="alert">{error}</p> : null}
+      ) : null}
     </Dialog>
   );
 }
@@ -128,10 +154,7 @@ async function verifyFleetBackup(): Promise<GarageBackupVerification> {
   return verifyCurrentFleetBackup();
 }
 
-function fleetBackupVerificationCopy(
-  verification: FleetBackupVerificationState,
-  keySaved: boolean
-): { detail: string; title: string } {
+function fleetBackupVerificationCopy(verification: FleetBackupVerificationState): { detail: string; title: string } {
   if (verification.status === "checking") {
     return {
       title: "Securing latest Fleet…",
@@ -139,12 +162,11 @@ function fleetBackupVerificationCopy(
     };
   }
   if (verification.status === "verified") {
-    const relayCopy = verification.result.verifiedRelays === 1
-      ? "1 relay has"
-      : `${verification.result.verifiedRelays} relays have`;
+    const relayCopy =
+      verification.result.verifiedRelays === 1 ? "1 relay has" : `${verification.result.verifiedRelays} relays have`;
     return {
-      title: keySaved ? "Backup verified" : "Fleet data verified",
-      detail: `${relayCopy} the latest Fleet. ${keySaved ? "Your backup is ready." : "Save this key to complete your backup."}`
+      title: "Fleet synced",
+      detail: `${relayCopy} the latest encrypted records. The download saves the robots currently on this device.`
     };
   }
   if (verification.result && verification.result.verifiedRelays > 0) {

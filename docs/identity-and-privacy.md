@@ -170,6 +170,11 @@ Recover the robot in the Standard Garage or as an individual compatible robot. T
 
 Restore Pro Mode. The client fetches encrypted Fleet records, rebuilds the synchronized robots, presets, and history, then checks coordinators for live status.
 
+### I have an offline Robot Fleet backup
+
+Open **Advanced recovery** and choose **Choose Fleet backup**. The saved robot manifest restores without relays; live
+status and other Fleet data reconnect afterward. Refresh the backup after changing the Fleet.
+
 ### I exported PGP or Nostr keys but lost the robot token
 
 The exported keys do not fully replace the coordinator credential and complete robot recovery flow. Preserve the robot token.

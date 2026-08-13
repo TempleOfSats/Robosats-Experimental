@@ -52,8 +52,7 @@ import {
 } from "@/domains/pro/proRobotLifecycle";
 import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
 import type { ProTradeLocator, ProTradeSnapshot } from "@/domains/pro/pro.types";
-import { GarageSetupDialog } from "@/domains/pro/GarageSetupDialog";
-import { GarageRecoveryDialog } from "@/domains/pro/GarageRecoveryDialog";
+import { FleetVaultDialogs } from "@/domains/pro/FleetVaultDialogs";
 import { FleetKeyDialog } from "@/domains/pro/FleetKeyDialog";
 import { OfferPresetsDialog } from "@/domains/pro/OfferPresetsDialog";
 import { garageSyncEngine, stopGarageSyncSchedule } from "@/domains/pro/garageSync";
@@ -129,6 +128,7 @@ export function ProWorkspacePage() {
   const setFilter = useProPreferencesStore((state) => state.setLastFilter);
   const setProEnabled = useProPreferencesStore((state) => state.setEnabled);
   const vaultStatus = useGarageVaultStore((state) => state.status);
+  const vaultError = useGarageVaultStore((state) => state.error);
   const vaultSyncStatus = useGarageVaultStore((state) => state.syncStatus);
   const pendingFleetChanges = useGarageVaultStore((state) => state.envelope?.outbox.length ?? 0);
   const synchronizedFleetRecords = useGarageVaultStore(
@@ -716,16 +716,16 @@ export function ProWorkspacePage() {
           title={actionNotice.title}
         />
       ) : null}
-      {!garageRecoveryOpen && (garageSetupOpen || vaultStatus === "unconfigured" || vaultStatus === "needs-backup") ? (
-        <GarageSetupDialog
-          onComplete={finishFleetSetup}
-          onRestore={openFleetRecovery}
-          onUseStandardGarage={useStandardGarage}
-        />
-      ) : null}
-      {garageRecoveryOpen ? (
-        <GarageRecoveryDialog onClose={() => setGarageRecoveryOpen(false)} onRestored={finishFleetSetup} />
-      ) : null}
+      <FleetVaultDialogs
+        error={vaultError}
+        onCloseRecovery={() => setGarageRecoveryOpen(false)}
+        onComplete={finishFleetSetup}
+        onRestore={openFleetRecovery}
+        onUseStandardGarage={useStandardGarage}
+        recoveryOpen={garageRecoveryOpen}
+        setupOpen={garageSetupOpen}
+        status={vaultStatus}
+      />
 
       <section className="pro-summary-strip" aria-label="Trade summary">
         {summaryItems.map((item) => {

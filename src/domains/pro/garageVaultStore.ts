@@ -16,6 +16,7 @@ import {
   decodeGarageToken,
   deriveGarageRobotToken,
   encodeGarageToken,
+  GARAGE_LIMITS,
   FLEET_ROBOT_LIMIT_MESSAGE,
   garageTokenId,
   hasGarageRobotCapacity,
@@ -71,8 +72,16 @@ const DEVICE_ID_KEY = "robosats_exp_garage_device_v3";
 const ENVELOPE_KEY = "robosats_exp_garage_envelope_v3";
 const BACKUP_CONFIRMED_KEY = "robosats_exp_garage_backup_confirmed_v3";
 
-type GarageVaultStatus = "idle" | "loading" | "unconfigured" | "needs-backup" | "ready" | "error";
+export type GarageVaultStatus = "idle" | "loading" | "unconfigured" | "needs-backup" | "ready" | "error";
 export type GarageSyncStatus = "idle" | "saving" | "up-to-date" | "offline";
+
+type GarageRestoreReconciliation = {
+  version: 1;
+  id: string;
+  robotIds: string[];
+  targetRelays: string[];
+  reconciledRelays: string[];
+};
 
 export type GarageLocalEnvelope = {
   format: "robosats-exp-garage-envelope";
@@ -85,6 +94,7 @@ export type GarageLocalEnvelope = {
   history: TradeHistoryManifest;
   outbox: GarageOutboxItem[];
   observed: Record<string, GarageObservedEvent>;
+  restoreReconciliation?: GarageRestoreReconciliation;
 };
 
 export type GarageRecoverySnapshot = {
@@ -94,6 +104,11 @@ export type GarageRecoverySnapshot = {
   garage: GarageManifest;
   settings: PortableSettingsManifest;
   history: TradeHistoryManifest;
+};
+
+export type GarageRestoreCoverage = {
+  targetRelays: string[];
+  reconciledRelays: string[];
 };
 
 export type MaterializedGarageRobot = GarageRobotEntry & { token: string };
@@ -114,7 +129,8 @@ type GarageVaultState = {
   error?: string;
   initialize: () => Promise<void>;
   setup: () => Promise<string>;
-  restore: (token: string, snapshot?: GarageRecoverySnapshot) => Promise<void>;
+  restore: (token: string, snapshot?: GarageRecoverySnapshot, coverage?: GarageRestoreCoverage) => Promise<void>;
+  restoreRobotManifest: (token: string, manifest: GarageManifest) => Promise<void>;
   abandon: () => Promise<void>;
   createDerivedRobot: (nickname?: string) => Promise<MaterializedGarageRobot>;
   removeRobot: (token: string) => Promise<void>;
@@ -124,6 +140,9 @@ type GarageVaultState = {
   replacePortableSettings: (settings: PortableSettingsManifest) => void;
   archiveTrade: (input: ArchiveTradeInput) => "archived" | "deferred" | "ineligible";
   applyRemoteRecords: (records: ObservedGarageSyncRecord[]) => void;
+  bindRestoreReconciliationRelays: (relays: string[]) => GarageRestoreReconciliation | undefined;
+  markRestoreRelaysReconciled: (barrierId: string, relays: string[]) => GarageRestoreReconciliation | undefined;
+  completeRestoreReconciliation: (barrierId: string) => boolean;
   pendingOutbox: () => GaragePendingRecord[];
   recordOutboxAcknowledgements: (
     key: string,
@@ -139,6 +158,7 @@ type GarageVaultState = {
 
 let garageSecret: Uint8Array | undefined;
 let initialization: Promise<void> | undefined;
+let garageVaultGeneration = 0;
 
 export const useGarageVaultStore = create<GarageVaultState>((set, get) => ({
   status: "idle",
@@ -155,13 +175,17 @@ export const useGarageVaultStore = create<GarageVaultState>((set, get) => ({
       }
       garageSecret = decodeGarageToken(storedToken);
       const envelope = loadLocalEnvelope(garageSecret, currentDeviceId());
+      garageVaultGeneration += 1;
       setEnvelopeState(set, envelope, {
         status: systemClient.getItem(BACKUP_CONFIRMED_KEY) === "true" ? "ready" : "needs-backup"
       });
     })()
       .catch((error) => {
-      garageSecret = undefined;
-      set({ status: "error", error: error instanceof Error ? error.message : "Could not open Fleet." });
+        garageSecret = undefined;
+        set({
+          status: "error",
+          error: error instanceof Error ? error.message : "Could not open Fleet."
+        });
       })
       .finally(() => {
         initialization = undefined;
@@ -178,9 +202,11 @@ export const useGarageVaultStore = create<GarageVaultState>((set, get) => ({
     try {
       await garageSecretStore.save(token);
       systemClient.deleteItem(BACKUP_CONFIRMED_KEY);
-      const envelope = createLocalEnvelope(currentDeviceId());
+      let envelope = createLocalEnvelope(currentDeviceId());
+      envelope = queueRecord(envelope, preferencesToSyncRecord(envelope.settings));
       persistEnvelope(secret, envelope);
       garageSecret = secret;
+      garageVaultGeneration += 1;
       setEnvelopeState(set, envelope, { status: "needs-backup", error: undefined, syncStatus: "idle" });
       return token;
     } catch (error) {
@@ -191,33 +217,27 @@ export const useGarageVaultStore = create<GarageVaultState>((set, get) => ({
       throw error;
     }
   },
-  restore: async (token, snapshot) => {
-    const secret = decodeGarageToken(token);
-    const encodedToken = encodeGarageToken(secret);
-    const deviceId = currentDeviceId();
-    const envelope = snapshot ? envelopeFromSnapshot(snapshot, deviceId) : createLocalEnvelope(deviceId);
-    validateEnvelope(envelope, secret);
-    const previousSecret = garageSecret?.slice();
-    const previousToken = await garageSecretStore.load();
-    const previousEnvelope = systemClient.getItem(ENVELOPE_KEY);
-    try {
-      await garageSecretStore.save(encodedToken);
-      persistEnvelope(secret, envelope);
-      systemClient.setItem(BACKUP_CONFIRMED_KEY, "true");
-      garageSecret = secret;
-      setEnvelopeState(set, envelope, { status: "ready", error: undefined, syncStatus: "idle" });
-    } catch (error) {
-      await restoreStoredValue(previousToken);
-      restoreSystemValue(ENVELOPE_KEY, previousEnvelope);
-      garageSecret = previousSecret;
-      throw error;
-    }
+  restore: async (token, snapshot, coverage) => {
+    await installRestoredFleet(
+      token,
+      (secret, deviceId) => {
+        let envelope = snapshot ? envelopeFromSnapshot(snapshot, deviceId, coverage) : createLocalEnvelope(deviceId);
+        if (!snapshot) envelope = queueRecord(envelope, preferencesToSyncRecord(envelope.settings));
+        validateEnvelope(envelope, secret);
+        return envelope;
+      },
+      set
+    );
+  },
+  restoreRobotManifest: async (token, manifest) => {
+    await installRestoredFleet(token, (secret, deviceId) => envelopeFromRobotManifest(manifest, deviceId, secret), set);
   },
   abandon: async () => {
     await garageSecretStore.remove();
     systemClient.deleteItem(ENVELOPE_KEY);
     systemClient.deleteItem(BACKUP_CONFIRMED_KEY);
     garageSecret = undefined;
+    garageVaultGeneration += 1;
     initialization = undefined;
     set({
       status: "unconfigured",
@@ -307,9 +327,9 @@ export const useGarageVaultStore = create<GarageVaultState>((set, get) => ({
       isSeller: input.order.is_seller
     });
     if (
-      lifecycle !== "completed"
-      && lifecycle !== "collaboratively-cancelled"
-      && !disputeOutcomeForCurrentRobot(input.order)
+      lifecycle !== "completed" &&
+      lifecycle !== "collaboratively-cancelled" &&
+      !disputeOutcomeForCurrentRobot(input.order)
     ) {
       return "ineligible";
     }
@@ -330,6 +350,58 @@ export const useGarageVaultStore = create<GarageVaultState>((set, get) => ({
     if (next === get().envelope) return;
     persistEnvelope(garageSecret, next);
     setEnvelopeState(set, next);
+  },
+  bindRestoreReconciliationRelays: (relays) => {
+    if (!garageSecret || !get().envelope?.restoreReconciliation) return undefined;
+    const envelope = get().envelope!;
+    const barrier = envelope.restoreReconciliation!;
+    const targetRelays = [...new Set([...barrier.targetRelays, ...relays])].sort();
+    if (targetRelays.length > 32) throw new Error("Too many Fleet reconciliation relays.");
+    if (targetRelays.every((relay, index) => relay === barrier.targetRelays[index])) return barrier;
+    const restoreReconciliation = { ...barrier, targetRelays };
+    const next = updateEnvelope(envelope, { restoreReconciliation });
+    persistEnvelope(garageSecret, next);
+    setEnvelopeState(set, next);
+    return restoreReconciliation;
+  },
+  markRestoreRelaysReconciled: (barrierId, relays) => {
+    if (!garageSecret || !get().envelope?.restoreReconciliation) return undefined;
+    const envelope = get().envelope!;
+    const barrier = envelope.restoreReconciliation!;
+    if (barrier.id !== barrierId) return undefined;
+    const eligible = relays.filter((relay) => barrier.targetRelays.includes(relay));
+    const newlyReconciled = eligible.filter((relay) => !barrier.reconciledRelays.includes(relay));
+    const reconciledRelays = [...new Set([...barrier.reconciledRelays, ...eligible])].sort();
+    if (reconciledRelays.every((relay, index) => relay === barrier.reconciledRelays[index])) return barrier;
+    const restoreReconciliation = { ...barrier, reconciledRelays };
+    const retryAt = Date.now();
+    const outbox = envelope.outbox.map((item) =>
+      newlyReconciled.some((relay) => !item.acceptedRelays.includes(relay)) && item.nextAttemptAt > retryAt
+        ? { ...item, nextAttemptAt: retryAt }
+        : item
+    );
+    const next = updateEnvelope(envelope, { outbox, restoreReconciliation });
+    persistEnvelope(garageSecret, next);
+    setEnvelopeState(set, next);
+    return restoreReconciliation;
+  },
+  completeRestoreReconciliation: (barrierId) => {
+    if (!garageSecret || !get().envelope?.restoreReconciliation) return false;
+    const envelope = get().envelope!;
+    const barrier = envelope.restoreReconciliation!;
+    if (barrier.id !== barrierId) return false;
+    if (!barrier.targetRelays.every((relay) => barrier.reconciledRelays.includes(relay))) return false;
+    const protectedIds = new Set(barrier.robotIds);
+    const hasProtectedOutbox = get()
+      .pendingOutbox()
+      .some(
+        ({ record }) => (record.type === "robot" || record.type === "robot-tombstone") && protectedIds.has(record.id)
+      );
+    if (hasProtectedOutbox) return false;
+    const next = updateEnvelope(envelope, { restoreReconciliation: undefined });
+    persistEnvelope(garageSecret, next);
+    setEnvelopeState(set, next);
+    return true;
   },
   pendingOutbox: () => {
     const envelope = get().envelope;
@@ -380,7 +452,8 @@ export const useGarageVaultStore = create<GarageVaultState>((set, get) => ({
     let envelope = current;
     let queued = false;
     for (const record of garageEnvelopeSyncRecords(current)) {
-      const observedAt = current.observed[syncRecordKey(record)]?.publishedAt;
+      const key = syncRecordKey(record);
+      const observedAt = current.observed[key]?.publishedAt;
       if (staleBefore !== undefined && observedAt !== undefined && observedAt >= staleBefore) continue;
       envelope = queueRecord(envelope, record);
       queued = true;
@@ -390,19 +463,24 @@ export const useGarageVaultStore = create<GarageVaultState>((set, get) => ({
   },
   setSyncState: (syncStatus, lastSyncAt, error, lastPublicationAt) =>
     set((state) => ({
-    syncStatus,
-    lastSyncAt,
-    error,
-    lastPublicationAt: lastPublicationAt ?? state.lastPublicationAt
-  }))
+      syncStatus,
+      lastSyncAt,
+      error,
+      lastPublicationAt: lastPublicationAt ?? state.lastPublicationAt
+    }))
 }));
 
 export function getGarageSecret(): Uint8Array | undefined {
   return garageSecret?.slice();
 }
 
+export function getGarageVaultGeneration(): number {
+  return garageVaultGeneration;
+}
+
 export function resetGarageVaultRuntimeForTests(): void {
   garageSecret = undefined;
+  garageVaultGeneration += 1;
   initialization = undefined;
   useGarageVaultStore.setState({
     status: "idle",
@@ -425,9 +503,13 @@ export function garageSlotsFromManifest(manifest: GarageManifest | undefined): M
 }
 
 export function garageEnvelopeSyncRecords(envelope: GarageLocalEnvelope): GarageSyncRecord[] {
+  const preferences = preferencesToSyncRecord(envelope.settings);
+  const preferenceKey = syncRecordKey(preferences);
+  const hasEstablishedPreferences =
+    envelope.observed[preferenceKey] !== undefined || envelope.outbox.some((item) => item.key === preferenceKey);
   return [
     ...envelope.garage.entries.map(robotEntryToSyncRecord),
-    preferencesToSyncRecord(envelope.settings),
+    ...(hasEstablishedPreferences ? [preferences] : []),
     ...envelope.settings.presets.map(presetToSyncRecord),
     ...envelope.history.entries.map(tradeHistoryToSyncRecord)
   ];
@@ -446,9 +528,9 @@ export function recoverySnapshotFromRecords(
 ): GarageRecoverySnapshot {
   if (records.length === 0) throw new Error("No Garage backup was found.");
   const envelope = mergeObservedRecords(createLocalEnvelope(deviceId), records, secret);
-    return {
-      format: "robosats-exp-garage-snapshot",
-      version: 3,
+  return {
+    format: "robosats-exp-garage-snapshot",
+    version: 3,
     createdAt: Date.now(),
     garage: envelope.garage,
     settings: envelope.settings,
@@ -472,26 +554,61 @@ function createLocalEnvelope(deviceId: string, now = Date.now()): GarageLocalEnv
   };
 }
 
-function envelopeFromSnapshot(snapshot: GarageRecoverySnapshot, deviceId: string): GarageLocalEnvelope {
+function envelopeFromSnapshot(
+  snapshot: GarageRecoverySnapshot,
+  deviceId: string,
+  coverage?: GarageRestoreCoverage
+): GarageLocalEnvelope {
   const normalized = normalizeRecoverySnapshot(snapshot, deviceId);
   validateRecoverySnapshot(normalized);
   const garage = mergeGarageManifests([createGarageManifest(deviceId), normalized.garage], deviceId);
   const settings = mergePortableSettings(
     [
-    createPortableSettingsManifest(deviceId, {
-      theme: normalized.settings.theme.value
-    }),
-    normalized.settings
+      createPortableSettingsManifest(deviceId, {
+        theme: normalized.settings.theme.value
+      }),
+      normalized.settings
     ],
     deviceId
   );
   const history = pruneTradeHistoryManifest(normalized.history);
-  let envelope = updateEnvelope(createLocalEnvelope(deviceId), { garage, settings, history });
+  const restoreReconciliation = coverage ? createRestoreReconciliation(garage, coverage) : undefined;
+  let envelope = updateEnvelope(createLocalEnvelope(deviceId), { garage, settings, history, restoreReconciliation });
   for (const entry of garage.entries) envelope = queueRecord(envelope, robotEntryToSyncRecord(entry));
   envelope = queueRecord(envelope, preferencesToSyncRecord(settings));
   for (const preset of settings.presets) envelope = queueRecord(envelope, presetToSyncRecord(preset));
   for (const entry of history.entries) envelope = queueRecord(envelope, tradeHistoryToSyncRecord(entry));
   return envelope;
+}
+
+function envelopeFromRobotManifest(
+  manifest: GarageManifest,
+  deviceId: string,
+  secret: Uint8Array
+): GarageLocalEnvelope {
+  validateGarageManifestForSecret(manifest, secret);
+  const garage = mergeGarageManifests([createGarageManifest(deviceId), manifest], deviceId);
+  const restoreReconciliation = createRestoreReconciliation(garage, {
+    targetRelays: [],
+    reconciledRelays: []
+  });
+  let envelope = updateEnvelope(createLocalEnvelope(deviceId), { garage, restoreReconciliation });
+  for (const entry of garage.entries) envelope = queueRecord(envelope, robotEntryToSyncRecord(entry));
+  validateEnvelope(envelope, secret);
+  return envelope;
+}
+
+function createRestoreReconciliation(
+  garage: GarageManifest,
+  coverage: GarageRestoreCoverage
+): GarageRestoreReconciliation {
+  return {
+    version: 1,
+    id: createGarageEntryId(),
+    robotIds: garage.entries.map((entry) => entry.id).sort(),
+    targetRelays: [...new Set(coverage.targetRelays)].sort(),
+    reconciledRelays: [...new Set(coverage.reconciledRelays)].sort()
+  };
 }
 
 function mergeObservedRecords(
@@ -577,11 +694,7 @@ function mergeObservedRecords(
         };
         continue;
       }
-      const remoteSettings = settingsFromRecord(settings, item.record);
-      const merged =
-        item.record.type === "preset-tombstone"
-        ? forcePreset(settings, remoteSettings.presets[0])
-        : mergePortableSettings([settings, remoteSettings], settings.deviceId);
+      const merged = mergeIncomingSettings(settings, item.record, previousObserved, outbox);
       if (JSON.stringify(merged) !== JSON.stringify(settings)) {
         settings = merged;
         changed = true;
@@ -623,7 +736,7 @@ function settingsFromRecord(current: PortableSettingsManifest, record: GarageSyn
     ...createPortableSettingsManifest(
       record.writerDeviceId,
       {
-      theme: current.theme.value
+        theme: current.theme.value
       },
       record.updatedAt
     ),
@@ -631,6 +744,30 @@ function settingsFromRecord(current: PortableSettingsManifest, record: GarageSyn
     theme: current.theme,
     presets: [preset]
   };
+}
+
+function mergeIncomingSettings(
+  current: PortableSettingsManifest,
+  record: GarageSyncRecord,
+  observed: GarageObservedEvent | undefined,
+  outbox: GarageOutboxItem[]
+): PortableSettingsManifest {
+  if (record.type === "preferences" && !observed && !outbox.some((pending) => pending.key === syncRecordKey(record))) {
+    return {
+      ...current,
+      revision: Math.max(current.revision, record.revision),
+      updatedAt: Math.max(current.updatedAt, record.updatedAt),
+      theme: {
+        value: record.theme,
+        revision: record.revision,
+        deviceId: record.writerDeviceId
+      }
+    };
+  }
+  const remote = settingsFromRecord(current, record);
+  return record.type === "preset-tombstone"
+    ? forcePreset(current, remote.presets[0])
+    : mergePortableSettings([current, remote], current.deviceId);
 }
 
 function syncRecordToPreset(record: GaragePresetRecord | GaragePresetTombstone): OfferPreset {
@@ -735,12 +872,12 @@ function queueOutboxItem(outbox: GarageOutboxItem[], record: GarageSyncRecord, n
   return [
     ...outbox.filter((item) => item.key !== key),
     {
-    key,
-    revision: record.revision,
-    queuedAt: now,
-    attempts: 0,
-    nextAttemptAt: now,
-    acceptedRelays: []
+      key,
+      revision: record.revision,
+      queuedAt: now,
+      attempts: 0,
+      nextAttemptAt: now,
+      acceptedRelays: []
     }
   ].sort((left, right) => left.queuedAt - right.queuedAt);
 }
@@ -759,7 +896,9 @@ function currentSettingsRecord(
 
 function updateEnvelope(
   envelope: GarageLocalEnvelope,
-  values: Partial<Pick<GarageLocalEnvelope, "garage" | "settings" | "history" | "outbox" | "observed">>,
+  values: Partial<
+    Pick<GarageLocalEnvelope, "garage" | "settings" | "history" | "outbox" | "observed" | "restoreReconciliation">
+  >,
   now = Date.now()
 ): GarageLocalEnvelope {
   const next = { ...envelope, ...values, revision: envelope.revision + 1, updatedAt: now };
@@ -779,7 +918,7 @@ function loadLocalEnvelope(secret: Uint8Array, deviceId: string): GarageLocalEnv
       persistEnvelope(secret, parsed);
       return parsed;
     } catch {
-      systemClient.deleteItem(ENVELOPE_KEY);
+      throw new Error("Saved Fleet is unreadable; data preserved.");
     }
   }
   const envelope = createLocalEnvelope(deviceId);
@@ -824,7 +963,8 @@ function validateEnvelope(value: unknown, secret: Uint8Array): asserts value is 
     "settings",
     "history",
     "outbox",
-    "observed"
+    "observed",
+    "restoreReconciliation"
   ]);
   if (Object.keys(envelope).some((key) => !fields.has(key))) throw new Error("Garage envelope has unknown fields.");
   if (envelope.format !== "robosats-exp-garage-envelope" || envelope.version !== 3)
@@ -868,6 +1008,44 @@ function validateEnvelope(value: unknown, secret: Uint8Array): asserts value is 
       throw new Error("Garage outbox record is missing.");
   }
   if (!envelope.observed || typeof envelope.observed !== "object") throw new Error("Invalid Garage observations.");
+  validateRestoreReconciliation(envelope.restoreReconciliation, envelope.garage);
+}
+
+function validateRestoreReconciliation(
+  value: GarageRestoreReconciliation | undefined,
+  garage: GarageManifest | undefined
+): void {
+  if (value === undefined) return;
+  if (!value || typeof value !== "object") throw new Error("Invalid Fleet reconciliation state.");
+  const fields = new Set(["version", "id", "robotIds", "targetRelays", "reconciledRelays"]);
+  if (Object.keys(value).some((key) => !fields.has(key)) || value.version !== 1) {
+    throw new Error("Unsupported Fleet reconciliation state.");
+  }
+  if (!/^[0-9a-f]{32}$/.test(value.id)) throw new Error("Invalid Fleet reconciliation identity.");
+  if (
+    !Array.isArray(value.robotIds) ||
+    value.robotIds.length > GARAGE_LIMITS.robots ||
+    value.robotIds.some((id) => !/^[0-9a-f]{32}$/.test(id)) ||
+    new Set(value.robotIds).size !== value.robotIds.length ||
+    value.robotIds.some((id, index) => index > 0 && value.robotIds[index - 1]! > id) ||
+    value.robotIds.some((id) => !garage?.entries.some((entry) => entry.id === id))
+  ) {
+    throw new Error("Invalid Fleet reconciliation robots.");
+  }
+  for (const relays of [value.targetRelays, value.reconciledRelays]) {
+    if (
+      !Array.isArray(relays) ||
+      relays.length > 32 ||
+      relays.some((relay) => typeof relay !== "string" || relay.length > 2_048 || !/^wss?:\/\//.test(relay)) ||
+      new Set(relays).size !== relays.length ||
+      relays.some((relay, index) => index > 0 && relays[index - 1]! > relay)
+    ) {
+      throw new Error("Invalid Fleet reconciliation relays.");
+    }
+  }
+  if (value.reconciledRelays.some((relay) => !value.targetRelays.includes(relay))) {
+    throw new Error("Invalid Fleet reconciliation progress.");
+  }
 }
 
 function validateRecoverySnapshot(value: unknown): asserts value is GarageRecoverySnapshot {
@@ -888,6 +1066,32 @@ function currentDeviceId(): string {
   const deviceId = createGarageDeviceId();
   systemClient.setItem(DEVICE_ID_KEY, deviceId);
   return deviceId;
+}
+
+async function installRestoredFleet(
+  token: string,
+  createEnvelope: (secret: Uint8Array, deviceId: string) => GarageLocalEnvelope,
+  set: (value: Partial<GarageVaultState>) => void
+): Promise<void> {
+  const secret = decodeGarageToken(token);
+  const encodedToken = encodeGarageToken(secret);
+  const envelope = createEnvelope(secret, currentDeviceId());
+  const previousSecret = garageSecret?.slice();
+  const previousToken = await garageSecretStore.load();
+  const previousEnvelope = systemClient.getItem(ENVELOPE_KEY);
+  try {
+    await garageSecretStore.save(encodedToken);
+    persistEnvelope(secret, envelope);
+    systemClient.setItem(BACKUP_CONFIRMED_KEY, "true");
+    garageSecret = secret;
+    garageVaultGeneration += 1;
+    setEnvelopeState(set, envelope, { status: "ready", error: undefined, syncStatus: "idle" });
+  } catch (error) {
+    await restoreStoredValue(previousToken);
+    restoreSystemValue(ENVELOPE_KEY, previousEnvelope);
+    garageSecret = previousSecret;
+    throw error;
+  }
 }
 
 async function restoreStoredValue(value: string | null): Promise<void> {

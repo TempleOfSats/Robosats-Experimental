@@ -102,7 +102,7 @@ export function GarageSetupDialog({ onComplete, onRestore, onUseStandardGarage }
                 <p>A Fleet lets you manage several RoboSats robots and their trades from one Trade Desk.</p>
                 <p>
                   Each robot remains a standard RoboSats identity recoverable in any RoboSats app. Your Fleet key
-                  restores the complete collection on another device.
+                  reconnects the collection through encrypted sync.
                 </p>
               </div>
               {error ? (
@@ -134,8 +134,8 @@ export function GarageSetupDialog({ onComplete, onRestore, onUseStandardGarage }
           ) : (
             <>
               <p>
-                This Fleet key recreates your robots and reconnects the Trade Desk on another device. Keep it private
-                because anyone who has it can control those robot identities.
+                This Fleet key reconnects your synced robots on another device. After adding robots, Back up Fleet can
+                also save them for offline recovery. Keep the key private because it controls those robot identities.
               </p>
               <div className="pro-garage-token-value">
                 <code>{fleetKey}</code>

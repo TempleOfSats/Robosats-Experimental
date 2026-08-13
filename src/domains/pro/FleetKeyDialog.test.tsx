@@ -4,16 +4,18 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FleetKeyDialog } from "@/domains/pro/FleetKeyDialog";
+import { createGarageManifest } from "@/domains/pro/garageVault";
+import { useGarageVaultStore } from "@/domains/pro/garageVaultStore";
 
 const mocks = vi.hoisted(() => ({
-  downloadFleetKeyBackup: vi.fn(),
+  downloadOfflineFleetBackup: vi.fn(),
   playHaptic: vi.fn(),
   verifyBackup: vi.fn(),
   writeClipboard: vi.fn().mockResolvedValue(undefined)
 }));
 
 vi.mock("@/domains/pro/fleetKeyBackup", () => ({
-  downloadFleetKeyBackup: mocks.downloadFleetKeyBackup
+  downloadOfflineFleetBackup: mocks.downloadOfflineFleetBackup
 }));
 
 vi.mock("@/lib/clipboard", () => ({ writeClipboard: mocks.writeClipboard }));
@@ -25,10 +27,11 @@ beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   document.body.innerHTML = '<div id="root"></div>';
   root = createRoot(document.querySelector("#root")!);
-  mocks.downloadFleetKeyBackup.mockReset();
+  mocks.downloadOfflineFleetBackup.mockReset();
   mocks.playHaptic.mockReset();
   mocks.verifyBackup.mockReset();
   mocks.writeClipboard.mockClear();
+  useGarageVaultStore.setState({ manifest: createGarageManifest("00112233445566778899aabbccddeeff") });
 });
 
 afterEach(async () => {
@@ -38,7 +41,7 @@ afterEach(async () => {
 });
 
 describe("FleetKeyDialog", () => {
-  it("verifies the latest Fleet on open and completes the backup after the key is saved", async () => {
+  it("keeps relay verification separate from the offline file download", async () => {
     const verification = deferred<{
       reachableRelays: number;
       requiredRelays: number;
@@ -62,14 +65,16 @@ describe("FleetKeyDialog", () => {
         verifiedRelays: 2
       })
     );
-    expect(document.body.textContent).toContain("Fleet data verified");
-    expect(document.body.textContent).toContain("Save this key to complete your backup.");
+    expect(document.body.textContent).toContain("Fleet synced");
+    expect(document.body.textContent).toContain("download saves the robots currently on this device");
     expect(mocks.playHaptic.mock.calls).toEqual([["commit"], ["success"]]);
 
-    await clickButton("Download Fleet key");
-    expect(mocks.downloadFleetKeyBackup).toHaveBeenCalledWith("test-fleet-key");
-    expect(document.body.textContent).toContain("Backup verified");
-    expect(document.body.textContent).toContain("Your backup is ready.");
+    await clickButton("Download offline Fleet backup");
+    expect(mocks.downloadOfflineFleetBackup).toHaveBeenCalledWith(
+      "test-fleet-key",
+      useGarageVaultStore.getState().manifest
+    );
+    expect(document.body.textContent).toContain("Fleet synced");
   });
 
   it("shows partial verification calmly and retries without closing the dialog", async () => {
@@ -97,8 +102,27 @@ describe("FleetKeyDialog", () => {
 
     await clickButton("Retry");
     expect(mocks.verifyBackup).toHaveBeenCalledTimes(2);
-    expect(document.body.textContent).toContain("Fleet data verified");
+    expect(document.body.textContent).toContain("Fleet synced");
     expect(mocks.playHaptic.mock.calls).toEqual([["commit"], ["commit"], ["success"]]);
+  });
+
+  it("does not download until the local Robot Fleet is ready", async () => {
+    useGarageVaultStore.setState({ manifest: undefined });
+    mocks.verifyBackup.mockResolvedValue({
+      reachableRelays: 0,
+      requiredRelays: 1,
+      totalRelays: 1,
+      verified: false,
+      verifiedRelays: 0
+    });
+    await act(async () =>
+      root?.render(<FleetKeyDialog fleetKey="test-fleet-key" onClose={vi.fn()} onVerify={mocks.verifyBackup} />)
+    );
+
+    await clickButton("Download offline Fleet backup");
+
+    expect(mocks.downloadOfflineFleetBackup).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain("local Fleet is not ready to back up yet");
   });
 });
 

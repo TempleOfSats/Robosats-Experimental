@@ -62,10 +62,17 @@ Choose **Keep standard Garage** when you do not want to enable Pro Mode yet.
 
 Keep two private copies in different places. A password manager plus an offline backup is a reasonable starting point.
 
-Restoring synchronized records requires:
+After adding robots, use **Back up Fleet** in the Robot Fleet controls to download an offline Robot Fleet backup. That
+file contains the Fleet key and current robot manifest, including removed-robot markers. It can restore those robot
+identities without relays. Refresh it after adding, renaming, or removing robots. Presets, settings, and completed
+history continue to use encrypted Nostr sync.
+
+Restoring from only the copied Fleet key requires:
 
 1. The exact Fleet key.
 2. At least one reachable coordinator relay retaining those encrypted records.
+
+The offline Robot Fleet backup does not have that relay requirement.
 
 An individual robot token remains useful. It can recover that robot directly in another compatible RoboSats frontend even if the complete Fleet cannot be reached.
 
@@ -273,27 +280,29 @@ The client archives an entry when it observes the terminal coordinator state. Ke
 
 1. Enable Pro Mode.
 2. Select **Restore Fleet**.
-3. Enter the exact Fleet key.
-4. Leave the recovery panel open while relays are queried.
-5. Verify the robot, preset, and history counts.
+3. Enter the exact Fleet key. For file recovery, open **Advanced recovery**, select **Choose Fleet backup**, and choose
+   the saved JSON file.
+4. For key recovery, leave the panel open while relays are queried. File recovery restores the robots locally first.
+5. Verify the restored robot count. Key recovery can also restore synchronized presets and history.
 6. Continue to Pro Desk and let coordinator checks refresh live status.
 
 ![Fleet restore reporting four robots and three presets](assets/pro-guide/09-restore-fleet.png)
 
-**You should now see:** the expected robots, presets, and history first; live order labels may continue updating as coordinators answer.
+**You should now see:** key recovery shows the synchronized robots, presets, and history it found. File recovery shows
+the saved robots first; presets and history return only when their encrypted relay records are available. Live order
+labels may continue updating as coordinators answer.
 
-Recovery can take one or two minutes over Tor. A first attempt may be incomplete when a relay holding the newest record is temporarily unreachable. Keep the key, check the connection, and retry.
+Key recovery opens after a relay returns a usable Fleet; slower relays continue through normal synchronization. Use
+**Retry** if no relay succeeds. An offline backup restores its saved robots without waiting for relays.
 
 Do not erase the first device until the restored one shows the expected contents and **Fleet synced**.
 
 ### 15. Know what returns and what is rechecked
 
-| Restored from encrypted Fleet records | Rechecked from coordinators |
-| --- | --- |
-| Robot entries and identity metadata | Live order and trade status |
-| Offer presets | Current deadlines and next actions |
-| Synchronized theme | Coordinator-side order records |
-| Completed history | Current peer/trade lifecycle |
+| Recovery source | Restored locally | Rechecked after opening |
+| --- | --- | --- |
+| Fleet key and Nostr | Robot entries, presets, synchronized theme, and completed history | Live order and trade status |
+| Offline Robot Fleet backup | Saved robot entries and tombstones | Coordinator state and any available Nostr data |
 
 Private chat transcripts, peer banking details, and dispute results are not stored as Fleet backup.
 

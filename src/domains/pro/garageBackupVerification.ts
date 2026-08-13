@@ -64,7 +64,7 @@ export async function verifyGarageBackupWithPool(
         const result = await queryGarageRecordsDetailed(pool, secret, [relay], BACKUP_VERIFICATION_RELAY_TIMEOUT_MS);
         return {
           reachable: result.reachableRelays.length > 0,
-          verified: garageRecordsCoverExpected(result.records, expectedRecords)
+          verified: result.completeRelays.includes(relay) && garageRecordsCoverExpected(result.records, expectedRecords)
         };
       } catch {
         return { reachable: false, verified: false };

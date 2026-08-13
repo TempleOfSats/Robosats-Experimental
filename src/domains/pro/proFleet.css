@@ -261,6 +261,37 @@
   min-width: 9rem;
 }
 
+.pro-fleet-recovery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.pro-fleet-recovery-advanced {
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+  color: var(--muted-foreground);
+}
+
+.pro-fleet-recovery-advanced > summary {
+  width: fit-content;
+  cursor: pointer;
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
+}
+
+.pro-fleet-recovery-advanced-content {
+  display: grid;
+  justify-items: start;
+  gap: 0.5rem;
+  padding-top: 0.75rem;
+}
+
+.pro-fleet-recovery-advanced-content p {
+  margin: 0;
+}
+
 .pro-garage-recovery-complete {
   width: 2.75rem;
   height: 2.75rem;
@@ -294,5 +325,9 @@
   .pro-fleet-backup-status > .ui-button {
     grid-column: 2 / -1;
     justify-self: start;
+  }
+
+  .pro-fleet-recovery-actions > .ui-button {
+    flex: 1 1 auto;
   }
 }
