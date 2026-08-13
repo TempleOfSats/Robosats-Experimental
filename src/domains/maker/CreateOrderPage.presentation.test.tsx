@@ -9,6 +9,10 @@ vi.mock("@/domains/identity/RobotAvatar", () => ({
   RobotAvatar: () => <span aria-label="Robot avatar" />
 }));
 
+vi.mock("@/domains/orders/orderRoute", () => ({
+  preloadOrderRoute: vi.fn()
+}));
+
 import { useFederationStore } from "@/domains/coordinators/federationStore";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import { type RobotSlot, useGarageStore } from "@/domains/garage/garageStore";
