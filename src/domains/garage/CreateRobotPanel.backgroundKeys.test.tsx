@@ -80,19 +80,20 @@ async function createRobot(): Promise<void> {
     );
   });
 
+  await clickButton("Restore an existing robot");
   const input = document.querySelector<HTMLInputElement>('input[aria-label="Robot token"]')!;
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, testToken);
     input.dispatchEvent(new Event("input", { bubbles: true }));
   });
-  await clickContinue();
-  await clickContinue();
+  await clickButton("Continue to identity");
+  await clickButton("Enter my Garage");
   expect(useGarageStore.getState().slots.some((slot) => slot.token === testToken)).toBe(true);
 }
 
-async function clickContinue(): Promise<void> {
+async function clickButton(label: string): Promise<void> {
   const button = [...document.querySelectorAll<HTMLButtonElement>("button")].find(
-    (candidate) => candidate.textContent?.trim() === "Continue"
+    (candidate) => candidate.textContent?.trim() === label
   );
   expect(button).toBeDefined();
   await act(async () => {

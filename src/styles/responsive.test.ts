@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const layoutCss = readFileSync(new URL("./layout.css", import.meta.url), "utf8");
+const coordinatorCss = readFileSync(new URL("./coordinatorGarage.css", import.meta.url), "utf8");
 const orderbookCss = readFileSync(new URL("./orderbook.css", import.meta.url), "utf8");
 const responsiveCss = readFileSync(new URL("./responsive.css", import.meta.url), "utf8");
 
@@ -35,6 +36,32 @@ describe("compact desktop navigation", () => {
     expect(compactDesktopSidebar).toMatch(/\btop:\s*auto;/);
     expect(wideDesktopSidebar).toMatch(/\btop:\s*var\(--desktop-titlebar-height\);/);
     expect(wideDesktopSidebar).not.toMatch(/\btop:\s*auto;/);
+  });
+
+  it("uses only a restrained top indicator for the active mobile destination", () => {
+    const compactCss = atRuleBody(responsiveCss, "@media (max-width: 900px)");
+    const activeItem = ruleBody(compactCss, ".nav-item.active");
+    const activeIndicator = ruleBody(compactCss, ".nav-item.active::before");
+    const compactLightCss = atRuleBody(coordinatorCss, "@media (max-width: 900px)");
+    const lightActiveItem = ruleBody(compactLightCss, ':root[data-theme="light"] .nav-item.active');
+
+    expect(activeItem).toMatch(/\bbackground:\s*transparent;/);
+    expect(activeItem).toMatch(/\bbox-shadow:\s*none;/);
+    expect(activeIndicator).toMatch(/\bheight:\s*2px;/);
+    expect(activeIndicator).toMatch(/\bbackground:\s*var\(--selection-indicator\);/);
+    expect(lightActiveItem).toMatch(/\bbackground:\s*transparent;/);
+  });
+
+  it("keeps both Garage trade actions visible on exceptionally narrow screens", () => {
+    const narrowCss = atRuleBody(responsiveCss, "@media (max-width: 340px)");
+    const actionGrid = ruleBody(narrowCss, ".garage-profile-stage > .next-action-grid");
+    const shortCss = atRuleBody(responsiveCss, "@media (max-width: 520px) and (max-height: 700px)");
+    const shortStage = ruleBody(shortCss, ".garage-profile-stage");
+    const shortAction = ruleBody(shortCss, ".garage-profile-stage .action-tile");
+
+    expect(actionGrid).toMatch(/grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/);
+    expect(shortStage).toMatch(/padding-block:\s*0 0\.75rem;/);
+    expect(shortAction).toMatch(/min-height:\s*5rem;/);
   });
 });
 

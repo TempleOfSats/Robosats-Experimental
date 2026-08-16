@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { toUserMessage } from "@/lib/userError";
+import { isAbortError, toUserMessage } from "@/lib/userError";
 import { getCoordinatorAvatarUrl, getCoordinatorBadgeIcons } from "@/domains/coordinators/coordinatorAssets";
 import { fetchCoordinatorInfo, fetchCoordinatorLimits } from "@/domains/coordinators/coordinatorApi";
 import { buildCoordinatorUrl, detectCoordinatorOrigin } from "@/domains/coordinators/coordinatorUrl";
@@ -113,6 +113,15 @@ export const useFederationStore = create<FederationState>((set, get) => ({
           }));
         }
       );
+      if (!refreshed) {
+        if (!sameFederationSettings(currentFederationSettings(get()), settings)) return false;
+        set((state) => ({
+          coordinators: state.coordinators.map((item) => item.shortAlias === shortAlias
+            ? { ...item, loading: false, error: coordinator.error }
+            : item)
+        }));
+        return false;
+      }
       if (!sameFederationSettings(currentFederationSettings(get()), settings)) return false;
 
       const current = get();
@@ -283,6 +292,7 @@ async function refreshFederation(
   force = false,
   priority: "background" | "visible" = force ? "visible" : "background"
 ): Promise<void> {
+  const current = get().coordinators.filter((coordinator) => coordinator.enabled);
   set((state) => ({
     refreshing: true,
     coordinators: state.coordinators.map((coordinator) => coordinator.enabled
@@ -290,7 +300,7 @@ async function refreshFederation(
       : { ...coordinator, loading: false })
   }));
 
-  const current = get().coordinators.filter((coordinator) => coordinator.enabled);
+  let completed = 0;
   await mapWithConcurrency(current, 2, async (coordinator) => {
     const refreshed = await refreshCoordinatorSummary(
       summaryToDefinition(coordinator),
@@ -309,6 +319,18 @@ async function refreshFederation(
         }));
       }
     );
+    if (!refreshed) {
+      if (!sameFederationSettings(currentFederationSettings(get()), settings)) return;
+      set((state) => ({
+        coordinators: state.coordinators.map((item) =>
+          item.shortAlias === coordinator.shortAlias
+            ? { ...item, loading: false, error: coordinator.error }
+            : item
+        )
+      }));
+      return;
+    }
+    completed += 1;
     if (!sameFederationSettings(currentFederationSettings(get()), settings)) return;
     set((state) => {
       const coordinators = state.coordinators.map((item) =>
@@ -320,8 +342,12 @@ async function refreshFederation(
     });
   });
   if (!sameFederationSettings(currentFederationSettings(get()), settings)) return;
-  const savedAt = Date.now();
   const coordinators = get().coordinators.map((coordinator) => ({ ...coordinator, loading: false }));
+  if (completed === 0) {
+    set({ coordinators, refreshing: false });
+    return;
+  }
+  const savedAt = Date.now();
   writeFederationCache(settings, coordinators, savedAt);
   set({ coordinators, lastRefreshed: savedAt, refreshing: false });
 }
@@ -333,7 +359,7 @@ async function refreshCoordinatorSummary(
   force = false,
   priority: "background" | "visible" = force ? "visible" : "background",
   onAvailable?: (summary: CoordinatorSummary) => void
-): Promise<CoordinatorSummary> {
+): Promise<CoordinatorSummary | undefined> {
   const summary = buildCoordinatorSummary(definition, {
     ...settings,
     envBaseUrl: import.meta.env.VITE_ROBOSATS_API_BASE_URL,
@@ -362,11 +388,8 @@ async function refreshCoordinatorSummary(
     onAvailable?.(available);
     return available;
   } catch (error) {
-    const keepRecentAvailability = Boolean(
-      previous?.online
-      && previous.lastCheckedAt
-      && Date.now() - previous.lastCheckedAt <= FEDERATION_CACHE_MAX_AGE_MS
-    );
+    if (isAbortError(error)) return undefined;
+    const keepRecentAvailability = hasRecentCoordinatorAvailability(previous);
     return {
       ...summary,
       ...(previous?.info ? { info: previous.info } : {}),
@@ -379,6 +402,11 @@ async function refreshCoordinatorSummary(
       error: toUserMessage(error, "Coordinator unavailable.")
     };
   }
+}
+
+function hasRecentCoordinatorAvailability(summary?: CoordinatorSummary): boolean {
+  if (!summary?.online || !summary.lastCheckedAt) return false;
+  return Date.now() - summary.lastCheckedAt <= FEDERATION_CACHE_MAX_AGE_MS;
 }
 
 async function mapWithConcurrency<T>(

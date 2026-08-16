@@ -30,6 +30,15 @@ afterEach(async () => {
 });
 
 describe("AppSidebar Pro attention", () => {
+  it("labels the standard robot destination as Garage", async () => {
+    useProPreferencesStore.setState({ enabled: false });
+    await renderSidebar("/garage");
+
+    const garage = document.querySelector<HTMLAnchorElement>('a[href="/garage"]');
+    expect(garage?.textContent).toContain("Garage");
+    expect(garage?.classList.contains("active")).toBe(true);
+  });
+
   it("seeds hydrated attention quietly and pulses only for a later increase", async () => {
     await renderSidebar("/offers");
 

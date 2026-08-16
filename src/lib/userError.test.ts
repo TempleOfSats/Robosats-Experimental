@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { toUserMessage } from "@/lib/userError";
+import { isAbortError, toUserMessage } from "@/lib/userError";
 
 describe("toUserMessage", () => {
+  it("identifies lifecycle cancellation without depending on an Error subclass", () => {
+    expect(isAbortError(new DOMException("App backgrounded", "AbortError"))).toBe(true);
+    expect(isAbortError(Object.assign(new Error("cancelled"), { name: "AbortError" }))).toBe(true);
+    expect(isAbortError(new Error("offline"))).toBe(false);
+  });
+
   it("extracts a human API validation message", () => {
     expect(toUserMessage(new Error('RoboSats API 400: {"bad_invoice":"Does not look like a valid lightning invoice","successful_withdrawal":false}')))
       .toBe("Does not look like a valid Lightning invoice.");

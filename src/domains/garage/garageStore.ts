@@ -10,7 +10,7 @@ import {
 import type { Auth, RequestPriority, RequestSource } from "@/domains/transport/apiClient";
 import { isNativeApp } from "@/domains/transport/androidBridge";
 import { systemClient } from "@/domains/transport/systemClient";
-import { toUserMessage } from "@/lib/userError";
+import { isAbortError, toUserMessage } from "@/lib/userError";
 import { isTerminalOrderForCurrentRobot } from "@/domains/orders/orderStateMachine";
 
 export type { RefreshRobotCoordinatorResult, RefreshRobotSlotResult } from "@/domains/garage/robotRefreshEvents";
@@ -461,10 +461,28 @@ export const useGarageStore: UseBoundStore<StoreApi<GarageState>> = create<Garag
               } satisfies RobotRecord
             });
           } catch (error) {
-            transportFailed = true;
             const currentSlot = useGarageStore.getState().slots.find((item) => item.token === slot.token);
             const currentRobot = currentSlot?.robots[coordinator.shortAlias];
             const currentKeys = coordinatorKeysOrFallback(currentRobot, startingKeys);
+            if (isAbortError(error)) {
+              applyRobotRefreshResult(set, slot, coordinator.shortAlias, sessionId, {
+                shortAlias: coordinator.shortAlias,
+                orderSnapshot: undefined,
+                record: {
+                  ...currentRobot,
+                  token: slot.token,
+                  shortAlias: coordinator.shortAlias,
+                  tokenSHA256: slot.tokenSHA256,
+                  pubKey: currentKeys.pubKey,
+                  encPrivKey: currentKeys.encPrivKey,
+                  nostrPubKey: currentRobot?.nostrPubKey ?? slot.nostrPubKey,
+                  loading: false,
+                  error: slot.robots[coordinator.shortAlias]?.error
+                } satisfies RobotRecord
+              });
+              return undefined;
+            }
+            transportFailed = true;
             applied = applyRobotRefreshResult(set, slot, coordinator.shortAlias, sessionId, {
               shortAlias: coordinator.shortAlias,
               orderSnapshot: undefined,
@@ -499,6 +517,9 @@ export const useGarageStore: UseBoundStore<StoreApi<GarageState>> = create<Garag
         return result ? [result] : [];
       });
 
+      if (results.length === 0) {
+        return { slotId: slot.tokenSHA256, coordinators: [] } satisfies RefreshRobotSlotResult;
+      }
       return publishRobotRefreshResult({
         slotId: slot.tokenSHA256,
         coordinators: results

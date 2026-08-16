@@ -1,12 +1,5 @@
-import {
-  preloadAllAppRoutes,
-  preloadPrimaryTradeRoutes,
-  preloadQuickAccessRoutes
-} from "@/app/routes";
-import {
-  isStandardGarageRoute,
-  ROUTE_TRANSITION_READY_EVENT
-} from "@/domains/navigation/routeTransition";
+import { preloadAllAppRoutes, preloadPrimaryTradeRoutes, preloadQuickAccessRoutes } from "@/app/routes";
+import { isStandardGarageRoute, ROUTE_TRANSITION_READY_EVENT } from "@/domains/navigation/routeTransition";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
 import {
@@ -18,7 +11,11 @@ import {
   useGarageStore
 } from "@/domains/garage/garageStore";
 import { subscribeRobotDataRefresh } from "@/domains/garage/robotDataRefresh";
-import { startOrderChangeHintRuntime } from "@/domains/nostr/orderChangeHints";
+import {
+  resumeOrderChangeHintRuntime,
+  startOrderChangeHintRuntime,
+  suspendOrderChangeHintRuntime
+} from "@/domains/nostr/orderChangeHints";
 import { ingestCoordinatorOrder } from "@/domains/orders/orderActivity";
 import { fetchOrder } from "@/domains/orders/orderApi";
 import {
@@ -27,13 +24,11 @@ import {
   type OrderChangeNotification
 } from "@/domains/orders/orderChangeNotifications";
 import { useOrderbookStore } from "@/domains/orderbook/orderbookStore";
+import { resumeNostrOrderbookSession, suspendNostrOrderbookSession } from "@/domains/orderbook/nostrOrderbook";
 import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
 import { getNativeTorDiagnostics, isNativeApp } from "@/domains/transport/androidBridge";
 import { subscribeRefreshIntents, type RefreshReason } from "@/domains/transport/refreshIntents";
-import {
-  desktopBackgroundNotificationsEnabled,
-  isTauriDesktop
-} from "@/domains/transport/tauriBridge";
+import { desktopBackgroundNotificationsEnabled, isTauriDesktop } from "@/domains/transport/tauriBridge";
 
 type IdleWindow = {
   requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
@@ -50,7 +45,14 @@ const FEDERATION_RECOVERY_START_DELAY_MS = 1_000;
 const FEDERATION_RECOVERY_RETRY_DELAYS_MS = [15_000, 45_000] as const;
 
 export function scheduleAppPrewarm(): () => void {
-  const stopOrderChangeHints = startOrderChangeHintRuntime();
+  const nativeApp = isNativeApp();
+  let nativeNostrSuspended = nativeApp && document.visibilityState === "hidden";
+  const stopOrderChangeHints = startOrderChangeHintRuntime({ suspended: nativeNostrSuspended });
+  if (nativeNostrSuspended) {
+    suspendNostrOrderbookSession();
+  } else {
+    if (nativeApp) resumeNostrOrderbookSession();
+  }
   let foregroundRefresh: Promise<void> | undefined;
   let stopFederationRecovery: () => void = () => undefined;
   let pendingNotificationScope: StandardRobotRefreshScope | undefined;
@@ -69,13 +71,20 @@ export function scheduleAppPrewarm(): () => void {
       });
   };
   const refreshAfterLifecycle = (reason: RefreshReason) => {
+    if (
+      nativeNostrSuspended &&
+      document.visibilityState === "visible" &&
+      (reason === "resume" || reason === "online" || reason === "tor-ready" || reason === "tor-reconnected")
+    ) {
+      nativeNostrSuspended = false;
+      resumeNostrOrderbookSession();
+      resumeOrderChangeHintRuntime();
+    }
     if (reason === "tor-ready" || reason === "tor-reconnected") {
       stopFederationRecovery();
       const federation = useFederationStore.getState();
       const enabled = federation.coordinators.filter((coordinator) => coordinator.enabled);
-      const failedAliases = enabled
-        .filter(coordinatorNeedsHealthRecovery)
-        .map((coordinator) => coordinator.shortAlias);
+      const failedAliases = enabled.filter(coordinatorNeedsHealthRecovery).map((coordinator) => coordinator.shortAlias);
       if (reason === "tor-reconnected" || failedAliases.length > 0) {
         stopFederationRecovery = scheduleCoordinatorHealthRecovery(
           reason === "tor-reconnected" ? "all" : failedAliases
@@ -91,24 +100,31 @@ export function scheduleAppPrewarm(): () => void {
     refreshForegroundRobot();
   };
   const stopLifecycle = subscribeRefreshIntents(refreshAfterLifecycle);
-  const stopOrderChanges = subscribeOrderChangeNotifications((notification) => {
-    if (useProPreferencesStore.getState().enabled) return true;
-    useGarageStore.getState().hydrate();
-    const scope = standardRobotRefreshScope(notification);
-    if (!scope) return true;
-    if (
-      document.visibilityState === "visible"
-      && visibleTradeMatchesOrderChange(notification)
-    ) return true;
-    refreshForegroundRobot(scope);
-    return true;
-  }, { consumerId: "standard-prewarm" });
+  const stopOrderChanges = subscribeOrderChangeNotifications(
+    (notification) => {
+      if (useProPreferencesStore.getState().enabled) return true;
+      useGarageStore.getState().hydrate();
+      const scope = standardRobotRefreshScope(notification);
+      if (!scope) return true;
+      if (document.visibilityState === "visible" && visibleTradeMatchesOrderChange(notification)) return true;
+      refreshForegroundRobot(scope);
+      return true;
+    },
+    { consumerId: "standard-prewarm" }
+  );
   const stopRobotDataRefresh = subscribeRobotDataRefresh(prewarmData);
   const refreshGarageRoute = (event: Event) => {
     const path = (event as CustomEvent<{ path?: string }>).detail?.path ?? window.location.pathname;
     if (isStandardGarageRoute(path)) refreshForegroundRobot();
   };
+  const suspendNativeNostr = () => {
+    if (!nativeApp || document.visibilityState !== "hidden" || nativeNostrSuspended) return;
+    nativeNostrSuspended = true;
+    suspendOrderChangeHintRuntime();
+    suspendNostrOrderbookSession();
+  };
   window.addEventListener(ROUTE_TRANSITION_READY_EVENT, refreshGarageRoute);
+  if (nativeApp) document.addEventListener("visibilitychange", suspendNativeNostr);
   if (isStandardGarageRoute(window.location.pathname)) refreshForegroundRobot();
 
   const cleanups = [
@@ -123,10 +139,7 @@ export function scheduleAppPrewarm(): () => void {
   // Native and desktop packages read chunks locally, so warming the remaining
   // routes cannot consume Tor bandwidth.
   if (isNativeApp() || isTauriDesktop()) {
-    cleanups.push(
-      scheduleIdle(preloadPrimaryTradeRoutes, 1800, 6000),
-      scheduleIdle(preloadAllAppRoutes, 4500, 12000)
-    );
+    cleanups.push(scheduleIdle(preloadPrimaryTradeRoutes, 1800, 6000), scheduleIdle(preloadAllAppRoutes, 4500, 12000));
   }
 
   return () => {
@@ -136,6 +149,7 @@ export function scheduleAppPrewarm(): () => void {
     stopRobotDataRefresh();
     stopFederationRecovery();
     window.removeEventListener(ROUTE_TRANSITION_READY_EVENT, refreshGarageRoute);
+    if (nativeApp) document.removeEventListener("visibilitychange", suspendNativeNostr);
     cleanups.forEach((cleanup) => cleanup());
   };
 }
@@ -156,9 +170,7 @@ function scheduleCoordinatorHealthRecovery(initialTarget: CoordinatorHealthRecov
     const eligibleAliases = aliases.filter((shortAlias) => {
       const coordinator = federation.coordinators.find((item) => item.shortAlias === shortAlias);
       return Boolean(
-        coordinator?.enabled
-        && coordinator.url
-        && (coordinator.loading || coordinatorNeedsHealthRecovery(coordinator))
+        coordinator?.enabled && coordinator.url && (coordinator.loading || coordinatorNeedsHealthRecovery(coordinator))
       );
     });
     await Promise.allSettled(
@@ -208,8 +220,8 @@ export function coordinatorNeedsHealthRecovery(coordinator: CoordinatorSummary):
 
 function prewarmData(): void {
   // Native WebSockets wait for Arti, but the Nostr session timeout is owned by
-  // JavaScript. Do not start that clock until the SOCKS proxy is usable.
-  if (isNativeApp() && !getNativeTorDiagnostics()?.connected) return;
+  // JavaScript. Do not start that clock in the background or before SOCKS is usable.
+  if (isNativeApp() && (document.visibilityState === "hidden" || !getNativeTorDiagnostics()?.connected)) return;
 
   const garage = useGarageStore.getState();
   garage.hydrate();
@@ -219,13 +231,17 @@ function prewarmData(): void {
   // Prioritize one orderbook relay before lower-priority onion requests.
   if (federation.connection === "nostr") {
     swallow(
-      useOrderbookStore.getState().refreshOrderbook(federation.coordinators, {
-        connection: federation.connection,
-        hostUrl: currentHostUrl(),
-        network: federation.network,
-        origin: federation.origin,
-        priority: "background"
-      }).catch(() => undefined).then(refreshSecondaryData)
+      useOrderbookStore
+        .getState()
+        .refreshOrderbook(federation.coordinators, {
+          connection: federation.connection,
+          hostUrl: currentHostUrl(),
+          network: federation.network,
+          origin: federation.origin,
+          priority: "background"
+        })
+        .catch(() => undefined)
+        .then(refreshSecondaryData)
     );
     return;
   }
@@ -285,9 +301,7 @@ async function refreshSelectedStandardRobot(
       maxAgeMs: priority === "background" ? 300_000 : 60_000,
       onCoordinatorResult: (robot) => {
         observedAliases.add(robot.shortAlias);
-        const refreshedSlot = useGarageStore.getState().slots.find(
-          (slot) => slot.token === standardSlot.token
-        );
+        const refreshedSlot = useGarageStore.getState().slots.find((slot) => slot.token === standardSlot.token);
         if (refreshedSlot) {
           immediateOrderRefreshes.push(
             refreshStandardCoordinatorOrders(
@@ -309,9 +323,7 @@ async function refreshSelectedStandardRobot(
             refreshedSlot,
             {
               ...result,
-              coordinators: result.coordinators.filter(
-                (robot) => !observedAliases.has(robot.shortAlias)
-              )
+              coordinators: result.coordinators.filter((robot) => !observedAliases.has(robot.shortAlias))
             },
             coordinators,
             priority,
@@ -329,15 +341,17 @@ async function refreshStandardOrders(
   priority: "background" | "visible",
   scope?: StandardRobotRefreshScope
 ): Promise<void> {
-  await Promise.all(result.coordinators.map((robot) =>
-    refreshStandardCoordinatorOrders(
-      slot,
-      robot,
-      coordinators,
-      priority,
-      scope?.orderIdsByAlias?.get(robot.shortAlias)
+  await Promise.all(
+    result.coordinators.map((robot) =>
+      refreshStandardCoordinatorOrders(
+        slot,
+        robot,
+        coordinators,
+        priority,
+        scope?.orderIdsByAlias?.get(robot.shortAlias)
+      )
     )
-  ));
+  );
 }
 
 async function refreshStandardCoordinatorOrders(
@@ -351,35 +365,32 @@ async function refreshStandardCoordinatorOrders(
   const coordinator = coordinators.find((item) => item.shortAlias === robot.shortAlias);
   const auth = getRobotAuthForCoordinator(slot, robot.shortAlias);
   if (!coordinator?.url || !auth) return;
-  const orderIds = [
-    ...new Set([
-      ...(notifiedOrderIds ?? []),
-      robot.activeOrderId,
-      robot.renewableOrderId
-    ])
-  ]
-    .filter((orderId): orderId is number => Number.isSafeInteger(orderId) && Number(orderId) > 0);
-  await Promise.all(orderIds.map(async (orderId) => {
-    try {
-      const order = await fetchOrder(coordinator.url, orderId, auth, {
-        timeoutProfile: priority === "visible" ? "interactive" : "background",
-        priority,
-        source: "prewarm"
-      });
-      ingestCoordinatorOrder({ order, shortAlias: robot.shortAlias, slot });
-    } catch {
-      return;
-    }
-  }));
+  const orderIds = [...new Set([...(notifiedOrderIds ?? []), robot.activeOrderId, robot.renewableOrderId])].filter(
+    (orderId): orderId is number => Number.isSafeInteger(orderId) && Number(orderId) > 0
+  );
+  await Promise.all(
+    orderIds.map(async (orderId) => {
+      try {
+        const order = await fetchOrder(coordinator.url, orderId, auth, {
+          timeoutProfile: priority === "visible" ? "interactive" : "background",
+          priority,
+          source: "prewarm"
+        });
+        ingestCoordinatorOrder({ order, shortAlias: robot.shortAlias, slot });
+      } catch {
+        return;
+      }
+    })
+  );
 }
 
 function scheduleDesktopNotificationRefresh(): () => void {
   if (!isTauriDesktop()) return () => undefined;
   const timer = window.setInterval(() => {
     if (
-      document.visibilityState !== "visible"
-      && desktopBackgroundNotificationsEnabled()
-      && !useProPreferencesStore.getState().enabled
+      document.visibilityState !== "visible" &&
+      desktopBackgroundNotificationsEnabled() &&
+      !useProPreferencesStore.getState().enabled
     ) {
       void refreshSelectedStandardRobotStatus().catch(() => undefined);
     }
@@ -449,14 +460,11 @@ export function standardRobotRefreshScope(
   if (!notification.orderId) return {};
   const orderId = notification.orderId;
   const aliases = Object.entries(slot.robots)
-    .filter(([shortAlias, robot]) => (
-      (!notification.shortAlias || shortAlias === notification.shortAlias)
-      && [
-        robot.activeOrderId,
-        robot.lastOrderId,
-        robot.renewableOrderId
-      ].includes(orderId)
-    ))
+    .filter(
+      ([shortAlias, robot]) =>
+        (!notification.shortAlias || shortAlias === notification.shortAlias) &&
+        [robot.activeOrderId, robot.lastOrderId, robot.renewableOrderId].includes(orderId)
+    )
     .map(([shortAlias]) => shortAlias);
   if (aliases.length === 0) return undefined;
   return {
@@ -471,10 +479,7 @@ export function mergeStandardRefreshScopes(
   if (!current) return next;
   if (!current.orderIdsByAlias || !next.orderIdsByAlias) return {};
   const orderIdsByAlias = new Map(
-    [...current.orderIdsByAlias].map(([shortAlias, orderIds]) => [
-      shortAlias,
-      new Set(orderIds)
-    ])
+    [...current.orderIdsByAlias].map(([shortAlias, orderIds]) => [shortAlias, new Set(orderIds)])
   );
   for (const [shortAlias, orderIds] of next.orderIdsByAlias) {
     const mergedOrderIds = orderIdsByAlias.get(shortAlias) ?? new Set<number>();

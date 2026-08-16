@@ -8,6 +8,7 @@ import {
   type RobotSlot,
   useGarageStore
 } from "@/domains/garage/garageStore";
+import { subscribeRobotRefreshResults } from "@/domains/garage/robotRefreshEvents";
 
 let storage: Map<string, string>;
 let storageSetItem: ReturnType<typeof vi.fn>;
@@ -435,6 +436,54 @@ describe("garage order sync", () => {
     expect(refreshed.activeOrderId).toBe(89895);
     expect(refreshed.robots.lake.activeOrderId).toBe(89895);
     expect(refreshed.robots.lake.error).toBeTruthy();
+  });
+
+  it("keeps cancellation neutral and accepts a fresh robot result after resume", async () => {
+    const activeSlot = slotWithCoordinatorKeys({ activeOrderId: 89895, lastOrderId: 89895 });
+    activeSlot.robots.lake.lastCheckedAt = 123;
+    activeSlot.robots.lake.found = true;
+    useGarageStore.setState({ slots: [activeSlot], currentToken: "token", hydrated: true });
+    const observer = vi.fn();
+    const globalObserver = vi.fn();
+    const unsubscribe = subscribeRobotRefreshResults(globalObserver);
+    fetchRobotMock.mockRejectedValueOnce(
+      Object.assign(new Error("App backgrounded"), { name: "AbortError" })
+    );
+
+    const canceled = await useGarageStore
+      .getState()
+      .refreshRobotSlot("token", [coordinator], {
+        onCoordinatorResult: observer
+      })
+      .finally(unsubscribe);
+
+    expect(canceled.coordinators).toEqual([]);
+    expect(observer).not.toHaveBeenCalled();
+    expect(globalObserver).not.toHaveBeenCalled();
+    expect(useGarageStore.getState().slots[0]).toMatchObject({
+      activeOrderId: 89895,
+      loading: false,
+      robots: {
+        lake: {
+          activeOrderId: 89895,
+          error: undefined,
+          found: true,
+          lastCheckedAt: 123,
+          loading: false
+        }
+      }
+    });
+
+    fetchRobotMock.mockResolvedValueOnce(robotSnapshot({ activeOrderId: 91234, lastOrderId: 91234 }));
+    const recovered = await useGarageStore.getState().refreshRobotSlot("token", [coordinator], {
+      onCoordinatorResult: observer
+    });
+
+    expect(recovered.coordinators).toEqual([
+      expect.objectContaining({ shortAlias: "lake", transportFailed: false })
+    ]);
+    expect(observer).toHaveBeenCalledOnce();
+    expect(useGarageStore.getState().slots[0].activeOrderId).toBe(91234);
   });
 
   it("moves an active order to the latest order from a successful robot snapshot", async () => {

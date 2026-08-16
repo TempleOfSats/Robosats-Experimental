@@ -182,6 +182,42 @@ describe("GarageReconciler", () => {
     expect(getRobotOrderAvailability(beta, snapshots).available).toBe(false);
   });
 
+  it("removes a synthetic pending trade when its order read is cancelled", async () => {
+    let rejectOrder: ((reason: Error) => void) | undefined;
+    const fetchOrder = vi.fn(() => new Promise<OrderDto>((_resolve, reject) => {
+      rejectOrder = reject;
+    }));
+    const reconciler = makeReconciler({
+      refreshRobotSlot: async () => robotResult(91234),
+      fetchOrder
+    });
+    const locator: ProTradeLocator = { slotId: "slot-beta", shortAlias: "lake", orderId: 91234 };
+
+    const refresh = reconciler.reconcileOrder(locator, "interval");
+    await vi.waitFor(() => expect(
+      useProTradeIndexStore.getState().snapshots["slot-beta:lake:91234"]
+    ).toMatchObject({ freshness: "refreshing" }));
+    rejectOrder?.(new DOMException("App backgrounded", "AbortError"));
+    await refresh;
+
+    expect(useProTradeIndexStore.getState().snapshots["slot-beta:lake:91234"]).toBeUndefined();
+  });
+
+  it("preserves an existing trade snapshot when its order read is cancelled", async () => {
+    const prior = existingSnapshot();
+    useProTradeIndexStore.getState().upsertSnapshot(prior);
+    const reconciler = makeReconciler({
+      refreshRobotSlot: async () => robotResult(91234),
+      fetchOrder: async () => {
+        throw new DOMException("App backgrounded", "AbortError");
+      }
+    });
+
+    await reconciler.reconcileOrder(prior.locator, "interval");
+
+    expect(useProTradeIndexStore.getState().snapshots[prior.key]).toBe(prior);
+  });
+
   it("coalesces concurrent reads of the same Fleet order", async () => {
     let resolveOrder: ((value: OrderDto) => void) | undefined;
     const fetchOrder = vi.fn(() => new Promise<OrderDto>((resolve) => {
@@ -315,7 +351,7 @@ describe("GarageReconciler", () => {
     });
   });
 
-  it("discovers enabled coordinators whenever a restored Fleet becomes ready", async () => {
+  it("retries coordinator discovery when an earlier wave produced no result", async () => {
     const restored = {
       ...beta,
       robots: {
@@ -336,7 +372,7 @@ describe("GarageReconciler", () => {
     await reconciler.reconcileSlot(restored.tokenSHA256, "startup");
     await reconciler.reconcileSlot(restored.tokenSHA256, "fleet-ready");
 
-    expect(refreshRobotSlot).toHaveBeenCalledOnce();
+    expect(refreshRobotSlot).toHaveBeenCalledTimes(2);
     expect(refreshRobotSlot).toHaveBeenLastCalledWith(restored.token, [coordinator], {
       maxAgeMs: undefined,
       onCoordinatorResult: expect.any(Function),
@@ -403,6 +439,29 @@ describe("GarageReconciler", () => {
       inFlight: false,
       error: "refresh-failed"
     });
+  });
+
+  it("settles an empty robot refresh without replacing prior sync state", async () => {
+    const previous = {
+      slotId: "slot-beta",
+      epoch: 0,
+      inFlight: false,
+      attemptedCoordinators: 2,
+      locallyReadyAt: 100,
+      lastAttemptAt: 200,
+      lastSuccessAt: 300,
+      nextEligibleAt: 4_000,
+      error: "partial-failure"
+    };
+    useProTradeIndexStore.getState().setSlotSync(previous);
+    const reconciler = makeReconciler({
+      refreshRobotSlot: async () => ({ slotId: "slot-beta", coordinators: [] }),
+      fetchOrder: vi.fn()
+    });
+
+    await reconciler.reconcileSlot("slot-beta", "manual");
+
+    expect(useProTradeIndexStore.getState().syncBySlot["slot-beta"]).toEqual(previous);
   });
 
   it("uses recent robot state during interval polling while still refreshing known orders", async () => {

@@ -4,11 +4,7 @@ import { encrypt, getConversationKey } from "nostr-tools/nip44";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import type { RobotSlot } from "@/domains/garage/garageStore";
 import { deriveRobotIdentity } from "@/domains/identity/robotIdentity";
-import {
-  buildHintTargets,
-  ORDER_CHANGE_HINT_KIND,
-  OrderChangeHintRuntime
-} from "@/domains/nostr/orderChangeHints";
+import { buildHintTargets, ORDER_CHANGE_HINT_KIND, OrderChangeHintRuntime } from "@/domains/nostr/orderChangeHints";
 
 const NOW = 1_800_000_000_000;
 const coordinatorSecret = new Uint8Array(32).fill(7);
@@ -66,12 +62,16 @@ describe("order change hints", () => {
     const valid = orderChangedEvent(slot, 91330);
     harness.subscriptions[0].onevent?.(valid);
     harness.subscriptions[0].onevent?.(valid);
-    harness.subscriptions[0].onevent?.(orderChangedEvent(slot, 91331, {
-      createdAt: Math.floor(NOW / 1000) - 601
-    }));
-    harness.subscriptions[0].onevent?.(orderChangedEvent(slot, 91332, {
-      recipientPubkey: getPublicKey(new Uint8Array(32).fill(8))
-    }));
+    harness.subscriptions[0].onevent?.(
+      orderChangedEvent(slot, 91331, {
+        createdAt: Math.floor(NOW / 1000) - 601
+      })
+    );
+    harness.subscriptions[0].onevent?.(
+      orderChangedEvent(slot, 91332, {
+        recipientPubkey: getPublicKey(new Uint8Array(32).fill(8))
+      })
+    );
 
     expect(harness.publishHint).toHaveBeenCalledOnce();
     harness.runtime.stop();
@@ -118,6 +118,42 @@ describe("order change hints", () => {
     }
   });
 
+  it("cancels a pending retry while stopped and reconnects cleanly when restarted", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const harness = runtimeHarness(robotSlot(), coordinatorSummary(), false);
+
+    try {
+      harness.runtime.start();
+      harness.subscriptions[0].onclose?.();
+      harness.runtime.stop();
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(harness.subscriptions).toHaveLength(1);
+
+      harness.runtime.start();
+      expect(harness.subscriptions).toHaveLength(2);
+    } finally {
+      harness.runtime.stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not republish an already-seen event after pause and resume", () => {
+    const slot = robotSlot();
+    const harness = runtimeHarness(slot, coordinatorSummary(), false);
+    const seen = orderChangedEvent(slot, 91330);
+
+    harness.runtime.start();
+    harness.subscriptions[0].onevent?.(seen);
+    harness.runtime.stop();
+    harness.runtime.start();
+    harness.subscriptions[1].onevent?.(seen);
+
+    expect(harness.publishHint).toHaveBeenCalledOnce();
+    harness.runtime.stop();
+  });
+
   it("keeps healthy coordinator subscriptions while retrying one failed relay", async () => {
     vi.useFakeTimers();
     vi.spyOn(Math, "random").mockReturnValue(0);
@@ -151,11 +187,7 @@ describe("order change hints", () => {
   });
 });
 
-function runtimeHarness(
-  slot: RobotSlot,
-  coordinator: CoordinatorSummary | CoordinatorSummary[],
-  proEnabled: boolean
-) {
+function runtimeHarness(slot: RobotSlot, coordinator: CoordinatorSummary | CoordinatorSummary[], proEnabled: boolean) {
   const coordinators = Array.isArray(coordinator) ? coordinator : [coordinator];
   const subscriptions: Array<{
     relays: string[];
@@ -252,10 +284,13 @@ function orderChangedEvent(
     JSON.stringify({ type: "order_changed", version: 1, order_id: orderId }),
     getConversationKey(coordinatorSecret, recipientPubkey)
   );
-  return finalizeEvent({
-    kind: ORDER_CHANGE_HINT_KIND,
-    created_at: options.createdAt ?? Math.floor(NOW / 1000),
-    tags: [["p", recipientPubkey]],
-    content
-  }, coordinatorSecret);
+  return finalizeEvent(
+    {
+      kind: ORDER_CHANGE_HINT_KIND,
+      created_at: options.createdAt ?? Math.floor(NOW / 1000),
+      tags: [["p", recipientPubkey]],
+      content
+    },
+    coordinatorSecret
+  );
 }

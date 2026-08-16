@@ -72,90 +72,6 @@
   color: var(--primary);
 }
 
-.create-robot-panel {
-  display: grid;
-  gap: 0.75rem;
-}
-
-.robot-wizard,
-.garage-stack,
-.robot-slot-list {
-  display: grid;
-  gap: 1rem;
-}
-
-.wizard-steps {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.5rem;
-}
-
-.wizard-step {
-  min-height: 3.1rem;
-  display: flex;
-  align-items: center;
-  gap: 0.55rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: 0.6rem 0.7rem;
-  color: var(--muted-foreground);
-  background: var(--input);
-}
-
-.wizard-step span {
-  width: 1.65rem;
-  height: 1.65rem;
-  flex: 0 0 auto;
-  font-size: 0.82rem;
-}
-
-.wizard-step strong {
-  min-width: 0;
-  font-size: 0.88rem;
-  line-height: 1.25;
-}
-
-.wizard-step.active {
-  color: var(--foreground);
-  border-color: color-mix(in srgb, var(--primary) 48%, var(--border));
-  background: color-mix(in srgb, var(--primary) 8%, var(--input));
-}
-
-.wizard-step.complete span {
-  color: var(--primary-foreground);
-  background: var(--primary);
-}
-
-.wizard-panel {
-  display: grid;
-  gap: 1rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--input);
-  padding: clamp(1rem, 2vw, 1.25rem);
-  animation: section-in 180ms cubic-bezier(0.2, 0, 0, 1);
-}
-
-.wizard-copy {
-  display: grid;
-  gap: 0.35rem;
-}
-
-.wizard-copy h3,
-.active-robot-panel h3,
-.robot-preview-card h3 {
-  margin: 0;
-  font-size: 1.35rem;
-  line-height: 1.2;
-}
-
-.wizard-copy p {
-  max-width: 42rem;
-  margin: 0;
-  color: var(--muted-foreground);
-  line-height: 1.55;
-}
-
 .input-shell {
   display: flex;
   align-items: center;
@@ -294,86 +210,164 @@
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  justify-items: center;
-  gap: 0.85rem;
+  gap: 0.9rem;
   width: 100%;
   margin: 0;
-  padding: clamp(1.2rem, 3vw, 1.75rem);
+  padding: clamp(1rem, 2.5vw, 1.35rem);
   text-align: center;
   overflow: hidden;
 }
 
-.garage-settings-btn {
-  position: absolute;
-  top: 0.75rem;
-  right: 0.75rem;
-  z-index: 2;
+.garage-robot-picker {
+  appearance: none;
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+  align-items: center;
+  gap: clamp(0.85rem, 2.5vw, 1.1rem);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: inherit;
+  padding: 0.15rem 3rem 0.25rem;
+  text-align: center;
+  cursor: pointer;
+}
+
+.garage-robot-picker:hover .garage-robot-name small,
+.garage-robot-picker:focus-visible .garage-robot-name small {
+  color: var(--foreground);
+}
+
+.garage-robot-picker:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
 }
 
 .garage-robot-name {
+  width: 100%;
   min-width: 0;
-  max-width: calc(100% - 3rem);
   color: var(--foreground);
-  font-size: var(--type-h2-size);
-  line-height: 1.12;
+  display: grid;
+  justify-items: center;
+  gap: 0.4rem;
 }
 
 .garage-robot-name strong {
   display: block;
-  overflow-wrap: anywhere;
+  width: 100%;
+  max-width: 100%;
+  font-size: clamp(1.35rem, 4vw, 1.8rem);
+  line-height: 1.12;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.garage-robot-name small {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: var(--muted-foreground);
+  font-size: var(--type-compact-size);
+  font-weight: 600;
+  line-height: var(--type-compact-line);
+  transition: color 120ms cubic-bezier(0.2, 0, 0, 1);
 }
 
 .garage-robot-avatar-shell {
   display: grid;
   place-items: center;
-  width: min(12.25rem, 58vw);
+  width: clamp(9rem, 42vw, 12rem);
   aspect-ratio: 1;
   border-radius: 999px;
-  background:
-    radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--info) 8%, transparent), transparent 68%),
-    color-mix(in srgb, var(--card) 78%, var(--muted));
+  background: color-mix(in srgb, var(--card) 78%, var(--muted));
   animation: garage-identity-reveal 320ms cubic-bezier(0.2, 0, 0, 1) both;
 }
 
-.garage-robot-status-stack {
-  display: grid;
-  justify-items: center;
-  gap: 0.45rem;
-  max-width: 100%;
+.garage-robot-avatar-shell .robot-avatar-xl {
+  width: 100%;
+  height: 100%;
 }
 
-.garage-robot-status {
+.garage-operational-state {
+  min-width: 0;
+  min-height: 3.65rem;
+  display: grid;
+  justify-items: center;
+  align-items: center;
+  border-top: 1px solid var(--border-subtle);
+  padding: 0.85rem 0.15rem 0;
+  text-align: center;
+}
+
+.garage-operational-state > span {
+  min-width: 0;
+  display: grid;
+  justify-items: center;
+  gap: 0.12rem;
+}
+
+.garage-operational-state strong {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 2rem;
-  max-width: 100%;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--card) 76%, var(--muted));
+  color: var(--foreground);
+  font-size: 0.96rem;
+  line-height: 1.3;
+}
+
+.garage-operational-state small,
+.garage-operational-state button {
   color: var(--muted-foreground);
-  padding: 0.35rem 0.75rem;
-  font-size: 0.86rem;
-  font-weight: 600;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.garage-operational-state button {
+  appearance: none;
+  width: fit-content;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font-family: inherit;
+  text-align: center;
+  cursor: pointer;
+}
+
+.garage-operational-state button:hover,
+.garage-operational-state button:focus-visible {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 0.2rem;
+  outline: 0;
+}
+
+.garage-operational-state-active {
+  border-color: color-mix(in srgb, var(--primary) 30%, var(--border-subtle));
 }
 
 .garage-reward-status {
-  min-height: 2rem;
+  min-height: 2.75rem;
+  width: fit-content;
   max-width: 100%;
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
+  justify-self: center;
   gap: 0.4rem;
   border: 1px solid var(--warning-border);
-  border-radius: 999px;
+  border-radius: var(--radius-md);
   background: var(--warning-surface);
   color: var(--warning-foreground);
-  padding: 0.35rem 0.75rem;
+  padding: 0.55rem 0.75rem;
   font: inherit;
   font-size: 0.82rem;
   font-weight: 600;
   overflow-wrap: anywhere;
-  text-align: center;
+  text-align: left;
   white-space: normal;
   cursor: pointer;
 }
@@ -381,37 +375,6 @@
 .garage-reward-status:hover,
 .garage-reward-status:focus-visible {
   border-color: var(--warning);
-  outline: 0;
-}
-
-.garage-robot-status a,
-.garage-robot-status button {
-  appearance: none;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-  font: inherit;
-  padding: 0;
-}
-
-.garage-robot-status-loading {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-}
-
-.garage-robot-status-loading .ui-spinner {
-  width: 0.9rem;
-  height: 0.9rem;
-  border-width: 2px;
-}
-
-.garage-robot-status a:hover,
-.garage-robot-status button:hover,
-.garage-robot-status a:focus-visible,
-.garage-robot-status button:focus-visible {
-  color: var(--primary);
   outline: 0;
 }
 
@@ -446,150 +409,111 @@
   letter-spacing: 0;
 }
 
-.garage-identity-tools {
-  min-width: 0;
-  width: min(100%, 27rem);
-  margin-top: 0.35rem;
-  text-align: left;
-}
-
-.garage-identity-tools > summary {
-  min-height: 2.7rem;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 0.65rem;
-  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
-  border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--muted) 38%, transparent);
-  color: var(--muted-foreground);
-  padding: 0.5rem 0.7rem;
-  cursor: pointer;
-  list-style: none;
-  transition:
-    border-color 140ms cubic-bezier(0.2, 0, 0, 1),
-    color 140ms cubic-bezier(0.2, 0, 0, 1),
-    background 140ms cubic-bezier(0.2, 0, 0, 1);
-}
-
-.garage-identity-tools > summary::-webkit-details-marker {
-  display: none;
-}
-
-.garage-identity-tools > summary::after {
-  content: "";
-  width: 0.48rem;
-  height: 0.48rem;
-  border-right: 1.5px solid currentColor;
-  border-bottom: 1.5px solid currentColor;
-  transform: rotate(45deg) translateY(-0.12rem);
-  transition: transform 140ms cubic-bezier(0.2, 0, 0, 1);
-}
-
-.garage-identity-tools[open] > summary::after {
-  transform: rotate(225deg) translate(-0.08rem, -0.08rem);
-}
-
-.garage-identity-tools > summary:hover,
-.garage-identity-tools > summary:focus-visible {
-  border-color: color-mix(in srgb, var(--primary) 32%, var(--border));
-  background: color-mix(in srgb, var(--primary) 5%, var(--card));
-  color: var(--foreground);
-}
-
-.garage-identity-tools > summary:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
-}
-
-.garage-identity-tools > summary > span {
-  min-width: 0;
-  display: grid;
-  gap: 0.05rem;
-}
-
-.garage-identity-tools > summary strong {
-  color: var(--foreground);
-  font-size: 0.82rem;
-  font-weight: 600;
-}
-
-.garage-identity-tools > summary small {
-  font-size: var(--type-caption-size);
-  line-height: var(--type-caption-line);
-}
-
-.garage-robot-token {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 0.5rem;
-  padding: 0.75rem 0.2rem 0.15rem;
-}
-
-.garage-token-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-}
-
-.garage-token-label {
-  color: var(--muted-foreground);
-  font-size: 0.78rem;
-  font-weight: 600;
-  text-transform: none;
-}
-
-.input-shell-compact {
-  min-height: 2.65rem;
-  padding-right: 0.38rem;
-}
-
-.garage-token-value {
-  font-family: var(--font-mono);
-  font-size: 0.86rem;
-}
-
-.garage-token-masked {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  min-height: 2.65rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--input);
-  padding: 0.35rem 0.38rem 0.35rem 0.85rem;
-}
-
-.garage-token-masked span {
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
-  color: var(--muted-foreground);
-  font-family: var(--font-mono);
-  letter-spacing: 0;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.garage-privacy-note {
-  margin: 0;
-  color: var(--muted-foreground);
-  font-size: 0.78rem;
-  line-height: 1.45;
-}
-
 .garage-page > .next-action-grid,
 .garage-profile-stage > .next-action-grid {
   width: 100%;
   margin: 0.85rem 0 0;
 }
 
-.garage-page > .garage-utility-bar,
-.garage-profile-stage > .garage-utility-bar {
+.garage-robot-actions {
   width: 100%;
-  margin: 0.7rem 0 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.2rem;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 0.55rem;
+}
+
+.garage-robot-actions button {
+  appearance: none;
+  min-width: 0;
+  min-height: 2.8rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--muted-foreground);
+  padding: 0.4rem 0.25rem;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    color 120ms cubic-bezier(0.2, 0, 0, 1),
+    background 120ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.garage-robot-actions button:hover,
+.garage-robot-actions button:focus-visible {
+  background: var(--control-hover-background);
+  color: var(--foreground);
+}
+
+.garage-robot-actions button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+.garage-robot-actions svg {
+  flex: 0 0 auto;
+  color: currentColor;
+}
+
+.garage-robot-actions span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.garage-continue-trade {
+  width: 100%;
+  min-height: 4.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--primary) 42%, var(--border));
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--primary) 7%, var(--card));
+  color: var(--foreground);
+  padding: 0.9rem 1rem;
+  transition:
+    border-color 150ms cubic-bezier(0.2, 0, 0, 1),
+    background 150ms cubic-bezier(0.2, 0, 0, 1),
+    transform 150ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.garage-continue-trade > span {
+  min-width: 0;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.garage-continue-trade strong {
+  font-size: 1rem;
+}
+
+.garage-continue-trade small {
+  color: var(--muted-foreground);
+  font-size: 0.82rem;
+}
+
+.garage-continue-trade > svg {
+  flex: 0 0 auto;
+  color: var(--primary);
+}
+
+.garage-continue-trade:hover,
+.garage-continue-trade:focus-visible {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, var(--card));
+  outline: 0;
+  transform: translateY(-1px);
 }
 
 .garage-profile-stage .action-tile {
@@ -646,12 +570,6 @@
   gap: 0.5rem;
 }
 
-.garage-page .garage-profile-stage > .garage-utility-bar {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  width: min(100%, 27rem);
-  margin-inline: auto;
-}
-
 .garage-utility-btn {
   appearance: none;
   min-width: 0;
@@ -686,92 +604,26 @@
   white-space: nowrap;
 }
 
-.garage-manage-tools {
-  position: relative;
-  min-width: 0;
+.garage-setup-page {
+  padding-top: clamp(1.25rem, 7vh, 4.5rem);
 }
 
-.garage-manage-tools > summary {
-  width: 100%;
-  list-style: none;
-}
-
-.garage-manage-tools > summary::-webkit-details-marker {
-  display: none;
-}
-
-.garage-manage-tools > summary::after {
-  content: "";
-  width: 0.42rem;
-  height: 0.42rem;
-  margin-left: 0.1rem;
-  border-right: 1.5px solid currentColor;
-  border-bottom: 1.5px solid currentColor;
-  transform: rotate(45deg) translateY(-0.12rem);
-  transition: transform 140ms cubic-bezier(0.2, 0, 0, 1);
-}
-
-.garage-manage-tools[open] {
-  z-index: 12;
-}
-
-.garage-manage-tools[open] > summary::after {
-  transform: rotate(225deg) translate(-0.08rem, -0.08rem);
-}
-
-.garage-manage-menu {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 0.45rem);
-  width: min(17rem, calc(100vw - 2rem));
-  display: grid;
-  gap: 0.15rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--card);
-  box-shadow: var(--menu-shadow);
-  padding: 0.35rem;
-  animation: garage-menu-in 140ms cubic-bezier(0.2, 0, 0, 1) both;
-}
-
-.garage-manage-menu button {
-  appearance: none;
-  width: 100%;
-  min-height: 2.65rem;
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--foreground);
-  padding: 0.55rem 0.65rem;
-  font: inherit;
-  font-size: var(--type-compact-size);
-  font-weight: var(--weight-semibold);
-  text-align: left;
-  cursor: pointer;
-}
-
-.garage-manage-menu button:hover,
-.garage-manage-menu button:focus-visible {
-  background: var(--control-hover-background);
-}
-
-.garage-manage-menu button:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: -2px;
-}
-
-.garage-manage-menu .garage-manage-remove {
-  color: var(--danger-foreground);
-}
-
-/* First-run setup stays visually focused and avoids nested card chrome. */
 .garage-page.garage-page .page-heading {
   max-width: 44rem;
   margin-bottom: 1.1rem;
-  text-align: center;
+  text-align: left;
+}
+
+.garage-setup-page .page-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 0.75rem;
+}
+
+.garage-setup-exit {
+  grid-column: 2;
+  grid-row: 1;
 }
 
 .garage-page.garage-page .start-card {
@@ -784,52 +636,112 @@
   background: color-mix(in srgb, var(--surface) 88%, var(--surface-subtle));
 }
 
-.garage-page .wizard-section {
-  border-color: var(--border-subtle);
-  padding: clamp(1rem, 2.4vw, 1.35rem);
+.robot-setup-surface {
+  min-height: 15.5rem;
 }
 
-.garage-page .wizard-section:not(.active) {
-  background: color-mix(in srgb, var(--muted) 24%, transparent);
+.robot-setup-panel {
+  min-width: 0;
+  display: grid;
+  justify-items: center;
+  gap: 1rem;
+  padding: clamp(1.2rem, 3vw, 1.7rem);
+  text-align: center;
+  animation: section-in 160ms cubic-bezier(0.2, 0, 0, 1);
 }
 
-.garage-page .wizard-section h3 {
+.robot-setup-copy {
+  min-width: 0;
+  display: grid;
+  justify-items: center;
+  gap: 0.45rem;
+}
+
+.robot-setup-copy h3 {
+  margin: 0;
+  color: var(--foreground);
   font-size: var(--type-card-title-size);
   line-height: var(--type-card-title-line);
 }
 
-.garage-page .wizard-step-body {
-  gap: 0.85rem;
-  padding-top: 1rem;
-  animation-duration: 160ms;
+.robot-setup-copy p {
+  max-width: 29rem;
+  margin: 0;
+  color: var(--muted-foreground);
+  line-height: 1.55;
 }
 
-.garage-page .token-start-step {
-  width: min(100%, 34rem);
-  margin-inline: auto;
+.robot-setup-start {
+  align-content: center;
 }
 
-.garage-page .wizard-step-body .robot-setup-intro {
-  max-width: 27rem;
+.robot-setup-primary {
+  width: min(100%, 18rem);
+}
+
+.robot-setup-secondary {
   color: var(--muted-foreground);
 }
 
-.garage-page .recover-token-details {
-  width: auto;
-  min-width: min(100%, 16rem);
+.robot-setup-secondary:hover,
+.robot-setup-secondary:focus-visible {
+  color: var(--foreground);
 }
 
-.garage-page .recover-token-details[open] {
+.robot-setup-panel.token-review-step {
   width: 100%;
-  margin-top: 0.25rem;
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--border-subtle);
+  justify-items: stretch;
+  text-align: left;
 }
 
-@keyframes garage-menu-in {
-  from {
-    opacity: 0;
-    transform: translateY(0.2rem);
+.robot-setup-panel.token-review-step .robot-setup-copy {
+  justify-items: start;
+}
+
+.robot-token-field input[readonly] {
+  color: var(--foreground);
+  font-family: var(--font-mono);
+}
+
+.robot-backup-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.robot-setup-actions {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.robot-identity-copy {
+  margin-bottom: 0.15rem;
+}
+
+.garage-setup-page .identity-step {
+  min-width: 0;
+  display: grid;
+  justify-items: center;
+  gap: 0.85rem;
+  padding: clamp(1.2rem, 3vw, 1.7rem);
+  text-align: center;
+}
+
+@media (max-width: 430px) {
+  .robot-backup-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .robot-setup-actions {
+    align-items: stretch;
+    flex-direction: column-reverse;
+  }
+
+  .robot-setup-actions .ui-button {
+    width: 100%;
   }
 }
 
@@ -848,18 +760,15 @@
     transition: none;
   }
 
-  .garage-manage-menu {
-    animation: none;
-  }
-
-  .garage-manage-tools > summary::after {
-    transition: none;
-  }
-
   .garage-profile-stage .action-tile:hover,
   .garage-profile-stage .action-tile:focus-visible,
   .action-tile-primary:hover .action-tile-arrow,
   .action-tile-primary:focus-visible .action-tile-arrow {
+    transform: none;
+  }
+
+  .garage-continue-trade:hover,
+  .garage-continue-trade:focus-visible {
     transform: none;
   }
 }

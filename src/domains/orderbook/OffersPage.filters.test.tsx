@@ -11,15 +11,24 @@ import { OffersPage } from "@/domains/orderbook/OffersPage";
 import type { PublicOrder } from "@/domains/orderbook/orderbook.types";
 import { useOrderbookStore } from "@/domains/orderbook/orderbookStore";
 import { defaultProPreferences, useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
+import { publishRefreshIntent } from "@/domains/transport/refreshIntents";
 
 const nostrOrderbook = vi.hoisted(() => ({
   resetSession: vi.fn(),
   subscribe: vi.fn(() => () => undefined)
 }));
+const nativeRuntime = vi.hoisted(() => ({
+  isNativeApp: vi.fn(() => false)
+}));
 
 vi.mock("@/domains/orderbook/nostrOrderbook", () => ({
   resetNostrOrderbookSession: nostrOrderbook.resetSession,
   subscribeNostrOrderbook: nostrOrderbook.subscribe
+}));
+
+vi.mock("@/domains/transport/androidBridge", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/domains/transport/androidBridge")>()),
+  isNativeApp: nativeRuntime.isNativeApp
 }));
 
 let container: HTMLDivElement;
@@ -60,6 +69,8 @@ beforeEach(() => {
   useProPreferencesStore.setState(defaultProPreferences);
   nostrOrderbook.resetSession.mockClear();
   nostrOrderbook.subscribe.mockClear();
+  nativeRuntime.isNativeApp.mockReset();
+  nativeRuntime.isNativeApp.mockReturnValue(false);
 });
 
 afterEach(async () => {
@@ -311,6 +322,43 @@ describe("OffersPage filters", () => {
     );
   });
 
+  it("starts a fresh Nostr session after the native app resumes", async () => {
+    vi.useFakeTimers();
+    nativeRuntime.isNativeApp.mockReturnValue(true);
+    const refreshOrderbook = vi.fn(async () => undefined);
+
+    try {
+      await renderNostrOffers(refreshOrderbook);
+      await publishResumeIntent();
+
+      expect(nostrOrderbook.resetSession).toHaveBeenCalledOnce();
+      expect(refreshOrderbook).toHaveBeenCalledWith(
+        [coordinator],
+        expect.objectContaining({ connection: "nostr", force: true, network: "mainnet" })
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("refreshes without replacing the Nostr session after a browser resume", async () => {
+    vi.useFakeTimers();
+    const refreshOrderbook = vi.fn(async () => undefined);
+
+    try {
+      await renderNostrOffers(refreshOrderbook);
+      await publishResumeIntent();
+
+      expect(nostrOrderbook.resetSession).not.toHaveBeenCalled();
+      expect(refreshOrderbook).toHaveBeenCalledWith(
+        [coordinator],
+        expect.objectContaining({ connection: "nostr", force: false, network: "mainnet" })
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("removes an offer from the visible book when its advertised expiry passes", async () => {
     vi.useFakeTimers();
     vi.setSystemTime("2026-08-08T12:00:00.000Z");
@@ -341,6 +389,30 @@ function input(label: string): HTMLInputElement {
   const element = container.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`);
   if (!element) throw new Error(`Missing input: ${label}`);
   return element;
+}
+
+type OrderbookRefresh = ReturnType<typeof useOrderbookStore.getState>["refreshOrderbook"];
+
+async function renderNostrOffers(refreshOrderbook: OrderbookRefresh & { mockClear: () => void }): Promise<void> {
+  useFederationStore.setState({ connection: "nostr" });
+  useOrderbookStore.setState({ refreshOrderbook });
+  await act(async () => {
+    root.render(
+      <MemoryRouter>
+        <OffersPage />
+      </MemoryRouter>
+    );
+  });
+  await vi.advanceTimersByTimeAsync(0);
+  refreshOrderbook.mockClear();
+  nostrOrderbook.resetSession.mockClear();
+}
+
+async function publishResumeIntent(): Promise<void> {
+  await act(async () => {
+    publishRefreshIntent("resume");
+    await vi.advanceTimersByTimeAsync(150);
+  });
 }
 
 async function chooseMethod(methodInput: HTMLInputElement, method: string): Promise<void> {

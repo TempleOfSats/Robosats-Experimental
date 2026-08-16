@@ -19,9 +19,9 @@ If you already know RoboSats, the protocol will feel familiar. RoboSats Exp. cha
 
 | Familiar task | RoboSats Exp. location |
 | --- | --- |
-| Generate or recover a robot | **Robot** |
+| Create or restore a robot | **Garage** |
 | Inspect the public orderbook | **Offers** |
-| Use a guided offer search | **Offers > Guided trade**, or **Find a trade** in the Garage |
+| Use a guided offer search | **Offers > Guided trade**, or **Find an offer** in the Garage |
 | Publish an offer | **Create** |
 | Continue the selected order | **Trade** |
 | Inspect coordinators | **Settings > Coordinators** |
@@ -35,9 +35,9 @@ The navigation item **Trade** is unavailable until the current workspace has an 
 
 The Standard Garage keeps one selected robot in a focused workspace.
 
-![Standard Garage with its primary actions highlighted](assets/standard-guide/04-standard-garage.png)
+![Standard Garage showing robot state and next actions](assets/tutorial/screenshots/garage-home.png)
 
-1. Find a trade without manually filtering the whole orderbook.
+1. Find an offer without manually filtering the whole orderbook.
 2. Create an offer with complete control over its terms.
 3. Open robot settings, backups, keys, and notifications.
 

@@ -7,6 +7,10 @@ const preferredMessageKeys = [
   "reason"
 ] as const;
 
+export function isAbortError(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && (error as { name?: unknown }).name === "AbortError");
+}
+
 export function toUserMessage(error: unknown, fallback = "Something went wrong. Please try again."): string {
   const extracted = extractMessage(error);
   if (!extracted) return fallback;

@@ -49,6 +49,7 @@ interface ParsedNostrOrder {
 type NostrOrderbookListener = (orders: PublicOrder[], meta: NostrOrderbookSnapshotMeta) => void;
 
 let sharedSession: NostrOrderbookSession | undefined;
+let sessionSuspended = false;
 const relaySelectionCache = new Map<string, string[]>();
 const relayFailureUntil = new Map<string, number>();
 
@@ -57,6 +58,7 @@ export async function fetchNostrOrderbook(
   network: Network,
   options: NostrOrderbookOptions = {}
 ): Promise<PublicOrder[]> {
+  if (sessionSuspended) throw suspendedOrderbookError();
   const session = getNostrOrderbookSession(coordinators, network, options);
   const unsubscribe = options.onOrders ? session.subscribe(options.onOrders) : undefined;
   try {
@@ -76,6 +78,7 @@ export function subscribeNostrOrderbook(
   network: Network,
   options: NostrOrderbookOptions = {}
 ): () => void {
+  if (sessionSuspended) return () => undefined;
   try {
     const session = getNostrOrderbookSession(coordinators, network, options);
     const unsubscribe = options.onOrders ? session.subscribe(options.onOrders) : () => undefined;
@@ -89,6 +92,19 @@ export function subscribeNostrOrderbook(
 
 export function resetNostrOrderbookSession(): void {
   sharedSession?.close();
+}
+
+export function suspendNostrOrderbookSession(): void {
+  sessionSuspended = true;
+  sharedSession?.close(suspendedOrderbookError());
+}
+
+export function resumeNostrOrderbookSession(): void {
+  sessionSuspended = false;
+}
+
+function suspendedOrderbookError(): DOMException {
+  return new DOMException("Nostr orderbook is suspended", "AbortError");
 }
 
 function getNostrOrderbookSession(
@@ -154,6 +170,7 @@ class NostrOrderbookSession {
   private startedAt = 0;
   private initialPromise?: Promise<PublicOrder[]>;
   private resolveInitial?: (orders: PublicOrder[]) => void;
+  private rejectInitial?: (reason?: unknown) => void;
   private finalTimer?: ReturnType<typeof setTimeout>;
   private emitTimer?: ReturnType<typeof setTimeout>;
   private idleTimer?: ReturnType<typeof setTimeout>;
@@ -204,8 +221,9 @@ class NostrOrderbookSession {
 
     this.started = true;
     this.startedAt = Date.now();
-    this.initialPromise = new Promise((resolve) => {
+    this.initialPromise = new Promise((resolve, reject) => {
       this.resolveInitial = resolve;
+      this.rejectInitial = reject;
     });
     this.startRelay(0);
     this.scheduleFallback(1, this.primarySilenceMs);
@@ -235,12 +253,14 @@ class NostrOrderbookSession {
     };
   }
 
-  close(): void {
+  close(error?: Error): void {
     if (this.closed) return;
     if (!this.initialSettled && this.resolveInitial) {
       this.initialSettled = true;
-      this.resolveInitial(this.currentOrders());
+      if (error) this.rejectInitial?.(error);
+      else this.resolveInitial(this.currentOrders());
       this.resolveInitial = undefined;
+      this.rejectInitial = undefined;
     }
     this.closed = true;
     this.clearTimers();
@@ -289,9 +309,9 @@ class NostrOrderbookSession {
   private degradeSilentRelaysBefore(fallbackRelayIndex: number): void {
     for (let relayIndex = 0; relayIndex < fallbackRelayIndex; relayIndex += 1) {
       if (
-        this.degradedSilentRelays.has(relayIndex)
-        || !this.relayStartedAt.has(relayIndex)
-        || this.relayEoses.get(relayIndex)?.size
+        this.degradedSilentRelays.has(relayIndex) ||
+        !this.relayStartedAt.has(relayIndex) ||
+        this.relayEoses.get(relayIndex)?.size
       ) {
         continue;
       }
@@ -327,10 +347,7 @@ class NostrOrderbookSession {
       if (nextRelay >= 0) {
         const elapsedMs = Date.now() - this.startedAt;
         const remainingBeforeUsefulFallback = this.maxWaitMs - elapsedMs - MIN_PRIMARY_SILENCE_MS;
-        this.scheduleFallback(
-          nextRelay,
-          Math.min(this.primarySilenceMs, Math.max(0, remainingBeforeUsefulFallback))
-        );
+        this.scheduleFallback(nextRelay, Math.min(this.primarySilenceMs, Math.max(0, remainingBeforeUsefulFallback)));
       }
     }
     if (this.emitTimer) return;
@@ -373,12 +390,7 @@ class NostrOrderbookSession {
     }
   }
 
-  private handleRelayClose(
-    relayIndex: number,
-    relay: string,
-    filterIndex: number,
-    subscriptionKey: string
-  ): void {
+  private handleRelayClose(relayIndex: number, relay: string, filterIndex: number, subscriptionKey: string): void {
     this.subscriptions.delete(subscriptionKey);
     if (filterIndex === 0 && this.relayEoses.get(relayIndex)?.has(filterIndex)) return;
     if (this.closed || this.closedRelays.has(relayIndex)) return;
@@ -419,9 +431,7 @@ class NostrOrderbookSession {
     if (this.finalTimer) clearTimeout(this.finalTimer);
     this.clearFallbackTimers();
     if (authoritative && orders.length > 0) {
-      const unopened = this.relays
-        .map((_relay, index) => index)
-        .filter((index) => !this.relayEoses.has(index));
+      const unopened = this.relays.map((_relay, index) => index).filter((index) => !this.relayEoses.has(index));
       if (unopened[0] !== undefined) {
         this.scheduleFallback(
           unopened[0],
@@ -436,6 +446,7 @@ class NostrOrderbookSession {
     this.emit(!authoritative, authoritative, orders);
     this.resolveInitial?.(orders);
     this.resolveInitial = undefined;
+    this.rejectInitial = undefined;
     if (this.listeners.size === 0) this.scheduleIdleClose();
   }
 
@@ -448,8 +459,7 @@ class NostrOrderbookSession {
   }
 
   private completedRelayCount(): number {
-    return [...this.relayEoses.values()]
-      .filter((filters) => filters.size === this.filters.length).length;
+    return [...this.relayEoses.values()].filter((filters) => filters.size === this.filters.length).length;
   }
 
   private requiredEmptyConfirmations(): number {
@@ -560,10 +570,12 @@ export function nostrEventToPublicOrder(
       maker_hash_id: makerHashId,
       bond_size_sats: 0,
       ...(bondSizePercent != null ? { bond_size_percent: bondSizePercent } : {}),
-      ...(approximateLocation ? {
-        latitude: approximateLocation[0],
-        longitude: approximateLocation[1]
-      } : {}),
+      ...(approximateLocation
+        ? {
+            latitude: approximateLocation[0],
+            longitude: approximateLocation[1]
+          }
+        : {}),
       coordinatorShortAlias: coordinator.shortAlias
     }
   };
@@ -580,9 +592,10 @@ export function buildNostrRelayUrl(coordinator: Pick<CoordinatorSummary, "url">)
 
 export function relayFallbackTiming(relay: string): { primaryMs: number; secondaryMs: number } {
   const observedLatency = relayHealthSnapshot(relay)?.latencyMs;
-  const primaryMs = observedLatency && observedLatency >= 1_000
-    ? clamp(Math.round(observedLatency * 1.5), MIN_PRIMARY_SILENCE_MS, MAX_PRIMARY_SILENCE_MS)
-    : DEFAULT_PRIMARY_SILENCE_MS;
+  const primaryMs =
+    observedLatency && observedLatency >= 1_000
+      ? clamp(Math.round(observedLatency * 1.5), MIN_PRIMARY_SILENCE_MS, MAX_PRIMARY_SILENCE_MS)
+      : DEFAULT_PRIMARY_SILENCE_MS;
 
   return {
     primaryMs,
@@ -628,9 +641,7 @@ export function selectNostrRelays(
   const reportedOnline = remaining.filter(
     (relay) => !relayIsCoolingDown(relay) && relayAvailability.get(relay) === true
   );
-  const unknown = remaining.filter(
-    (relay) => !relayIsCoolingDown(relay) && relayAvailability.get(relay) === undefined
-  );
+  const unknown = remaining.filter((relay) => !relayIsCoolingDown(relay) && relayAvailability.get(relay) === undefined);
   const reportedOffline = remaining.filter(
     (relay) => !relayIsCoolingDown(relay) && relayAvailability.get(relay) === false
   );

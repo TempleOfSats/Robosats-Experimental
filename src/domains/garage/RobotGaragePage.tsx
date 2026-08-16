@@ -1,12 +1,9 @@
 import {
   AlertTriangle,
   ArrowRight,
-  Copy,
+  ChevronDown,
   Download,
-  Eye,
-  EyeOff,
   Hash,
-  Home,
   KeyRound,
   Plus,
   Search,
@@ -38,7 +35,6 @@ import {
 } from "@/domains/garage/garageStore";
 import { requestRobotDataRefresh } from "@/domains/garage/robotDataRefresh";
 import { isProFleetToken } from "@/domains/garage/token";
-import { downloadRobotTokenBackup } from "@/domains/garage/tokenBackup";
 import { CreateRobotPanel } from "@/domains/garage/CreateRobotPanel";
 import { RobotAvatar } from "@/domains/identity/RobotAvatar";
 import { deriveRobotIdentity } from "@/domains/identity/robotIdentity";
@@ -55,7 +51,6 @@ import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
 import { formatFiat, formatSats } from "@/lib/format";
 import { playHaptic } from "@/lib/haptics";
 import { toUserMessage } from "@/lib/userError";
-import { writeClipboard } from "@/lib/clipboard";
 
 const RobotKeysDialog = lazy(() =>
   import("@/domains/garage/RobotKeysDialog").then((module) => ({ default: module.RobotKeysDialog }))
@@ -79,6 +74,21 @@ const LazyGarageRecoveryDialog = lazy(() =>
   import("@/domains/pro/GarageRecoveryDialog").then((module) => ({ default: module.GarageRecoveryDialog }))
 );
 
+function robotSetupIntroduction(hasExistingRobot: boolean) {
+  return hasExistingRobot
+    ? {
+        eyebrow: "Garage",
+        title: "Add another robot",
+        description: "Create a separate trading identity, or restore one with its recovery token."
+      }
+    : {
+        eyebrow: "Private Lightning exchange",
+        title: "Welcome to RoboSats",
+        description:
+          "Trade bitcoin peer to peer over Lightning. RoboSats is simple and private—no email or account registration is needed."
+      };
+}
+
 export function RobotGaragePage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -97,10 +107,8 @@ export function RobotGaragePage() {
     .filter((coordinator) => coordinator.shortAlias !== "local")
     .sort(compareCoordinatorsByEstablished);
   const [showFirstRunWizard, setShowFirstRunWizard] = useState(false);
-  const [copied, setCopied] = useState(false);
   const [showRobotSwitcher, setShowRobotSwitcher] = useState(false);
   const [showRobotSettings, setShowRobotSettings] = useState(false);
-  const [showToken, setShowToken] = useState(false);
   const [showKeys, setShowKeys] = useState(false);
   const [showSettingsTokenBackup, setShowSettingsTokenBackup] = useState(false);
   const [showLastOrder, setShowLastOrder] = useState(false);
@@ -141,17 +149,6 @@ export function RobotGaragePage() {
       setShowFirstRunWizard(true);
     }
   }, [hydrated, searchParams]);
-
-  const copyToken = async () => {
-    if (!activeSlot?.token) return;
-    try {
-      await writeClipboard(activeSlot.token);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
-    } catch {
-      setCopied(false);
-    }
-  };
 
   const removeRobotFromGarage = async (slot: RobotSlot) => {
     setRemovingRobot(true);
@@ -216,6 +213,12 @@ export function RobotGaragePage() {
     setFleetKeyCandidate(fleetKey);
   }
 
+  function closeRobotSettings() {
+    setShowRobotSettings(false);
+    setShowKeys(false);
+    setSelectedAlias(undefined);
+  }
+
   const fleetRecoveryDialogs = (
     <FleetRecoveryDialogs
       candidate={fleetKeyCandidate}
@@ -244,14 +247,25 @@ export function RobotGaragePage() {
   }
 
   if (slots.length === 0 || showFirstRunWizard) {
+    const introduction = robotSetupIntroduction(slots.length > 0);
     return (
-      <main className="page page-narrow garage-page">
+      <main className="page page-narrow garage-page garage-setup-page">
         <div className="page-heading">
           <div>
-            <p className="app-eyebrow">Garage</p>
-            <h2>Meet your private robot</h2>
-            <p>Create a memorable identity for trading without sharing who you are.</p>
+            <p className="app-eyebrow">{introduction.eyebrow}</p>
+            <h2>{introduction.title}</h2>
+            <p>{introduction.description}</p>
           </div>
+          {slots.length > 0 ? (
+            <button
+              aria-label="Back to Garage"
+              className="icon-button garage-setup-exit"
+              onClick={() => setShowFirstRunWizard(false)}
+              type="button"
+            >
+              <X size={18} />
+            </button>
+          ) : null}
         </div>
         <div className="start-card start-card-unframed">
           <CreateRobotPanel onFleetRecovery={offerFleetRecovery} onProfile={() => setShowFirstRunWizard(false)} />
@@ -274,176 +288,76 @@ export function RobotGaragePage() {
       <div className="garage-profile-stage">
         <Card className="garage-robot-hero">
           <button
-            className="icon-button garage-settings-btn"
-            onClick={() => setShowRobotSettings(true)}
-            type="button"
-            title="Robot settings"
-          >
-            <Settings size={18} />
-          </button>
-
-          <div className="garage-robot-name">
-            <strong>{activeSlot.nickname}</strong>
-          </div>
-
-          <div className="garage-robot-avatar-shell">
-            <RobotAvatar hashId={activeSlot.hashId} label={activeSlot.nickname} size="xl" />
-          </div>
-
-          <div className="garage-robot-status-stack">
-            <div className="garage-robot-status">
-              {activeSlot.activeOrderId ? (
-                <Link to={orderPath(activeSlot, activeSlot.activeOrderId)}>
-                  Active order #{activeSlot.activeOrderId}
-                </Link>
-              ) : activeSlot.lastOrderId ? (
-                <button type="button" onClick={() => setShowLastOrder(true)}>
-                  Last order #{activeSlot.lastOrderId}
-                </button>
-              ) : checkingExistingOrders ? (
-                <span className="garage-robot-status-loading" role="status" aria-live="polite">
-                  <span className="ui-spinner" aria-hidden="true" />
-                  Checking coordinators...
-                </span>
-              ) : (
-                <span>No active trades</span>
-              )}
-            </div>
-            <GarageRewardClaim coordinators={displayCoordinators} slot={activeSlot} />
-          </div>
-
-          <details
-            className="garage-identity-tools"
-            onToggle={(event) => {
-              if (!event.currentTarget.open) setShowToken(false);
-            }}
-          >
-            <summary>
-              <KeyRound size={17} aria-hidden="true" />
-              <span>
-                <strong>Recovery &amp; backup</strong>
-                <small>Token, backup, and privacy</small>
-              </span>
-            </summary>
-            <div className="garage-robot-token">
-              <div className="garage-token-header">
-                <label className="garage-token-label">
-                  Token
-                  <span aria-hidden="true"> *</span>
-                </label>
-                <button
-                  className="icon-button"
-                  type="button"
-                  onClick={() => setShowToken(!showToken)}
-                  title={showToken ? "Hide token" : "Show token"}
-                >
-                  {showToken ? <EyeOff size={15} /> : <Eye size={15} />}
-                </button>
-              </div>
-              <div className={showToken ? "input-shell input-shell-compact" : "garage-token-masked"}>
-                {showToken ? (
-                  <input
-                    value={activeSlot.token}
-                    disabled
-                    aria-readonly
-                    aria-label="Robot token"
-                    className="garage-token-value"
-                  />
-                ) : (
-                  <span>{"••••••••••••••••••••••••••••••"}</span>
-                )}
-                <button
-                  className="icon-button"
-                  type="button"
-                  onClick={() => downloadRobotTokenBackup(activeSlot.token, activeSlot.nickname)}
-                  title="Download JSON backup"
-                  aria-label={`Download ${activeSlot.nickname} token backup as JSON`}
-                >
-                  <Download size={15} />
-                </button>
-                <button
-                  className="icon-button"
-                  type="button"
-                  onClick={copyToken}
-                  title={copied ? "Copied" : "Copy token"}
-                >
-                  <Copy size={15} />
-                </button>
-              </div>
-              <p className="garage-privacy-note">Reusing a trading identity degrades your privacy.</p>
-            </div>
-          </details>
-        </Card>
-
-        <div className="next-action-grid">
-          <button
-            className="action-tile action-tile-primary garage-guided-trade-action"
-            onClick={openGuidedTrade}
-            type="button"
-          >
-            <Search size={20} />
-            <strong>Find a trade</strong>
-            <span>Choose step by step.</span>
-            <ArrowRight className="action-tile-arrow" size={17} aria-hidden="true" />
-          </button>
-          <Link className="action-tile action-tile-secondary" to="/create">
-            <Plus size={20} />
-            <strong>Create offer</strong>
-            <span>Set your terms.</span>
-          </Link>
-        </div>
-
-        <div className="garage-utility-bar" aria-label="Robot management">
-          <button
-            className="garage-utility-btn"
+            aria-label={`Switch robot. Current robot: ${activeSlot.nickname}`}
+            className="garage-robot-picker"
             onClick={() => setShowRobotSwitcher(true)}
             type="button"
-            title="Switch robot"
           >
-            <Home size={18} />
-            <span>Switch robot</span>
+            <span className="garage-robot-name">
+              <strong>{activeSlot.nickname}</strong>
+              <small>
+                Switch robot <ChevronDown size={14} aria-hidden="true" />
+              </small>
+            </span>
+            <span className="garage-robot-avatar-shell">
+              <RobotAvatar hashId={activeSlot.hashId} label={activeSlot.nickname} size="xl" />
+            </span>
           </button>
-          <details className="garage-manage-tools">
-            <summary className="garage-utility-btn">
-              <Settings size={18} />
-              <span>Manage robot</span>
-            </summary>
-            <div className="garage-manage-menu">
-              <button
-                onClick={(event) => {
-                  closeGarageManageTools(event.currentTarget);
-                  setShowFirstRunWizard(true);
-                }}
-                type="button"
-              >
-                <Plus size={17} />
-                <span>Add a new robot</span>
-              </button>
-              <button
-                onClick={(event) => {
-                  closeGarageManageTools(event.currentTarget);
-                  setShowRecovery(true);
-                }}
-                type="button"
-              >
-                <KeyRound size={17} />
-                <span>Recover from token</span>
-              </button>
-              <button
-                className="garage-manage-remove"
-                onClick={(event) => {
-                  closeGarageManageTools(event.currentTarget);
-                  setRemoveError("");
-                  setShowDeleteConfirmation(true);
-                }}
-                type="button"
-              >
-                <Trash2 size={17} />
-                <span>Remove this robot</span>
-              </button>
-            </div>
-          </details>
-        </div>
+
+          <GarageOperationalState
+            checking={checkingExistingOrders}
+            onLastOrder={() => setShowLastOrder(true)}
+            slot={activeSlot}
+          />
+          <GarageRewardClaim coordinators={displayCoordinators} slot={activeSlot} />
+
+          <div className="garage-robot-actions" aria-label="Robot controls" role="group">
+            <button aria-label="Backup robot token" type="button" onClick={() => setShowSettingsTokenBackup(true)}>
+              <Download size={16} aria-hidden="true" />
+              <span>Backup</span>
+            </button>
+            <button aria-label="Add another robot" type="button" onClick={() => setShowFirstRunWizard(true)}>
+              <Plus size={16} aria-hidden="true" />
+              <span>Add</span>
+            </button>
+            <button aria-label="Recover a robot" type="button" onClick={() => setShowRecovery(true)}>
+              <KeyRound size={16} aria-hidden="true" />
+              <span>Recover</span>
+            </button>
+            <button aria-label="Manage robot" type="button" onClick={() => setShowRobotSettings(true)}>
+              <Settings size={16} aria-hidden="true" />
+              <span>Manage</span>
+            </button>
+          </div>
+        </Card>
+
+        {activeSlot.activeOrderId ? (
+          <Link className="garage-continue-trade" to={orderPath(activeSlot, activeSlot.activeOrderId)}>
+            <span>
+              <strong>Continue trade</strong>
+              <small>Order #{activeSlot.activeOrderId} is in progress</small>
+            </span>
+            <ArrowRight size={20} aria-hidden="true" />
+          </Link>
+        ) : (
+          <div className="next-action-grid">
+            <button
+              className="action-tile action-tile-primary garage-guided-trade-action"
+              onClick={openGuidedTrade}
+              type="button"
+            >
+              <Search size={20} />
+              <strong>Find an offer</strong>
+              <span>Guided matching</span>
+              <ArrowRight className="action-tile-arrow" size={17} aria-hidden="true" />
+            </button>
+            <Link className="action-tile action-tile-secondary" to="/create">
+              <Plus size={20} />
+              <strong>Create an offer</strong>
+              <span>Set your own terms</span>
+            </Link>
+          </div>
+        )}
       </div>
 
       {showGuidedTrade ? (
@@ -551,12 +465,21 @@ export function RobotGaragePage() {
         <RobotSettingsDialog
           activeToken={activeSlot.token}
           coordinators={displayCoordinators}
-          onClose={() => {
-            setShowRobotSettings(false);
-            setShowKeys(false);
-            setSelectedAlias(undefined);
+          onAddRobot={() => {
+            closeRobotSettings();
+            setShowFirstRunWizard(true);
           }}
+          onClose={closeRobotSettings}
           onCoordinatorSelect={setSelectedAlias}
+          onRecoverRobot={() => {
+            closeRobotSettings();
+            setShowRecovery(true);
+          }}
+          onRemoveRobot={() => {
+            closeRobotSettings();
+            setRemoveError("");
+            setShowDeleteConfirmation(true);
+          }}
           onTokenBackup={() => setShowSettingsTokenBackup(true)}
           onTokenChange={setCurrentToken}
           selectedAlias={selectedAlias}
@@ -597,13 +520,6 @@ export function RobotGaragePage() {
   );
 }
 
-function closeGarageManageTools(trigger: HTMLButtonElement): void {
-  const details = trigger.closest("details");
-  const summary = details?.querySelector<HTMLElement>("summary");
-  details?.removeAttribute("open");
-  summary?.focus();
-}
-
 function FleetRecoveryDialogs({
   candidate,
   recoveryKey,
@@ -634,6 +550,52 @@ function FleetRecoveryDialogs({
         </Suspense>
       ) : null}
     </>
+  );
+}
+
+function GarageOperationalState({
+  checking,
+  onLastOrder,
+  slot
+}: {
+  checking: boolean;
+  onLastOrder: () => void;
+  slot: RobotSlot;
+}) {
+  const releasedOrderId = Object.values(slot.robots).find((robot) => robot.releasedOrderId)?.releasedOrderId;
+
+  if (slot.activeOrderId) {
+    return (
+      <div className="garage-operational-state garage-operational-state-active">
+        <span aria-live="polite" role="status">
+          <strong>Trade in progress</strong>
+          <small>Order #{slot.activeOrderId}</small>
+        </span>
+      </div>
+    );
+  }
+
+  const hasLastOrder = Boolean(slot.lastOrderId);
+
+  return (
+    <div className="garage-operational-state">
+      <span aria-live={hasLastOrder ? undefined : "polite"} role={hasLastOrder ? undefined : "status"}>
+        <strong aria-live={hasLastOrder ? "polite" : undefined} role={hasLastOrder ? "status" : undefined}>
+          Ready to trade
+        </strong>
+        {slot.lastOrderId ? (
+          <button type="button" onClick={onLastOrder}>
+            No active orders · Last order #{slot.lastOrderId}
+          </button>
+        ) : releasedOrderId ? (
+          <small>No active orders · Last seen #{releasedOrderId}</small>
+        ) : checking ? (
+          <small>No active orders · Checking coordinators…</small>
+        ) : (
+          <small>No active orders</small>
+        )}
+      </span>
+    </div>
   );
 }
 
@@ -826,8 +788,11 @@ function recoverRobotToken(
 export function RobotSettingsDialog({
   activeToken,
   coordinators,
+  onAddRobot,
   onClose,
   onCoordinatorSelect,
+  onRecoverRobot,
+  onRemoveRobot,
   onTokenBackup,
   onTokenChange,
   showKeys,
@@ -837,8 +802,11 @@ export function RobotSettingsDialog({
 }: {
   activeToken: string;
   coordinators: CoordinatorSummary[];
+  onAddRobot?: () => void;
   onClose: () => void;
   onCoordinatorSelect: (shortAlias: string) => void;
+  onRecoverRobot?: () => void;
+  onRemoveRobot?: () => void;
   onTokenBackup: () => void;
   onTokenChange: (token: string) => void;
   selectedAlias?: string;
@@ -919,6 +887,32 @@ export function RobotSettingsDialog({
           ))}
         </div>
       </section>
+
+      {onAddRobot || onRecoverRobot || onRemoveRobot ? (
+        <section className="garage-settings-management">
+          <h3>Robot management</h3>
+          <div className="garage-settings-management-actions">
+            {onAddRobot ? (
+              <Button type="button" variant="secondary" onClick={onAddRobot}>
+                <Plus size={17} />
+                Add robot
+              </Button>
+            ) : null}
+            {onRecoverRobot ? (
+              <Button type="button" variant="secondary" onClick={onRecoverRobot}>
+                <KeyRound size={17} />
+                Recover from token
+              </Button>
+            ) : null}
+            {onRemoveRobot ? (
+              <Button className="garage-settings-remove" type="button" variant="ghost" onClick={onRemoveRobot}>
+                <Trash2 size={17} />
+                Remove this robot
+              </Button>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
     </Dialog>
   );
 }

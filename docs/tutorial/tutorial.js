@@ -31,7 +31,7 @@ const slides = [
     title: "Know your way around",
     action: "Use the desktop sidebar or mobile bottom bar to move between the main areas.",
     why: "The Trade destination appears when an order belongs to the current robot.",
-    tips: ["Robot", "Offers", "Create", "Trade", "Settings"],
+    tips: ["Garage", "Offers", "Create", "Trade", "Settings"],
     visuals: [
       { file: "garage-home", label: "Desktop" },
       { file: "navigation-mobile", label: "Mobile", contain: true }
@@ -40,19 +40,19 @@ const slides = [
     quip: "Five doors. One map."
   },
   {
-    section: "ROBOT · 1 OF 3",
-    title: "Activate your first robot",
-    action: "Choose Generate token, or recover an identity you already own.",
+    section: "GARAGE SETUP · 1 OF 3",
+    title: "Create your first robot",
+    action: "Create a new robot, or restore an identity you already own.",
     why: "Your robot is pseudonymous; its token is the secret that controls it.",
-    tips: ["Generate token", "Recover existing", "No account signup"],
+    tips: ["Create robot", "Restore existing", "No account registration"],
     visual: "garage-empty",
     target: [0.58, 0.43],
     quip: "Identity activation starts here."
   },
   {
-    section: "ROBOT · 2 OF 3",
+    section: "GARAGE SETUP · 2 OF 3",
     title: "Back up before moving",
-    action: "Copy or download the token, store it privately, then continue.",
+    action: "Copy or download the token, store it privately, then confirm that you saved it.",
     why: "Anyone with the token controls the robot. Losing it can make recovery impossible.",
     tips: ["Copy", "Download", "Store offline", "Never screenshot"],
     visual: "garage-backup",
@@ -60,7 +60,7 @@ const slides = [
     quip: "Tiny token. Large consequences."
   },
   {
-    section: "ROBOT · 3 OF 3",
+    section: "GARAGE SETUP · 3 OF 3",
     title: "Meet your generated identity",
     action: "Confirm the avatar and generated name, then enter the Garage.",
     why: "This avatar is rendered by the same deterministic generator used throughout the app.",
@@ -72,9 +72,9 @@ const slides = [
   {
     section: "GARAGE",
     title: "Make Garage your home",
-    action: "Start with Find a trade or Create offer; manage identity tools below.",
-    why: "Recovery & backup stays close without competing with the next action.",
-    tips: ["Find a trade", "Create offer", "Recovery & backup", "Add / Recover / Remove"],
+    action: "Start with Find an offer or Create an offer; open the robot header to switch identities.",
+    why: "Trade state and next actions stay prominent while security and management remain in robot settings.",
+    tips: ["Find an offer", "Create an offer", "Switch robot", "Robot settings"],
     visual: "garage-home",
     target: [0.56, 0.67],
     quip: "Garage organized. Bolts accounted for."
@@ -309,7 +309,7 @@ const slides = [
   {
     section: "RECOVERY",
     title: "Recover without leaking identity",
-    action: "Use Recovery & backup to restore a robot; use a fresh identity when continuity is unnecessary.",
+    action: "Open Robot settings to restore a saved token; use a fresh identity when continuity is unnecessary.",
     why: "Never expose a token, and resolve active orders before removing a local identity.",
     tips: ["Recover", "Fresh robot", "Remove carefully", "Token stays secret"],
     visual: "garage-home",

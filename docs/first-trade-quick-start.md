@@ -22,12 +22,12 @@ Decide your direction before opening an offer:
 
 ## 1. Create your private robot
 
-Open **Robot**, then select **Generate token**.
+Open **Garage**, then select **Create my robot**.
 
-![Robot creation with Generate token and recovery choices highlighted](assets/standard-guide/01-create-robot.png)
+![Garage setup with options to create or restore a robot](assets/tutorial/screenshots/garage-empty.png)
 
-1. **Generate token** creates a fresh identity locally.
-2. **Recover with existing token** is only for a robot you already backed up.
+1. **Create my robot** creates a fresh identity locally.
+2. **Restore an existing robot** is only for a robot you already backed up.
 
 The robot is not an account. There is no email or password reset.
 
@@ -41,9 +41,9 @@ Copy the token or download its JSON backup, then store it privately before conti
 
 ## 3. Find terms you understand
 
-From the Garage, select **Find a trade**.
+From the Garage, select **Find an offer**.
 
-![Standard Garage with Find a trade highlighted](assets/standard-guide/04-standard-garage.png)
+![Standard Garage showing the robot state and next actions](assets/tutorial/screenshots/garage-home.png)
 
 ![Guided trade direction and amount choices](assets/standard-guide/05-find-a-trade.png)
 

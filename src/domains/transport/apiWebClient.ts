@@ -8,6 +8,8 @@ import {
   coordinatorRequestScheduler
 } from "@/domains/transport/requestScheduler";
 import {
+  captureTransportLifecycleGeneration,
+  isTransportLifecycleCurrent,
   noteTransportFailure,
   noteTransportReachable,
   type TransportFailureCategory
@@ -66,11 +68,13 @@ async function request<T>(
     timeoutMs
   }, async (signal) => {
     const transportStartedAt = now();
+    const lifecycleGeneration = captureTransportLifecycleGeneration();
     let outcome: NetworkOutcome = "success";
     try {
       // The scheduler owns the adjustable caller timeout. Keep a hard transport
       // ceiling in case a native bridge fails to honor cancellation.
       const response = await transportRequest(baseUrl + path, init, 90_000, signal);
+      if (!isTransportLifecycleCurrent(lifecycleGeneration)) throw staleTransportError();
       noteTransportReachable(baseUrl);
       coordinatorRequestScheduler.noteOriginReachable(origin);
       const contentType = response.headers["content-type"] ?? "";
@@ -81,15 +85,18 @@ async function request<T>(
       }
       return data as T;
     } catch (error) {
-      outcome = classifyOutcome(error);
+      const stale = !isTransportLifecycleCurrent(lifecycleGeneration);
+      outcome = stale ? "cancelled" : classifyOutcome(error);
       if (
-        !(error instanceof RoboSatsApiError)
+        !stale
+        && !(error instanceof RoboSatsApiError)
         && !(error instanceof CoordinatorRequestDeferredError)
         && outcome !== "cancelled"
       ) {
         noteTransportFailure(baseUrl, failureCategory(error));
         coordinatorRequestScheduler.noteOriginFailure(origin);
       }
+      if (stale) throw staleTransportError();
       if (error instanceof Error && error.message.includes("timeout after")) {
         throw new Error("The request took too long. Please try again.");
       }
@@ -154,6 +161,10 @@ function failureCategory(error: unknown): TransportFailureCategory {
   if (error instanceof Error && /timeout/i.test(error.message)) return "timeout";
   if (error instanceof Error && /socket|websocket/i.test(error.message)) return "socket";
   return "connect";
+}
+
+function staleTransportError(): DOMException {
+  return new DOMException("Request cancelled after app suspension", "AbortError");
 }
 
 function now(): number {

@@ -75,7 +75,6 @@
 
 .muted-copy,
 .payout-entry-header p,
-.garage-privacy-note,
 .maker-time-dialog-heading small,
 .trade-status-card small {
   font-size: var(--type-compact-size);
@@ -202,7 +201,6 @@
 
 .payment-amount-block > span,
 .payment-expiry small,
-.garage-token-label,
 .maker-review-label,
 .maker-summary-label,
 .trade-completion-stat small {
@@ -239,8 +237,6 @@
 .confirm-details code,
 .invoice-value-row code,
 .token-backup-value code,
-.garage-token-value,
-.garage-token-masked span,
 .robot-key-value,
 .robot-key-value textarea,
 .font-mono,

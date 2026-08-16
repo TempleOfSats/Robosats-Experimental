@@ -30,6 +30,38 @@ afterEach(async () => {
 });
 
 describe("normal Garage Fleet recovery", () => {
+  it("introduces robot setup through one clear action at a time", async () => {
+    root = createRoot(document.querySelector("#root")!);
+    await act(async () => {
+      root?.render(
+        <MemoryRouter>
+          <RobotGaragePage />
+        </MemoryRouter>
+      );
+    });
+
+    expect(document.body.textContent).toContain("Welcome to RoboSats");
+    expect(document.body.textContent).toContain("Private Lightning exchange");
+    expect(document.body.textContent).toContain("Trade bitcoin peer to peer over Lightning");
+    expect(document.body.textContent).toContain("simple and private");
+    expect(document.body.textContent).toContain("Your robot is the identity you use to trade");
+    expect(document.body.textContent).toContain("Create my robot");
+    expect(document.body.textContent).toContain("Restore an existing robot");
+    expect(document.body.textContent).not.toContain("2. Meet your robot identity");
+    expect(document.querySelector(".robot-setup-mark")).toBeNull();
+    expect(document.querySelector(".robot-setup-benefits")).toBeNull();
+
+    await clickButton("Create my robot");
+    expect(document.body.textContent).toContain("Save your recovery token");
+    expect(document.body.textContent).toContain("Download backup");
+    expect(document.body.textContent).toContain("Copy token");
+    expect(document.body.textContent).toContain("I’ve saved it");
+
+    await clickButton("I’ve saved it");
+    expect(document.body.textContent).toContain("Meet your robot");
+    expect(document.body.textContent).toContain("Enter my Garage");
+  });
+
   it("offers a Pro Mode handoff and prefills the existing Fleet recovery dialog", async () => {
     await import("@/domains/pro/GarageRecoveryDialog");
     root = createRoot(document.querySelector("#root")!);
@@ -42,9 +74,10 @@ describe("normal Garage Fleet recovery", () => {
     });
 
     const fleetKey = encodeGarageToken(new Uint8Array(32).fill(7));
+    await clickButton("Restore an existing robot");
     const tokenInput = document.querySelector<HTMLInputElement>('input[aria-label="Robot token"]')!;
     await setInputValue(tokenInput, fleetKey);
-    await clickButton("Continue");
+    await clickButton("Continue to identity");
 
     expect(document.body.textContent).toContain("Restore a Pro Robot Fleet?");
     expect(document.body.textContent).toContain("not a single-robot token");
@@ -91,7 +124,7 @@ describe("normal Garage Fleet recovery", () => {
       );
     });
 
-    await act(async () => document.querySelector<HTMLElement>(".garage-manage-tools summary")?.click());
+    await clickButton("Manage robot");
     await clickButton("Recover from token");
     const tokenInput = document.querySelector<HTMLTextAreaElement>('textarea[placeholder="Paste your token"]')!;
     await setInputValue(tokenInput, recoveredToken);
@@ -113,7 +146,12 @@ async function setInputValue(input: HTMLInputElement | HTMLTextAreaElement, valu
 }
 
 async function clickButton(label: string): Promise<void> {
-  const button = [...document.querySelectorAll("button")].find((candidate) => candidate.textContent?.trim() === label);
+  const button = [...document.querySelectorAll("button")].find(
+    (candidate) =>
+      candidate.textContent?.trim() === label ||
+      candidate.getAttribute("title") === label ||
+      candidate.getAttribute("aria-label") === label
+  );
   expect(button).toBeDefined();
   await act(async () => {
     button?.click();

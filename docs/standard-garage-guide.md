@@ -40,14 +40,14 @@ Have these ready:
 
 ## Part 1: Create and protect the robot
 
-### 1. Generate a robot
+### 1. Create a robot
 
-Open **Robot**.
+Open **Garage**.
 
-![Robot creation with Generate token and recovery choices highlighted](assets/standard-guide/01-create-robot.png)
+![Garage setup with options to create or restore a robot](assets/tutorial/screenshots/garage-empty.png)
 
-1. Select **Generate token** for a fresh identity.
-2. Use **Recover with existing token** only when you already possess a backup.
+1. Select **Create my robot** for a fresh identity.
+2. Use **Restore an existing robot** only when you already possess a backup.
 
 The token is generated on your device. It is not an account registered with RoboSats.
 
@@ -63,10 +63,10 @@ Keep at least one copy away from the device used for trading. If every copy is l
 
 ### 3. Meet the identity
 
-![Generated robot identity with avatar and Continue highlighted](assets/standard-guide/03-meet-your-robot.png)
+![Generated robot identity with its avatar and Garage action](assets/tutorial/screenshots/garage-identity.png)
 
 1. Confirm that the robot has a nickname and avatar.
-2. Select **Continue** to enter the Garage.
+2. Select **Enter my Garage**.
 
 This nickname is not a username you chose. It is a consistent visual check that the same token produced the same identity.
 
@@ -74,11 +74,11 @@ This nickname is not a username you chose. It is a consistent visual check that 
 
 ### 4. Use the Garage
 
-![Standard Garage with Find a trade, Create offer, and robot settings highlighted](assets/standard-guide/04-standard-garage.png)
+![Standard Garage showing robot state and the two next actions](assets/tutorial/screenshots/garage-home.png)
 
-1. **Find a trade** asks a few plain-language questions and narrows the orderbook.
-2. **Create offer** lets you publish your own complete terms.
-3. **Robot settings** contains backups, keys, coordinator status, and Telegram setup.
+1. **Find an offer** asks a few plain-language questions and narrows the orderbook.
+2. **Create an offer** lets you publish your own complete terms.
+3. **Robot settings** contains backups, keys, coordinator status, and robot management.
 
 You can also open **Offers** in the main navigation to compare the full public orderbook.
 
@@ -86,7 +86,7 @@ The first coordinator check may take longer over Tor. The Garage keeps a loading
 
 ### 5. Find a matching offer
 
-Select **Find a trade**.
+Select **Find an offer**.
 
 ![Guided trade direction and amount choices](assets/standard-guide/05-find-a-trade.png)
 
@@ -94,7 +94,7 @@ Choose **Buy bitcoin** or **Sell bitcoin**.
 
 The following stages ask for the fiat currency, exact fiat amount, and a payment method you can actually use.
 
-The guide lists current matches. Review one, or continue into **Create offer** with your choices already filled in.
+The guide lists current matches. Review one, or continue into **Create an offer** with your choices already filled in.
 
 For a range offer, the review screen pre-fills your requested amount when it falls within the maker's range.
 

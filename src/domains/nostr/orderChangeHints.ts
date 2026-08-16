@@ -52,18 +52,32 @@ type RuntimeDependencies = {
   eventTarget: Pick<Window, "addEventListener" | "removeEventListener" | "setTimeout" | "clearTimeout">;
 };
 
+let activeRuntime: OrderChangeHintRuntime | undefined;
 let stopRuntime: (() => void) | undefined;
 
-export function startOrderChangeHintRuntime(): () => void {
-  if (stopRuntime) return stopRuntime;
+export function startOrderChangeHintRuntime(options: { suspended?: boolean } = {}): () => void {
+  if (stopRuntime) {
+    if (!options.suspended) activeRuntime?.start();
+    return stopRuntime;
+  }
   useGarageStore.getState().hydrate();
   const runtime = new OrderChangeHintRuntime(defaultDependencies());
-  runtime.start();
+  activeRuntime = runtime;
+  if (!options.suspended) runtime.start();
   stopRuntime = () => {
     runtime.stop();
+    if (activeRuntime === runtime) activeRuntime = undefined;
     stopRuntime = undefined;
   };
   return stopRuntime;
+}
+
+export function suspendOrderChangeHintRuntime(): void {
+  activeRuntime?.stop();
+}
+
+export function resumeOrderChangeHintRuntime(): void {
+  activeRuntime?.start();
 }
 
 export class OrderChangeHintRuntime {
@@ -280,10 +294,9 @@ function selectedSlots(slots: RobotSlot[], currentToken: string | undefined, pro
 export function buildHintTargets(slots: RobotSlot[], coordinators: CoordinatorSummary[]): HintTarget[] {
   const coordinatorsByAlias = new Map(
     coordinators
-      .filter((coordinator) =>
-        coordinator.enabled
-        && validPubkey(coordinator.nostrHexPubkey)
-        && Boolean(buildNostrRelayUrl(coordinator))
+      .filter(
+        (coordinator) =>
+          coordinator.enabled && validPubkey(coordinator.nostrHexPubkey) && Boolean(buildNostrRelayUrl(coordinator))
       )
       .map((coordinator) => [coordinator.shortAlias, coordinator] as const)
   );

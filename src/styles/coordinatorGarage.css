@@ -277,6 +277,12 @@
   background: var(--selection-background);
 }
 
+@media (max-width: 900px) {
+  :root[data-theme="light"] .nav-item.active {
+    background: transparent;
+  }
+}
+
 :root[data-theme="light"] .robosats-logo {
   filter: none;
 }
@@ -286,8 +292,6 @@
 :root[data-theme="light"] .action-tile:hover,
 :root[data-theme="light"] .path-card-primary,
 :root[data-theme="light"] .action-tile-primary,
-:root[data-theme="light"] .wizard-step,
-:root[data-theme="light"] .wizard-panel,
 :root[data-theme="light"] .robot-preview-card,
 :root[data-theme="light"] .garage-balance-row,
 :root[data-theme="light"] .garage-utility-btn:hover,
@@ -296,7 +300,6 @@
   background: color-mix(in srgb, var(--card) 82%, var(--muted));
 }
 
-:root[data-theme="light"] .wizard-step.active,
 :root[data-theme="light"] .maker-choice-card-active {
   background: var(--selection-background);
 }
@@ -897,6 +900,36 @@
   font-size: var(--type-compact-size);
   font-weight: 600;
   line-height: var(--type-compact-line);
+}
+
+.garage-settings-management {
+  display: grid;
+  gap: 0.6rem;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 0.85rem;
+}
+
+.garage-settings-management h3 {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: var(--type-caption-size);
+  font-weight: 600;
+  line-height: var(--type-caption-line);
+}
+
+.garage-settings-management-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.garage-settings-management-actions .ui-button {
+  min-width: 0;
+}
+
+.garage-settings-management-actions .garage-settings-remove {
+  grid-column: 1 / -1;
+  color: var(--danger-foreground);
 }
 
 @media (max-width: 430px) {
@@ -1683,18 +1716,6 @@
   color: var(--foreground);
 }
 
-:root[data-theme="light"] .wizard-section {
-  border-color: var(--border);
-  background: var(--card);
-}
-
-:root[data-theme="light"] .wizard-section h3,
-:root[data-theme="light"] .wizard-section.active h3,
-:root[data-theme="light"] .wizard-step-body p,
-:root[data-theme="light"] .recover-token-details summary {
-  color: var(--foreground);
-}
-
 .maker-coordinator-fees span {
   min-width: 0;
   display: grid;
@@ -1918,7 +1939,7 @@
     max-width: 10rem;
   }
 
-  .garage-robot-name {
+  .garage-robot-name strong {
     font-size: 1.25rem;
   }
 

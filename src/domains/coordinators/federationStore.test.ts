@@ -196,6 +196,148 @@ describe("buildCoordinatorSummary", () => {
     expect(useFederationStore.getState().coordinators[0]?.online).toBe(true);
   });
 
+  it("keeps a coordinator's last state and retry eligibility when refresh is cancelled", async () => {
+    const previousInfo = {
+      maker_fee: 0.002,
+      taker_fee: 0.002,
+      swap_enabled: false,
+      notice_severity: "none",
+      notice_message: ""
+    } as CoordinatorInfo;
+    const previous = {
+      ...buildCoordinatorSummary(coordinator, {
+        network: "mainnet",
+        origin: "onion",
+        selfhostedClient: false
+      }),
+      shortAlias: "cancelled",
+      online: true,
+      lastCheckedAt: 123,
+      info: previousInfo
+    };
+    const recoveredInfo = { ...previousInfo, maker_fee: 0.003 };
+    fetchCoordinatorInfoMock
+      .mockRejectedValueOnce(Object.assign(new Error("App backgrounded"), { name: "AbortError" }))
+      .mockResolvedValueOnce(recoveredInfo);
+    useFederationStore.setState({
+      connection: "nostr",
+      coordinators: [previous],
+      lastRefreshed: undefined,
+      network: "mainnet",
+      origin: "onion",
+      refreshing: false,
+      selfhostedClient: false
+    });
+
+    await expect(
+      useFederationStore.getState().refreshCoordinator("cancelled", { force: true, priority: "visible" })
+    ).resolves.toBe(false);
+    expect(useFederationStore.getState().coordinators[0]).toMatchObject({
+      info: previousInfo,
+      lastCheckedAt: 123,
+      loading: false,
+      online: true
+    });
+
+    await expect(useFederationStore.getState().refreshCoordinator("cancelled", { priority: "visible" })).resolves.toBe(
+      true
+    );
+    expect(fetchCoordinatorInfoMock).toHaveBeenCalledTimes(2);
+    expect(useFederationStore.getState().coordinators[0]?.info).toBe(recoveredInfo);
+  });
+
+  it("does not cache an interrupted federation refresh as fresh", async () => {
+    const previous = {
+      ...buildCoordinatorSummary(coordinator, {
+        network: "mainnet",
+        origin: "onion",
+        selfhostedClient: false
+      }),
+      shortAlias: "batch-cancelled",
+      online: true,
+      lastCheckedAt: 123,
+      error: "Previous status."
+    };
+    fetchCoordinatorInfoMock.mockRejectedValue(Object.assign(new Error("App backgrounded"), { name: "AbortError" }));
+    useFederationStore.setState({
+      connection: "nostr",
+      coordinators: [previous],
+      lastRefreshed: 456,
+      network: "mainnet",
+      origin: "onion",
+      refreshing: false,
+      selfhostedClient: false
+    });
+
+    await useFederationStore.getState().refreshCoordinators({ force: true });
+
+    expect(useFederationStore.getState()).toMatchObject({ lastRefreshed: 456, refreshing: false });
+    expect(useFederationStore.getState().coordinators[0]).toMatchObject({
+      error: "Previous status.",
+      lastCheckedAt: 123,
+      loading: false,
+      online: true
+    });
+  });
+
+  it("keeps a genuine federation result when another coordinator is cancelled", async () => {
+    const base = buildCoordinatorSummary(coordinator, {
+      network: "mainnet",
+      origin: "onion",
+      selfhostedClient: false
+    });
+    const successful = {
+      ...base,
+      shortAlias: "successful",
+      mainnet: { onion: "http://successful.onion" },
+      url: "http://successful.onion"
+    };
+    const cancelled = {
+      ...base,
+      shortAlias: "mixed-cancelled",
+      mainnet: { onion: "http://cancelled.onion" },
+      url: "http://cancelled.onion",
+      online: true,
+      lastCheckedAt: 123,
+      error: "Previous status."
+    };
+    const info = {
+      maker_fee: 0.002,
+      taker_fee: 0.002,
+      swap_enabled: false,
+      notice_severity: "none",
+      notice_message: ""
+    } as CoordinatorInfo;
+    fetchCoordinatorInfoMock.mockImplementation((url: string) =>
+      url.includes("successful")
+        ? Promise.resolve(info)
+        : Promise.reject(Object.assign(new Error("App backgrounded"), { name: "AbortError" }))
+    );
+    useFederationStore.setState({
+      connection: "nostr",
+      coordinators: [successful, cancelled],
+      lastRefreshed: undefined,
+      network: "mainnet",
+      origin: "onion",
+      refreshing: false,
+      selfhostedClient: false
+    });
+
+    await useFederationStore.getState().refreshCoordinators({ force: true });
+
+    expect(useFederationStore.getState().lastRefreshed).toEqual(expect.any(Number));
+    expect(useFederationStore.getState().coordinators).toEqual([
+      expect.objectContaining({ shortAlias: "successful", info, online: true }),
+      expect.objectContaining({
+        shortAlias: "mixed-cancelled",
+        error: "Previous status.",
+        lastCheckedAt: 123,
+        loading: false,
+        online: true
+      })
+    ]);
+  });
+
   it("does not preserve an availability result beyond the cache lifetime", async () => {
     const summary = buildCoordinatorSummary(coordinator, {
       network: "mainnet",

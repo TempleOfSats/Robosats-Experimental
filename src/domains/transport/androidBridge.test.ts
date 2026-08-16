@@ -162,6 +162,109 @@ describe("Native transport bridge", () => {
     await rejection;
   });
 
+  it("cancels pending native requests when the app transport is suspended", async () => {
+    const cancelHttpRequest = vi.fn();
+    vi.stubGlobal("window", {
+      AndroidAppRobosats: {
+        httpRequest: vi.fn(),
+        cancelHttpRequest
+      }
+    });
+    const {
+      nativeHttpRequest,
+      resumeNativeTransport,
+      suspendNativeTransport
+    } = await import("./androidBridge");
+    const request = nativeHttpRequest("http://coordinator.onion/api/");
+    const rejection = expect(request).rejects.toMatchObject({
+      name: "AbortError",
+      message: "App backgrounded"
+    });
+
+    suspendNativeTransport();
+
+    await rejection;
+    expect(cancelHttpRequest).toHaveBeenCalledOnce();
+    resumeNativeTransport();
+  });
+
+  it("fails direct native requests fast while the app transport is suspended", async () => {
+    const httpRequest = vi.fn();
+    vi.stubGlobal("window", {
+      AndroidAppRobosats: {
+        httpRequest,
+        cancelHttpRequest: vi.fn()
+      }
+    });
+    const {
+      nativeHttpRequest,
+      resumeNativeTransport,
+      suspendNativeTransport
+    } = await import("./androidBridge");
+
+    suspendNativeTransport();
+    await expect(nativeHttpRequest("http://coordinator.onion/api/")).rejects.toMatchObject({
+      name: "AbortError",
+      message: "Native transport is suspended"
+    });
+    expect(httpRequest).not.toHaveBeenCalled();
+
+    resumeNativeTransport();
+  });
+
+  it("closes tracked native sockets when the app transport is suspended", async () => {
+    const bridgeWindow = {
+      IOSAppRobosats: {
+        httpRequest: vi.fn(),
+        openWebSocket: vi.fn(),
+        sendWebSocket: vi.fn(() => true),
+        closeWebSocket: vi.fn()
+      },
+      __robosatsNativeTransport: undefined as Window["__robosatsNativeTransport"]
+    };
+    vi.stubGlobal("window", bridgeWindow);
+    const { NativeWebSocket, suspendNativeTransport } = await import("./androidBridge");
+    const socket = new NativeWebSocket("ws://relay.onion/relay/");
+    const closed = vi.fn();
+    socket.addEventListener("close", closed);
+    const socketId = bridgeWindow.IOSAppRobosats.openWebSocket.mock.calls[0]?.[0] as string;
+
+    suspendNativeTransport();
+    bridgeWindow.__robosatsNativeTransport?.webSocketClosed(socketId, 1000, "late callback");
+
+    expect(bridgeWindow.IOSAppRobosats.closeWebSocket).toHaveBeenCalledWith(
+      socketId,
+      1001,
+      "App backgrounded"
+    );
+    expect(socket.readyState).toBe(NativeWebSocket.CLOSED);
+    expect(closed).toHaveBeenCalledOnce();
+  });
+
+  it("does not open a native socket while transport is suspended", async () => {
+    const openWebSocket = vi.fn();
+    vi.stubGlobal("window", {
+      AndroidAppRobosats: {
+        httpRequest: vi.fn(),
+        openWebSocket,
+        sendWebSocket: vi.fn(() => true),
+        closeWebSocket: vi.fn()
+      }
+    });
+    const { NativeWebSocket, resumeNativeTransport, suspendNativeTransport } = await import("./androidBridge");
+
+    suspendNativeTransport();
+    const socket = new NativeWebSocket("ws://relay.onion/relay/");
+    const closed = vi.fn();
+    socket.addEventListener("close", closed);
+    await Promise.resolve();
+
+    expect(openWebSocket).not.toHaveBeenCalled();
+    expect(socket.readyState).toBe(NativeWebSocket.CLOSED);
+    expect(closed).toHaveBeenCalledOnce();
+    resumeNativeTransport();
+  });
+
   it("closes native sockets once when transport restarts", async () => {
     const bridgeWindow = {
       AndroidAppRobosats: {

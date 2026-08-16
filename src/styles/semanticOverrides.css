@@ -4,8 +4,6 @@
 }
 
 .secondary-link-button,
-.wizard-step,
-.wizard-panel,
 .garage-balance-row,
 .garage-utility-btn,
 .garage-switcher-item,
@@ -23,7 +21,6 @@
 
 .path-card-primary,
 .action-tile-primary,
-.wizard-step.active,
 .garage-switcher-item.active,
 .coordinator-select-option-active {
   border-color: var(--selection-indicator);
@@ -34,10 +31,6 @@
   background: var(--surface-subtle);
 }
 
-.garage-robot-status a:hover,
-.garage-robot-status button:hover,
-.garage-robot-status a:focus-visible,
-.garage-robot-status button:focus-visible,
 .coordinator-contact-icons a:hover,
 .coordinator-contact-icons a:focus-visible,
 .coordinator-dialog-detail-link,

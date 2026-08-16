@@ -78,6 +78,7 @@ describe("released robot orders", () => {
 
     expect(document.body.textContent).toContain("No active orders · Last seen #92620");
     expect(document.body.textContent).not.toContain("Active order #92620");
+    expect(document.body.textContent).not.toContain("Robot management");
   });
 });
 

@@ -1,12 +1,31 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { fetchOrderMock, startOrderChangeHintRuntimeMock } = vi.hoisted(() => ({
+const {
+  fetchOrderMock,
+  resumeNostrOrderbookSessionMock,
+  resumeOrderChangeHintRuntimeMock,
+  startOrderChangeHintRuntimeMock,
+  suspendNostrOrderbookSessionMock,
+  suspendOrderChangeHintRuntimeMock
+} = vi.hoisted(() => ({
   fetchOrderMock: vi.fn(),
-  startOrderChangeHintRuntimeMock: vi.fn()
+  resumeNostrOrderbookSessionMock: vi.fn(),
+  resumeOrderChangeHintRuntimeMock: vi.fn(),
+  startOrderChangeHintRuntimeMock: vi.fn(),
+  suspendNostrOrderbookSessionMock: vi.fn(),
+  suspendOrderChangeHintRuntimeMock: vi.fn()
 }));
 
 vi.mock("@/domains/nostr/orderChangeHints", () => ({
-  startOrderChangeHintRuntime: startOrderChangeHintRuntimeMock
+  resumeOrderChangeHintRuntime: resumeOrderChangeHintRuntimeMock,
+  startOrderChangeHintRuntime: startOrderChangeHintRuntimeMock,
+  suspendOrderChangeHintRuntime: suspendOrderChangeHintRuntimeMock
+}));
+
+vi.mock("@/domains/orderbook/nostrOrderbook", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/domains/orderbook/nostrOrderbook")>()),
+  resumeNostrOrderbookSession: resumeNostrOrderbookSessionMock,
+  suspendNostrOrderbookSession: suspendNostrOrderbookSessionMock
 }));
 
 vi.mock("@/domains/orders/orderActivity", () => ({
@@ -89,6 +108,10 @@ beforeEach(() => {
   }));
   startOrderChangeHintRuntimeMock.mockReset();
   startOrderChangeHintRuntimeMock.mockReturnValue(() => undefined);
+  resumeNostrOrderbookSessionMock.mockReset();
+  suspendNostrOrderbookSessionMock.mockReset();
+  resumeOrderChangeHintRuntimeMock.mockReset();
+  suspendOrderChangeHintRuntimeMock.mockReset();
   resetOrderChangeNotificationsForTests();
   useGarageStore.setState({
     slots: [slot],
@@ -424,6 +447,51 @@ describe("Tor recovery prewarm", () => {
   });
 });
 
+describe("native Nostr lifecycle", () => {
+  it("stops hidden retry owners and restarts them only after a foreground refresh intent", () => {
+    const stopHints = vi.fn();
+    startOrderChangeHintRuntimeMock.mockReturnValue(stopHints);
+    const { documentTarget } = stubNativePrewarmBrowser("visible");
+
+    const stop = scheduleAppPrewarm();
+    try {
+      expect(startOrderChangeHintRuntimeMock).toHaveBeenCalledOnce();
+      expect(startOrderChangeHintRuntimeMock).toHaveBeenCalledWith({ suspended: false });
+      expect(resumeNostrOrderbookSessionMock).toHaveBeenCalledOnce();
+
+      documentTarget.visibilityState = "hidden";
+      documentTarget.dispatchEvent(new Event("visibilitychange"));
+
+      expect(stopHints).not.toHaveBeenCalled();
+      expect(suspendOrderChangeHintRuntimeMock).toHaveBeenCalledOnce();
+      expect(suspendNostrOrderbookSessionMock).toHaveBeenCalledOnce();
+
+      documentTarget.visibilityState = "visible";
+      documentTarget.dispatchEvent(new Event("visibilitychange"));
+      expect(resumeOrderChangeHintRuntimeMock).not.toHaveBeenCalled();
+
+      publishRefreshIntent("resume");
+      expect(resumeNostrOrderbookSessionMock).toHaveBeenCalledTimes(2);
+      expect(startOrderChangeHintRuntimeMock).toHaveBeenCalledOnce();
+      expect(resumeOrderChangeHintRuntimeMock).toHaveBeenCalledOnce();
+    } finally {
+      stop();
+    }
+  });
+
+  it("starts suspended when the native app is already hidden", () => {
+    stubNativePrewarmBrowser("hidden");
+
+    const stop = scheduleAppPrewarm();
+    try {
+      expect(startOrderChangeHintRuntimeMock).toHaveBeenCalledWith({ suspended: true });
+      expect(suspendNostrOrderbookSessionMock).toHaveBeenCalledOnce();
+    } finally {
+      stop();
+    }
+  });
+});
+
 function stubRecoveryBrowser(): void {
   vi.stubGlobal(
     "window",
@@ -442,6 +510,32 @@ function stubRecoveryBrowser(): void {
     })
   );
   vi.stubGlobal("document", { visibilityState: "hidden" });
+}
+
+function stubNativePrewarmBrowser(initialVisibility: DocumentVisibilityState) {
+  const windowTarget = Object.assign(new EventTarget(), {
+    location: {
+      pathname: "/settings",
+      host: "client.invalid",
+      hostname: "client.invalid"
+    },
+    AndroidAppRobosats: {
+      httpRequest: vi.fn(),
+      getTorStatus: vi.fn(() => JSON.stringify({ connected: true }))
+    },
+    setTimeout: globalThis.setTimeout.bind(globalThis),
+    clearTimeout: globalThis.clearTimeout.bind(globalThis),
+    setInterval: globalThis.setInterval.bind(globalThis),
+    clearInterval: globalThis.clearInterval.bind(globalThis),
+    requestIdleCallback: vi.fn(() => 1),
+    cancelIdleCallback: vi.fn()
+  });
+  const documentTarget = Object.assign(new EventTarget(), {
+    visibilityState: initialVisibility
+  });
+  vi.stubGlobal("window", windowTarget);
+  vi.stubGlobal("document", documentTarget);
+  return { documentTarget, windowTarget };
 }
 
 function publishNostrOrderChange(orderId: number, eventId: string): void {
