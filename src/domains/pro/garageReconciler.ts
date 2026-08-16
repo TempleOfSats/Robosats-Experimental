@@ -31,6 +31,7 @@ import {
   proTradeKey
 } from "@/domains/pro/pro.types";
 import { canBypassCadence, jitteredDelay, mapWithConcurrency, PRO_RECONCILE_POLICY } from "@/domains/pro/reconcilePolicy";
+import { isAbortError } from "@/lib/userError";
 
 type GarageReconcilerDependencies = {
   now: () => number;
@@ -305,6 +306,15 @@ export class GarageReconciler implements GarageReconcileController {
         )
       ]);
       if (epoch !== this.epoch) return;
+      if (result.coordinators.length === 0) {
+        useProTradeIndexStore.getState().setSlotSync({
+          ...previousSync,
+          slotId,
+          epoch,
+          inFlight: false
+        });
+        return;
+      }
       const completedAt = this.dependencies.now();
       const attempted = result.coordinators.filter((robot) => !robot.cached);
       const failures = attempted.filter((robot) => Boolean(robot.error)).length;
@@ -451,26 +461,12 @@ export class GarageReconciler implements GarageReconcileController {
         removePendingOrderSnapshot(pendingSnapshot);
         return;
       }
+      if (isAbortError(error)) {
+        removePendingOrderSnapshot(pendingSnapshot);
+        return;
+      }
       if (isAlreadyCancelledError(error)) {
-        if (previous?.order) {
-          ingestCoordinatorOrder({
-            order: {
-              ...previous.order,
-              id: locator.orderId,
-              shortAlias: locator.shortAlias,
-              status: 4,
-              status_message: "Order cancelled"
-            },
-            shortAlias: locator.shortAlias,
-            slot
-          });
-        }
-        useGarageStore.getState().releaseOrderReservation(
-          slot.token,
-          locator.shortAlias,
-          locator.orderId
-        );
-        useProTradeIndexStore.getState().removeTrade(locator);
+        applyAlreadyCancelledOrder(slot, locator, previous);
         return;
       }
       if (previous) {
@@ -528,6 +524,28 @@ function pendingOrderSnapshot(
     freshness: "refreshing",
     updatedAt: observedAt
   };
+}
+
+function applyAlreadyCancelledOrder(
+  slot: RobotSlot,
+  locator: ProTradeLocator,
+  previous: ProTradeSnapshot | undefined
+): void {
+  if (previous?.order) {
+    ingestCoordinatorOrder({
+      order: {
+        ...previous.order,
+        id: locator.orderId,
+        shortAlias: locator.shortAlias,
+        status: 4,
+        status_message: "Order cancelled"
+      },
+      shortAlias: locator.shortAlias,
+      slot
+    });
+  }
+  useGarageStore.getState().releaseOrderReservation(slot.token, locator.shortAlias, locator.orderId);
+  useProTradeIndexStore.getState().removeTrade(locator);
 }
 
 function removePendingOrderSnapshot(snapshot: ProTradeSnapshot | undefined): void {

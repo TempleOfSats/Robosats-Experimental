@@ -37,8 +37,10 @@ import {
   nostrEventsToPublicOrders,
   relayFallbackTiming,
   resetNostrOrderbookSession,
+  resumeNostrOrderbookSession,
   selectNostrRelays,
-  subscribeNostrOrderbook
+  subscribeNostrOrderbook,
+  suspendNostrOrderbookSession
 } from "@/domains/orderbook/nostrOrderbook";
 import { noteRelayEose, resetRelayHealthForTests } from "@/domains/nostr/relayHealth";
 import { resetLiveRelaySubscriptionsForTests } from "@/domains/nostr/sharedRelayPool";
@@ -254,7 +256,9 @@ describe("nostr orderbook", () => {
     expect(poolState.subscriptions).toHaveLength(1);
     poolState.subscriptions[0].params.oneose?.();
     await vi.waitFor(() => expect(poolState.subscriptions).toHaveLength(2));
-    expect(poolState.subscriptions.every((subscription) => subscription.relays[0] === "wss://unsafe.thebiglake.org/relay/")).toBe(true);
+    expect(
+      poolState.subscriptions.every((subscription) => subscription.relays[0] === "wss://unsafe.thebiglake.org/relay/")
+    ).toBe(true);
     poolState.subscriptions[1].params.oneose?.();
 
     await expect(promise).resolves.toEqual([]);
@@ -275,16 +279,20 @@ describe("nostr orderbook", () => {
       since: 92_000,
       until: 200_000
     });
-    poolState.subscriptions[0].params.onevent?.(event({
-      id: "pending-event",
-      created_at: 199_000,
-      tags: baseTags({ status: "pending" })
-    }));
-    poolState.subscriptions[0].params.onevent?.(event({
-      id: "terminal-event",
-      created_at: 199_001,
-      tags: baseTags({ status: "success" })
-    }));
+    poolState.subscriptions[0].params.onevent?.(
+      event({
+        id: "pending-event",
+        created_at: 199_000,
+        tags: baseTags({ status: "pending" })
+      })
+    );
+    poolState.subscriptions[0].params.onevent?.(
+      event({
+        id: "terminal-event",
+        created_at: 199_001,
+        tags: baseTags({ status: "success" })
+      })
+    );
     poolState.subscriptions[0].params.oneose?.();
 
     await vi.waitFor(() => expect(poolState.subscriptions).toHaveLength(2));
@@ -320,7 +328,9 @@ describe("nostr orderbook", () => {
     await vi.waitFor(() => expect(poolState.subscriptions).toHaveLength(3));
 
     let settled = false;
-    void promise.then(() => { settled = true; });
+    void promise.then(() => {
+      settled = true;
+    });
     await Promise.resolve();
     expect(settled).toBe(false);
 
@@ -364,6 +374,58 @@ describe("nostr orderbook", () => {
     resetNostrOrderbookSession();
 
     await expect(promise).resolves.toEqual([]);
+  });
+
+  it("cancels relay fallback and reconnect timers when its session is reset", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    poolState.subscriptions.length = 0;
+
+    try {
+      const promise = fetchNostrOrderbook([coordinator], "mainnet", {
+        maxWaitMs: 45_000
+      });
+      expect(poolState.subscriptions).toHaveLength(1);
+      poolState.subscriptions[0].params.onclose?.();
+
+      resetNostrOrderbookSession();
+      await expect(promise).resolves.toEqual([]);
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      expect(poolState.subscriptions).toHaveLength(1);
+    } finally {
+      resetNostrOrderbookSession();
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not create relay work while suspended and starts cleanly after resume", async () => {
+    vi.useFakeTimers();
+    poolState.subscriptions.length = 0;
+
+    try {
+      const activeFetch = fetchNostrOrderbook([coordinator], "mainnet", { maxWaitMs: 45_000 });
+      expect(poolState.subscriptions).toHaveLength(1);
+      suspendNostrOrderbookSession();
+      await expect(activeFetch).rejects.toMatchObject({ name: "AbortError" });
+      await expect(fetchNostrOrderbook([coordinator], "mainnet")).rejects.toMatchObject({
+        name: "AbortError"
+      });
+      const unsubscribe = subscribeNostrOrderbook([coordinator], "mainnet");
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(poolState.subscriptions).toHaveLength(1);
+      unsubscribe();
+
+      resumeNostrOrderbookSession();
+      const promise = fetchNostrOrderbook([coordinator], "mainnet", { maxWaitMs: 20_000 });
+      expect(poolState.subscriptions).toHaveLength(2);
+      resetNostrOrderbookSession();
+      await expect(promise).resolves.toEqual([]);
+    } finally {
+      resumeNostrOrderbookSession();
+      resetNostrOrderbookSession();
+      vi.useRealTimers();
+    }
   });
 
   it("starts one delayed reconciliation relay after a fast non-host snapshot", async () => {

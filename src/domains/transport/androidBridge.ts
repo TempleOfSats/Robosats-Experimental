@@ -13,6 +13,7 @@ type PendingRequest = {
 
 const pendingRequests = new Map<string, PendingRequest>();
 const sockets = new Map<string, NativeWebSocket>();
+let nativeTransportSuspended = false;
 
 export function isAndroidApp(): boolean {
   return typeof window !== "undefined" && typeof window.AndroidAppRobosats?.httpRequest === "function";
@@ -125,12 +126,33 @@ export function requestNativeTorReset(): boolean {
   return true;
 }
 
+export function suspendNativeTransport(reason = "App backgrounded"): void {
+  if (nativeTransportSuspended) return;
+  nativeTransportSuspended = true;
+  const bridge = nativeAppBridge();
+  for (const requestId of pendingRequests.keys()) bridge?.cancelHttpRequest?.(requestId);
+  for (const socket of sockets.values()) socket.close(1001, reason);
+  resetNativeTransport(reason);
+}
+
+export function resumeNativeTransport(): void {
+  nativeTransportSuspended = false;
+}
+
+function resetNativeTransport(reason: string): void {
+  if (typeof window === "undefined") return;
+  window.__robosatsNativeTransport?.reset(reason);
+}
+
 export function nativeHttpRequest(
   url: string,
   init: RequestInit = {},
   timeoutMs = 90_000,
   signal?: AbortSignal
 ): Promise<NativeHttpResult> {
+  if (nativeTransportSuspended) {
+    return Promise.reject(new DOMException("Native transport is suspended", "AbortError"));
+  }
   const bridge = nativeAppBridge();
   if (!bridge) return Promise.reject(new Error("Native transport is unavailable"));
 
@@ -261,6 +283,10 @@ export class NativeWebSocket extends EventTarget {
     const normalizedProtocols = typeof protocols === "string" ? [protocols] : protocols;
     const bridge = nativeAppBridge();
     if (!bridge) throw new DOMException("Native transport is unavailable", "NetworkError");
+    if (nativeTransportSuspended) {
+      queueMicrotask(() => this.nativeReset("Native transport is suspended"));
+      return;
+    }
     sockets.set(this.socketId, this);
     bridge.openWebSocket(this.socketId, this.url, JSON.stringify(normalizedProtocols));
   }

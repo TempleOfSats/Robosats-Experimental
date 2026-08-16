@@ -29,6 +29,7 @@ artifacts/
 *.cer
 *.der
 android/.gradle/
+android/.kotlin/
 android/build/
 android/app/build/
 android/app/src/main/assets/

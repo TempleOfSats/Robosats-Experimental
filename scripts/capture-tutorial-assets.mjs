@@ -116,17 +116,17 @@ async function captureStandardJourney(browserInstance) {
     await page.locator(".robot-wizard").waitFor({ state: "visible", timeout: 30_000 });
     await capture(page, "garage-empty");
 
-    await page.getByRole("button", { name: "Generate my robot" }).click();
+    await page.getByRole("button", { name: "Create my robot" }).click();
     const tokenInput = page.getByLabel("Robot token");
     await tokenInput.waitFor({ state: "visible" });
     await redactInput(tokenInput, "[Robot token hidden for tutorial]");
     await capture(page, "garage-backup");
 
-    await page.locator(".token-review-step").getByRole("button", { name: "Continue" }).click();
+    await page.locator(".token-review-step").getByRole("button", { name: "I’ve saved it" }).click();
     await page.locator(".identity-step .robot-avatar-ready").waitFor({ state: "visible", timeout: 20_000 });
     await capture(page, "garage-identity");
 
-    await page.locator(".identity-step").getByRole("button", { name: "Continue" }).click();
+    await page.locator(".identity-step").getByRole("button", { name: "Enter my Garage" }).click();
     await page.locator(".garage-profile-stage").waitFor({ state: "visible", timeout: 30_000 });
     await capture(page, "garage-home");
 
@@ -137,7 +137,7 @@ async function captureStandardJourney(browserInstance) {
     await page.waitForTimeout(200);
 
     await seedOrderbook(page);
-    await page.getByRole("button", { name: /Find a trade/ }).click();
+    await page.getByRole("button", { name: /Find an offer/ }).click();
     await page.locator(".guided-trade-dialog").waitFor({ state: "visible", timeout: 20_000 });
     await capture(page, "guided-side");
 

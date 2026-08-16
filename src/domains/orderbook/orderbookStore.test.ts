@@ -83,6 +83,32 @@ describe("orderbook store reliability", () => {
     expect(globalThis.localStorage.setItem).toHaveBeenCalledOnce();
   });
 
+  it("treats a lifecycle-aborted Nostr refresh as neutral", async () => {
+    const lake = coordinator("lake", "https://lake.example");
+    const confirmed = order(1, "lake");
+    useOrderbookStore.setState({
+      orders: [confirmed],
+      sourceConnection: "nostr",
+      sourceNetwork: "mainnet",
+      sourceOrigin: "onion"
+    });
+    fetchNostrOrderbook.mockRejectedValue(new DOMException("Nostr orderbook is suspended", "AbortError"));
+
+    await useOrderbookStore.getState().refreshOrderbook([lake], {
+      connection: "nostr",
+      force: true,
+      network: "mainnet",
+      origin: "onion"
+    });
+
+    expect(useOrderbookStore.getState()).toMatchObject({
+      orders: [confirmed],
+      loading: false,
+      refreshing: false,
+      error: undefined
+    });
+  });
+
   it("retains an unreachable coordinator's offers when another API refresh succeeds", async () => {
     const lake = coordinator("lake", "https://lake.example");
     const temple = coordinator("temple", "https://temple.example");

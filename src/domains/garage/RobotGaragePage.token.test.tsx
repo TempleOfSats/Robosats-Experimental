@@ -47,8 +47,9 @@ afterEach(async () => {
   document.body.innerHTML = "";
 });
 
-describe("Garage robot token controls", () => {
-  it("keeps the token out of the DOM while masked and preserves common actions", async () => {
+describe("Garage robot controls", () => {
+  it("keeps the token private while exposing restrained robot shortcuts", async () => {
+    await import("@/domains/garage/RobotTokenBackupDialog");
     root = createRoot(document.querySelector("#root")!);
     await act(async () => {
       root?.render(
@@ -58,57 +59,204 @@ describe("Garage robot token controls", () => {
       );
     });
 
-    expect(document.body.textContent).toContain("No active trades");
-    const recoveryTools = document.querySelector<HTMLDetailsElement>(".garage-identity-tools");
-    expect(recoveryTools?.open).toBe(false);
-    expect(recoveryTools?.textContent).toContain("Recovery & backup");
-    expect(document.querySelector('input[aria-label="Robot token"]')).toBeNull();
+    expect(document.body.textContent).toContain("Ready to trade");
+    expect(document.body.textContent).toContain("No active orders");
+    expect(document.body.textContent).toContain("Find an offer");
+    expect(document.body.textContent).toContain("Guided matching");
+    expect(document.body.textContent).toContain("Create an offer");
+    expect(document.body.textContent).toContain("Set your own terms");
+    expect(document.querySelector(".garage-status-dot")).toBeNull();
+    expect(document.body.textContent).toContain("Backup");
+    expect(document.body.textContent).toContain("Add");
+    expect(document.body.textContent).toContain("Recover");
+    expect(document.body.textContent).toContain("Manage");
+    expect(document.body.textContent).not.toContain("Recovery & backup");
     expect(document.body.innerHTML).not.toContain(token);
 
-    await act(async () => {
-      recoveryTools?.querySelector("summary")?.click();
-    });
-    expect(recoveryTools?.open).toBe(true);
+    await clickButton("Switch robot. Current robot: Patient robot");
+    expect(document.body.textContent).toContain("Select robot");
+    await clickButton("Close robot switcher");
+
+    const operationalStatus = document.querySelector('[role="status"]');
+    expect(operationalStatus?.textContent).toContain("Ready to trade");
+    expect(operationalStatus?.textContent).toContain("No active orders");
+    expect(operationalStatus?.getAttribute("aria-live")).toBe("polite");
+    const robotControls = document.querySelector('[role="group"][aria-label="Robot controls"]');
+    expect(robotControls).not.toBeNull();
+    expect(robotControls?.closest(".garage-robot-hero")).not.toBeNull();
+
+    await clickButton("Backup robot token");
+    await vi.waitFor(() => expect(document.body.textContent).toContain("Store your robot token"));
+    expect(document.body.innerHTML).toContain(token);
 
     await clickButton("Download Patient robot token backup as JSON");
-    await clickButton("Copy token");
-
+    await clickButton("Copy robot token");
     expect(downloadRobotTokenBackupMock).toHaveBeenCalledWith(token, "Patient robot");
     expect(writeClipboardMock).toHaveBeenCalledWith(token);
 
-    await clickButton("Show token");
-    expect(document.querySelector<HTMLInputElement>('input[aria-label="Robot token"]')?.value).toBe(token);
-
-    await clickButton("Download Patient robot token backup as JSON");
-    await clickButton("Copied");
-    expect(downloadRobotTokenBackupMock).toHaveBeenCalledTimes(2);
-    expect(writeClipboardMock).toHaveBeenCalledTimes(2);
-
-    await clickButton("Hide token");
-    expect(document.querySelector('input[aria-label="Robot token"]')).toBeNull();
+    await clickButton("Done");
     expect(document.body.innerHTML).not.toContain(token);
-
-    await clickButton("Show token");
-    expect(document.querySelector<HTMLInputElement>('input[aria-label="Robot token"]')?.value).toBe(token);
-
-    await act(async () => {
-      recoveryTools?.querySelector("summary")?.click();
-    });
-    expect(recoveryTools?.open).toBe(false);
-    expect(document.querySelector('input[aria-label="Robot token"]')).toBeNull();
-    expect(document.body.innerHTML).not.toContain(token);
-
-    await act(async () => {
-      recoveryTools?.querySelector("summary")?.click();
-    });
-    expect(findButton("Show token")).toBeDefined();
-
-    const manageTools = document.querySelector<HTMLDetailsElement>(".garage-manage-tools");
-    await act(async () => manageTools?.querySelector("summary")?.click());
-    expect(manageTools?.open).toBe(true);
-    await clickButton("Recover from token");
-    expect(manageTools?.open).toBe(false);
+    await clickButton("Recover a robot");
     expect(document.body.textContent).toContain("Recover robot");
+    await clickButton("Close recovery");
+
+    await clickButton("Manage robot");
+    expect(document.body.textContent).toContain("Token backup");
+    expect(document.body.textContent).toContain("Recover from token");
+  });
+
+  it("lets an existing robot leave the add-robot setup without changing identity", async () => {
+    root = createRoot(document.querySelector("#root")!);
+    await act(async () => {
+      root?.render(
+        <MemoryRouter>
+          <RobotGaragePage />
+        </MemoryRouter>
+      );
+    });
+
+    await clickButton("Add another robot");
+    expect(document.body.textContent).toContain("Add another robot");
+    expect(document.body.textContent).not.toContain("Welcome to RoboSats");
+    expect(document.body.textContent).toContain("Create a new robot");
+    await clickButton("Create my robot");
+    expect(document.body.textContent).toContain("Save your recovery token");
+
+    await clickButton("Back to Garage");
+    expect(document.body.textContent).toContain("Patient robot");
+    expect(useGarageStore.getState().currentToken).toBe(token);
+  });
+
+  it("keeps a released robot available and explains where it was last seen", async () => {
+    const identity = deriveRobotIdentity(token);
+    useGarageStore.setState({
+      slots: [
+        {
+          ...identity,
+          nickname: "Patient robot",
+          earnedRewards: 0,
+          robots: {
+            lake: {
+              token,
+              shortAlias: "lake",
+              nostrPubKey: identity.nostrPubKey,
+              tokenSHA256: identity.tokenSHA256,
+              earnedRewards: 0,
+              loading: true,
+              releasedOrderId: 92620
+            }
+          }
+        }
+      ],
+      currentToken: token,
+      hydrated: true
+    });
+
+    root = createRoot(document.querySelector("#root")!);
+    await act(async () => {
+      root?.render(
+        <MemoryRouter>
+          <RobotGaragePage />
+        </MemoryRouter>
+      );
+    });
+
+    expect(document.body.textContent).toContain("No active orders · Last seen #92620");
+    expect(document.body.textContent).toContain("Ready to trade");
+    expect(document.querySelector('[role="status"]')?.textContent).toContain(
+      "Ready to tradeNo active orders · Last seen #92620"
+    );
+    expect(document.body.textContent).toContain("Find an offer");
+    expect(document.body.textContent).toContain("Create an offer");
+  });
+
+  it("keeps an unused robot ready while coordinator checks run", async () => {
+    const identity = deriveRobotIdentity(token);
+    useGarageStore.setState({
+      slots: [
+        {
+          ...identity,
+          nickname: "Patient robot",
+          earnedRewards: 0,
+          robots: {
+            lake: {
+              token,
+              shortAlias: "lake",
+              nostrPubKey: identity.nostrPubKey,
+              tokenSHA256: identity.tokenSHA256,
+              earnedRewards: 0,
+              loading: true
+            }
+          }
+        }
+      ],
+      currentToken: token,
+      hydrated: true
+    });
+
+    root = createRoot(document.querySelector("#root")!);
+    await act(async () => {
+      root?.render(
+        <MemoryRouter>
+          <RobotGaragePage />
+        </MemoryRouter>
+      );
+    });
+
+    expect(document.body.textContent).toContain("Ready to trade");
+    expect(document.body.textContent).toContain("No active orders · Checking coordinators…");
+    expect(document.querySelector('[role="status"]')?.textContent).toContain(
+      "Ready to tradeNo active orders · Checking coordinators…"
+    );
+    expect(document.body.textContent).not.toContain("Checking your robot");
+    expect(document.body.textContent).toContain("Find an offer");
+    expect(document.body.textContent).toContain("Create an offer");
+  });
+
+  it("makes the active trade the only primary next action", async () => {
+    const identity = deriveRobotIdentity(token);
+    useGarageStore.setState({
+      slots: [
+        {
+          ...identity,
+          nickname: "Patient robot",
+          earnedRewards: 0,
+          activeOrderId: 42,
+          lastOrderId: 42,
+          robots: {
+            lake: {
+              token,
+              shortAlias: "lake",
+              nostrPubKey: identity.nostrPubKey,
+              tokenSHA256: identity.tokenSHA256,
+              earnedRewards: 0,
+              activeOrderId: 42,
+              lastOrderId: 42
+            }
+          }
+        }
+      ],
+      currentToken: token,
+      hydrated: true
+    });
+
+    root = createRoot(document.querySelector("#root")!);
+    await act(async () => {
+      root?.render(
+        <MemoryRouter>
+          <RobotGaragePage />
+        </MemoryRouter>
+      );
+    });
+
+    const continueTrade = [...document.querySelectorAll<HTMLAnchorElement>("a")].find((link) =>
+      link.textContent?.includes("Continue trade")
+    );
+    expect(continueTrade?.getAttribute("href")).toBe("/order/lake/42");
+    expect(document.body.textContent).toContain("Trade in progress");
+    expect(document.querySelector('[role="status"]')?.textContent).toContain("Trade in progressOrder #42");
+    expect(document.body.textContent).not.toContain("Find an offer");
+    expect(document.body.textContent).not.toContain("Create an offer");
   });
 });
 

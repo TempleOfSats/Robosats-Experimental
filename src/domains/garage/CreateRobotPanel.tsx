@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { Check, Copy, Dices, Download, Info, KeyRound, Zap } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -9,11 +8,10 @@ import { useGarageStore } from "@/domains/garage/garageStore";
 import { requestRobotDataRefresh } from "@/domains/garage/robotDataRefresh";
 import { generateRobotToken, isProFleetToken } from "@/domains/garage/token";
 import { downloadRobotTokenBackup } from "@/domains/garage/tokenBackup";
-import { cn } from "@/lib/cn";
 import { writeClipboard } from "@/lib/clipboard";
 import { playHaptic } from "@/lib/haptics";
 
-type WizardStep = "token" | "identity" | "ready";
+type WizardStep = "start" | "recover" | "backup" | "identity";
 
 export function CreateRobotPanel({
   onFleetRecovery,
@@ -25,13 +23,12 @@ export function CreateRobotPanel({
   const navigate = useNavigate();
   const addSlot = useGarageStore((state) => state.addSlot);
   const updateSlotIdentityDetails = useGarageStore((state) => state.updateSlotIdentityDetails);
-  const [step, setStep] = useState<WizardStep>("token");
+  const [step, setStep] = useState<WizardStep>("start");
   const [token, setToken] = useState("");
   const [draftIdentity, setDraftIdentity] = useState<RobotIdentity | null>(null);
   const [draftNickname, setDraftNickname] = useState("");
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
-  const [rolling, setRolling] = useState(false);
   const [saving, setSaving] = useState(false);
   const latestToken = useRef("");
 
@@ -56,18 +53,17 @@ export function CreateRobotPanel({
   };
 
   const generateToken = () => {
-    setRolling(true);
     const nextToken = generateRobotToken();
     const identity = deriveRobotIdentity(nextToken);
     const fallbackName = fallbackRobotName(identity.hashId);
     latestToken.current = nextToken;
     prewarmRobotAvatar(identity.hashId);
-    window.setTimeout(() => setRolling(false), 420);
     setToken(nextToken);
     setDraftIdentity(identity);
     setDraftNickname(fallbackName);
     setCopied(false);
     setError("");
+    setStep("backup");
     void resolveRobotName(identity.hashId, fallbackName).then((nickname) => {
       if (latestToken.current === nextToken) setDraftNickname(nickname);
     });
@@ -121,7 +117,6 @@ export function CreateRobotPanel({
         }
       });
       finalizeRobotSlot(cleanToken, identity.hashId, nickname, updateSlotIdentityDetails);
-      setStep("ready");
       playHaptic("success");
       return true;
     } catch {
@@ -158,12 +153,9 @@ export function CreateRobotPanel({
     if (!cleanToken) return;
     const identity = draftIdentity ?? deriveRobotIdentity(cleanToken);
     const fallbackName = fallbackRobotName(identity.hashId);
-    const currentName = draftIdentity?.hashId === identity.hashId && draftNickname
-      ? draftNickname
-      : fallbackName;
-    const robotName = currentName === fallbackName
-      ? await resolveRobotName(identity.hashId, fallbackName)
-      : currentName;
+    const currentName = draftIdentity?.hashId === identity.hashId && draftNickname ? draftNickname : fallbackName;
+    const robotName =
+      currentName === fallbackName ? await resolveRobotName(identity.hashId, fallbackName) : currentName;
     if (latestToken.current !== cleanToken) return;
     setDraftIdentity(identity);
     setDraftNickname(robotName);
@@ -171,82 +163,120 @@ export function CreateRobotPanel({
   };
 
   return (
-    <div className="robot-wizard" aria-label="Robot setup wizard">
-      <WizardSection title="1. Generate a token" active={step === "token"} complete={step !== "token"}>
-        {!hasToken ? (
-          <div className="wizard-step-body token-start-step">
-            <p className="robot-setup-intro">One recovery token creates a private identity you can use to trade.</p>
-            <Button onClick={generateToken} size="lg">
-              <Dices className={cn(rolling && "dice-roll")} size={18} />
-              Generate my robot
-            </Button>
-            <details className="recover-token-details">
-              <summary>Recover an existing robot</summary>
-              <TokenInput
-                token={token}
-                setToken={updateToken}
-                copied={copied}
-                copyToken={copyToken}
-                downloadToken={downloadToken}
-              />
-              <Button onClick={continueToIdentity} disabled={!hasToken}>
-                <Check size={17} />
-                Continue
-              </Button>
-            </details>
+    <div className="robot-wizard robot-setup-surface" aria-label="Robot setup">
+      {step === "start" ? (
+        <section className="robot-setup-panel robot-setup-start" aria-labelledby="create-robot-title">
+          <div className="robot-setup-copy">
+            <h3 id="create-robot-title">Create a new robot</h3>
+            <p>Your robot is the identity you use to trade. We’ll generate its recovery token, name, and avatar.</p>
           </div>
-        ) : (
-          <div className="wizard-step-body token-review-step">
-            <div className="token-alert">
-              <Info size={18} />
-              <p>
-                <strong>Store it somewhere safe.</strong> This token is the only key to your robot.
-              </p>
-            </div>
-            <TokenInput
-              token={token}
-              setToken={updateToken}
-              copied={copied}
-              copyToken={copyToken}
-              downloadToken={downloadToken}
-            />
-            {copied ? <p className="field-note">Token copied.</p> : null}
-            {error ? <p className="field-error" role="alert">{error}</p> : null}
-            <div className="wizard-actions centered-actions">
-              <Button variant="ghost" onClick={generateToken}>
-                <Dices className={cn(rolling && "dice-roll")} size={17} />
-                Roll again
-              </Button>
-              <Button onClick={continueToIdentity} size="lg">
-                <Check size={18} />
-                Continue
-              </Button>
-            </div>
-          </div>
-        )}
-      </WizardSection>
+          <Button className="robot-setup-primary" onClick={generateToken} size="lg">
+            <Dices size={18} />
+            Create my robot
+          </Button>
+          <Button className="robot-setup-secondary" onClick={() => setStep("recover")} variant="ghost">
+            <KeyRound size={17} />
+            Restore an existing robot
+          </Button>
+        </section>
+      ) : null}
 
-      <WizardSection title="2. Meet your robot identity" active={step === "identity"} complete={step === "ready"}>
-        {draftIdentity ? (
-          <div className="wizard-step-body identity-step">
-            <p>This is your trading avatar.</p>
-            <RobotAvatar hashId={draftIdentity.hashId} label={draftNickname} size="xl" />
-            <div className="robot-name-reveal">
-              <span>Hi! My name is</span>
-              <strong>
-                <Zap size={22} fill="currentColor" />
-                {robotNameIsResolving ? "Meeting robot..." : draftNickname}
-                <Zap size={22} fill="currentColor" />
-              </strong>
-            </div>
-            {error ? <p className="field-error" role="alert">{error}</p> : null}
-            <Button onClick={() => void finishRobotSetup()} loading={saving} size="lg">
-              <Check size={18} />
-              Continue
+      {step === "recover" ? (
+        <section className="robot-setup-panel token-review-step" aria-labelledby="restore-robot-title">
+          <div className="robot-setup-copy">
+            <h3 id="restore-robot-title">Restore your robot</h3>
+            <p>Paste the recovery token you saved when the robot was created.</p>
+          </div>
+          <TokenInput token={token} setToken={updateToken} />
+          {error ? (
+            <p className="field-error" role="alert">
+              {error}
+            </p>
+          ) : null}
+          <div className="wizard-actions robot-setup-actions">
+            <Button
+              variant="ghost"
+              onClick={() => {
+                updateToken("");
+                setStep("start");
+              }}
+            >
+              Back
+            </Button>
+            <Button onClick={continueToIdentity} disabled={!hasToken}>
+              <Check size={17} />
+              Continue to identity
             </Button>
           </div>
-        ) : null}
-      </WizardSection>
+        </section>
+      ) : null}
+
+      {step === "backup" ? (
+        <section className="robot-setup-panel token-review-step" aria-labelledby="backup-robot-title">
+          <div className="robot-setup-copy">
+            <h3 id="backup-robot-title">Save your recovery token</h3>
+            <p>This is the only way back to your robot. Nobody can reset it for you.</p>
+          </div>
+          <div className="token-alert">
+            <Info size={18} />
+            <p>Store the token somewhere private before continuing.</p>
+          </div>
+          <TokenInput token={token} setToken={updateToken} readOnly />
+          <div className="robot-backup-actions">
+            <Button variant="secondary" onClick={() => void downloadToken()}>
+              <Download size={17} />
+              Download backup
+            </Button>
+            <Button variant="secondary" onClick={() => void copyToken()}>
+              <Copy size={17} />
+              {copied ? "Copied" : "Copy token"}
+            </Button>
+          </div>
+          {copied ? <p className="field-note">Token copied.</p> : null}
+          {error ? (
+            <p className="field-error" role="alert">
+              {error}
+            </p>
+          ) : null}
+          <div className="wizard-actions robot-setup-actions">
+            <Button variant="ghost" onClick={generateToken}>
+              <Dices size={17} />
+              Create a different robot
+            </Button>
+            <Button onClick={continueToIdentity} size="lg">
+              <Check size={18} />
+              I’ve saved it
+            </Button>
+          </div>
+        </section>
+      ) : null}
+
+      {step === "identity" && draftIdentity ? (
+        <section className="robot-setup-panel identity-step" aria-labelledby="robot-identity-title">
+          <div className="robot-setup-copy robot-identity-copy">
+            <h3 id="robot-identity-title">Meet your robot</h3>
+            <p>This name and avatar help you recognize your robot.</p>
+          </div>
+          <RobotAvatar hashId={draftIdentity.hashId} label={draftNickname} size="xl" />
+          <div className="robot-name-reveal">
+            <span>Hi! My name is</span>
+            <strong>
+              <Zap size={22} fill="currentColor" />
+              {robotNameIsResolving ? "Meeting robot..." : draftNickname}
+              <Zap size={22} fill="currentColor" />
+            </strong>
+          </div>
+          {error ? (
+            <p className="field-error" role="alert">
+              {error}
+            </p>
+          ) : null}
+          <Button onClick={() => void finishRobotSetup()} loading={saving} size="lg">
+            <Check size={18} />
+            Enter my Garage
+          </Button>
+        </section>
+      ) : null}
     </div>
   );
 }
@@ -320,58 +350,28 @@ function scheduleBackgroundIdentityWork(callback: () => void): void {
   }, 800);
 }
 
-function WizardSection({
-  title,
-  active,
-  complete,
-  children
-}: {
-  title: string;
-  active: boolean;
-  complete: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <section className={cn("wizard-section", active && "active", complete && "complete")}>
-      <h3>
-        {complete ? <Check size={18} /> : null}
-        {title}
-      </h3>
-      {active ? children : null}
-    </section>
-  );
-}
-
 function TokenInput({
   token,
   setToken,
-  copied,
-  copyToken,
-  downloadToken
+  readOnly = false
 }: {
   token: string;
   setToken: (token: string) => void;
-  copied: boolean;
-  copyToken: () => Promise<void>;
-  downloadToken: () => Promise<void>;
+  readOnly?: boolean;
 }) {
   return (
-    <div className="input-shell token-input-shell">
+    <div className="input-shell token-input-shell robot-token-field">
       <KeyRound size={16} />
       <input
         value={token}
         onChange={(event) => setToken(event.target.value.replace(/\s+/g, ""))}
         placeholder="Paste robot token"
         aria-label="Robot token"
+        autoCapitalize="none"
+        autoComplete="off"
+        readOnly={readOnly}
+        spellCheck={false}
       />
-      <button className="icon-button" type="button" onClick={() => void downloadToken()} disabled={!token} title="Download token backup">
-        <Download size={16} />
-        <span className="sr-only">Download token backup as JSON</span>
-      </button>
-      <button className="icon-button" type="button" onClick={() => void copyToken()} disabled={!token} title={copied ? "Copied" : "Copy"}>
-        <Copy size={16} />
-        <span className="sr-only">Copy token</span>
-      </button>
     </div>
   );
 }

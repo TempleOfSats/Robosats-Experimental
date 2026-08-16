@@ -2,7 +2,7 @@
   "src/components/ui/visualSelect.tsx#VisualSelect": 22,
   "src/domains/chat/ChatStagePanel.tsx#ChatStagePanel": 57,
   "src/domains/coordinators/CoordinatorsPage.tsx#CoordinatorDetailDialog": 27,
-  "src/domains/garage/RobotGaragePage.tsx#RobotGaragePage": 32,
+  "src/domains/garage/RobotGaragePage.tsx#RobotGaragePage": 26,
   "src/domains/location/F2FLocationDialog.tsx#F2FLocationDialog": 35,
   "src/domains/maker/CreateOrderPage.tsx#CoordinatorPicker": 48,
   "src/domains/maker/CreateOrderPage.tsx#CreateOrderPage": 58,

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { toUserMessage } from "@/lib/userError";
+import { isAbortError, toUserMessage } from "@/lib/userError";
 import { fetchCoordinatorBook } from "@/domains/coordinators/coordinatorApi";
 import type { CoordinatorConnection, CoordinatorSummary, Network, Origin } from "@/domains/coordinators/coordinator.types";
 import { fetchNostrOrderbook } from "@/domains/orderbook/nostrOrderbook";
@@ -257,6 +257,10 @@ async function runOrderbookRefresh(
     });
   } catch (error) {
     if (sequence !== refreshSequence) return;
+    if (isAbortError(error)) {
+      set({ loading: false, refreshing: false });
+      return;
+    }
     set((state) => ({
       orders: state.orders,
       loading: false,

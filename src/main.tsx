@@ -15,9 +15,11 @@ import { installRefreshIntentLifecycle } from "@/domains/transport/refreshIntent
 import { startOrderFeedbackRuntime } from "@/domains/notifications/orderFeedbackRuntime";
 import { AppErrorBoundary } from "@/components/app/AppErrorBoundary";
 import { startDisputeRewardRefreshRuntime } from "@/domains/rewards/disputeRewardRefresh";
+import { installNativeTransportLifecycle } from "@/domains/transport/nativeTransportLifecycle";
 
 initializeDesktopRuntimeBridge();
 installRefreshIntentLifecycle();
+installNativeTransportLifecycle();
 subscribeNativeOrderHints((hint) => {
   publishOrderChangeNotification({ source: "native", ...hint });
 });

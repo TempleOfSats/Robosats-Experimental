@@ -75,6 +75,7 @@ const PRIORITY_RANK: Record<RequestPriority, number> = {
 
 export class CoordinatorRequestScheduler {
   private readonly queued: SchedulerTask[] = [];
+  private readonly activeTasks = new Set<SchedulerTask>();
   private readonly keyed = new Map<string, SchedulerTask>();
   // Retain exact active predecessors so a failed replacement cannot make its retry wait behind stale work.
   private readonly supersessionLineages = new Map<string, SupersessionLineage>();
@@ -85,6 +86,8 @@ export class CoordinatorRequestScheduler {
   private sequence = 0;
   private highPriorityAdmissions = 0;
   private drainScheduled = false;
+  private suspended = false;
+  private suspensionReason = "Transport suspended";
 
   schedule<T>(
     options: ScheduleRequestOptions,
@@ -148,6 +151,13 @@ export class CoordinatorRequestScheduler {
       task.detachExternalAbort = () => externalSignal.removeEventListener("abort", abort);
     }
 
+    if (this.suspended) {
+      task.settled = true;
+      task.detachExternalAbort?.();
+      task.reject(abortError(this.suspensionReason));
+      return this.publicHandle<T>(task);
+    }
+
     this.queued.push(task);
     if (task.key) this.keyed.set(task.key, task);
     if (this.shouldDeferForCircuit(task)) {
@@ -206,10 +216,26 @@ export class CoordinatorRequestScheduler {
     );
   }
 
+  suspend(reason = "Transport suspended"): void {
+    if (this.suspended) return;
+    this.suspended = true;
+    this.suspensionReason = reason;
+    for (const task of [...this.queued, ...this.activeTasks]) {
+      this.cancelTask(task, reason);
+    }
+  }
+
+  resume(): void {
+    if (!this.suspended) return;
+    this.suspended = false;
+    this.requestDrain();
+  }
+
   resetForTests(): void {
-    const pending = this.queued.slice();
+    const pending = [...this.queued, ...this.activeTasks];
     for (const task of pending) this.cancelTask(task, "Scheduler reset");
     this.queued.length = 0;
+    this.activeTasks.clear();
     this.keyed.clear();
     this.supersessionLineages.clear();
     this.activeByOrigin.clear();
@@ -218,6 +244,8 @@ export class CoordinatorRequestScheduler {
     this.activeBackground = 0;
     this.highPriorityAdmissions = 0;
     this.drainScheduled = false;
+    this.suspended = false;
+    this.suspensionReason = "Transport suspended";
   }
 
   private publicHandle<T>(task: SchedulerTask): ScheduledRequest<T> {
@@ -237,14 +265,14 @@ export class CoordinatorRequestScheduler {
   private cancelTask(task: SchedulerTask, reason = "Request cancelled"): void {
     if (task.settled) return;
     if (task.started) {
-      task.controller.abort(reason);
+      task.controller.abort(abortError(reason));
       return;
     }
     task.settled = true;
     this.removeQueued(task);
     this.removeKey(task);
     task.detachExternalAbort?.();
-    task.reject(new DOMException(reason, "AbortError"));
+    task.reject(abortError(reason));
   }
 
   private extendTimeout(task: SchedulerTask, timeoutMs?: number): void {
@@ -254,6 +282,7 @@ export class CoordinatorRequestScheduler {
   }
 
   private drain(): void {
+    if (this.suspended) return;
     const capacity = schedulerCapacity();
     while (this.active < capacity.total) {
       const next = this.pickNext(capacity);
@@ -328,6 +357,7 @@ export class CoordinatorRequestScheduler {
     task.started = true;
     task.startedAt = performanceNow();
     this.armTimeout(task);
+    this.activeTasks.add(task);
     this.active += 1;
     if (isBackground(task.priority)) this.activeBackground += 1;
     this.activeByOrigin.set(task.origin, (this.activeByOrigin.get(task.origin) ?? 0) + 1);
@@ -346,11 +376,13 @@ export class CoordinatorRequestScheduler {
       task.detachExternalAbort?.();
       this.removeKey(task);
       this.removeFromSupersessionLineage(task);
-      this.active -= 1;
-      if (isBackground(task.priority)) this.activeBackground -= 1;
-      const originCount = (this.activeByOrigin.get(task.origin) ?? 1) - 1;
-      if (originCount <= 0) this.activeByOrigin.delete(task.origin);
-      else this.activeByOrigin.set(task.origin, originCount);
+      if (this.activeTasks.delete(task)) {
+        this.active -= 1;
+        if (isBackground(task.priority)) this.activeBackground -= 1;
+        const originCount = (this.activeByOrigin.get(task.origin) ?? 1) - 1;
+        if (originCount <= 0) this.activeByOrigin.delete(task.origin);
+        else this.activeByOrigin.set(task.origin, originCount);
+      }
       if (task.circuitProbe) {
         const currentCircuit = this.circuits.get(task.origin);
         if (currentCircuit?.halfOpen) currentCircuit.halfOpen = false;
@@ -424,6 +456,10 @@ function isCircuitDeferrable(priority: RequestPriority): boolean {
 
 function abortReason(signal: AbortSignal): string {
   return typeof signal.reason === "string" ? signal.reason : "Request cancelled";
+}
+
+function abortError(reason: string): DOMException {
+  return new DOMException(reason, "AbortError");
 }
 
 function performanceNow(): number {

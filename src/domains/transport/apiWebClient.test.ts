@@ -12,10 +12,20 @@ vi.mock("@/domains/transport/androidBridge", () => ({
 
 import { apiClient } from "@/domains/transport/apiWebClient";
 import { coordinatorRequestScheduler } from "@/domains/transport/requestScheduler";
+import {
+  resetTransportHealthForTests,
+  setTransportHealthActive
+} from "@/domains/transport/transportHealth";
+import {
+  clearNetworkPerformance,
+  networkPerformanceSnapshot
+} from "@/domains/diagnostics/networkPerformance";
 
 beforeEach(() => {
   transportRequestMock.mockReset();
   coordinatorRequestScheduler.resetForTests();
+  resetTransportHealthForTests();
+  clearNetworkPerformance();
 });
 
 describe("ApiWebClient GET coalescing", () => {
@@ -134,5 +144,37 @@ describe("ApiWebClient GET coalescing", () => {
       { version: "fresh" }
     ]);
     expect(transportRequestMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("discards a response completed after the app lifecycle changes", async () => {
+    let resolveTransport: ((value: {
+      status: number;
+      headers: Record<string, string>;
+      body: string;
+    }) => void) | undefined;
+    transportRequestMock.mockReturnValue(new Promise((resolve) => {
+      resolveTransport = resolve;
+    }));
+
+    const reachable = vi.spyOn(coordinatorRequestScheduler, "noteOriginReachable");
+    const request = apiClient.get("http://coordinator.onion", "/api/info/");
+    const rejection = expect(request).rejects.toMatchObject({
+      name: "AbortError",
+      message: "Request cancelled after app suspension"
+    });
+    await vi.waitFor(() => expect(transportRequestMock).toHaveBeenCalledOnce());
+    setTransportHealthActive(false);
+    resolveTransport?.({
+      status: 200,
+      headers: { "content-type": "application/json" },
+      body: '{"online":true}'
+    });
+
+    await rejection;
+    expect(networkPerformanceSnapshot()).toEqual([
+      expect.objectContaining({ outcome: "cancelled" })
+    ]);
+    expect(reachable).not.toHaveBeenCalled();
+    reachable.mockRestore();
   });
 });

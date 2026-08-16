@@ -7,13 +7,18 @@ import { RoboSatsLogo } from "@/components/app/RoboSatsLogo";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { RobotIcon } from "@/components/ui/robotIcon";
-import { selectFleetManagedSlots, selectStandardGarageSlots, type RobotSlot, useGarageStore } from "@/domains/garage/garageStore";
+import {
+  selectFleetManagedSlots,
+  selectStandardGarageSlots,
+  type RobotSlot,
+  useGarageStore
+} from "@/domains/garage/garageStore";
 import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
 import { classifyProTrade } from "@/domains/pro/proSelectors";
 import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
 
 const items = [
-  { label: "Robot", to: "/garage", icon: RobotIcon },
+  { label: "Garage", to: "/garage", icon: RobotIcon },
   { label: "Offers", to: "/offers", icon: Store },
   { label: "Create", to: "/create", icon: PlusCircle }
 ];
@@ -48,31 +53,35 @@ export function AppSidebar({ platform: _platform }: { platform: RoboSatsPlatform
       </div>
 
       <nav className={proEnabled ? "sidebar-nav sidebar-nav-pro" : "sidebar-nav"} aria-label="Main navigation">
-        {items.map((item) => item.to === "/garage" && proEnabled ? (
-          <button
-            aria-describedby="standard-garage-disabled-reason"
-            className="nav-item nav-item-disabled"
-            key={item.to}
-            onClick={() => setUnavailableItem("robot")}
-            title="Unavailable while Pro Mode is enabled"
-            type="button"
-          >
-            <item.icon size={18} />
-            <span>{item.label}</span>
-            <span className="sr-only" id="standard-garage-disabled-reason">Open Settings and disable Pro Mode to use the standard Garage.</span>
-          </button>
-        ) : (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")}
-            onFocus={() => preloadAppRoute(item.to)}
-            onPointerEnter={() => preloadAppRoute(item.to)}
-          >
-            <item.icon size={18} />
-            <span>{item.label}</span>
-          </NavLink>
-        ))}
+        {items.map((item) =>
+          item.to === "/garage" && proEnabled ? (
+            <button
+              aria-describedby="standard-garage-disabled-reason"
+              className="nav-item nav-item-disabled"
+              key={item.to}
+              onClick={() => setUnavailableItem("robot")}
+              title="Unavailable while Pro Mode is enabled"
+              type="button"
+            >
+              <item.icon size={18} />
+              <span>{item.label}</span>
+              <span className="sr-only" id="standard-garage-disabled-reason">
+                Open Settings and disable Pro Mode to use the standard Garage.
+              </span>
+            </button>
+          ) : (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")}
+              onFocus={() => preloadAppRoute(item.to)}
+              onPointerEnter={() => preloadAppRoute(item.to)}
+            >
+              <item.icon size={18} />
+              <span>{item.label}</span>
+            </NavLink>
+          )
+        )}
         {proEnabled ? (
           <NavLink
             to="/pro"
@@ -85,7 +94,9 @@ export function AppSidebar({ platform: _platform }: { platform: RoboSatsPlatform
             <LayoutList size={18} />
             <span>Pro Desk</span>
             {attentionCount > 0 ? (
-              <small className="nav-attention-count" aria-label={`${attentionCount} trades need attention`}>{attentionCount}</small>
+              <small className="nav-attention-count" aria-label={`${attentionCount} trades need attention`}>
+                {attentionCount}
+              </small>
             ) : null}
           </NavLink>
         ) : null}
@@ -109,7 +120,9 @@ export function AppSidebar({ platform: _platform }: { platform: RoboSatsPlatform
           >
             <Workflow size={18} />
             <span>Trade</span>
-            <span className="sr-only" id="trade-disabled-reason">Choose or create an offer before opening a trade.</span>
+            <span className="sr-only" id="trade-disabled-reason">
+              Choose or create an offer before opening a trade.
+            </span>
           </button>
         )}
         <NavLink
@@ -131,7 +144,9 @@ export function AppSidebar({ platform: _platform }: { platform: RoboSatsPlatform
           panelClassName="confirm-sheet nav-unavailable-dialog"
         >
           <header className="confirm-header">
-            <span className="nav-unavailable-icon" aria-hidden="true"><Info size={20} /></span>
+            <span className="nav-unavailable-icon" aria-hidden="true">
+              <Info size={20} />
+            </span>
             <div>
               <h3 id="unavailable-navigation-title">
                 {unavailableItem === "robot" ? "Standard Garage unavailable" : "No active trade"}
@@ -198,9 +213,12 @@ function useRisingAttentionPulse(count: number, ready: boolean, destinationActiv
     }, 1_100);
   }, [count, destinationActive, ready]);
 
-  useEffect(() => () => {
-    if (timeout.current !== undefined) window.clearTimeout(timeout.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (timeout.current !== undefined) window.clearTimeout(timeout.current);
+    },
+    []
+  );
 
   return active;
 }

@@ -30,6 +30,7 @@ import { useOrderbookStore } from "@/domains/orderbook/orderbookStore";
 import { currencyIdFromCode, orderCurrencyCodes } from "@/domains/orderbook/currencies";
 import { resetNostrOrderbookSession, subscribeNostrOrderbook } from "@/domains/orderbook/nostrOrderbook";
 import { subscribeRefreshIntents, type RefreshReason } from "@/domains/transport/refreshIntents";
+import { isNativeApp } from "@/domains/transport/androidBridge";
 import type { PublicOrder } from "@/domains/orderbook/orderbook.types";
 import { activePublicOrders, filterPublicOrders } from "@/domains/orderbook/orderbookFilters";
 import { buildTakeOfferPayload, defaultTakeAmount, validateTakeOffer } from "@/domains/orderbook/takeOffer";
@@ -260,7 +261,12 @@ export function OffersPage() {
 
     const refreshAfterLifecycle = (reason: RefreshReason) => {
       const restartNostr =
-        connection === "nostr" && (reason === "online" || reason === "tor-reconnected" || Boolean(error));
+        connection === "nostr" &&
+        ((reason === "resume" && isNativeApp()) ||
+          reason === "online" ||
+          reason === "tor-ready" ||
+          reason === "tor-reconnected" ||
+          Boolean(error));
       if (refreshTimer) window.clearTimeout(refreshTimer);
       refreshTimer = window.setTimeout(() => void refresh(restartNostr || Boolean(error)), 150);
     };

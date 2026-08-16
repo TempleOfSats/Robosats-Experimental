@@ -496,6 +496,53 @@ describe("CoordinatorRequestScheduler", () => {
     task.cancel();
     await expect(task.promise).rejects.toMatchObject({ name: "AbortError" });
   });
+
+  it("cancels all work while suspended and admits fresh work after resume", async () => {
+    const scheduler = new CoordinatorRequestScheduler();
+    const origin = "http://active.onion";
+    const activeExecute = vi.fn((signal: AbortSignal) =>
+      new Promise<void>((_resolve, reject) => {
+        signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+      })
+    );
+    const active = [0, 1].map((index) => scheduler.schedule(
+      { ...request(`active-${index}`, "visible"), origin },
+      activeExecute
+    ));
+    const queuedExecute = vi.fn(async () => "queued");
+    const queued = scheduler.schedule(
+      { ...request("queued", "visible"), origin },
+      queuedExecute
+    );
+    await vi.waitFor(() => expect(activeExecute).toHaveBeenCalledTimes(2));
+    expect(queuedExecute).not.toHaveBeenCalled();
+
+    const activeRejections = active.map((task) => expect(task.promise).rejects.toMatchObject({
+        name: "AbortError",
+        message: "App backgrounded"
+      }));
+    const queuedRejection = expect(queued.promise).rejects.toMatchObject({
+      name: "AbortError",
+      message: "App backgrounded"
+    });
+    scheduler.suspend("App backgrounded");
+    await Promise.all([...activeRejections, queuedRejection]);
+    expect(queuedExecute).not.toHaveBeenCalled();
+
+    const blockedExecute = vi.fn(async () => "blocked");
+    const blocked = scheduler.schedule(request("blocked", "visible"), blockedExecute);
+    await expect(blocked.promise).rejects.toMatchObject({
+      name: "AbortError",
+      message: "App backgrounded"
+    });
+    expect(blockedExecute).not.toHaveBeenCalled();
+
+    scheduler.resume();
+    const freshExecute = vi.fn(async () => "fresh");
+    const fresh = scheduler.schedule(request("fresh", "visible"), freshExecute);
+    await expect(fresh.promise).resolves.toBe("fresh");
+    expect(freshExecute).toHaveBeenCalledOnce();
+  });
 });
 
 function request(id: string, priority: "action" | "foreground" | "visible" | "background" | "maintenance") {
