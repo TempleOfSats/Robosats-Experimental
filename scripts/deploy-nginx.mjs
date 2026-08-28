@@ -128,6 +128,16 @@ function verifyLiveServerSecurity(source) {
       throw new Error("Active Nginx location omits the shared security headers.");
     }
   }
+
+  // nginx -T inlines every include, so a types block is present iff the
+  // active config defines MIME types. Without it, scripts, styles, and
+  // images fall back to application/octet-stream and the nosniff policy
+  // makes browsers refuse to load the application.
+  if (!/\btypes\s*\{/.test(source)) {
+    throw new Error(
+      "Active Nginx config has no MIME types. Add `include /etc/nginx/mime.types;` to the http context before deploying."
+    );
+  }
 }
 
 function findContainingServer(lines, targetLine) {
