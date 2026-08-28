@@ -31,9 +31,24 @@ export async function wrapLnProxyInvoice(server: LnProxyServer, invoice: string,
         ...(routingSats > 0 ? { routing_msat: String(Math.floor(routingSats * 1000)) } : {})
       })
     }, 30_000);
-    const data = JSON.parse(response.body) as { proxy_invoice?: unknown; reason?: unknown };
-    if (response.status < 200 || response.status >= 300 || typeof data.proxy_invoice !== "string") {
-      throw new Error(typeof data.reason === "string" ? data.reason : `LNProxy returned HTTP ${response.status}`);
+    const data = parseLnProxyResponse(response.body, response.status);
+    const proxyInvoice = typeof data.proxy_invoice === "string" ? data.proxy_invoice.trim() : "";
+    if (response.status < 200 || response.status >= 300 || !proxyInvoice) {
+      const fallback = response.status < 200 || response.status >= 300
+        ? `LNProxy returned HTTP ${response.status}`
+        : "LNProxy returned an invalid response.";
+      throw new Error(typeof data.reason === "string" ? data.reason : fallback);
     }
-    return data.proxy_invoice;
+    return proxyInvoice;
+}
+
+function parseLnProxyResponse(body: string, status: number): { proxy_invoice?: unknown; reason?: unknown } {
+  try {
+    const data: unknown = JSON.parse(body);
+    if (data && typeof data === "object") return data;
+  } catch {
+    // The stable message below is more useful than exposing JSON parser details.
+  }
+  if (status < 200 || status >= 300) throw new Error(`LNProxy returned HTTP ${status}`);
+  throw new Error("LNProxy returned an invalid response.");
 }

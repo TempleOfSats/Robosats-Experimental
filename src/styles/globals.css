@@ -243,7 +243,7 @@
   --control-selected-background: var(--surface-subtle);
   --control-selected-indicator: var(--brand-amber-ink);
   --control-disabled-background: var(--surface-subtle);
-  --control-disabled-border: var(--border-subtle);
+  --control-disabled-border: var(--border-default);
   --selection-background: var(--interactive-selected);
   --selection-indicator: var(--secondary);
   --overlay-scrim: rgb(33 26 22 / 38%);

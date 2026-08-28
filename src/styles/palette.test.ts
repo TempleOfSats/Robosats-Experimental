@@ -2,6 +2,10 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const css = readFileSync(new URL("./globals.css", import.meta.url), "utf8");
+const componentsCss = readFileSync(new URL("./components.css", import.meta.url), "utf8");
+const guidedTradeCss = readFileSync(new URL("./guidedTrade.css", import.meta.url), "utf8");
+const layoutCss = readFileSync(new URL("./layout.css", import.meta.url), "utf8");
+const orderbookCss = readFileSync(new URL("./orderbook.css", import.meta.url), "utf8");
 
 function variablesFor(selector: string) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -9,6 +13,11 @@ function variablesFor(selector: string) {
   return Object.fromEntries(
     [...block.matchAll(/--([\w-]+):\s*([^;]+);/g)].map((match) => [match[1], match[2].trim()]),
   );
+}
+
+function ruleBody(source: string, selector: string) {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return source.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`))?.[1] ?? "";
 }
 
 const dark = variablesFor(":root");
@@ -48,6 +57,8 @@ const textPairs = [
   ["text-secondary", "surface"],
   ["text-supporting", "surface"],
   ["brand-amber-foreground", "brand-amber"],
+  ["brand-amber-ink", "canvas"],
+  ["brand-amber-ink", "surface"],
   ["success-foreground", "success-surface"],
   ["danger-foreground", "danger-surface"],
   ["warning-foreground", "warning-surface"],
@@ -109,4 +120,29 @@ it.each([
   expect(resolve(tokens, "direction-buy")).not.toBe(resolve(tokens, "success"));
   expect(resolve(tokens, "direction-sell")).not.toBe(resolve(tokens, "pending-surface"));
   expect(resolve(tokens, "trade-action-required")).toBe(resolve(tokens, "warning"));
+});
+
+it("uses readable brand ink for compact accent text", () => {
+  expect(ruleBody(layoutCss, ".app-eyebrow")).toContain("color: var(--brand-amber-ink)");
+  expect(ruleBody(guidedTradeCss, ".orderbook-guided-trade-link-primary")).toContain(
+    "color: var(--brand-amber-ink)",
+  );
+});
+
+it("reserves strong borders for interactive orderbook controls", () => {
+  expect(ruleBody(orderbookCss, ".select-shell")).toContain(
+    "border: 1px solid var(--control-border)",
+  );
+  expect(ruleBody(orderbookCss, ".image-select-button")).toContain(
+    "border: 1px solid var(--control-border)",
+  );
+  expect(
+    ruleBody(componentsCss, ':root[data-theme="light"] .bg-muted:not(:disabled)'),
+  ).toContain("border-color: var(--control-border)");
+});
+
+it("does not double-dim disabled buttons in the light theme", () => {
+  expect(ruleBody(componentsCss, ':root[data-theme="light"] .ui-button:disabled')).toContain(
+    "opacity: 1",
+  );
 });

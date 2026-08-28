@@ -681,7 +681,7 @@
 
 .app-eyebrow {
   margin: 0 0 0.25rem;
-  color: var(--primary);
+  color: var(--brand-amber-ink);
   font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: 0;

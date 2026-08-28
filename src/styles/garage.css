@@ -640,6 +640,64 @@
   min-height: 15.5rem;
 }
 
+.robot-required-notice {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.8rem;
+  margin-bottom: 1rem;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-md);
+  background: var(--layer-muted);
+  padding: 0.75rem 0.85rem;
+}
+
+.robot-required-copy {
+  min-width: 0;
+  display: grid;
+  gap: 0.12rem;
+}
+
+.robot-required-copy strong {
+  color: var(--foreground);
+  font-size: var(--type-compact-size);
+  line-height: var(--type-compact-line);
+}
+
+.robot-required-copy > span {
+  color: var(--muted-foreground);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
+}
+
+.robot-required-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.confirm-sheet.quick-robot-setup-dialog {
+  width: min(100%, 32rem);
+  padding: 0;
+}
+
+.quick-robot-setup-dialog .robot-wizard {
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+}
+
+.quick-robot-setup-dialog .robot-setup-panel {
+  padding: 2.75rem 1.5rem 1.5rem;
+}
+
+.quick-robot-setup-close {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  z-index: 2;
+}
+
 .robot-setup-panel {
   min-width: 0;
   display: grid;
@@ -731,6 +789,15 @@
 }
 
 @media (max-width: 430px) {
+  .robot-required-notice {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .robot-required-actions .ui-button:first-child {
+    flex: 1;
+  }
+
   .robot-backup-actions {
     grid-template-columns: minmax(0, 1fr);
   }

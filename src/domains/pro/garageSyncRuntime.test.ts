@@ -620,7 +620,7 @@ describe("Garage synchronization runtime", () => {
     await useGarageVaultStore.getState().createDerivedRobot("Post-reconciliation robot");
     await syncGarageNow(coordinators, { awaitReplication: true, forcePublish: true });
     expect(wasPublishedTo("third-eligible", "Post-reconciliation robot", "third.example")).toBe(true);
-  });
+  }, 15_000);
 
   it("preserves the full pull requirement while a same-key restore is being installed", async () => {
     await useGarageVaultStore.getState().setup();

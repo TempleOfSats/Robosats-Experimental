@@ -32,6 +32,7 @@ vi.mock("@/domains/nostr/sharedRelayPool", () => ({
 
 import {
   buildNostrRelayUrl,
+  compactNostrOrderbookEvents,
   fetchNostrOrderbook,
   nostrEventToPublicOrder,
   nostrEventsToPublicOrders,
@@ -136,6 +137,68 @@ describe("nostr orderbook", () => {
     });
 
     expect(nostrEventsToPublicOrders([testnetCanceled, pending], [coordinator], "mainnet")).toHaveLength(1);
+  });
+
+  it("compacts retained events to the latest update for each order and network", () => {
+    const pending = event({
+      created_at: 10,
+      id: "pending",
+      tags: baseTags({ status: "pending", network: "mainnet" })
+    });
+    const canceled = event({
+      created_at: 11,
+      id: "canceled",
+      tags: baseTags({ status: "canceled", network: "mainnet" })
+    });
+    const testnet = event({
+      created_at: 12,
+      id: "testnet",
+      tags: baseTags({ status: "pending", network: "testnet" })
+    });
+
+    expect(compactNostrOrderbookEvents([pending, canceled, testnet], 20, 10).map((item) => item.id)).toEqual([
+      "testnet",
+      "canceled"
+    ]);
+  });
+
+  it("drops stale retained events and keeps the newest entries within its cap", () => {
+    const now = 200_000;
+    const fresh = Array.from({ length: 5 }, (_, index) =>
+      event({
+        created_at: now - index,
+        id: `fresh-${index}`,
+        tags: baseTags({ orderId: 90_000 + index })
+      })
+    );
+    const stale = event({
+      created_at: now - 30 * 60 * 60 - 1,
+      id: "stale",
+      tags: baseTags({ orderId: 80_000 })
+    });
+
+    expect(compactNostrOrderbookEvents([...fresh, stale], now, 3).map((item) => item.id)).toEqual([
+      "fresh-0",
+      "fresh-1",
+      "fresh-2"
+    ]);
+  });
+
+  it("does not let unusable events crowd a valid order out of retained state", () => {
+    const valid = event({
+      created_at: 10,
+      id: "valid",
+      tags: baseTags({ status: "pending" })
+    });
+    const unusable = Array.from({ length: 5 }, (_, index) =>
+      event({
+        created_at: 20 + index,
+        id: `missing-d-${index}`,
+        tags: [["network", "mainnet"]]
+      })
+    );
+
+    expect(compactNostrOrderbookEvents([valid, ...unusable], 30, 1).map((item) => item.id)).toEqual(["valid"]);
   });
 
   it("derives the relay URL from the selected coordinator URL", () => {
@@ -552,9 +615,17 @@ describe("nostr orderbook", () => {
   });
 });
 
-function baseTags({ status, network = "mainnet" }: { status: string; network?: string }): string[][] {
+function baseTags({
+  status = "pending",
+  network = "mainnet",
+  orderId = 123
+}: {
+  status?: string;
+  network?: string;
+  orderId?: number;
+}): string[][] {
   return [
-    ["d", "order:123"],
+    ["d", `order:${orderId}`],
     ["s", status],
     ["network", network],
     ["k", "buy"],
@@ -564,7 +635,7 @@ function baseTags({ status, network = "mainnet" }: { status: string; network?: s
     ["premium", "1.5"],
     ["pm", "SEPA"],
     ["f", "EUR"],
-    ["source", "http://example.onion/order/lake/123"],
+    ["source", `http://example.onion/order/lake/${orderId}`],
     ["y", "robosats", "lake"]
   ];
 }

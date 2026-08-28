@@ -83,7 +83,7 @@ import { isNativeApp } from "@/domains/transport/androidBridge";
 import { useTorConnection } from "@/domains/transport/torConnection";
 import { registerVisibleTrade } from "@/domains/notifications/orderFeedbackVisibility";
 import { AppTransitionDialog } from "@/domains/navigation/AppTransitionFeedback";
-import { ColdOrderLoadState } from "@/domains/orders/OrderLoadState";
+import { OrderPageLoadState } from "@/domains/orders/OrderLoadState";
 import { OrderDetailsPanel, shouldOpenOrderDetailsByDefault } from "@/domains/orders/OrderDetailsPanel";
 import { TradeProgress } from "@/domains/orders/TradeProgress";
 import { CompletedTradePanel } from "@/domains/orders/CompletedTradePanel";
@@ -108,7 +108,7 @@ export function OrderPage({
   const [searchParams] = useSearchParams();
   const params = useParams();
   const shortAlias = embeddedLocator?.shortAlias ?? params.shortAlias ?? "local";
-  const orderId = embeddedLocator?.orderId ?? Number(params.orderId ?? 0);
+  const { orderId, valid: validOrderId } = normalizeOrderId(embeddedLocator?.orderId, params.orderId);
   const coordinators = useFederationStore((state) => state.coordinators);
   const slots = useGarageStore((state) => state.slots);
   const currentToken = useGarageStore((state) => state.currentToken);
@@ -159,9 +159,9 @@ export function OrderPage({
   const visibleError = orderPageError(actionError, loadFailure);
 
   useLayoutEffect(() => {
-    if (previewOrder || orderId < 1 || shortAlias === "local") return;
+    if (previewOrder || !validOrderId || shortAlias === "local") return;
     return registerVisibleTrade(shortAlias, orderId, currentSlotId);
-  }, [currentSlotId, orderId, previewOrder, shortAlias]);
+  }, [currentSlotId, orderId, previewOrder, shortAlias, validOrderId]);
 
   useEffect(() => {
     loadedOrderRef.current = loadedOrder;
@@ -200,7 +200,7 @@ export function OrderPage({
   }, [clearOrder, coordinatorRefreshKey, currentSlotId, loadIdentityKey, orderId, previewOrder, shortAlias]);
 
   useEffect(() => {
-    if (previewOrder || !coordinator || !orderId) return;
+    if (previewOrder || !validOrderId || !coordinator) return;
     if (!loadedOrderRef.current) setLoadRecoveryPhase("loading");
     const recovery = registerOrderLoadRecovery({
       activeDelayMs: () => loadedOrderRefreshDelay(loadedOrderRef.current),
@@ -225,7 +225,7 @@ export function OrderPage({
       recovery.dispose();
       loadRecovery.current = undefined;
     };
-  }, [coordinatorRefreshKey, currentSlotId, loadOrder, orderId, previewOrder, shortAlias]);
+  }, [coordinatorRefreshKey, currentSlotId, loadOrder, orderId, previewOrder, shortAlias, validOrderId]);
 
   useEffect(() => {
     loadRecovery.current?.reschedule();
@@ -286,13 +286,15 @@ export function OrderPage({
 
   if (!visibleOrder) {
     return (
-      <ColdOrderLoadState
+      <OrderPageLoadState
         failure={loadFailure}
         orderId={orderId}
         phase={loadRecoveryPhase}
         reconnectingTor={torConnection.reconnectState === "reconnecting"}
         torReconnectAvailable={torConnection.canReconnect}
         torReconnectFailed={torConnection.reconnectState === "failed"}
+        validOrderId={validOrderId}
+        onBrowseOffers={() => navigate("/offers", { replace: true })}
         onReconnectTor={() => void torConnection.reconnect()}
         onRetry={() => loadRecovery.current?.retry()}
       />
@@ -487,6 +489,13 @@ export function OrderPage({
       </section>
     </main>
   );
+}
+
+function normalizeOrderId(embeddedOrderId: number | undefined, routeOrderId: string | undefined) {
+  const routeValue = routeOrderId ?? "";
+  const parsed = embeddedOrderId ?? (/^[1-9]\d*$/.test(routeValue) ? Number(routeValue) : Number.NaN);
+  const valid = Number.isSafeInteger(parsed) && parsed >= 1;
+  return { orderId: valid ? parsed : 0, valid };
 }
 
 function loadedOrderRefreshDelay(order: OrderDto | undefined): number | undefined {

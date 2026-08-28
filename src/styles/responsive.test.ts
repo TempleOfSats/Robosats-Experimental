@@ -77,4 +77,13 @@ describe("compact orderbook filters", () => {
     expect(filters).toMatch(/grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\);/);
     expect(wideFilter).toMatch(/grid-column:\s*auto;/);
   });
+
+  it("keeps mobile sort controls visibly bounded", () => {
+    const compactCss = atRuleBody(responsiveCss, "@media (max-width: 900px)");
+    const sortButton = ruleBody(compactCss, ".offer-mobile-sort-button");
+    const activeSortButton = ruleBody(compactCss, ".offer-mobile-sort-button-active");
+
+    expect(sortButton).toMatch(/border:\s*1px solid var\(--control-border\);/);
+    expect(activeSortButton).toMatch(/border-color:\s*var\(--control-selected-indicator\);/);
+  });
 });

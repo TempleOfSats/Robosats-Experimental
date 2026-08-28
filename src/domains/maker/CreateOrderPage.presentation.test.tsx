@@ -45,6 +45,35 @@ afterEach(async () => {
 });
 
 describe("Create order presentation", () => {
+  it("offers inline robot setup without duplicating the missing-robot error", async () => {
+    root = createRoot(document.querySelector("#root")!);
+    await act(async () => {
+      root?.render(
+        <MemoryRouter>
+          <CreateOrderPage />
+        </MemoryRouter>
+      );
+      await Promise.resolve();
+    });
+
+    expect(document.querySelectorAll(".robot-required-notice")).toHaveLength(1);
+    expect(document.body.textContent).toContain("Create robot");
+    expect(document.body.textContent).toContain("Garage");
+
+    await click(stepButton("Continue"));
+    expect(document.querySelectorAll(".robot-required-notice")).toHaveLength(1);
+    expect(document.querySelector(".maker-step-error")).toBeNull();
+
+    await act(async () => {
+      stepButton("Create robot").click();
+      await import("@/domains/garage/QuickRobotSetup");
+    });
+    await vi.waitFor(() => {
+      expect(document.querySelector('[aria-label="Create or restore a robot"]')).not.toBeNull();
+    });
+    expect(document.body.textContent).toContain("Create a new robot");
+  });
+
   it("presents review as a summary and marks backward and forward step changes", async () => {
     root = createRoot(document.querySelector("#root")!);
     await act(async () => {

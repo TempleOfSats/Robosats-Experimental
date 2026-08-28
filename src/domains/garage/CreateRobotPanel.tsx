@@ -14,9 +14,11 @@ import { playHaptic } from "@/lib/haptics";
 type WizardStep = "start" | "recover" | "backup" | "identity";
 
 export function CreateRobotPanel({
+  onComplete,
   onFleetRecovery,
   onProfile
 }: {
+  onComplete?: () => void;
   onFleetRecovery?: (fleetKey: string) => void;
   onProfile?: () => void;
 }) {
@@ -76,8 +78,9 @@ export function CreateRobotPanel({
       setError("Enter a robot token first.");
       return;
     }
-    if (isProFleetToken(cleanToken) && onFleetRecovery) {
-      onFleetRecovery(cleanToken);
+    if (isProFleetToken(cleanToken)) {
+      if (onFleetRecovery) onFleetRecovery(cleanToken);
+      else setError("This is a Fleet recovery key. Restore it from Pro Desk.");
       return;
     }
 
@@ -133,7 +136,8 @@ export function CreateRobotPanel({
     if (!saved) return;
     requestRobotDataRefresh();
     onProfile?.();
-    navigate("/garage");
+    if (onComplete) onComplete();
+    else navigate("/garage");
   };
 
   const copyToken = async () => {

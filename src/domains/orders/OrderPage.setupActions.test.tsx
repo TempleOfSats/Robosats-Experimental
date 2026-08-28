@@ -2,7 +2,7 @@
 
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { OrderPage } from "@/domains/orders/OrderPage";
 
@@ -21,6 +21,26 @@ afterEach(async () => {
 });
 
 describe("setup cancellation actions", () => {
+  it.each(["abc", "0", "1.5", "9007199254740992"])(
+    "terminates an invalid %s order route without showing the loading skeleton",
+    async (orderId) => {
+      root = createRoot(document.querySelector("#root")!);
+      await act(async () => {
+        root?.render(
+          <MemoryRouter initialEntries={[`/order/lake/${orderId}`]}>
+            <Routes>
+              <Route path="/order/:shortAlias/:orderId" element={<OrderPage />} />
+            </Routes>
+          </MemoryRouter>
+        );
+      });
+
+      expect(document.body.textContent).toContain("Invalid trade link");
+      expect(document.body.textContent).toContain("Browse offers");
+      expect(document.querySelector('[aria-label="Loading trade"]')).toBeNull();
+    }
+  );
+
   it.each(["setup-buyer", "setup-seller"])("renders Cancel order in the %s flow", async (scenario) => {
     root = createRoot(document.querySelector("#root")!);
     await act(async () => {

@@ -241,7 +241,11 @@ class MainActivity : AppCompatActivity() {
 
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val uri = request.url
-                if (uri.host == APP_ASSET_HOST) return false
+                if (uri.scheme.equals("https", ignoreCase = true) && uri.host == APP_ASSET_HOST) return false
+                if (!isAllowedExternalScheme(uri.scheme)) {
+                    Log.w("RoboSatsWebView", "Blocked external URL scheme: ${uri.scheme}")
+                    return true
+                }
                 openExternal(uri)
                 return true
             }
@@ -623,6 +627,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openExternal(uri: Uri) {
+        if (!isAllowedExternalScheme(uri.scheme)) return
         runCatching { startActivity(Intent(Intent.ACTION_VIEW, uri)) }
             .onFailure { Log.w("RoboSatsWebView", "No app can open $uri", it) }
     }

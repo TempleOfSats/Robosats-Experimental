@@ -1622,8 +1622,8 @@
 
 .maker-coordinator-detail-button:hover:not(:disabled),
 .maker-coordinator-detail-button:focus-visible {
-  border-color: var(--primary);
-  color: var(--primary);
+  border-color: var(--control-selected-indicator);
+  color: var(--brand-amber-ink);
 }
 
 .maker-coordinator-detail-button:focus-visible {
@@ -1681,7 +1681,7 @@
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--primary);
+  color: var(--brand-amber-ink);
   padding: 0.3rem 0.45rem;
   cursor: pointer;
   font: inherit;
