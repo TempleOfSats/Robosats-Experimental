@@ -101,6 +101,16 @@ describe("direct Nginx deployment", () => {
     ).toBeGreaterThan(reload);
   });
 
+  it("rejects a live server config without MIME types", () => {
+    const fixture = createFixture({ activeHasMimeTypes: false });
+    const result = runDeploy(fixture);
+    const commands = readFileSync(fixture.commandLog, "utf8").trim().split("\n");
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("Active Nginx config has no MIME types");
+    expect(commands).not.toContain(`mv ${fixture.target}.next-${result.pid} ${fixture.target}`);
+  });
+
   it("rejects a live server config that omits the shared headers", () => {
     const fixture = createFixture({ activeIncludesSecurityHeaders: false });
     const result = runDeploy(fixture);
@@ -133,6 +143,7 @@ describe("direct Nginx deployment", () => {
 });
 
 function createFixture({
+  activeHasMimeTypes = true,
   activeIncludesSecurityHeaders = true,
   activeLocationIncludesSecurityHeaders = true,
   conflictingHeader = false,
@@ -193,8 +204,11 @@ function createFixture({
 
   const liveInclude = activeIncludesSecurityHeaders ? `    include ${headersTarget};\n` : "";
   const liveLocationInclude = activeLocationIncludesSecurityHeaders ? `      include ${headersTarget};\n` : "";
+  const liveMimeTypes = activeHasMimeTypes
+    ? "  types {\n    text/html html;\n    application/javascript js;\n    image/svg+xml svg;\n  }\n"
+    : "";
   const liveNginxConfig =
-    `events {}\nhttp {\n  server {\n    root ${target};\n${liveInclude}` +
+    `events {}\nhttp {\n${liveMimeTypes}  server {\n    root ${target};\n${liveInclude}` +
     `    location / {\n${liveLocationInclude}    }\n  }\n}\n`;
 
   return { commandLog, fakeBin, headersTarget, liveNginxConfig, root, target };
