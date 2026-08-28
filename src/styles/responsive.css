@@ -237,7 +237,7 @@
     align-items: center;
     justify-content: center;
     gap: 0.35rem;
-    border: 1px solid var(--border);
+    border: 1px solid var(--control-border);
     border-radius: var(--radius-sm);
     color: var(--muted-foreground);
     background: color-mix(in srgb, var(--card) 84%, var(--muted));
@@ -248,7 +248,7 @@
   }
 
   .offer-mobile-sort-button-active {
-    border-color: color-mix(in srgb, var(--primary) 72%, var(--border));
+    border-color: var(--control-selected-indicator);
     color: var(--foreground);
     background: color-mix(in srgb, var(--primary) 12%, var(--card));
   }

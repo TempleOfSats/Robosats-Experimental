@@ -27,6 +27,8 @@ const MIN_SECONDARY_SILENCE_MS = 30_000;
 const MAX_SECONDARY_SILENCE_MS = 45_000;
 const SESSION_IDLE_TIMEOUT_MS = 120000;
 const RELAY_FAILURE_COOLDOWN_MS = 10 * 60 * 1000;
+const MAX_RETAINED_EVENTS = 5_000;
+const RETAINED_EVENTS_AFTER_COMPACTION = 4_000;
 
 export interface NostrOrderbookOptions {
   hostUrl?: string;
@@ -340,6 +342,15 @@ class NostrOrderbookSession {
       recordRelayPerformance(relay, "first-event", Date.now() - (this.relayStartedAt.get(relayIndex) ?? Date.now()));
     }
     this.events.set(event.id, event);
+    if (this.events.size > MAX_RETAINED_EVENTS) {
+      const retained = compactNostrOrderbookEvents(
+        [...this.events.values()],
+        Math.floor(Date.now() / 1000),
+        RETAINED_EVENTS_AFTER_COMPACTION
+      );
+      this.events.clear();
+      retained.forEach((item) => this.events.set(item.id, item));
+    }
     if (!this.receivedUsefulEvent) {
       this.receivedUsefulEvent = true;
       this.clearFallbackTimers();
@@ -513,6 +524,35 @@ export function nostrEventsToPublicOrders(
     });
 
   return [...orders.values()];
+}
+
+export function compactNostrOrderbookEvents(
+  events: Event[],
+  nowSeconds: number,
+  limit = RETAINED_EVENTS_AFTER_COMPACTION
+): Event[] {
+  const cutoff = nowSeconds - SNAPSHOT_LOOKBACK_SECONDS;
+  const latest = new Map<string, Event>();
+
+  events.forEach((event) => {
+    if (event.created_at < cutoff) return;
+    const dTag = tagValue(event, "d");
+    if (!dTag) return;
+    const network = tagValue(event, "network") ?? "";
+    const key = `${event.pubkey}:${event.kind}:${network}:${dTag}`;
+    const current = latest.get(key);
+    if (
+      !current ||
+      event.created_at > current.created_at ||
+      (event.created_at === current.created_at && event.id < current.id)
+    ) {
+      latest.set(key, event);
+    }
+  });
+
+  return [...latest.values()]
+    .sort((left, right) => right.created_at - left.created_at || left.id.localeCompare(right.id))
+    .slice(0, Math.max(1, limit));
 }
 
 export function nostrEventToPublicOrder(

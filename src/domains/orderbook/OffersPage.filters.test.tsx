@@ -2,7 +2,7 @@
 
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter } from "react-router-dom";
+import { BrowserRouter, MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
@@ -71,6 +71,7 @@ beforeEach(() => {
   nostrOrderbook.subscribe.mockClear();
   nativeRuntime.isNativeApp.mockReset();
   nativeRuntime.isNativeApp.mockReturnValue(false);
+  window.history.replaceState(null, "", "/");
 });
 
 afterEach(async () => {
@@ -81,6 +82,35 @@ afterEach(async () => {
 });
 
 describe("OffersPage filters", () => {
+  it("offers inline robot setup when reviewing an offer without a robot", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter>
+          <OffersPage />
+        </MemoryRouter>
+      );
+    });
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(".offer-row")?.click();
+    });
+
+    expect(document.querySelector(".take-offer-sheet .robot-required-notice")).not.toBeNull();
+    expect(document.querySelector(".take-offer-sheet")?.textContent).toContain("Create robot");
+    expect(document.querySelector(".take-offer-sheet")?.textContent).toContain("Garage");
+
+    const createRobot = [...document.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.trim() === "Create robot"
+    );
+    await act(async () => {
+      createRobot?.click();
+      await import("@/domains/garage/QuickRobotSetup");
+    });
+    await vi.waitFor(() => {
+      expect(document.querySelector('[aria-label="Create or restore a robot"]')).not.toBeNull();
+    });
+  });
+
   it("resets payment method when currency changes, but not currency when payment method changes", async () => {
     await act(async () => {
       root.render(
@@ -383,7 +413,47 @@ describe("OffersPage filters", () => {
       vi.useRealTimers();
     }
   });
+
+  it("keeps a guided match review open while consuming its one-time navigation state", async () => {
+    const reviewOrder = order({ id: 88, amount: 250, currency: 2, currencyCode: "EUR" });
+    useOrderbookStore.setState({ orders: [] });
+    window.history.replaceState(
+      {
+        idx: 0,
+        key: "guided-launch",
+        usr: {
+          guidedTradeLaunch: {
+            criteria: { amount: 250, currency: "EUR", intent: "buy", paymentMethod: "Wise" },
+            returnTo: "/garage",
+            reviewOrder
+          }
+        }
+      },
+      "",
+      "/offers"
+    );
+
+    await act(async () => {
+      root.render(
+        <BrowserRouter>
+          <RouteKeyedOffersPage />
+        </BrowserRouter>
+      );
+    });
+
+    await act(async () => {
+      await vi.waitFor(() => expect(document.querySelector(".take-offer-sheet")).not.toBeNull());
+    });
+    expect(document.querySelector(".take-offer-sheet")?.textContent).toContain("250");
+    expect(document.querySelector(".take-offer-sheet")?.textContent).toContain("EUR");
+    expect(window.history.state.usr).toBeNull();
+  });
 });
+
+function RouteKeyedOffersPage() {
+  const location = useLocation();
+  return <OffersPage key={location.key} />;
+}
 
 function input(label: string): HTMLInputElement {
   const element = container.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`);

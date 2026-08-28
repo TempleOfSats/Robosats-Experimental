@@ -16,7 +16,9 @@ import { startOrderFeedbackRuntime } from "@/domains/notifications/orderFeedback
 import { AppErrorBoundary } from "@/components/app/AppErrorBoundary";
 import { startDisputeRewardRefreshRuntime } from "@/domains/rewards/disputeRewardRefresh";
 import { installNativeTransportLifecycle } from "@/domains/transport/nativeTransportLifecycle";
+import { installAssetLoadRecovery } from "@/app/assetLoadRecovery";
 
+installAssetLoadRecovery(import.meta.url);
 initializeDesktopRuntimeBridge();
 installRefreshIntentLifecycle();
 installNativeTransportLifecycle();

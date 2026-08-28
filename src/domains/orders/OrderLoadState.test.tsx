@@ -1,8 +1,17 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { ColdOrderLoadState } from "@/domains/orders/OrderLoadState";
+import { ColdOrderLoadState, InvalidOrderLoadState } from "@/domains/orders/OrderLoadState";
 
 describe("cold order loading", () => {
+  it("shows a terminal action instead of a loading state for an invalid trade link", () => {
+    const html = renderToStaticMarkup(<InvalidOrderLoadState onBrowseOffers={vi.fn()} />);
+
+    expect(html).toContain("Invalid trade link");
+    expect(html).toContain("Browse offers");
+    expect(html).not.toContain("Loading trade");
+    expect(html).not.toContain("Retry");
+  });
+
   it("offers a neutral retry state after a transient failure", () => {
     const html = renderToStaticMarkup(
       <ColdOrderLoadState

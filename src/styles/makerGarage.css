@@ -1159,7 +1159,7 @@
 }
 
 .maker-review-heading p {
-  color: var(--primary);
+  color: var(--brand-amber-ink);
   font-size: var(--type-caption-size);
   line-height: var(--type-caption-line);
   font-weight: 700;
@@ -1534,5 +1534,5 @@
 }
 
 .text-command:hover {
-  color: var(--primary);
+  color: var(--brand-amber-ink);
 }

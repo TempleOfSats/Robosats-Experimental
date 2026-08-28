@@ -15,6 +15,39 @@ type ColdOrderLoadStateProps = {
   onRetry(): void;
 };
 
+type OrderPageLoadStateProps = ColdOrderLoadStateProps & {
+  validOrderId: boolean;
+  onBrowseOffers(): void;
+};
+
+export function OrderPageLoadState({ validOrderId, onBrowseOffers, ...loadState }: OrderPageLoadStateProps) {
+  if (!validOrderId) return <InvalidOrderLoadState onBrowseOffers={onBrowseOffers} />;
+  return <ColdOrderLoadState {...loadState} />;
+}
+
+export function InvalidOrderLoadState({ onBrowseOffers }: { onBrowseOffers(): void }) {
+  return (
+    <main className="page page-trade">
+      <div className="page-heading">
+        <div>
+          <p className="app-eyebrow">Trade link</p>
+          <h2>Invalid trade link</h2>
+          <p>This link does not contain a valid order number.</p>
+        </div>
+      </div>
+      <div className="status-panel status-panel-warning order-error-panel" role="alert">
+        <AlertTriangle size={18} />
+        <span>Check the complete link or return to the order book.</span>
+      </div>
+      <div className="order-load-recovery-actions">
+        <Button type="button" onClick={onBrowseOffers}>
+          Browse offers
+        </Button>
+      </div>
+    </main>
+  );
+}
+
 export function ColdOrderLoadState({
   failure,
   orderId,

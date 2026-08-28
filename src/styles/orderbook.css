@@ -434,13 +434,13 @@
   gap: 0.45rem;
   color: var(--foreground);
   background: var(--input);
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-md);
   padding: 0 0.55rem;
 }
 
 .select-shell:focus-within {
-  outline: 2px solid var(--primary);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -462,7 +462,7 @@
   gap: 0.45rem;
   color: var(--foreground);
   background: var(--input);
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-md);
   cursor: pointer;
   list-style: none;
@@ -492,7 +492,7 @@
 }
 
 .image-select-open .image-select-button {
-  border-color: var(--primary);
+  border-color: var(--control-selected-indicator);
 }
 
 .image-select-combo {
@@ -504,7 +504,7 @@
   gap: 0.45rem;
   color: var(--foreground);
   background: var(--input);
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-md);
   padding: 0 0.7rem;
   transition:
@@ -518,7 +518,7 @@
 }
 
 .image-select-open .image-select-combo {
-  border-color: var(--primary);
+  border-color: var(--control-selected-indicator);
 }
 
 .orderbook-table-card .image-select-open .image-select-button,

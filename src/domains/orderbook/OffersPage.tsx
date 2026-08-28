@@ -42,6 +42,8 @@ import {
   type RobotSlot
 } from "@/domains/garage/garageStore";
 import { getRobotOrderAvailability } from "@/domains/garage/robotAvailability";
+import { RobotRequiredActions } from "@/domains/garage/RobotRequiredActions";
+import { QuickRobotSetupPortal } from "@/domains/garage/QuickRobotSetupPortal";
 import { reserveRobotOrderAction, revalidateRobotForNewOrder } from "@/domains/orders/robotOrderGuard";
 import { downloadRobotTokenBackup } from "@/domains/garage/tokenBackup";
 import { ingestCoordinatorOrder } from "@/domains/orders/orderActivity";
@@ -102,6 +104,10 @@ type DirectOfferLaunch = {
 type OffersLocationState = {
   directOfferLaunch?: DirectOfferLaunch;
   guidedTradeLaunch?: GuidedTradeLaunch;
+};
+type RobotSetupActions = {
+  onCreateRobot: () => void;
+  onOpenGarage: () => void;
 };
 
 const pageSize = 13;
@@ -180,10 +186,17 @@ export function OffersPage() {
   const [guidedReviewOpened, setGuidedReviewOpened] = useState(false);
   const [directReviewOpened, setDirectReviewOpened] = useState(false);
   const [f2fOffersMapOpen, setF2FOffersMapOpen] = useState(false);
+  const [quickRobotSetupOpen, setQuickRobotSetupOpen] = useState(false);
   const standardSlots = useMemo(() => selectStandardGarageSlots(garageSlots), [garageSlots]);
   const activeOrders = useMemo(() => activePublicOrders(orders, nowMs), [nowMs, orders]);
   const cashF2FOffers = useMemo(() => selectCashF2FOffers(activeOrders), [activeOrders]);
   const activeSlot = selectCurrentSlot(standardSlots, currentToken);
+  const robotSetupActions = standardRobotSetupActions(
+    proEnabled,
+    activeSlot,
+    () => setQuickRobotSetupOpen(true),
+    () => navigate("/garage")
+  );
   const standardTakeAvailability = getRobotOrderAvailability(activeSlot);
   const takeRobotUnavailableMessage = proEnabled
     ? undefined
@@ -328,10 +341,12 @@ export function OffersPage() {
     () => visibleOrders.map((order) => order.payment_method).join("|"),
     [visibleOrders]
   );
-  const selectedOrder = selectedOrderKey
-    ? (filteredOrders.find((order) => orderKey(order) === selectedOrderKey) ??
-      (orderKey(directOfferLaunch?.reviewOrder) === selectedOrderKey ? directOfferLaunch?.reviewOrder : undefined))
-    : undefined;
+  const selectedOrder = findSelectedOrder(
+    selectedOrderKey,
+    filteredOrders,
+    guidedLaunch?.reviewOrder,
+    directOfferLaunch?.reviewOrder
+  );
   const selectedCoordinator = selectedOrder
     ? coordinators.find((item) => item.shortAlias === selectedOrder.coordinatorShortAlias)
     : undefined;
@@ -449,16 +464,16 @@ export function OffersPage() {
 
     setGuidedReviewOpened(true);
     openTakeModal(guidedLaunch.reviewOrder, guidedLaunch.criteria.amount);
-    navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
-  }, [guidedLaunch, guidedReviewOpened, location.pathname, location.search, navigate]);
+    consumeCurrentHistoryState();
+  }, [guidedLaunch, guidedReviewOpened]);
 
   useEffect(() => {
     if (!directOfferLaunch || directReviewOpened) return;
 
     setDirectReviewOpened(true);
     openTakeModal(directOfferLaunch.reviewOrder);
-    navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
-  }, [directOfferLaunch, directReviewOpened, location.pathname, location.search, navigate]);
+    consumeCurrentHistoryState();
+  }, [directOfferLaunch, directReviewOpened]);
 
   function closeTakeModal() {
     if (taking) return;
@@ -950,9 +965,19 @@ export function OffersPage() {
           taking={taking}
           preparingTake={takeIntentPending}
           onClose={closeTakeModal}
+          robotSetupActions={robotSetupActions}
           onTake={beginTakeConfirmation}
         />
       ) : null}
+
+      <QuickRobotSetupPortal
+        onClose={() => setQuickRobotSetupOpen(false)}
+        onComplete={() => {
+          setTakeError(undefined);
+          setQuickRobotSetupOpen(false);
+        }}
+        open={quickRobotSetupOpen}
+      />
 
       {takeRobotPickerOpen ? (
         <Suspense
@@ -1151,6 +1176,44 @@ function F2FLocationLoadingDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
+function standardRobotSetupActions(
+  proEnabled: boolean,
+  activeSlot: RobotSlot | undefined,
+  onCreateRobot: () => void,
+  onOpenGarage: () => void
+): RobotSetupActions | undefined {
+  if (proEnabled || activeSlot) return undefined;
+  return { onCreateRobot, onOpenGarage };
+}
+
+function TakeOfferBlockedNotice({
+  blockedReason,
+  robotSetupActions,
+  taking
+}: {
+  blockedReason?: string;
+  robotSetupActions?: RobotSetupActions;
+  taking: boolean;
+}) {
+  if (!blockedReason) return null;
+  if (robotSetupActions) {
+    return (
+      <RobotRequiredActions
+        detail="Create or restore one here, or manage your robots in Garage."
+        onCreateRobot={robotSetupActions.onCreateRobot}
+        onOpenGarage={robotSetupActions.onOpenGarage}
+        title="A robot is needed for this offer"
+      />
+    );
+  }
+  return (
+    <div className="status-panel" hidden={taking}>
+      <AlertCircle size={16} />
+      <span>{blockedReason}</span>
+    </div>
+  );
+}
+
 function TakeOfferModal({
   coordinator,
   error,
@@ -1167,6 +1230,7 @@ function TakeOfferModal({
   taking,
   preparingTake,
   onClose,
+  robotSetupActions,
   onTake
 }: {
   coordinator?: CoordinatorSummary;
@@ -1184,6 +1248,7 @@ function TakeOfferModal({
   taking: boolean;
   preparingTake: boolean;
   onClose: () => void;
+  robotSetupActions?: RobotSetupActions;
   onTake: () => void;
 }) {
   const [showF2FMap, setShowF2FMap] = useState(false);
@@ -1303,12 +1368,7 @@ function TakeOfferModal({
         </label>
       ) : null}
 
-      {blockedReason ? (
-        <div className="status-panel" hidden={taking}>
-          <AlertCircle size={16} />
-          <span>{blockedReason}</span>
-        </div>
-      ) : null}
+      <TakeOfferBlockedNotice blockedReason={blockedReason} robotSetupActions={robotSetupActions} taking={taking} />
       {error ? (
         <div className="status-panel status-panel-warning">
           <AlertCircle size={16} />
@@ -1708,6 +1768,18 @@ function orderKey(order?: PublicOrder): string {
   return order ? `${order.coordinatorShortAlias}-${order.id}` : "";
 }
 
+function findSelectedOrder(
+  selectedKey: string | null,
+  visibleOrders: PublicOrder[],
+  ...launchedOrders: Array<PublicOrder | undefined>
+): PublicOrder | undefined {
+  if (!selectedKey) return undefined;
+  return (
+    visibleOrders.find((order) => orderKey(order) === selectedKey) ??
+    launchedOrders.find((order) => orderKey(order) === selectedKey)
+  );
+}
+
 function formatOfferFiatParts(order: PublicOrder, amountOverride?: number): { amount: string; currency: string } {
   const currency = order.currencyCode ?? String(order.currency);
   if (amountOverride != null) return { amount: formatFiat(amountOverride), currency };
@@ -1765,4 +1837,10 @@ function safeNumber(value: number | string | null | undefined): number {
 function currentHostUrl(): string {
   if (typeof window === "undefined") return "";
   return window.location.host || window.location.hostname;
+}
+
+function consumeCurrentHistoryState(): void {
+  const state = window.history.state;
+  if (!state || typeof state !== "object") return;
+  window.history.replaceState({ ...state, usr: null }, document.title);
 }

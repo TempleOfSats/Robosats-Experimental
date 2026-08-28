@@ -35,13 +35,13 @@
 }
 
 .orderbook-guided-trade-link-primary {
-  color: var(--primary);
+  color: var(--brand-amber-ink);
   background: color-mix(in srgb, var(--primary) 8%, transparent);
 }
 
 .orderbook-guided-trade-link-primary:hover,
 .orderbook-guided-trade-link-primary:focus-visible {
-  color: var(--primary);
+  color: var(--brand-amber-ink);
   background: color-mix(in srgb, var(--primary) 13%, transparent);
 }
 
@@ -541,7 +541,7 @@
 }
 
 .guided-match-amount small {
-  color: var(--primary);
+  color: var(--brand-amber-ink);
   border: 1px solid color-mix(in srgb, var(--primary) 48%, var(--border));
   border-radius: 999px;
   padding: 0.08rem 0.35rem;

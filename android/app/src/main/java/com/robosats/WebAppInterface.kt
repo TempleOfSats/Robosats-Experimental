@@ -376,7 +376,7 @@ class WebAppInterface(
     @JavascriptInterface
     fun openExternal(url: String) {
         val uri = runCatching { url.toUri() }.getOrNull() ?: return
-        if (uri.scheme !in setOf("http", "https", "lightning", "bitcoin")) return
+        if (!isAllowedExternalScheme(uri.scheme)) return
         runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
     }
 

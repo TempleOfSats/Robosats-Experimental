@@ -35,6 +35,8 @@ import { toUserMessage } from "@/lib/userError";
 import { playHaptic } from "@/lib/haptics";
 import { getRobotAuthForCoordinator, selectCurrentSlot, selectStandardGarageSlots, useGarageStore } from "@/domains/garage/garageStore";
 import { getRobotOrderAvailability } from "@/domains/garage/robotAvailability";
+import { RobotRequiredActions } from "@/domains/garage/RobotRequiredActions";
+import { QuickRobotSetupPortal } from "@/domains/garage/QuickRobotSetupPortal";
 import { RobotAvatar } from "@/domains/identity/RobotAvatar";
 import {
   buildCreateOrderPayload,
@@ -82,6 +84,7 @@ const SWAP_PAYMENT_METHODS = swapPaymentMethodOptions();
 const CURRENCIES = currencyOptions();
 const BTC_CURRENCY_ID = 1000;
 const METHOD_SEPARATOR = ", ";
+const STANDARD_ROBOT_REQUIRED_ERROR = "Create or recover a robot before publishing an offer.";
 const wizardSteps = [
   { title: "Side", icon: ReceiptText },
   { title: "Amount", icon: Landmark },
@@ -152,12 +155,14 @@ export function CreateOrderPage() {
   const [submitError, setSubmitError] = useState("");
   const [creatingOfferNotice, setCreatingOfferNotice] = useState(() => renewal?.creatingOfferAs);
   const [presetName, setPresetName] = useState("");
+  const [quickRobotSetupOpen, setQuickRobotSetupOpen] = useState(false);
   const presetNameInput = useRef<HTMLInputElement>(null);
   const loadedPresetId = useRef("");
   const selectableCoordinators = useMemo(() => coordinators.filter((coordinator) => coordinator.shortAlias !== "local" && coordinator.enabled), [coordinators]);
   const offerPresets = useMemo(() => activeOfferPresets(portableManifest), [portableManifest]);
   const presetEditor = proEnabled && Boolean(renewal?.presetEditor);
   const requestedPresetId = renewal?.presetEditor?.id ?? renewal?.presetId;
+  const showSubmitError = shouldShowMakerSubmitError(submitError, activeSlot, proEnabled);
 
   useEffect(() => {
     hydrateGarage();
@@ -305,7 +310,7 @@ export function CreateOrderPage() {
       const errors: string[] = [];
       if (!activeSlot) errors.push(proEnabled
         ? "Choose an available Fleet robot from the Pro Desk."
-        : "Create or recover a robot before publishing an offer.");
+        : STANDARD_ROBOT_REQUIRED_ERROR);
       else if (!robotAvailability.available) errors.push(robotAvailability.message ?? "This robot is not available for another order.");
       if (!selectedCoordinator?.url) errors.push("Choose an available coordinator.");
       if (activeSlot && selectedCoordinator && !auth) errors.push("This robot has no credentials for the selected coordinator.");
@@ -358,7 +363,7 @@ export function CreateOrderPage() {
       return;
     }
     if (!activeSlot || !auth || !selectedCoordinator?.url) {
-      setSubmitError("Create or recover a robot before publishing an offer.");
+      setSubmitError(STANDARD_ROBOT_REQUIRED_ERROR);
       return;
     }
     if (validationErrors.length > 0) {
@@ -496,13 +501,11 @@ export function CreateOrderPage() {
                 />
               ) : null}
               {!presetEditor && !activeSlot ? (
-                <div className="status-panel status-panel-warning maker-inline-warning">
-                  <AlertCircle size={18} />
-                  <span>{proEnabled ? "Choose an available Fleet robot before publishing an offer." : "Create or recover a robot before publishing an offer."}</span>
-                  <Link className="text-command" to={proEnabled ? "/pro" : "/garage"}>
-                    {proEnabled ? "Pro Desk" : "Garage"}
-                  </Link>
-                </div>
+                <MissingMakerRobotNotice
+                  onCreateRobot={() => setQuickRobotSetupOpen(true)}
+                  onOpenGarage={() => navigate("/garage")}
+                  proEnabled={proEnabled}
+                />
               ) : null}
               <div
                 className={`maker-step-frame maker-step-frame-${stepDirection}`}
@@ -556,7 +559,7 @@ export function CreateOrderPage() {
                 ) : null}
               </div>
 
-              {submitError ? (
+              {showSubmitError ? (
                 <div className="status-panel status-panel-warning maker-step-error">
                   <AlertCircle size={18} />
                   <span>{submitError}</span>
@@ -609,7 +612,55 @@ export function CreateOrderPage() {
           </Card>
         </form>
       </section>
+      <QuickRobotSetupPortal
+        onClose={() => setQuickRobotSetupOpen(false)}
+        onComplete={() => {
+          setSubmitError("");
+          setQuickRobotSetupOpen(false);
+        }}
+        open={quickRobotSetupOpen}
+      />
     </main>
+  );
+}
+
+function MissingMakerRobotNotice({
+  onCreateRobot,
+  onOpenGarage,
+  proEnabled
+}: {
+  onCreateRobot: () => void;
+  onOpenGarage: () => void;
+  proEnabled: boolean;
+}) {
+  if (!proEnabled) {
+    return (
+      <RobotRequiredActions
+        detail="Create or restore one here, or manage your robots in Garage."
+        onCreateRobot={onCreateRobot}
+        onOpenGarage={onOpenGarage}
+        title="Choose a trading robot"
+      />
+    );
+  }
+  return (
+    <div className="status-panel status-panel-warning maker-inline-warning">
+      <AlertCircle size={18} />
+      <span>Choose an available Fleet robot before publishing an offer.</span>
+      <Link className="text-command" to="/pro">
+        Pro Desk
+      </Link>
+    </div>
+  );
+}
+
+function shouldShowMakerSubmitError(
+  submitError: string,
+  activeSlot: ReturnType<typeof selectCurrentSlot>,
+  proEnabled: boolean
+): boolean {
+  return Boolean(
+    submitError && !(submitError === STANDARD_ROBOT_REQUIRED_ERROR && !activeSlot && !proEnabled)
   );
 }
 

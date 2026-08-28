@@ -49,6 +49,25 @@ afterEach(async () => {
 });
 
 describe("CreateRobotPanel background key generation", () => {
+  it("returns to an inline caller after robot setup completes", async () => {
+    const onComplete = vi.fn();
+
+    await createRobot(onComplete);
+
+    expect(onComplete).toHaveBeenCalledOnce();
+  });
+
+  it("does not restore a Fleet key through the standard robot path", async () => {
+    await renderPanel();
+    await clickButton("Restore an existing robot");
+    await enterToken("rsgarage1fleetkey");
+    await clickButton("Continue to identity");
+
+    expect(document.body.textContent).toContain("This is a Fleet recovery key. Restore it from Pro Desk.");
+    expect(useGarageStore.getState().slots).toHaveLength(0);
+    expect(document.body.textContent).not.toContain("Enter my Garage");
+  });
+
   it("does not derive keys after the new robot is removed during the delay", async () => {
     await createRobot();
     useGarageStore.getState().removeSlot(testToken);
@@ -70,25 +89,33 @@ describe("CreateRobotPanel background key generation", () => {
   });
 });
 
-async function createRobot(): Promise<void> {
+async function createRobot(onComplete?: () => void): Promise<void> {
+  await renderPanel(onComplete);
+
+  await clickButton("Restore an existing robot");
+  await enterToken(testToken);
+  await clickButton("Continue to identity");
+  await clickButton("Enter my Garage");
+  expect(useGarageStore.getState().slots.some((slot) => slot.token === testToken)).toBe(true);
+}
+
+async function renderPanel(onComplete?: () => void): Promise<void> {
   root = createRoot(document.querySelector("#root")!);
   await act(async () => {
     root?.render(
       <MemoryRouter>
-        <CreateRobotPanel />
+        <CreateRobotPanel onComplete={onComplete} />
       </MemoryRouter>
     );
   });
+}
 
-  await clickButton("Restore an existing robot");
+async function enterToken(token: string): Promise<void> {
   const input = document.querySelector<HTMLInputElement>('input[aria-label="Robot token"]')!;
   await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, testToken);
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, token);
     input.dispatchEvent(new Event("input", { bubbles: true }));
   });
-  await clickButton("Continue to identity");
-  await clickButton("Enter my Garage");
-  expect(useGarageStore.getState().slots.some((slot) => slot.token === testToken)).toBe(true);
 }
 
 async function clickButton(label: string): Promise<void> {

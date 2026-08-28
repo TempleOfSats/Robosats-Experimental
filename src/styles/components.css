@@ -35,6 +35,10 @@
   opacity: 0.72;
 }
 
+:root[data-theme="light"] .ui-button:disabled {
+  opacity: 1;
+}
+
 .ui-button:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
@@ -70,6 +74,10 @@
   background: var(--layer-muted);
   color: var(--foreground);
   border-color: var(--border-subtle);
+}
+
+:root[data-theme="light"] .bg-muted:not(:disabled) {
+  border-color: var(--control-border);
 }
 
 .bg-muted:hover:not(:disabled),
