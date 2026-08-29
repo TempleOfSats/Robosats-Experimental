@@ -102,6 +102,13 @@
 - Coordinator avatars and /static/ resources use generated versioned static path
 - OpenPGP, Nostr, maps, statistics, and robot identity remain lazy-loaded
 
+## Performance and Recovery
+
+- Boot screen recovers with actionable guidance when bundle assets fail to load
+- Robot-setup and vault/Fleet dependencies load on demand at action time instead of eagerly
+- Per-route JavaScript budgets enforced by the production build check; order, settings, and Pro routes stay within their request and transfer limits
+- Recoverable guided orderbook loading with retry; deferred robot avatars
+
 ## Documentation
 
 - Standard Garage and Pro Mode user guides with screenshots
