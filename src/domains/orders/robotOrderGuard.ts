@@ -2,14 +2,9 @@ import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.type
 import type { RobotSlot } from "@/domains/garage/garageStore";
 import { useGarageStore } from "@/domains/garage/garageStore";
 import { getRobotOrderAvailability } from "@/domains/garage/robotAvailability";
-import { garageReconciler } from "@/domains/pro/garageReconciler";
-import { selectProGarageSlots, useGarageVaultStore } from "@/domains/pro/garageVaultStore";
-import {
-  deriveProRobotLifecycle,
-  proRobotStatusTimestamp
-} from "@/domains/pro/proRobotLifecycle";
-import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
-import { shouldRefreshRobotStatus } from "@/domains/pro/reconcilePolicy";
+// The Pro/Fleet vault stack is only needed while a robot is actually being
+// reserved or revalidated. Load it on demand so order routes never pull the
+// vault, its crypto, or its sync records into their static request graph.
 export {
   getRobotOrderAvailability,
   reserveRobotOrderAction,
@@ -26,8 +21,20 @@ export async function revalidateRobotForNewOrder({
   slotId: string;
 }): Promise<RobotSlot> {
   let slot = currentSlot(slotId);
-  assertAvailable(slot, proEnabled);
   if (proEnabled) {
+    const [{ selectProGarageSlots, useGarageVaultStore }, { deriveProRobotLifecycle, proRobotStatusTimestamp }, { useProTradeIndexStore }, { shouldRefreshRobotStatus }, { garageReconciler }] =
+      await Promise.all([
+        import("@/domains/pro/garageVaultStore"),
+        import("@/domains/pro/proRobotLifecycle"),
+        import("@/domains/pro/proTradeIndexStore"),
+        import("@/domains/pro/reconcilePolicy"),
+        import("@/domains/pro/garageReconciler")
+      ]);
+    let tradeIndex = useProTradeIndexStore.getState();
+    assertAvailable(
+      deriveProRobotLifecycle(slot, tradeIndex.snapshots, tradeIndex.syncBySlot[slotId], { ignorePending: true })
+        .availability
+    );
     const fleetSlots = selectProGarageSlots(
       useGarageStore.getState().slots,
       useGarageVaultStore.getState().manifest
@@ -40,10 +47,18 @@ export async function revalidateRobotForNewOrder({
       void garageReconciler.reconcileSlot(slotId, "order-action");
     }
     slot = currentSlot(slotId);
-    assertAvailable(slot, true);
+    tradeIndex = useProTradeIndexStore.getState();
+    assertAvailable(
+      deriveProRobotLifecycle(slot, tradeIndex.snapshots, tradeIndex.syncBySlot[slotId], { ignorePending: true })
+        .availability
+    );
     return slot;
   }
 
+  const { useProTradeIndexStore } = await import("@/domains/pro/proTradeIndexStore");
+  assertAvailable(
+    getRobotOrderAvailability(slot, useProTradeIndexStore.getState().snapshots, { ignorePending: true })
+  );
   const result = await useGarageStore.getState().refreshRobotSlot(slot.token, [coordinator], {
     preferredAliases: [coordinator.shortAlias],
     priority: "foreground",
@@ -55,7 +70,9 @@ export async function revalidateRobotForNewOrder({
   }
 
   slot = currentSlot(slotId);
-  assertAvailable(slot, false);
+  assertAvailable(
+    getRobotOrderAvailability(slot, useProTradeIndexStore.getState().snapshots, { ignorePending: true })
+  );
   return slot;
 }
 
@@ -65,15 +82,6 @@ function currentSlot(slotId: string): RobotSlot {
   return slot;
 }
 
-function assertAvailable(slot: RobotSlot, proEnabled: boolean): void {
-  const tradeIndex = useProTradeIndexStore.getState();
-  const availability = proEnabled
-    ? deriveProRobotLifecycle(
-        slot,
-        tradeIndex.snapshots,
-        tradeIndex.syncBySlot[slot.tokenSHA256],
-        { ignorePending: true }
-      ).availability
-    : getRobotOrderAvailability(slot, tradeIndex.snapshots, { ignorePending: true });
+function assertAvailable(availability: ReturnType<typeof getRobotOrderAvailability>): void {
   if (!availability.available) throw new Error(availability.message);
 }
