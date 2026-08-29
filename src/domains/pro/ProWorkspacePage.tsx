@@ -32,7 +32,6 @@ import { downloadRobotTokenBackup } from "@/domains/garage/tokenBackup";
 import type { CreateOrderDraft } from "@/domains/maker/maker.types";
 import { currencyIdFromCode } from "@/domains/orderbook/currencies";
 import type { GuidedTradeCriteria } from "@/domains/orderbook/guidedTrade";
-import { useOrderbookStore } from "@/domains/orderbook/orderbookStore";
 import type { PublicOrder } from "@/domains/orderbook/orderbook.types";
 import { ingestCoordinatorOrder } from "@/domains/orders/orderActivity";
 import { submitOrderAction } from "@/domains/orders/orderApi";
@@ -55,10 +54,10 @@ import type { ProTradeLocator, ProTradeSnapshot } from "@/domains/pro/pro.types"
 import { FleetVaultDialogs } from "@/domains/pro/FleetVaultDialogs";
 import { FleetKeyDialog } from "@/domains/pro/FleetKeyDialog";
 import { OfferPresetsDialog } from "@/domains/pro/OfferPresetsDialog";
-import { garageSyncEngine, stopGarageSyncSchedule } from "@/domains/pro/garageSync";
 import { FLEET_ROBOT_LIMIT_MESSAGE, GARAGE_LIMITS, hasGarageRobotCapacity } from "@/domains/pro/garageVault";
 import { selectProGarageSlots, useGarageVaultStore } from "@/domains/pro/garageVaultStore";
 import { activeOfferPresets, type OfferPreset } from "@/domains/pro/portableSettings";
+import { useGuidedOrderbook, type GuidedOrderbookSnapshot } from "@/domains/pro/guidedOrderbook";
 import { usePortableSettingsStore } from "@/domains/pro/portableSettingsStore";
 import {
   ConfirmCancelOffer,
@@ -189,6 +188,7 @@ export function ProWorkspacePage() {
   const [manualRefreshing, setManualRefreshing] = useState(false);
   const [rewardSlotId, setRewardSlotId] = useState<string>();
   const [guidedTradeOpen, setGuidedTradeOpen] = useState(false);
+  const guidedOrderbook = useGuidedOrderbook(guidedTradeOpen);
 
   useEffect(() => {
     if (!enabled) return;
@@ -225,7 +225,6 @@ export function ProWorkspacePage() {
   const settingsCoordinator = displayCoordinators.find((coordinator) => coordinator.shortAlias === settingsAlias);
   const settingsRobot =
     settingsCoordinator && settingsSlot ? settingsSlot.robots[settingsCoordinator.shortAlias] : undefined;
-
   const closeTrade = useCallback(() => {
     setSelectedTrade(undefined);
     void garageReconciler.reconcileAll("order-action");
@@ -252,21 +251,6 @@ export function ProWorkspacePage() {
 
   function openGuidedTrade() {
     setGuidedTradeOpen(true);
-    void refreshGuidedOrders();
-  }
-
-  async function refreshGuidedOrders() {
-    let federation = useFederationStore.getState();
-    if (federation.connection !== "nostr") {
-      await federation.refreshCoordinators();
-      federation = useFederationStore.getState();
-    }
-    await useOrderbookStore.getState().refreshOrderbook(federation.coordinators, {
-      connection: federation.connection,
-      hostUrl: typeof window === "undefined" ? "" : window.location.host,
-      network: federation.network,
-      origin: federation.origin
-    });
   }
 
   function createGuidedOffer(criteria: GuidedTradeCriteria) {
@@ -511,8 +495,11 @@ export function ProWorkspacePage() {
 
   async function abandonFleetNow() {
     setAbandoningFleet(true);
-    stopGarageSyncSchedule();
+    let resumeSync: (() => void) | undefined;
     try {
+      const { garageSyncEngine, stopGarageSyncSchedule } = await import("@/domains/pro/garageSync");
+      stopGarageSyncSchedule();
+      resumeSync = () => garageSyncEngine.start(() => coordinators);
       await abandonFleet();
       for (const slot of slots) {
         if (slot.managedBy === "fleet") removeSlot(slot.token);
@@ -522,7 +509,7 @@ export function ProWorkspacePage() {
       setLastView("robots");
       setAnnouncement("Fleet removed from this device.");
     } catch (error) {
-      garageSyncEngine.start(() => coordinators);
+      resumeSync?.();
       setAnnouncement(error instanceof Error ? error.message : "Could not abandon Fleet.");
     } finally {
       setAbandoningFleet(false);
@@ -854,6 +841,7 @@ export function ProWorkspacePage() {
           onClose={() => setGuidedTradeOpen(false)}
           onCreateOffer={createGuidedOffer}
           onSelectOffer={reviewGuidedOffer}
+          orderbook={guidedOrderbook}
         />
       ) : null}
 
@@ -1113,17 +1101,41 @@ function GuidedTradeDialog({
   coordinators,
   onClose,
   onCreateOffer,
-  onSelectOffer
+  onSelectOffer,
+  orderbook
 }: {
   coordinators: CoordinatorSummary[];
   onClose: () => void;
   onCreateOffer: (criteria: GuidedTradeCriteria) => void;
   onSelectOffer: (order: PublicOrder, criteria: GuidedTradeCriteria) => void;
+  orderbook: GuidedOrderbookSnapshot;
 }) {
-  const orders = useOrderbookStore((state) => state.orders);
-  const loading = useOrderbookStore((state) => state.loading);
-  const refreshing = useOrderbookStore((state) => state.refreshing);
-
+  if (orderbook.error) {
+    return (
+      <Dialog
+        ariaLabelledby="guided-trade-load-error-title"
+        onClose={onClose}
+        overlayClassName="confirm-overlay"
+        panelClassName="confirm-sheet"
+      >
+        <header>
+          <div>
+            <p className="app-eyebrow">Guided trade</p>
+            <h3 id="guided-trade-load-error-title">Could not load offers</h3>
+          </div>
+        </header>
+        <p>{orderbook.error}</p>
+        <div className="confirm-actions">
+          <Button onClick={orderbook.retry} type="button">
+            <RefreshCw size={17} /> Retry
+          </Button>
+          <Button onClick={onClose} type="button" variant="secondary">
+            Close
+          </Button>
+        </div>
+      </Dialog>
+    );
+  }
   return (
     <Suspense
       fallback={
@@ -1136,11 +1148,11 @@ function GuidedTradeDialog({
     >
       <LazyBeginnerTradeWizard
         coordinators={coordinators}
-        loading={(loading || refreshing) && orders.length === 0}
+        loading={(orderbook.loading || orderbook.refreshing) && orderbook.orders.length === 0}
         onClose={onClose}
         onCreateOffer={onCreateOffer}
         onSelectOffer={onSelectOffer}
-        orders={orders}
+        orders={orderbook.orders}
       />
     </Suspense>
   );

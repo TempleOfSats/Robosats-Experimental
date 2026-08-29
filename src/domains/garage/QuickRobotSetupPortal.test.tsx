@@ -5,7 +5,13 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QuickRobotSetupPortal } from "@/domains/garage/QuickRobotSetupPortal";
 
-vi.mock("@/domains/garage/QuickRobotSetup", () => new Promise(() => undefined));
+vi.mock("@/domains/garage/QuickRobotSetup", () => ({
+  QuickRobotSetupDialog: ({ onClose }: { onClose: () => void }) => (
+    <button aria-label="Close robot setup" onClick={onClose} type="button">
+      Close
+    </button>
+  )
+}));
 
 let root: Root | undefined;
 
@@ -21,7 +27,7 @@ afterEach(async () => {
 });
 
 describe("QuickRobotSetupPortal", () => {
-  it("can be closed while its lazy dialog is still loading", async () => {
+  it("closes the loaded setup dialog", async () => {
     root = createRoot(document.querySelector("#root")!);
     await act(async () => {
       root?.render(<PortalHarness />);
@@ -32,7 +38,7 @@ describe("QuickRobotSetupPortal", () => {
 
     await act(async () => close?.click());
 
-    expect(document.body.textContent).not.toContain("Preparing robot setup");
+    expect(document.querySelector('[aria-label="Close robot setup"]')).toBeNull();
   });
 });
 

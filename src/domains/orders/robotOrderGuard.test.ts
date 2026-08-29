@@ -8,15 +8,21 @@ import {
   revalidateRobotForNewOrder,
   resetRobotOrderReservationsForTests
 } from "@/domains/orders/robotOrderGuard";
+import { garageTokenId, type GarageManifest } from "@/domains/pro/garageVault";
+import { garageReconciler } from "@/domains/pro/garageReconciler";
+import { useGarageVaultStore } from "@/domains/pro/garageVaultStore";
 import type { ProTradeSnapshot } from "@/domains/pro/pro.types";
 import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
 
 const initialGarageState = useGarageStore.getState();
+const initialGarageVaultState = useGarageVaultStore.getState();
 const initialTradeIndexState = useProTradeIndexStore.getState();
 
 afterEach(() => {
+  vi.restoreAllMocks();
   resetRobotOrderReservationsForTests();
   useGarageStore.setState(initialGarageState, true);
+  useGarageVaultStore.setState(initialGarageVaultState, true);
   useProTradeIndexStore.setState(initialTradeIndexState, true);
 });
 
@@ -126,7 +132,71 @@ describe("robot order guard", () => {
       source: "robot-refresh"
     });
   });
+
+  it("rejects a Pro robot that is not in the Fleet manifest", async () => {
+    const slot = robotSlot();
+    useGarageStore.setState({ ...initialGarageState, slots: [slot], hydrated: true }, true);
+    useGarageVaultStore.setState({ ...initialGarageVaultState, manifest: undefined }, true);
+    useProTradeIndexStore.setState({ ...initialTradeIndexState, snapshots: {}, syncBySlot: {} }, true);
+
+    await expect(revalidateRobotForNewOrder({
+      coordinator: coordinator(),
+      proEnabled: true,
+      slotId: slot.tokenSHA256
+    })).rejects.toThrow("Choose an available Fleet robot");
+  });
+
+  it("starts a Pro reconciliation when the robot status is stale", async () => {
+    const slot = robotSlot();
+    const reconcileSlot = vi.spyOn(garageReconciler, "reconcileSlot").mockResolvedValue();
+    useGarageStore.setState({ ...initialGarageState, slots: [slot], hydrated: true }, true);
+    useGarageVaultStore.setState({ ...initialGarageVaultState, manifest: fleetManifest(slot) }, true);
+    useProTradeIndexStore.setState({ ...initialTradeIndexState, snapshots: {}, syncBySlot: {} }, true);
+
+    await expect(revalidateRobotForNewOrder({
+      coordinator: coordinator(),
+      proEnabled: true,
+      slotId: slot.tokenSHA256
+    })).resolves.toMatchObject({ tokenSHA256: slot.tokenSHA256 });
+    expect(reconcileSlot).toHaveBeenCalledWith(slot.tokenSHA256, "order-action");
+  });
+
+  it("rechecks Pro availability after starting reconciliation", async () => {
+    const slot = robotSlot();
+    const busy = snapshot({ id: 42, status: 1, is_maker: true });
+    vi.spyOn(garageReconciler, "reconcileSlot").mockImplementation(async () => {
+      useProTradeIndexStore.setState({ snapshots: { [busy.key]: busy } });
+    });
+    useGarageStore.setState({ ...initialGarageState, slots: [slot], hydrated: true }, true);
+    useGarageVaultStore.setState({ ...initialGarageVaultState, manifest: fleetManifest(slot) }, true);
+    useProTradeIndexStore.setState({ ...initialTradeIndexState, snapshots: {}, syncBySlot: {} }, true);
+
+    await expect(revalidateRobotForNewOrder({
+      coordinator: coordinator(),
+      proEnabled: true,
+      slotId: slot.tokenSHA256
+    })).rejects.toThrow("already has an order");
+  });
 });
+
+function fleetManifest(slot: RobotSlot): GarageManifest {
+  return {
+    format: "robosats-exp-garage",
+    version: 1,
+    deviceId: "a".repeat(32),
+    revision: 1,
+    updatedAt: 1,
+    entries: [{
+      id: "b".repeat(32),
+      tokenId: garageTokenId(slot.token),
+      nickname: slot.nickname,
+      revision: 1,
+      deviceId: "a".repeat(32),
+      deleted: false,
+      updatedAt: 1
+    }]
+  };
+}
 
 function robotSlot(robot: {
   activeOrderId?: number;

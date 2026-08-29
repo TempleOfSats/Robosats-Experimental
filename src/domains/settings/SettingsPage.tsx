@@ -16,7 +16,7 @@ import {
   saveUiPreferences
 } from "@/domains/settings/uiPreferences";
 import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
-import { useGarageVaultStore } from "@/domains/pro/garageVaultStore";
+import type { GarageSyncStatus, GarageVaultStatus } from "@/domains/pro/garageVaultStore";
 import {
   OnionIcon,
   TorConnectionDialog,
@@ -56,6 +56,17 @@ const FleetKeyDialog = lazy(() =>
   import("@/domains/pro/FleetKeyDialog").then((module) => ({ default: module.FleetKeyDialog }))
 );
 
+type GarageVaultSummary = {
+  status: GarageVaultStatus;
+  syncStatus: GarageSyncStatus;
+  lastSyncAt?: number;
+};
+
+const initialGarageVaultSummary: GarageVaultSummary = {
+  status: "idle",
+  syncStatus: "idle"
+};
+
 export function SettingsPage() {
   const navigate = useNavigate();
   const connection = useFederationStore((state) => state.connection);
@@ -84,8 +95,9 @@ export function SettingsPage() {
   const [showRobotTokenBackup, setShowRobotTokenBackup] = useState(false);
   const [selectedRobotCoordinator, setSelectedRobotCoordinator] = useState<string>();
   const [showFleetRecovery, setShowFleetRecovery] = useState(false);
-  const [showFleetKey, setShowFleetKey] = useState(false);
+  const [fleetKey, setFleetKey] = useState<string>();
   const [preparingPro, setPreparingPro] = useState(false);
+  const [garageVault, setGarageVault] = useState<GarageVaultSummary>(initialGarageVaultSummary);
   const robotCoordinator = displayCoordinators.find((coordinator) => coordinator.shortAlias === selectedRobotCoordinator);
   const coordinatorRobot = robotCoordinator && activeSlot ? activeSlot.robots[robotCoordinator.shortAlias] : undefined;
   const proEnabled = useProPreferencesStore((state) => state.enabled);
@@ -93,26 +105,56 @@ export function SettingsPage() {
   const setProEnabled = useProPreferencesStore((state) => state.setEnabled);
   const markProSetupSeen = useProPreferencesStore((state) => state.markSetupSeen);
   const setProLastView = useProPreferencesStore((state) => state.setLastView);
-  const garageVaultStatus = useGarageVaultStore((state) => state.status);
-  const initializeGarageVault = useGarageVaultStore((state) => state.initialize);
-  const garageSyncStatus = useGarageVaultStore((state) => state.syncStatus);
-  const garageLastSyncAt = useGarageVaultStore((state) => state.lastSyncAt);
-  const exportFleetToken = useGarageVaultStore((state) => state.exportToken);
+  const garageVaultStatus = garageVault.status;
+  const garageSyncStatus = garageVault.syncStatus;
+  const garageLastSyncAt = garageVault.lastSyncAt;
 
   useEffect(() => {
     hydrateGarage();
   }, [hydrateGarage]);
 
   useEffect(() => {
-    if (proEnabled) void initializeGarageVault();
-  }, [initializeGarageVault, proEnabled]);
+    if (!proEnabled) {
+      setGarageVault(initialGarageVaultSummary);
+      return;
+    }
+
+    let active = true;
+    let unsubscribe: (() => void) | undefined;
+    void import("@/domains/pro/garageVaultStore")
+      .then(({ useGarageVaultStore }) => {
+        if (!active) return;
+        const updateSummary = () => {
+          const state = useGarageVaultStore.getState();
+          if (state.status !== "ready") setFleetKey(undefined);
+          setGarageVault({
+            status: state.status,
+            syncStatus: state.syncStatus,
+            lastSyncAt: state.lastSyncAt
+          });
+        };
+        updateSummary();
+        unsubscribe = useGarageVaultStore.subscribe(updateSummary);
+        void useGarageVaultStore.getState().initialize();
+      })
+      .catch(() => {
+        if (active) setGarageVault({ status: "error", syncStatus: "offline" });
+      });
+
+    return () => {
+      active = false;
+      unsubscribe?.();
+    };
+  }, [proEnabled]);
 
   async function enableProMode() {
     setPreparingPro(true);
     setProEnabled(true);
     if (!proSetupSeen) markProSetupSeen();
     await Promise.allSettled([
-      initializeGarageVault(),
+      import("@/domains/pro/garageVaultStore").then(({ useGarageVaultStore }) =>
+        useGarageVaultStore.getState().initialize()
+      ),
       import("@/domains/pro/GarageSetupDialog"),
       import("@/domains/pro/GarageRecoveryDialog"),
       import("@/domains/pro/ProWorkspacePage")
@@ -224,6 +266,7 @@ export function SettingsPage() {
                   if (proEnabled) {
                     setPreparingPro(false);
                     setShowFleetRecovery(false);
+                    setFleetKey(undefined);
                     setProEnabled(false);
                     return;
                   }
@@ -277,7 +320,15 @@ export function SettingsPage() {
                   >
                     <RefreshCw size={16} /> Sync now
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => setShowFleetKey(true)}><KeyRound size={16} /> Fleet key</Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void import("@/domains/pro/garageVaultStore")
+                      .then(({ useGarageVaultStore }) => setFleetKey(useGarageVaultStore.getState().exportToken()))
+                      .catch(() => undefined)}
+                  >
+                    <KeyRound size={16} /> Fleet key
+                  </Button>
                 </div>
               </div>
             </details>
@@ -457,9 +508,9 @@ export function SettingsPage() {
           />
         </Suspense>
       ) : null}
-      {showFleetKey && garageVaultStatus === "ready" ? (
+      {fleetKey && garageVaultStatus === "ready" ? (
         <Suspense fallback={<AppTransitionDialog title="Preparing Fleet backup" message="Opening your private Fleet key..." />}>
-          <FleetKeyDialog fleetKey={exportFleetToken()} onClose={() => setShowFleetKey(false)} />
+          <FleetKeyDialog fleetKey={fleetKey} onClose={() => setFleetKey(undefined)} />
         </Suspense>
       ) : null}
 

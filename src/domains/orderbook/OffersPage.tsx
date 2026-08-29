@@ -43,7 +43,6 @@ import {
 } from "@/domains/garage/garageStore";
 import { getRobotOrderAvailability } from "@/domains/garage/robotAvailability";
 import { RobotRequiredActions } from "@/domains/garage/RobotRequiredActions";
-import { QuickRobotSetupPortal } from "@/domains/garage/QuickRobotSetupPortal";
 import { reserveRobotOrderAction, revalidateRobotForNewOrder } from "@/domains/orders/robotOrderGuard";
 import { downloadRobotTokenBackup } from "@/domains/garage/tokenBackup";
 import { ingestCoordinatorOrder } from "@/domains/orders/orderActivity";
@@ -130,6 +129,9 @@ const loadBeginnerTradeWizard = () =>
 const LazyBeginnerTradeWizard = lazy(loadBeginnerTradeWizard);
 const LazyProTakeRobotPicker = lazy(() =>
   import("@/domains/pro/ProTakeRobotPicker").then((module) => ({ default: module.ProTakeRobotPicker }))
+);
+const LazyQuickRobotSetupPortal = lazy(() =>
+  import("@/domains/garage/QuickRobotSetupPortal").then((module) => ({ default: module.QuickRobotSetupPortal }))
 );
 
 export function OffersPage() {
@@ -970,7 +972,7 @@ export function OffersPage() {
         />
       ) : null}
 
-      <QuickRobotSetupPortal
+      <DeferredQuickRobotSetupPortal
         onClose={() => setQuickRobotSetupOpen(false)}
         onComplete={() => {
           setTakeError(undefined);
@@ -1019,6 +1021,32 @@ export function OffersPage() {
         />
       ) : null}
     </main>
+  );
+}
+
+function DeferredQuickRobotSetupPortal({
+  onClose,
+  onComplete,
+  open
+}: {
+  onClose: () => void;
+  onComplete: () => void;
+  open: boolean;
+}) {
+  if (!open) return null;
+  return (
+    <Suspense
+      fallback={
+        <AppTransitionDialog
+          closeLabel="Close robot setup"
+          message="Opening your private trading identity..."
+          onClose={onClose}
+          title="Preparing robot setup"
+        />
+      }
+    >
+      <LazyQuickRobotSetupPortal onClose={onClose} onComplete={onComplete} open />
+    </Suspense>
   );
 }
 

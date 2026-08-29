@@ -36,8 +36,6 @@ import { playHaptic } from "@/lib/haptics";
 import { getRobotAuthForCoordinator, selectCurrentSlot, selectStandardGarageSlots, useGarageStore } from "@/domains/garage/garageStore";
 import { getRobotOrderAvailability } from "@/domains/garage/robotAvailability";
 import { RobotRequiredActions } from "@/domains/garage/RobotRequiredActions";
-import { QuickRobotSetupPortal } from "@/domains/garage/QuickRobotSetupPortal";
-import { RobotAvatar } from "@/domains/identity/RobotAvatar";
 import {
   buildCreateOrderPayload,
   buildProvisionalMakerOrder,
@@ -74,6 +72,12 @@ import {
 
 const LazyCoordinatorDetailDialog = lazy(() =>
   import("@/domains/coordinators/CoordinatorsPage").then((module) => ({ default: module.CoordinatorDetailDialog }))
+);
+const LazyQuickRobotSetupPortal = lazy(() =>
+  import("@/domains/garage/QuickRobotSetupPortal").then((module) => ({ default: module.QuickRobotSetupPortal }))
+);
+const LazyRobotAvatar = lazy(() =>
+  import("@/domains/identity/RobotAvatar").then((module) => ({ default: module.RobotAvatar }))
 );
 const LazyF2FLocationDialog = lazy(() =>
   import("@/domains/location/F2FLocationDialog").then((module) => ({ default: module.F2FLocationDialog }))
@@ -438,7 +442,9 @@ export function CreateOrderPage() {
     <main className="page page-narrow maker-page">
       {creatingOfferNotice ? (
         <aside className="action-notice maker-create-identity-notice" role="status" aria-live="polite">
-          <RobotAvatar hashId={creatingOfferNotice.hashId} label={creatingOfferNotice.nickname} size="sm" />
+          <Suspense fallback={<RobotAvatarFallback size="sm" />}>
+            <LazyRobotAvatar hashId={creatingOfferNotice.hashId} label={creatingOfferNotice.nickname} size="sm" />
+          </Suspense>
           <span className="action-notice-copy">
             <small>Creating offer as</small>
             <strong>{creatingOfferNotice.nickname}</strong>
@@ -612,7 +618,7 @@ export function CreateOrderPage() {
           </Card>
         </form>
       </section>
-      <QuickRobotSetupPortal
+      <DeferredQuickRobotSetupPortal
         onClose={() => setQuickRobotSetupOpen(false)}
         onComplete={() => {
           setSubmitError("");
@@ -621,6 +627,32 @@ export function CreateOrderPage() {
         open={quickRobotSetupOpen}
       />
     </main>
+  );
+}
+
+function DeferredQuickRobotSetupPortal({
+  onClose,
+  onComplete,
+  open
+}: {
+  onClose: () => void;
+  onComplete: () => void;
+  open: boolean;
+}) {
+  if (!open) return null;
+  return (
+    <Suspense
+      fallback={
+        <AppTransitionDialog
+          closeLabel="Close robot setup"
+          message="Opening your private trading identity..."
+          onClose={onClose}
+          title="Preparing robot setup"
+        />
+      }
+    >
+      <LazyQuickRobotSetupPortal onClose={onClose} onComplete={onComplete} open />
+    </Suspense>
   );
 }
 
@@ -662,6 +694,10 @@ function shouldShowMakerSubmitError(
   return Boolean(
     submitError && !(submitError === STANDARD_ROBOT_REQUIRED_ERROR && !activeSlot && !proEnabled)
   );
+}
+
+function RobotAvatarFallback({ size }: { size: "sm" | "md" }) {
+  return <span className={`robot-avatar robot-avatar-${size} robot-avatar-loading`} aria-hidden="true" />;
 }
 
 function OfferPresetPanel({
@@ -1105,7 +1141,9 @@ function ReviewStep({
 
       {!presetMode ? <div className="maker-review-identity" role="group" aria-label="Offer participants">
         <div>
-          <RobotAvatar hashId={robotHashId} label={robotName} size="md" />
+          <Suspense fallback={<RobotAvatarFallback size="md" />}>
+            <LazyRobotAvatar hashId={robotHashId} label={robotName} size="md" />
+          </Suspense>
           <span>
             <small>Maker</small>
             <strong>{robotName ?? "Your robot"}</strong>
