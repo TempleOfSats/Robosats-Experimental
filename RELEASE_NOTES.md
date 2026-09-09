@@ -49,6 +49,15 @@
 - Presence not shown in pre-chat state
 - Coordinators without support retain existing RoboSats behavior
 
+## Encrypted Chat Images
+
+- Share images in trade chat, end-to-end encrypted (XChaCha20-Poly1305) before upload
+- Ciphertext stored on the trade coordinator via Blossom upload with kind-24242 authorization
+- Ciphertext hash and authenticated encryption verified client-side before anything is displayed
+- Explicit send and load actions only; no automatic downloads or retries; display URLs revoked when unused
+- JPEG, PNG, WebP and GIF up to 10 MiB; retrieval stays pinned to the verified trade coordinator
+- Binary transport through the Android and iOS Tor bridges (base64 across the bridge only); desktop uses the Tor-proxied webview
+
 ## Order Discovery and Market Tools
 
 - Redesigned public orderbook with prominent Amount and Premium columns, payment-method column, Buy/Sell marks, coordinator names, responsive mobile rows, mutually exclusive filters
@@ -79,6 +88,8 @@
 - Reused relay sessions and subscriptions to avoid excessive concurrent Nostr REQs
 - Improved optimistic coordinator availability
 - Diagnostic hooks and probes for Tor behavior validation (no sensitive data logged)
+- More reliable Tor startup and recovery in native apps, with user-reload path when the runtime needs attention
+- New coordinator avatar sets: ammanaya, eleuteria, freeport
 
 ## UI, Themes, and Accessibility
 
