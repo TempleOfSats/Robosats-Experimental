@@ -10,6 +10,7 @@ interface RoboSatsNativeBridge {
     setNotificationsEnabled(enabled: boolean): void;
     performHaptic?(intent: "selection" | "commit" | "success" | "reject"): void;
     httpRequest(requestId: string, method: string, url: string, headersJson: string, body: string): void;
+    httpBinaryRequest?(requestId: string, method: string, url: string, headersJson: string, bodyBase64: string): void;
     cancelHttpRequest?(requestId: string): void;
     recoverTorTransport?(): void;
     reconnectTorTransport?(): void;

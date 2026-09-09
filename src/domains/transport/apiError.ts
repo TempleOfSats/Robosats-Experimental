@@ -1,5 +1,7 @@
 import { toUserMessage } from "@/lib/userError";
 
+export class ApiResponseValidationError extends Error {}
+
 export class RoboSatsApiError extends Error {
   readonly code?: number;
 

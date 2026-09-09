@@ -1,4 +1,5 @@
-import { type Event, type Filter, verifyEvent } from "nostr-tools";
+import { type Event, verifyEvent } from "nostr-tools/pure";
+import type { Filter } from "nostr-tools/filter";
 import type { SimplePool } from "nostr-tools/pool";
 import type { CoordinatorSummary, Network } from "@/domains/coordinators/coordinator.types";
 import { recordRelayPerformance } from "@/domains/diagnostics/networkPerformance";

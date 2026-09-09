@@ -5,11 +5,16 @@ import type {
 } from "@/domains/coordinators/coordinator.types";
 
 const androidStaticBase = "file:///android_asset/static";
+const bundledAvatars = new Set([
+  "alice", "ammanaya", "bazaar", "eleuteria", "exp", "freeport", "lake", "local",
+  "moon", "mostro", "p2plightning", "peach", "temple", "veneto", "whiteyesats"
+]);
 
 export function getCoordinatorAvatarUrl(shortAlias: string, size: "small" | "large" = "large", android = false): string {
+  const alias = bundledAvatars.has(shortAlias) ? shortAlias : "local";
   const suffix = size === "small" ? ".small" : "";
-  if (android) return `${androidStaticBase}/federation/avatars/${shortAlias}${suffix}.webp`;
-  return `/static/federation/avatars/${shortAlias}${suffix}.webp`;
+  if (android) return `${androidStaticBase}/federation/avatars/${alias}${suffix}.webp`;
+  return `/static/federation/avatars/${alias}${suffix}.webp`;
 }
 
 export function getCoordinatorBadgeIcons(coordinator: Pick<CoordinatorDefinition, "badges">): CoordinatorBadgeIcon[] {

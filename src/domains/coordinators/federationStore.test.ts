@@ -89,6 +89,36 @@ afterEach(() => {
 });
 
 describe("buildCoordinatorSummary", () => {
+  it.each(["ammanaya", "eleuteria", "freeport"])(
+    "uses bundled artwork for discovered %s without adding it to bootstrap trust",
+    (alias) => {
+      expect(defaultFederation.some((item) => item.shortAlias === alias)).toBe(false);
+      const summary = buildCoordinatorSummary(
+        { ...coordinator, shortAlias: alias },
+        {
+          network: "mainnet",
+          origin: "clearnet",
+          selfhostedClient: false
+        }
+      );
+      expect(summary.avatarUrl).toBe(`/static/federation/avatars/${alias}.webp`);
+      expect(summary.smallAvatarUrl).toBe(`/static/federation/avatars/${alias}.small.webp`);
+    }
+  );
+
+  it("keeps a local fallback for a discovered coordinator without bundled artwork", () => {
+    const summary = buildCoordinatorSummary(
+      { ...coordinator, shortAlias: "futurecoordinator" },
+      {
+        network: "mainnet",
+        origin: "clearnet",
+        selfhostedClient: false
+      }
+    );
+    expect(summary.avatarUrl).toBe("/static/federation/avatars/local.webp");
+    expect(summary.smallAvatarUrl).toBe("/static/federation/avatars/local.small.webp");
+  });
+
   it("contains only the current built-in federation", () => {
     expect(defaultFederation.map((item) => item.shortAlias)).not.toContain("freedomsats");
   });

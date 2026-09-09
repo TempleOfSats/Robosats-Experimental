@@ -25,7 +25,8 @@ export async function postChatMessage(
   encryptedMessage: string,
   offset: number,
   auth: Auth,
-  client: ApiClient = apiClient
+  client: ApiClient = apiClient,
+  options: ApiRequestOptions = {}
 ): Promise<ChatResponse> {
   const data = await client.post<ChatApiResponse>(
     baseUrl,
@@ -36,7 +37,7 @@ export async function postChatMessage(
       offset
     },
     auth,
-    { timeoutProfile: "action", priority: "action", source: "chat" }
+    { timeoutProfile: "action", priority: "action", source: "chat", ...options }
   );
   return normalizeChatResponse(data);
 }

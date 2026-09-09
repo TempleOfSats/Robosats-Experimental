@@ -1,4 +1,5 @@
-import { type Event, type Filter, verifyEvent } from "nostr-tools";
+import { type Event, verifyEvent } from "nostr-tools/pure";
+import type { Filter } from "nostr-tools/filter";
 import { decrypt, getConversationKey } from "nostr-tools/nip44";
 import type { SimplePool } from "nostr-tools/pool";
 import { useFederationStore } from "@/domains/coordinators/federationStore";

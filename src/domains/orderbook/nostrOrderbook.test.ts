@@ -11,8 +11,8 @@ const poolState = vi.hoisted(() => ({
   }>
 }));
 
-vi.mock("nostr-tools", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("nostr-tools")>();
+vi.mock("nostr-tools/pure", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("nostr-tools/pure")>();
   return { ...actual, verifyEvent: poolState.verifyEvent };
 });
 

@@ -1,6 +1,8 @@
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { sha256 } from "js-sha256";
-import { ChevronDown, Download, MessageSquare, Send } from "lucide-react";
+import { ChevronDown, Download, MessageSquare, Paperclip, Send } from "lucide-react";
+import { ChatImage, ChatImageComposer } from "@/domains/chat/ChatImage";
+import { CHAT_IMAGE_TYPES, MAX_CHAT_IMAGE_BYTES, isChatImageMessage } from "@/domains/chat/chatImageMetadata";
 import {
   escapeChatPayload,
   fetchChatMessages,
@@ -65,6 +67,8 @@ export function ChatStagePanel({
   variant?: "trade" | "pre-chat";
 }) {
   const [draft, setDraft] = useState("");
+  const [imageFile, setImageFile] = useState<File>();
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState("");
   const [messages, setMessages] = useState<DisplayChatMessage[]>(() =>
     previewMode ? previewChatMessages(myNick, peerNick) : []
@@ -112,6 +116,8 @@ export function ChatStagePanel({
   );
   const preChatMessageSent = isPreChat && hasSentPreChatMessage(messages);
   const hasLivePresence = peerConnected === true || peerConnected === false;
+
+  useEffect(() => setImageFile(undefined), [baseUrl, orderId, slotToken, canSend]);
 
   useEffect(() => {
     peerPubkeyRef.current = peerPubkey;
@@ -264,7 +270,43 @@ export function ChatStagePanel({
     ]
   );
 
+  async function sendEncryptedPayload(text: string, signal?: AbortSignal) {
+    if (!canSend || !baseUrl || !stableAuth || !robotPrivateKey || !slotToken) {
+      throw new Error("Chat is not available for sending.");
+    }
+    const outgoingMessage =
+      variant === "trade" && text.startsWith("#")
+        ? text
+        : await encryptChatMessage({
+            message: text,
+            ownPrivateKeyArmored: robotPrivateKey,
+            passphrase: slotToken,
+            peerPublicKeyArmored: peerPubkeyRef.current
+          });
+    signal?.throwIfAborted();
+    const socket = socketRef.current;
+    if (socket?.readyState === WebSocket.OPEN) {
+      socket.send(
+        JSON.stringify({ type: "message", message: escapeChatPayload(outgoingMessage), nick: canonicalMyNick })
+      );
+    } else {
+      const response = await postChatMessage(
+        baseUrl,
+        orderId,
+        outgoingMessage,
+        lastIndexRef.current,
+        stableAuth,
+        undefined,
+        { signal }
+      );
+      signal?.throwIfAborted();
+      applyPresenceObservation(response.peerConnected, true, presenceRevisionRef, setPeerConnected);
+      await applyChatResponse(response);
+    }
+  }
+
   async function sendMessage() {
+    if (!canSend || sending || imageFile) return;
     setError("");
     const text = draft.trim();
     if (!text) return;
@@ -310,24 +352,7 @@ export function ChatStagePanel({
     setNewMessageCount(0);
     setSending(true);
     try {
-      const outgoingMessage = sendsPlaintextCommand
-        ? text
-        : await encryptChatMessage({
-            message: text,
-            ownPrivateKeyArmored: robotPrivateKey,
-            passphrase: slotToken,
-            peerPublicKeyArmored: currentPeerPubkey
-          });
-      const socket = socketRef.current;
-      if (socket?.readyState === WebSocket.OPEN) {
-        socket.send(
-          JSON.stringify({ type: "message", message: escapeChatPayload(outgoingMessage), nick: canonicalMyNick })
-        );
-      } else {
-        const response = await postChatMessage(baseUrl, orderId, outgoingMessage, lastIndex, stableAuth);
-        applyPresenceObservation(response.peerConnected, true, presenceRevisionRef, setPeerConnected);
-        await applyChatResponse(response);
-      }
+      await sendEncryptedPayload(text);
       setDraft("");
     } catch (sendError) {
       if (isPreChat) {
@@ -375,7 +400,7 @@ export function ChatStagePanel({
         setMessages((current) => mergeMessages(current, visibleMessages));
         if (!feedbackDelivered && notifyNewMessages && newPeerMessages.length > 0) {
           const latest = newPeerMessages.at(-1);
-          setMessageAnnouncement(`New message from ${latest?.nick || peerNick}: ${latest?.plaintext || ""}`);
+          setMessageAnnouncement(chatMessageAnnouncement(latest, peerNick));
         }
         if (!feedbackDelivered && !isPreChat && notifyNewMessages && shortAlias && newPeerMessages.length > 0) {
           deliverChatFeedback({
@@ -593,7 +618,8 @@ export function ChatStagePanel({
               ) : null}
               {visibleMessages.map((message) => (
                 <MessageBubble
-                  key={message.index}
+                  key={`${baseUrl}:${orderId}:${message.index}`}
+                  baseUrl={baseUrl}
                   message={message}
                   myHashId={myHashId}
                   myNick={myNick}
@@ -605,6 +631,17 @@ export function ChatStagePanel({
 
             <NewChatMessagesButton count={newMessageCount} onClick={scrollToLatest} />
 
+            {!isPreChat && canSend && imageFile && baseUrl && slotToken ? (
+              <ChatImageComposer
+                key={`${baseUrl}:${orderId}:${myHashId}`}
+                file={imageFile}
+                baseUrl={baseUrl}
+                token={slotToken}
+                onSend={sendEncryptedPayload}
+                onClose={() => setImageFile(undefined)}
+              />
+            ) : null}
+
             <form
               className="chat-composer"
               onSubmit={(event) => {
@@ -612,43 +649,57 @@ export function ChatStagePanel({
                 void sendMessage();
               }}
             >
-              <textarea
-                aria-describedby={error ? errorId : undefined}
-                aria-invalid={Boolean(error)}
-                aria-label={isPreChat ? "Early message to your peer" : "Message to your trade peer"}
-                disabled={!canSend || sending || preChatMessageSent}
-                onChange={(event) => setDraft(event.target.value)}
-                placeholder={
-                  preChatMessageSent
-                    ? "Early message saved"
-                    : canSend
-                      ? isPreChat
-                        ? "Leave one encrypted message for your peer..."
-                        : "Type a message to your peer..."
-                      : "Chat is read-only while the coordinator reviews."
-                }
-                rows={1}
-                value={draft}
+              <ChatTextInput
+                error={error}
+                errorId={errorId}
+                isPreChat={isPreChat}
+                canSend={canSend}
+                sending={sending}
+                preChatMessageSent={preChatMessageSent}
+                draft={draft}
+                setDraft={setDraft}
               />
-              <Button
-                aria-label={sending ? "Sending message" : "Send message"}
-                className="chat-send-button"
-                disabled={!canSend || !draft.trim() || preChatMessageSent || (isPreChat && !peerPubkey)}
-                loading={sending}
-                size="icon"
-                title={
-                  isPreChat && !peerPubkey
-                    ? "Preparing encrypted message"
-                    : draft.trim()
-                      ? "Send message"
-                      : "Type a message first"
-                }
-                type="submit"
-                variant="outline"
-              >
-                {sending ? null : <Send aria-hidden size={18} />}
-                <span className="sr-only">{sending ? "Sending message" : "Send message"}</span>
-              </Button>
+              <div className="chat-composer-actions">
+                {!isPreChat && !previewMode ? (
+                  <>
+                    <input
+                      accept={CHAT_IMAGE_TYPES.join(",")}
+                      hidden
+                      ref={imageInputRef}
+                      type="file"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        event.target.value = "";
+                        if (!file) return;
+                        if (!CHAT_IMAGE_TYPES.includes(file.type) || !file.size || file.size > MAX_CHAT_IMAGE_BYTES) {
+                          setError("Choose a JPEG, PNG, WebP or GIF image smaller than 10 MB.");
+                          return;
+                        }
+                        setError("");
+                        setImageFile(file);
+                      }}
+                    />
+                    <Button
+                      aria-label="Attach image"
+                      className="chat-send-button"
+                      disabled={!canSend || sending || Boolean(imageFile) || !peerPubkey || !canLoad}
+                      onClick={() => imageInputRef.current?.click()}
+                      size="icon"
+                      title="Attach encrypted image"
+                      type="button"
+                      variant="ghost"
+                    >
+                      <Paperclip size={18} aria-hidden />
+                    </Button>
+                  </>
+                ) : null}
+                <ChatSendButton
+                  disabled={!canSend || Boolean(imageFile) || preChatMessageSent}
+                  awaitingKey={isPreChat && !peerPubkey}
+                  hasDraft={Boolean(draft.trim())}
+                  sending={sending}
+                />
+              </div>
             </form>
 
             {preChatMessageSent ? (
@@ -912,14 +963,92 @@ function buildChatSocketUrl(baseUrl: string, orderId: number, token: string): st
   return url.toString();
 }
 
+function chatMessageAnnouncement(message: DisplayChatMessage | undefined, peerNick: string): string {
+  const nick = message?.nick || peerNick;
+  const text = message?.plaintext || "";
+  return isChatImageMessage(text) ? `New image from ${nick}` : `New message from ${nick}: ${text}`;
+}
+
+function ChatTextInput({
+  error,
+  errorId,
+  isPreChat,
+  canSend,
+  sending,
+  preChatMessageSent,
+  draft,
+  setDraft
+}: {
+  error: string;
+  errorId: string;
+  isPreChat: boolean;
+  canSend: boolean;
+  sending: boolean;
+  preChatMessageSent: boolean;
+  draft: string;
+  setDraft: (text: string) => void;
+}) {
+  return (
+    <textarea
+      aria-describedby={error ? errorId : undefined}
+      aria-invalid={Boolean(error)}
+      aria-label={isPreChat ? "Early message to your peer" : "Message to your trade peer"}
+      disabled={!canSend || sending || preChatMessageSent}
+      onChange={(event) => setDraft(event.target.value)}
+      placeholder={
+        preChatMessageSent
+          ? "Early message saved"
+          : !canSend
+            ? "Chat is read-only while the coordinator reviews."
+            : isPreChat
+              ? "Leave one encrypted message for your peer..."
+              : "Type a message to your peer..."
+      }
+      rows={1}
+      value={draft}
+    />
+  );
+}
+
+function ChatSendButton({
+  disabled,
+  awaitingKey,
+  hasDraft,
+  sending
+}: {
+  disabled: boolean;
+  awaitingKey: boolean;
+  hasDraft: boolean;
+  sending: boolean;
+}) {
+  const label = sending ? "Sending message" : "Send message";
+  return (
+    <Button
+      aria-label={label}
+      className="chat-send-button"
+      disabled={disabled || !hasDraft || awaitingKey}
+      loading={sending}
+      size="icon"
+      title={awaitingKey ? "Preparing encrypted message" : hasDraft ? "Send message" : "Type a message first"}
+      type="submit"
+      variant="outline"
+    >
+      {sending ? null : <Send aria-hidden size={18} />}
+      <span className="sr-only">{label}</span>
+    </Button>
+  );
+}
+
 const MessageBubble = memo(function MessageBubble({
   message,
+  baseUrl,
   myHashId,
   myNick,
   peerHashId,
   peerNick
 }: {
   message: DisplayChatMessage;
+  baseUrl?: string;
   myHashId?: string;
   myNick: string;
   peerHashId?: string;
@@ -943,7 +1072,11 @@ const MessageBubble = memo(function MessageBubble({
           </span>
           <time>{formatChatTime(message.time)}</time>
         </div>
-        <p>{message.plaintext}</p>
+        {isChatImageMessage(message.plaintext) ? (
+          <ChatImage text={message.plaintext} baseUrl={baseUrl} />
+        ) : (
+          <p>{message.plaintext}</p>
+        )}
         {message.signatureStatus === "verified" ? (
           <span className="chat-signature-status">Signature verified</span>
         ) : message.signatureStatus === "unverified" ? (

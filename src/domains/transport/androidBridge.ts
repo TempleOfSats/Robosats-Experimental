@@ -148,13 +148,16 @@ export function nativeHttpRequest(
   url: string,
   init: RequestInit = {},
   timeoutMs = 90_000,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  binary = false
 ): Promise<NativeHttpResult> {
   if (nativeTransportSuspended) {
     return Promise.reject(new DOMException("Native transport is suspended", "AbortError"));
   }
   const bridge = nativeAppBridge();
   if (!bridge) return Promise.reject(new Error("Native transport is unavailable"));
+  const send = binary ? bridge.httpBinaryRequest : bridge.httpRequest;
+  if (!send) return Promise.reject(new Error("Update the app to use encrypted images."));
 
   const requestId = createId("http");
   const headers = headersToRecord(init.headers);
@@ -202,7 +205,7 @@ export function nativeHttpRequest(
     }
     signal?.addEventListener("abort", abort, { once: true });
     try {
-      bridge.httpRequest(requestId, init.method ?? "GET", url, JSON.stringify(headers), body);
+      send.call(bridge, requestId, init.method ?? "GET", url, JSON.stringify(headers), body);
     } catch (error) {
       finishReject(error instanceof Error ? error : new Error("Could not start Tor request"));
     }

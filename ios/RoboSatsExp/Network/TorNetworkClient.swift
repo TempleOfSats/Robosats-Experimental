@@ -43,6 +43,7 @@ final class TorNetworkClient: @unchecked Sendable {
         url: String,
         headers: [String: String],
         body: String,
+        binary: Bool = false,
         completion: @escaping @Sendable (Result<[String: Any], Error>) -> Void
     ) {
         guard let port = lock.withLock({ socksPort }) else {
@@ -52,13 +53,25 @@ final class TorNetworkClient: @unchecked Sendable {
 
         DispatchQueue.global(qos: .userInitiated).async {
             do {
+                let requestBody: Data
+                if binary {
+                    guard body.utf8.count <= ((TorHTTP.maximumBinaryBytes + 2) / 3) * 4,
+                          let decoded = Data(base64Encoded: body),
+                          decoded.count <= TorHTTP.maximumBinaryBytes else {
+                        throw NativeTransportError.responseTooLarge
+                    }
+                    requestBody = decoded
+                } else {
+                    requestBody = Data(body.utf8)
+                }
                 let response = try TorHTTP.perform(
                     method: method,
                     rawURL: url,
                     headers: headers,
-                    body: Data(body.utf8),
+                    body: requestBody,
                     socksPort: port,
-                    pool: self.httpPool
+                    pool: self.httpPool,
+                    binary: binary
                 )
                 completion(.success(response))
             } catch {
@@ -145,6 +158,7 @@ final class TorNetworkClient: @unchecked Sendable {
 
 private enum TorHTTP {
     private static let maximumBodyBytes = 16 * 1_024 * 1_024
+    static let maximumBinaryBytes = 10 * 1_024 * 1_024 + 16
 
     static func perform(
         method: String,
@@ -152,8 +166,10 @@ private enum TorHTTP {
         headers: [String: String],
         body: Data,
         socksPort: Int,
-        pool: TorHTTPConnectionPool
+        pool: TorHTTPConnectionPool,
+        binary: Bool = false
     ) throws -> [String: Any] {
+        let maximumBodyBytes = binary ? maximumBinaryBytes : Self.maximumBodyBytes
         let destination = try StreamDestination(rawURL: rawURL, allowedSchemes: ["http", "https"])
         let verb = method.uppercased()
         guard verb.range(of: "^[A-Z]{1,16}$", options: .regularExpression) != nil else {
@@ -199,7 +215,7 @@ private enum TorHTTP {
                 return [
                     "status": head.status,
                     "headers": head.headers,
-                    "body": String(data: responseBody, encoding: .utf8) ?? ""
+                    "body": binary ? responseBody.base64EncodedString() : String(data: responseBody, encoding: .utf8) ?? ""
                 ]
             } catch {
                 lastError = error

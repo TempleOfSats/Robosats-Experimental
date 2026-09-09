@@ -605,7 +605,6 @@ export function buildCoordinatorSummary(
   definition: CoordinatorDefinition,
   options: Parameters<typeof buildCoordinatorUrl>[1]
 ): CoordinatorSummary {
-  const avatarAlias = defaultFederation.some((item) => item.shortAlias === definition.shortAlias) ? definition.shortAlias : "local";
   return {
     shortAlias: definition.shortAlias,
     longAlias: definition.longAlias,
@@ -624,8 +623,8 @@ export function buildCoordinatorSummary(
     policies: definition.policies,
     nostrHexPubkey: definition.nostrHexPubkey,
     url: buildCoordinatorUrl(definition, options),
-    avatarUrl: getCoordinatorAvatarUrl(avatarAlias),
-    smallAvatarUrl: getCoordinatorAvatarUrl(avatarAlias, "small"),
+    avatarUrl: getCoordinatorAvatarUrl(definition.shortAlias),
+    smallAvatarUrl: getCoordinatorAvatarUrl(definition.shortAlias, "small"),
     badgeIcons: getCoordinatorBadgeIcons(definition),
     enabled: true,
     online: false

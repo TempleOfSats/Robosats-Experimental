@@ -1,4 +1,4 @@
-import { matchFilter, type Filter } from "nostr-tools";
+import { matchFilter, type Filter } from "nostr-tools/filter";
 import type { SimplePool, SubCloser, SubscribeManyParams } from "nostr-tools/pool";
 
 type SubscriptionPool = Pick<SimplePool, "subscribeMap">;

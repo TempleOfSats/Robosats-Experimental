@@ -11,11 +11,16 @@ import {
 } from "@/domains/chat/ChatStagePanel";
 import type { ChatMessage, DisplayChatMessage } from "@/domains/chat/chat.types";
 import type { Auth } from "@/domains/transport/apiClient";
+import * as chatCrypto from "@/domains/chat/chatCrypto";
 
 const mocks = vi.hoisted(() => ({
   fetchChatMessages: vi.fn(),
+  uploadChatImage: vi.fn(),
   socket: undefined as FakeSocket | undefined
 }));
+
+vi.mock("@/domains/chat/chatImages", () => ({ uploadChatImage: mocks.uploadChatImage }));
+vi.mock("@/domains/chat/prepareChatImage", () => ({ prepareChatImage: vi.fn(async (file: File) => file) }));
 
 vi.mock("@/domains/chat/chatApi", async () => ({
   ...(await vi.importActual<typeof import("@/domains/chat/chatApi")>("@/domains/chat/chatApi")),
@@ -48,6 +53,7 @@ beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   document.body.innerHTML = '<div id="root"></div>';
   mocks.fetchChatMessages.mockReset();
+  mocks.uploadChatImage.mockReset();
   mocks.socket = undefined;
 });
 
@@ -60,6 +66,42 @@ afterEach(async () => {
 });
 
 describe("ChatStagePanel presence", () => {
+  it("shows attachments without exposing their keys and sends their envelope through encrypted chat", async () => {
+    const metadata = {
+      type: "image",
+      url: `https://coordinator.test/blossom/${"a".repeat(64)}`,
+      sha256: "a".repeat(64),
+      key: "A".repeat(43) + "=",
+      nonce: "A".repeat(32),
+      mimeType: "image/png"
+    };
+    const plaintext = JSON.stringify(metadata);
+    vi.spyOn(chatCrypto, "decryptChatMessage").mockResolvedValue({ plaintext, signatureStatus: "verified" });
+    const encrypt = vi
+      .spyOn(chatCrypto, "encryptChatMessage")
+      .mockResolvedValue("-----BEGIN PGP MESSAGE-----synthetic-ciphertext");
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:synthetic-image");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    mocks.uploadChatImage.mockResolvedValue(metadata);
+    mocks.fetchChatMessages.mockResolvedValue({
+      peerPubkey: "-----BEGIN PGP PUBLIC KEY BLOCK-----peer-----END PGP PUBLIC KEY BLOCK-----",
+      messages: [{ index: 1, nick: "Peer", encryptedMessage: "encrypted-fixture", time: "2026-01-01T11:59:00Z" }]
+    });
+    await renderPanel();
+    await vi.waitFor(() => expect(document.body.textContent).toContain("Load image"));
+    expect(document.body.textContent).not.toContain(metadata.key);
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+    Object.defineProperty(input, "files", { value: [new File(["synthetic"], "test.png", { type: "image/png" })] });
+    await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
+    const send = [...document.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Send image");
+    expect(send).toBeDefined();
+    await act(async () => send?.click());
+    expect(encrypt).toHaveBeenCalledWith(expect.objectContaining({ message: plaintext, passphrase: "slot-token" }));
+    expect(mocks.socket?.send).toHaveBeenCalledWith(expect.stringContaining("synthetic-ciphertext"));
+    expect(mocks.socket?.send.mock.calls.some(([value]) => String(value).includes(metadata.key))).toBe(false);
+    expect(document.querySelector(".chat-image-compose")).toBeNull();
+  });
+
   it("keeps explicit presence through missing/stale observations and clears it on close", async () => {
     const pending: Array<(response: { peerConnected?: boolean; peerPubkey: string; messages: never[] }) => void> = [];
     mocks.fetchChatMessages.mockImplementation(() => new Promise((resolve) => pending.push(resolve)));

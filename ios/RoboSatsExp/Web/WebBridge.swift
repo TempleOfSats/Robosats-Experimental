@@ -105,6 +105,9 @@ final class WebBridge: NSObject {
             httpRequest(requestId, method, url, headersJson, body) {
               post('httpRequest', { requestId, verb: method, url, headersJson, body });
             },
+            httpBinaryRequest(requestId, method, url, headersJson, body) {
+              post('httpRequest', { requestId, verb: method, url, headersJson, body, binary: true });
+            },
             openWebSocket(socketId, url, protocolsJson) {
               post('openWebSocket', { socketId, url, protocolsJson });
             },
@@ -204,7 +207,8 @@ final class WebBridge: NSObject {
             method: method,
             url: url,
             headers: headers,
-            body: message["body"] as? String ?? ""
+            body: message["body"] as? String ?? "",
+            binary: message["binary"] as? Bool ?? false
         ) { [weak self] result in
             let script: String
             switch result {
