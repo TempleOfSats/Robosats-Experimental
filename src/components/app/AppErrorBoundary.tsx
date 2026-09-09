@@ -1,7 +1,11 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { finishRouteTransition, normalizeRoutePath } from "@/domains/navigation/routeTransition";
+import {
+  finishRouteTransition,
+  markInterfaceReady,
+  normalizeRoutePath
+} from "@/domains/navigation/routeTransition";
 
 type AppErrorBoundaryProps = {
   children: ReactNode;
@@ -23,6 +27,10 @@ export class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorB
   componentDidCatch(error: Error, info: ErrorInfo): void {
     if (this.props.scope === "route" && typeof window !== "undefined") {
       finishRouteTransition(this.props.routePath ?? normalizeRoutePath(window.location.href));
+      // A route that failed still rendered this boundary. Revealing the interface
+      // keeps the Reload button reachable instead of trapping it under the boot
+      // overlay, which otherwise waits for a successfully rendered route.
+      markInterfaceReady();
     }
     if (import.meta.env.DEV) console.error("RoboSats interface failure", error, info);
   }

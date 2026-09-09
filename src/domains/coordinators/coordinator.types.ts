@@ -79,6 +79,7 @@ export interface CoordinatorInfo {
   network?: Network;
   market_price_apis?: string | null;
   features?: CoordinatorFeatures;
+  federation_hash?: string | null;
   notice_severity: "none" | "warning" | "error" | "success" | "info";
   notice_message: string;
 }

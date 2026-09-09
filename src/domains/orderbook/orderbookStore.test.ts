@@ -33,7 +33,8 @@ describe("orderbook store reliability", () => {
       lastUpdated: undefined,
       sourceConnection: undefined,
       sourceNetwork: undefined,
-      sourceOrigin: undefined
+      sourceOrigin: undefined,
+      sourceRefreshKey: undefined
     });
   });
 
@@ -62,14 +63,16 @@ describe("orderbook store reliability", () => {
   it("persists an authoritative Nostr snapshot once", async () => {
     const lake = coordinator("lake", "https://lake.example");
     const confirmed = order(1, "lake");
-    fetchNostrOrderbook.mockImplementation(async (
-      _coordinators: unknown,
-      _network: unknown,
-      options: { onOrders: (orders: PublicOrder[], meta: { authoritative: boolean; partial: boolean }) => void }
-    ) => {
-      options.onOrders([confirmed], { authoritative: true, partial: false });
-      return [confirmed];
-    });
+    fetchNostrOrderbook.mockImplementation(
+      async (
+        _coordinators: unknown,
+        _network: unknown,
+        options: { onOrders: (orders: PublicOrder[], meta: { authoritative: boolean; partial: boolean }) => void }
+      ) => {
+        options.onOrders([confirmed], { authoritative: true, partial: false });
+        return [confirmed];
+      }
+    );
 
     await useOrderbookStore.getState().refreshOrderbook([lake], {
       connection: "nostr",
@@ -133,10 +136,164 @@ describe("orderbook store reliability", () => {
       origin: "onion"
     });
 
-    expect(useOrderbookStore.getState().orders).toEqual(
-      expect.arrayContaining([freshLakeOrder, retainedTempleOrder])
-    );
+    expect(useOrderbookStore.getState().orders).toEqual(expect.arrayContaining([freshLakeOrder, retainedTempleOrder]));
     expect(useOrderbookStore.getState().orders).not.toContain(staleLakeOrder);
+  });
+
+  it("refreshes a recent API book when federation membership changes", async () => {
+    const lake = coordinator("lake", "https://lake.example");
+    const temple = coordinator("temple", "https://temple.example");
+    fetchCoordinatorBook.mockImplementation(async (url: string) =>
+      url.includes("temple") ? [order(2, "temple")] : [order(1, "lake")]
+    );
+
+    await useOrderbookStore.getState().refreshOrderbook([lake], {
+      connection: "api",
+      force: true,
+      network: "mainnet",
+      origin: "clearnet"
+    });
+    fetchCoordinatorBook.mockClear();
+
+    await useOrderbookStore.getState().refreshOrderbook([lake, temple], {
+      connection: "api",
+      network: "mainnet",
+      origin: "clearnet",
+      priority: "background"
+    });
+
+    expect(fetchCoordinatorBook).toHaveBeenCalledTimes(2);
+    expect(fetchCoordinatorBook).toHaveBeenCalledWith(
+      "https://temple.example",
+      expect.objectContaining({ priority: "background" })
+    );
+    expect(
+      useOrderbookStore
+        .getState()
+        .orders.map((item) => item.coordinatorShortAlias)
+        .sort()
+    ).toEqual(["lake", "temple"]);
+  });
+
+  it("does not refetch fresh offers when health or list order changes", async () => {
+    const lake = coordinator("lake", "https://lake.example");
+    const temple = coordinator("temple", "https://temple.example");
+    fetchCoordinatorBook.mockResolvedValue([]);
+
+    await useOrderbookStore.getState().refreshOrderbook([lake, temple], {
+      connection: "api",
+      force: true,
+      network: "mainnet",
+      origin: "onion"
+    });
+    fetchCoordinatorBook.mockClear();
+
+    await useOrderbookStore.getState().refreshOrderbook(
+      [
+        { ...temple, online: false },
+        { ...lake, online: false }
+      ],
+      {
+        connection: "api",
+        network: "mainnet",
+        origin: "onion"
+      }
+    );
+
+    expect(fetchCoordinatorBook).not.toHaveBeenCalled();
+  });
+
+  it("supersedes a stale in-flight source when the user switches back", async () => {
+    const lake = coordinator("lake", "https://lake.example");
+    const temple = coordinator("temple", "https://temple.example");
+    const requests: Array<{ url: string; result: ReturnType<typeof deferred<PublicOrder[]>> }> = [];
+    fetchCoordinatorBook.mockImplementation((url: string) => {
+      const result = deferred<PublicOrder[]>();
+      requests.push({ url, result });
+      return result.promise;
+    });
+
+    const initial = useOrderbookStore.getState().refreshOrderbook([lake], {
+      connection: "api",
+      force: true,
+      network: "mainnet",
+      origin: "onion"
+    });
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    requests[0].result.resolve([order(1, "lake")]);
+    await initial;
+
+    const templeRefresh = useOrderbookStore.getState().refreshOrderbook([temple], {
+      connection: "api",
+      network: "mainnet",
+      origin: "onion"
+    });
+    await vi.waitFor(() => expect(requests).toHaveLength(2));
+
+    const lakeRefresh = useOrderbookStore.getState().refreshOrderbook([lake], {
+      connection: "api",
+      network: "mainnet",
+      origin: "onion"
+    });
+    await vi.waitFor(() => expect(requests).toHaveLength(3));
+
+    requests[2].result.resolve([order(3, "lake")]);
+    await lakeRefresh;
+    requests[1].result.resolve([order(2, "temple")]);
+    await templeRefresh;
+
+    expect(useOrderbookStore.getState().orders).toEqual([order(3, "lake")]);
+  });
+
+  it("does not share a fresh book between origins", async () => {
+    const lake = coordinator("lake", "https://lake.example");
+    fetchCoordinatorBook.mockResolvedValue([]);
+
+    await useOrderbookStore.getState().refreshOrderbook([lake], {
+      connection: "api",
+      force: true,
+      network: "mainnet",
+      origin: "clearnet"
+    });
+    fetchCoordinatorBook.mockClear();
+
+    await useOrderbookStore.getState().refreshOrderbook([lake], {
+      connection: "api",
+      network: "mainnet",
+      origin: "onion"
+    });
+
+    expect(fetchCoordinatorBook).toHaveBeenCalledOnce();
+  });
+
+  it("refreshes Nostr when an enabled coordinator author changes", async () => {
+    const lake = coordinator("lake", "https://lake.example", { nostrHexPubkey: "author-one" });
+    fetchNostrOrderbook.mockImplementation(
+      async (
+        _coordinators: unknown,
+        _network: unknown,
+        options: { onOrders?: (orders: PublicOrder[], meta: { authoritative: boolean; partial: boolean }) => void }
+      ) => {
+        options.onOrders?.([], { authoritative: true, partial: false });
+        return [];
+      }
+    );
+
+    await useOrderbookStore.getState().refreshOrderbook([lake], {
+      connection: "nostr",
+      force: true,
+      network: "mainnet",
+      origin: "onion"
+    });
+    fetchNostrOrderbook.mockClear();
+
+    await useOrderbookStore.getState().refreshOrderbook([{ ...lake, nostrHexPubkey: "author-two" }], {
+      connection: "nostr",
+      network: "mainnet",
+      origin: "onion"
+    });
+
+    expect(fetchNostrOrderbook).toHaveBeenCalledOnce();
   });
 
   it("publishes a healthy coordinator book before an offline request settles", async () => {
@@ -206,9 +363,7 @@ describe("orderbook store reliability", () => {
     await refresh;
 
     expect(maximumActive).toBe(2);
-    expect(fetchCoordinatorBook.mock.calls.map(([url]) => url)).toEqual(
-      coordinators.map((item) => item.url)
-    );
+    expect(fetchCoordinatorBook.mock.calls.map(([url]) => url)).toEqual(coordinators.map((item) => item.url));
   });
 
   it("starts the hosted and recently healthy coordinator books first", async () => {
@@ -237,16 +392,13 @@ describe("orderbook store reliability", () => {
       return request.promise;
     });
 
-    const refresh = useOrderbookStore.getState().refreshOrderbook(
-      [staleOnline, offline, recentOnline, hosted],
-      {
-        connection: "api",
-        force: true,
-        hostUrl: "https://app.example",
-        network: "mainnet",
-        origin: "onion"
-      }
-    );
+    const refresh = useOrderbookStore.getState().refreshOrderbook([staleOnline, offline, recentOnline, hosted], {
+      connection: "api",
+      force: true,
+      hostUrl: "https://app.example",
+      network: "mainnet",
+      origin: "onion"
+    });
 
     await vi.waitFor(() => expect(firstRequests).toHaveLength(2));
     expect(firstRequests).toEqual([hosted.url, recentOnline.url]);
@@ -301,11 +453,7 @@ describe("orderbook store reliability", () => {
   });
 });
 
-function coordinator(
-  shortAlias: string,
-  url: string,
-  overrides: Partial<CoordinatorSummary> = {}
-): CoordinatorSummary {
+function coordinator(shortAlias: string, url: string, overrides: Partial<CoordinatorSummary> = {}): CoordinatorSummary {
   return {
     shortAlias,
     longAlias: shortAlias,

@@ -55,6 +55,7 @@ import {
   resetOrderChangeNotificationsForTests
 } from "@/domains/orders/orderChangeNotifications";
 import { publishRefreshIntent } from "@/domains/transport/refreshIntents";
+import { useOrderbookStore } from "@/domains/orderbook/orderbookStore";
 
 const slot: RobotSlot = {
   token: "robot-token",
@@ -95,8 +96,22 @@ const coordinator: CoordinatorSummary = {
 
 const originalRefreshRobotSlot = useGarageStore.getState().refreshRobotSlot;
 const originalCoordinators = useFederationStore.getState().coordinators;
+const originalConnection = useFederationStore.getState().connection;
+const originalNetwork = useFederationStore.getState().network;
+const originalOrigin = useFederationStore.getState().origin;
 const originalRefreshCoordinator = useFederationStore.getState().refreshCoordinator;
 const originalRefreshCoordinators = useFederationStore.getState().refreshCoordinators;
+const originalRefreshOrderbook = useOrderbookStore.getState().refreshOrderbook;
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
 
 beforeEach(() => {
   fetchOrderMock.mockReset();
@@ -129,9 +144,13 @@ afterEach(() => {
   });
   useFederationStore.setState({
     coordinators: originalCoordinators,
+    connection: originalConnection,
+    network: originalNetwork,
+    origin: originalOrigin,
     refreshCoordinator: originalRefreshCoordinator,
     refreshCoordinators: originalRefreshCoordinators
   });
+  useOrderbookStore.setState({ refreshOrderbook: originalRefreshOrderbook });
   resetOrderChangeNotificationsForTests();
   vi.unstubAllGlobals();
   vi.useRealTimers();
@@ -492,6 +511,310 @@ describe("native Nostr lifecycle", () => {
   });
 });
 
+describe("API orderbook prewarm", () => {
+  const secondCoordinator: CoordinatorSummary = {
+    ...coordinator,
+    shortAlias: "temple",
+    longAlias: "Temple",
+    url: "https://temple.invalid"
+  };
+
+  const idleRobotResult: RefreshRobotSlotResult = {
+    slotId: slot.tokenSHA256,
+    coordinators: []
+  };
+
+  function stubApiPrewarm(coordinators: CoordinatorSummary[]) {
+    // The selected standard robot refreshes beside coordinator health, exactly as in
+    // the app. Tests settle the two independently so neither hides the other's
+    // timing.
+    const robotStatus = deferred<RefreshRobotSlotResult>();
+    useGarageStore.setState({
+      slots: [slot],
+      currentToken: slot.token,
+      hydrated: true,
+      refreshRobotSlot: vi.fn(() => robotStatus.promise)
+    });
+    useFederationStore.setState({
+      connection: "api",
+      network: "mainnet",
+      origin: "clearnet",
+      coordinators,
+      refreshCoordinators: vi.fn(async () => undefined)
+    });
+    const refreshOrderbook = vi.fn<typeof originalRefreshOrderbook>(async () => undefined);
+    useOrderbookStore.setState({ refreshOrderbook });
+    // Without requestIdleCallback the prewarm scheduler falls through to the
+    // plain timer, so advancing the clock runs prewarmData.
+    vi.stubGlobal(
+      "window",
+      Object.assign(new EventTarget(), {
+        location: { pathname: "/settings", host: "client.invalid", hostname: "client.invalid" },
+        setTimeout: globalThis.setTimeout.bind(globalThis),
+        clearTimeout: globalThis.clearTimeout.bind(globalThis),
+        setInterval: globalThis.setInterval.bind(globalThis),
+        clearInterval: globalThis.clearInterval.bind(globalThis)
+      })
+    );
+    vi.stubGlobal("document", { visibilityState: "visible" });
+    return { refreshOrderbook, robotStatus };
+  }
+
+  it("starts the known-source book while health and robot refresh are pending", async () => {
+    vi.useFakeTimers();
+    const health = deferred<void>();
+    const { refreshOrderbook, robotStatus } = stubApiPrewarm([coordinator]);
+    useFederationStore.setState({ refreshCoordinators: vi.fn(() => health.promise) });
+
+    const stop = scheduleAppPrewarm();
+    try {
+      await vi.advanceTimersByTimeAsync(500);
+
+      expect(refreshOrderbook).toHaveBeenCalledWith([coordinator], {
+        connection: "api",
+        network: "mainnet",
+        origin: "clearnet",
+        priority: "background"
+      });
+
+      health.resolve();
+      robotStatus.resolve(idleRobotResult);
+      await vi.advanceTimersByTimeAsync(0);
+      // Both refreshes came back with the same sources, so no second request follows.
+      expect(refreshOrderbook).toHaveBeenCalledOnce();
+    } finally {
+      health.resolve();
+      robotStatus.resolve(idleRobotResult);
+      stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps useful book loading when coordinator health rejects", async () => {
+    vi.useFakeTimers();
+    const health = deferred<void>();
+    const { refreshOrderbook, robotStatus } = stubApiPrewarm([coordinator]);
+    useFederationStore.setState({ refreshCoordinators: vi.fn(() => health.promise) });
+
+    const stop = scheduleAppPrewarm();
+    try {
+      await vi.advanceTimersByTimeAsync(500);
+      expect(refreshOrderbook).toHaveBeenCalledOnce();
+
+      health.reject(new Error("health check failed"));
+      robotStatus.resolve(idleRobotResult);
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(refreshOrderbook).toHaveBeenCalledOnce();
+    } finally {
+      await health.promise.catch(() => undefined);
+      robotStatus.resolve(idleRobotResult);
+      stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it("still waits for discovery when the robot refresh fails", async () => {
+    // A robot status failure used to end the wait early. The follow-up then read a
+    // registry that was still mid-discovery, decided nothing had changed, and the
+    // coordinators arriving afterwards never got a book request.
+    vi.useFakeTimers();
+    const discovery = deferred<void>();
+    const { refreshOrderbook, robotStatus } = stubApiPrewarm([coordinator]);
+    useFederationStore.setState({
+      refreshCoordinators: vi.fn(() =>
+        discovery.promise.then(() => {
+          useFederationStore.setState({ coordinators: [coordinator, secondCoordinator] });
+        })
+      )
+    });
+
+    const stop = scheduleAppPrewarm();
+    try {
+      await vi.advanceTimersByTimeAsync(500);
+      expect(refreshOrderbook).toHaveBeenCalledOnce();
+
+      robotStatus.reject(new Error("robot status unavailable"));
+      await vi.advanceTimersByTimeAsync(0);
+      // Discovery is still in flight, so no follow-up has been attempted yet.
+      expect(refreshOrderbook).toHaveBeenCalledOnce();
+
+      discovery.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(refreshOrderbook).toHaveBeenCalledTimes(2);
+      expect(refreshOrderbook.mock.calls[1]?.[0]).toEqual([coordinator, secondCoordinator]);
+    } finally {
+      robotStatus.resolve(idleRobotResult);
+      discovery.resolve();
+      stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it("loads the book once discovery provides the first coordinator", async () => {
+    vi.useFakeTimers();
+    const discovery = deferred<void>();
+    const { refreshOrderbook, robotStatus } = stubApiPrewarm([]);
+    useFederationStore.setState({
+      refreshCoordinators: vi.fn(() =>
+        discovery.promise.then(() => {
+          useFederationStore.setState({ coordinators: [coordinator] });
+        })
+      )
+    });
+
+    const stop = scheduleAppPrewarm();
+    try {
+      await vi.advanceTimersByTimeAsync(500);
+      expect(refreshOrderbook).not.toHaveBeenCalled();
+
+      robotStatus.resolve(idleRobotResult);
+      discovery.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(refreshOrderbook).toHaveBeenCalledOnce();
+      expect(refreshOrderbook).toHaveBeenCalledWith([coordinator], expect.objectContaining({ priority: "background" }));
+    } finally {
+      robotStatus.resolve(idleRobotResult);
+      discovery.resolve();
+      stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it("requests one follow-up refresh when discovery changes the sources", async () => {
+    vi.useFakeTimers();
+    const discovery = deferred<void>();
+    const { refreshOrderbook, robotStatus } = stubApiPrewarm([coordinator]);
+    useFederationStore.setState({
+      refreshCoordinators: vi.fn(() =>
+        discovery.promise.then(() => {
+          useFederationStore.setState({ coordinators: [coordinator, secondCoordinator] });
+        })
+      )
+    });
+
+    const stop = scheduleAppPrewarm();
+    try {
+      await vi.advanceTimersByTimeAsync(500);
+      expect(refreshOrderbook).toHaveBeenCalledOnce();
+
+      robotStatus.resolve(idleRobotResult);
+      discovery.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(refreshOrderbook).toHaveBeenCalledTimes(2);
+      expect(refreshOrderbook.mock.calls[1]?.[0]).toEqual([coordinator, secondCoordinator]);
+    } finally {
+      robotStatus.resolve(idleRobotResult);
+      discovery.resolve();
+      stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it("drops the follow-up after the connection context changes", async () => {
+    vi.useFakeTimers();
+    const discovery = deferred<void>();
+    const { refreshOrderbook, robotStatus } = stubApiPrewarm([coordinator]);
+    useFederationStore.setState({
+      refreshCoordinators: vi.fn(() =>
+        discovery.promise.then(() => {
+          useFederationStore.setState({
+            connection: "nostr",
+            coordinators: [coordinator, secondCoordinator]
+          });
+        })
+      )
+    });
+
+    const stop = scheduleAppPrewarm();
+    try {
+      await vi.advanceTimersByTimeAsync(500);
+      expect(refreshOrderbook).toHaveBeenCalledOnce();
+
+      robotStatus.resolve(idleRobotResult);
+      discovery.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(refreshOrderbook).toHaveBeenCalledOnce();
+    } finally {
+      robotStatus.resolve(idleRobotResult);
+      discovery.resolve();
+      stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it("drops the follow-up when the native app is suspended meanwhile", async () => {
+    vi.useFakeTimers();
+    const discovery = deferred<void>();
+    const { refreshOrderbook, robotStatus } = stubApiPrewarm([coordinator]);
+    const { documentTarget, windowTarget } = stubNativePrewarmBrowser("visible");
+    windowTarget.requestIdleCallback = vi.fn((callback?: () => void) => {
+      callback?.();
+      return 1;
+    });
+    useFederationStore.setState({
+      refreshCoordinators: vi.fn(() =>
+        discovery.promise.then(() => {
+          useFederationStore.setState({ coordinators: [coordinator, secondCoordinator] });
+        })
+      )
+    });
+
+    const stop = scheduleAppPrewarm();
+    try {
+      await vi.advanceTimersByTimeAsync(500);
+      expect(refreshOrderbook).toHaveBeenCalledOnce();
+
+      documentTarget.visibilityState = "hidden";
+      robotStatus.resolve(idleRobotResult);
+      discovery.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(refreshOrderbook).toHaveBeenCalledOnce();
+    } finally {
+      robotStatus.resolve(idleRobotResult);
+      discovery.resolve();
+      stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the Nostr path ahead of coordinator health", async () => {
+    vi.useFakeTimers();
+    const book = deferred<void>();
+    const { robotStatus } = stubApiPrewarm([coordinator]);
+    useFederationStore.setState({
+      connection: "nostr",
+      refreshCoordinators: vi.fn(async () => undefined)
+    });
+    const refreshOrderbook = vi.fn<typeof originalRefreshOrderbook>(() => book.promise);
+    useOrderbookStore.setState({ refreshOrderbook });
+
+    const stop = scheduleAppPrewarm();
+    try {
+      await vi.advanceTimersByTimeAsync(500);
+
+      expect(refreshOrderbook).toHaveBeenCalledWith([coordinator], expect.objectContaining({ connection: "nostr" }));
+      expect(useFederationStore.getState().refreshCoordinators).not.toHaveBeenCalled();
+
+      book.resolve();
+      robotStatus.resolve(idleRobotResult);
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(useFederationStore.getState().refreshCoordinators).toHaveBeenCalledOnce();
+    } finally {
+      book.resolve();
+      robotStatus.resolve(idleRobotResult);
+      stop();
+      vi.useRealTimers();
+    }
+  });
+});
+
 function stubRecoveryBrowser(): void {
   vi.stubGlobal(
     "window",
@@ -521,7 +844,8 @@ function stubNativePrewarmBrowser(initialVisibility: DocumentVisibilityState) {
     },
     AndroidAppRobosats: {
       httpRequest: vi.fn(),
-      getTorStatus: vi.fn(() => JSON.stringify({ connected: true }))
+      getTorStatus: vi.fn(() => JSON.stringify({ connected: true })),
+      getTorDiagnostics: vi.fn(() => JSON.stringify({ connected: true, state: "connected" }))
     },
     setTimeout: globalThis.setTimeout.bind(globalThis),
     clearTimeout: globalThis.clearTimeout.bind(globalThis),

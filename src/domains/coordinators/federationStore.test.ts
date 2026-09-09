@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { fetchCoordinatorInfoMock, fetchCoordinatorLimitsMock } = vi.hoisted(() => ({
+const { fetchCoordinatorFederationMock, fetchCoordinatorInfoMock, fetchCoordinatorLimitsMock } = vi.hoisted(() => ({
+  fetchCoordinatorFederationMock: vi.fn(),
   fetchCoordinatorInfoMock: vi.fn(),
   fetchCoordinatorLimitsMock: vi.fn()
 }));
 
 vi.mock("@/domains/coordinators/coordinatorApi", () => ({
+  fetchCoordinatorFederation: fetchCoordinatorFederationMock,
   fetchCoordinatorInfo: fetchCoordinatorInfoMock,
   fetchCoordinatorLimits: fetchCoordinatorLimitsMock
 }));
@@ -17,6 +19,8 @@ import {
   useFederationStore
 } from "@/domains/coordinators/federationStore";
 import { defaultFederation } from "@/domains/coordinators/defaultFederation";
+import { hashFederationDocument } from "@/domains/coordinators/federationConsensus";
+import type { FederationDocument } from "@/domains/coordinators/federationDiscovery";
 import type {
   CoordinatorDefinition,
   CoordinatorInfo,
@@ -62,6 +66,7 @@ const coordinator: CoordinatorDefinition = {
 };
 
 beforeEach(() => {
+  fetchCoordinatorFederationMock.mockReset();
   fetchCoordinatorInfoMock.mockReset();
   fetchCoordinatorLimitsMock.mockReset();
   const storage = new Map<string, string>();
@@ -72,6 +77,11 @@ beforeEach(() => {
   };
   vi.stubGlobal("localStorage", localStorage);
   vi.stubGlobal("window", { localStorage, location: { origin: "http://client.onion" } });
+  useFederationStore.setState({
+    federationDocument: Object.fromEntries(
+      defaultFederation.map((definition) => [definition.shortAlias, definition])
+    ) as FederationDocument
+  });
 });
 
 afterEach(() => {
@@ -194,6 +204,73 @@ describe("buildCoordinatorSummary", () => {
     });
     expect(useFederationStore.getState().coordinators[0]?.limits).toBe(limits);
     expect(useFederationStore.getState().coordinators[0]?.online).toBe(true);
+  });
+
+  it("does not let an old identity info request overwrite its replacement", async () => {
+    const summary = buildCoordinatorSummary(coordinator, {
+      network: "mainnet",
+      origin: "onion",
+      selfhostedClient: false
+    });
+    const oldRequest = deferred<CoordinatorInfo>();
+    const oldInfo = coordinatorInfo();
+    const newInfo = { ...coordinatorInfo(), maker_fee: 0.004 };
+    fetchCoordinatorInfoMock.mockImplementationOnce(() => oldRequest.promise).mockResolvedValueOnce(newInfo);
+    useFederationStore.setState({ coordinators: [summary], network: "mainnet", origin: "onion" });
+
+    const oldRefresh = useFederationStore.getState().refreshCoordinator("lake", { force: true });
+    const replacement = {
+      ...summary,
+      url: "http://new-lake.onion",
+      nostrHexPubkey: "new-key",
+      mainnet: { ...summary.mainnet, onion: "http://new-lake.onion" }
+    };
+    useFederationStore.setState({ coordinators: [replacement] });
+    const newRefresh = useFederationStore.getState().refreshCoordinator("lake", { force: true });
+
+    await newRefresh;
+    oldRequest.resolve(oldInfo);
+    await oldRefresh;
+
+    expect(fetchCoordinatorInfoMock).toHaveBeenCalledWith("http://new-lake.onion", expect.any(Object));
+    expect(useFederationStore.getState().coordinators[0]).toMatchObject({
+      url: "http://new-lake.onion",
+      nostrHexPubkey: "new-key",
+      info: newInfo
+    });
+  });
+
+  it("does not let old identity limits overwrite its replacement", async () => {
+    const summary = buildCoordinatorSummary(coordinator, {
+      network: "mainnet",
+      origin: "onion",
+      selfhostedClient: false
+    });
+    const oldRequest = deferred<CoordinatorLimitList>();
+    const newLimits = { "1": { code: "USD", min_amount: 20, max_amount: 2_000 } } as unknown as CoordinatorLimitList;
+    fetchCoordinatorLimitsMock.mockImplementationOnce(() => oldRequest.promise).mockResolvedValueOnce(newLimits);
+    useFederationStore.setState({ coordinators: [summary], network: "mainnet", origin: "onion" });
+
+    const oldRefresh = useFederationStore.getState().refreshCoordinatorLimits("lake", { force: true });
+    const replacement = {
+      ...summary,
+      url: "http://new-lake.onion",
+      nostrHexPubkey: "new-key",
+      mainnet: { ...summary.mainnet, onion: "http://new-lake.onion" }
+    };
+    useFederationStore.setState({ coordinators: [replacement] });
+    const newRefresh = useFederationStore.getState().refreshCoordinatorLimits("lake", { force: true });
+
+    await newRefresh;
+    oldRequest.resolve({} as CoordinatorLimitList);
+    await oldRefresh;
+
+    expect(fetchCoordinatorLimitsMock).toHaveBeenCalledWith("http://new-lake.onion", expect.any(Object));
+    expect(useFederationStore.getState().coordinators[0]).toMatchObject({
+      url: "http://new-lake.onion",
+      nostrHexPubkey: "new-key",
+      limits: newLimits
+    });
   });
 
   it("keeps a coordinator's last state and retry eligibility when refresh is cancelled", async () => {
@@ -441,4 +518,179 @@ describe("buildCoordinatorSummary", () => {
       priority: "background"
     });
   });
+
+  it("adopts a hash-verified majority document and keeps custom coordinators", async () => {
+    const currentDocument = useFederationStore.getState().federationDocument;
+    const candidate: FederationDocument = {
+      ...Object.fromEntries(Object.entries(currentDocument).filter(([alias]) => alias !== "alice")),
+      newcomer: {
+        shortAlias: "newcomer",
+        longAlias: "New Coordinator",
+        color: "#123456",
+        established: "2020-01-01",
+        federated: true,
+        nostrHexPubkey: "f".repeat(64),
+        mainnet: { onion: "http://newcomer.onion", clearnet: null, i2p: null },
+        testnet: { onion: null, clearnet: null, i2p: null },
+        mainnetNodesPubkeys: [],
+        testnetNodesPubkeys: [],
+        badges: { donatesToDevFund: 100 }
+      }
+    };
+    const winnerHash = await hashFederationDocument(candidate);
+    fetchCoordinatorInfoMock.mockResolvedValue(coordinatorInfo(winnerHash));
+    fetchCoordinatorFederationMock.mockResolvedValue(candidate);
+    useFederationStore.setState({
+      connection: "nostr",
+      coordinators: defaultFederation.map((definition) =>
+        buildCoordinatorSummary(definition, {
+          network: "mainnet",
+          origin: "onion",
+          selfhostedClient: false
+        })
+      ),
+      lastRefreshed: undefined,
+      network: "mainnet",
+      origin: "onion",
+      refreshing: false,
+      selfhostedClient: false
+    });
+    useFederationStore.getState().addCustomCoordinator("Private host", "http://private.onion");
+
+    await useFederationStore.getState().refreshCoordinators({ force: true });
+
+    await vi.waitFor(() =>
+      expect(useFederationStore.getState().coordinators.find((item) => item.shortAlias === "newcomer")?.online).toBe(
+        true
+      )
+    );
+    expect(useFederationStore.getState().coordinators.map((item) => item.shortAlias)).toEqual([
+      "temple",
+      "lake",
+      "bazaar",
+      "newcomer",
+      "privatehost"
+    ]);
+    expect(
+      useFederationStore.getState().coordinators.find((item) => item.shortAlias === "newcomer")?.badges
+    ).toMatchObject({ donatesToDevFund: 0 });
+    expect(fetchCoordinatorFederationMock).toHaveBeenCalledTimes(1);
+    expect(globalThis.localStorage.getItem("federation_manifest")).toBe(
+      JSON.stringify(useFederationStore.getState().federationDocument)
+    );
+    expect(JSON.parse(globalThis.localStorage.getItem("federation_join_dates") ?? "{}")).toMatchObject({
+      newcomer: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/)
+    });
+    expect(JSON.parse(globalThis.localStorage.getItem("federation_pubkeys") ?? "[]")).toContain("f".repeat(64));
+  });
+
+  it("keeps the current federation when fewer than two coordinators vote", async () => {
+    const summary = buildCoordinatorSummary(coordinator, {
+      network: "mainnet",
+      origin: "onion",
+      selfhostedClient: false
+    });
+    fetchCoordinatorInfoMock.mockResolvedValue(coordinatorInfo("a".repeat(64)));
+    useFederationStore.setState({
+      coordinators: [summary],
+      lastRefreshed: undefined,
+      network: "mainnet",
+      origin: "onion",
+      refreshing: false,
+      selfhostedClient: false
+    });
+
+    await useFederationStore.getState().refreshCoordinators({ force: true });
+
+    expect(fetchCoordinatorFederationMock).not.toHaveBeenCalled();
+    expect(useFederationStore.getState().coordinators.map((item) => item.shortAlias)).toEqual(["lake"]);
+  });
+
+  it("rejects a federation document that does not match the voted hash", async () => {
+    const definitions = defaultFederation.slice(0, 2);
+    const expectedHash = "a".repeat(64);
+    fetchCoordinatorInfoMock.mockResolvedValue(coordinatorInfo(expectedHash));
+    fetchCoordinatorFederationMock.mockResolvedValue(useFederationStore.getState().federationDocument);
+    useFederationStore.setState({
+      coordinators: definitions.map((definition) =>
+        buildCoordinatorSummary(definition, {
+          network: "mainnet",
+          origin: "onion",
+          selfhostedClient: false
+        })
+      ),
+      lastRefreshed: undefined,
+      network: "mainnet",
+      origin: "onion",
+      refreshing: false,
+      selfhostedClient: false
+    });
+
+    await useFederationStore.getState().refreshCoordinators({ force: true });
+
+    expect(fetchCoordinatorFederationMock).toHaveBeenCalledTimes(1);
+    expect(useFederationStore.getState().coordinators.map((item) => item.shortAlias)).toEqual(["temple", "lake"]);
+    expect(globalThis.localStorage.getItem("federation_manifest")).toBeNull();
+  });
+
+  it("does not adopt a document after federation settings change during verification", async () => {
+    const candidate = Object.fromEntries(
+      Object.entries(useFederationStore.getState().federationDocument).filter(([alias]) => alias !== "alice")
+    ) as FederationDocument;
+    const winnerHash = await hashFederationDocument(candidate);
+    const definitions = defaultFederation.slice(0, 2);
+    fetchCoordinatorInfoMock.mockResolvedValue(coordinatorInfo(winnerHash));
+    fetchCoordinatorFederationMock.mockResolvedValue(candidate);
+    useFederationStore.setState({
+      coordinators: definitions.map((definition) =>
+        buildCoordinatorSummary(definition, {
+          network: "mainnet",
+          origin: "onion",
+          selfhostedClient: false
+        })
+      ),
+      lastRefreshed: undefined,
+      network: "mainnet",
+      origin: "onion",
+      refreshing: false,
+      selfhostedClient: false
+    });
+
+    const digest = crypto.subtle.digest.bind(crypto.subtle);
+    const verification = deferred<void>();
+    let digestCalls = 0;
+    vi.spyOn(crypto.subtle, "digest").mockImplementation(async (...args) => {
+      digestCalls += 1;
+      if (digestCalls === 2) await verification.promise;
+      return digest(...args);
+    });
+
+    const refresh = useFederationStore.getState().refreshCoordinators({ force: true });
+    await vi.waitFor(() => expect(digestCalls).toBe(2));
+    useFederationStore.getState().setOrigin("clearnet");
+    verification.resolve();
+    await refresh;
+
+    expect(useFederationStore.getState().origin).toBe("clearnet");
+    expect(globalThis.localStorage.getItem("federation_manifest")).toBeNull();
+  });
 });
+
+function coordinatorInfo(federationHash?: string): CoordinatorInfo {
+  return {
+    maker_fee: 0.002,
+    taker_fee: 0.002,
+    swap_enabled: false,
+    federation_hash: federationHash,
+    notice_severity: "none",
+    notice_message: ""
+  } as CoordinatorInfo;
+}
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
+}

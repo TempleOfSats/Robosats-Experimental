@@ -58,6 +58,11 @@ async function readPackedImage(index: number): Promise<string> {
 
   const promise = loadPackedImage(index);
   packedImagePromises.set(index, promise);
+  promise.catch(() => {
+    // Only decoded layers stay cached. A layer that failed because the pack was
+    // unreachable has to be read again on the next attempt.
+    if (packedImagePromises.get(index) === promise) packedImagePromises.delete(index);
+  });
   return promise;
 }
 
@@ -73,13 +78,21 @@ async function loadPackedImage(index: number): Promise<string> {
 }
 
 async function loadAssetPack(): Promise<ArrayBuffer> {
-  assetPackPromise ??= fetch(assetPackUrl).then(async (response) => {
-    if (!response.ok) throw new Error(`Identity assets returned ${response.status}`);
-    const pack = await response.arrayBuffer();
-    const magic = new TextDecoder().decode(pack.slice(0, 8));
-    if (magic !== packMagic) throw new Error("Identity asset pack is invalid");
-    return pack;
-  });
+  if (!assetPackPromise) {
+    const request = fetch(assetPackUrl).then(async (response) => {
+      if (!response.ok) throw new Error(`Identity assets returned ${response.status}`);
+      const pack = await response.arrayBuffer();
+      const magic = new TextDecoder().decode(pack.slice(0, 8));
+      if (magic !== packMagic) throw new Error("Identity asset pack is invalid");
+      return pack;
+    });
+    assetPackPromise = request;
+    request.catch(() => {
+      // One dropped connection while fetching the shared pack must not decide how
+      // every avatar on the page looks for the rest of the session.
+      if (assetPackPromise === request) assetPackPromise = undefined;
+    });
+  }
   return assetPackPromise;
 }
 

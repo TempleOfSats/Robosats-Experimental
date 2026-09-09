@@ -1,7 +1,12 @@
 import { create } from "zustand";
 import { isAbortError, toUserMessage } from "@/lib/userError";
 import { fetchCoordinatorBook } from "@/domains/coordinators/coordinatorApi";
-import type { CoordinatorConnection, CoordinatorSummary, Network, Origin } from "@/domains/coordinators/coordinator.types";
+import type {
+  CoordinatorConnection,
+  CoordinatorSummary,
+  Network,
+  Origin
+} from "@/domains/coordinators/coordinator.types";
 import { fetchNostrOrderbook } from "@/domains/orderbook/nostrOrderbook";
 import { activePublicOrders } from "@/domains/orderbook/orderbookFilters";
 import {
@@ -44,6 +49,7 @@ type OrderbookState = {
   sourceConnection?: CoordinatorConnection;
   sourceNetwork?: Network;
   sourceOrigin?: Origin;
+  sourceRefreshKey?: string;
   refreshOrderbook: (coordinators: CoordinatorSummary[], options?: OrderbookRefreshOptions) => Promise<void>;
   applyLiveOrders: (
     orders: PublicOrder[],
@@ -63,10 +69,11 @@ export const useOrderbookStore = create<OrderbookState>((set, get) => ({
     const connection = options.connection ?? "api";
     const network = options.network ?? "mainnet";
     const origin = options.origin ?? "clearnet";
-    const refreshKey = orderbookRefreshKey(coordinators, connection, network, options.hostUrl);
-    const priority = options.force ? "visible" : options.priority ?? "visible";
+    const refreshKey = orderbookRefreshKey(coordinators, connection, network, origin, options.hostUrl);
+    const priority = options.force ? "visible" : (options.priority ?? "visible");
     const state = get();
-    const sameSource = state.sourceConnection === connection && state.sourceNetwork === network && state.sourceOrigin === origin;
+    const sameSource =
+      state.sourceConnection === connection && state.sourceNetwork === network && state.sourceOrigin === origin;
 
     if (refreshInFlight?.key === refreshKey) {
       if (priority === "visible" && refreshInFlight.priority === "background") {
@@ -81,9 +88,17 @@ export const useOrderbookStore = create<OrderbookState>((set, get) => ({
     }
 
     if (!options.force) {
-      if (sameSource && state.lastUpdated && Date.now() - state.lastUpdated < ORDERBOOK_STATE_FRESH_MS && !state.error) return;
+      if (
+        sameSource &&
+        state.sourceRefreshKey === refreshKey &&
+        state.lastUpdated &&
+        Date.now() - state.lastUpdated < ORDERBOOK_STATE_FRESH_MS &&
+        !state.error
+      )
+        return;
     }
 
+    set({ sourceRefreshKey: undefined });
     const run: OrderbookRefreshRun = {
       activeApiBookUrls: new Set(),
       key: refreshKey,
@@ -125,7 +140,8 @@ async function runOrderbookRefresh(
   const cachedState = cached && isFreshOrderbookCache(cached.savedAt) ? "fresh" : "stale";
 
   set((state) => {
-    const sameSource = state.sourceConnection === connection && state.sourceNetwork === network && state.sourceOrigin === origin;
+    const sameSource =
+      state.sourceConnection === connection && state.sourceNetwork === network && state.sourceOrigin === origin;
 
     if (cached && cachedOrders.length > 0 && (!sameSource || state.orders.length === 0)) {
       cachedPaintMs = performance.now() - startedAt;
@@ -163,14 +179,7 @@ async function runOrderbookRefresh(
           if (sequence !== refreshSequence) return;
           if (firstPartialMs === undefined) firstPartialMs = performance.now() - startedAt;
           if (meta.authoritative && !meta.partial) receivedAuthoritativeSnapshot = true;
-          applyOrderbookSnapshot(
-            set,
-            orders,
-            connection,
-            network,
-            origin,
-            meta.partial || !meta.authoritative
-          );
+          applyOrderbookSnapshot(set, orders, connection, network, origin, meta.partial || !meta.authoritative);
         }
       });
 
@@ -178,6 +187,7 @@ async function runOrderbookRefresh(
       if (!receivedAuthoritativeSnapshot) {
         throw new Error("Nostr relays are still reconnecting. Showing the last confirmed offers.");
       }
+      set({ sourceRefreshKey: run.key });
       logOrderbookTiming({
         connection,
         cachedPaintMs,
@@ -229,8 +239,7 @@ async function runOrderbookRefresh(
 
     if (sequence !== refreshSequence) return;
     const successfulBooks = results.filter(
-      (result): result is { coordinator: CoordinatorSummary; orders: PublicOrder[] } =>
-        "orders" in result
+      (result): result is { coordinator: CoordinatorSummary; orders: PublicOrder[] } => "orders" in result
     );
     if (successfulBooks.length === 0) {
       const failure = results.find((result) => "error" in result);
@@ -253,7 +262,8 @@ async function runOrderbookRefresh(
       lastUpdated: Date.now(),
       sourceConnection: connection,
       sourceNetwork: network,
-      sourceOrigin: origin
+      sourceOrigin: origin,
+      sourceRefreshKey: run.key
     });
   } catch (error) {
     if (sequence !== refreshSequence) return;
@@ -271,20 +281,18 @@ async function runOrderbookRefresh(
   }
 }
 
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  concurrency: number,
-  task: (item: T) => Promise<R>
-): Promise<R[]> {
+async function mapWithConcurrency<T, R>(items: T[], concurrency: number, task: (item: T) => Promise<R>): Promise<R[]> {
   const results: R[] = [];
   let nextIndex = 0;
   const workers = Math.min(Math.max(1, concurrency), items.length);
-  await Promise.all(Array.from({ length: workers }, async () => {
-    while (nextIndex < items.length) {
-      const index = nextIndex++;
-      results[index] = await task(items[index]);
-    }
-  }));
+  await Promise.all(
+    Array.from({ length: workers }, async () => {
+      while (nextIndex < items.length) {
+        const index = nextIndex++;
+        results[index] = await task(items[index]);
+      }
+    })
+  );
   return results;
 }
 
@@ -297,10 +305,12 @@ function prioritizedApiTargets(
     .sort((left, right) => {
       const leftHosted = sameOrigin(left.coordinator.url, hostUrl);
       const rightHosted = sameOrigin(right.coordinator.url, hostUrl);
-      return Number(rightHosted) - Number(leftHosted)
-        || Number(right.coordinator.online) - Number(left.coordinator.online)
-        || (right.coordinator.lastCheckedAt ?? 0) - (left.coordinator.lastCheckedAt ?? 0)
-        || left.index - right.index;
+      return (
+        Number(rightHosted) - Number(leftHosted) ||
+        Number(right.coordinator.online) - Number(left.coordinator.online) ||
+        (right.coordinator.lastCheckedAt ?? 0) - (left.coordinator.lastCheckedAt ?? 0) ||
+        left.index - right.index
+      );
     })
     .map(({ coordinator }) => coordinator);
 }
@@ -325,9 +335,8 @@ function applyApiCoordinatorBook(
 ): void {
   set((state) => ({
     orders: mergeOrders(
-      state.orders.filter((order) =>
-        enabledAliases.has(order.coordinatorShortAlias)
-        && order.coordinatorShortAlias !== shortAlias
+      state.orders.filter(
+        (order) => enabledAliases.has(order.coordinatorShortAlias) && order.coordinatorShortAlias !== shortAlias
       ),
       orders
     ),
@@ -403,12 +412,18 @@ function orderbookRefreshKey(
   coordinators: CoordinatorSummary[],
   connection: CoordinatorConnection,
   network: Network,
+  origin: Origin,
   hostUrl = ""
 ): string {
   const coordinatorKey = coordinators
     .filter((coordinator) => coordinator.enabled)
-    .map((coordinator) => `${coordinator.shortAlias}:${coordinator.online ? "1" : "0"}:${coordinator.url}`)
+    .map((coordinator) =>
+      [coordinator.shortAlias, coordinator.url, connection === "nostr" ? (coordinator.nostrHexPubkey ?? "") : ""].join(
+        ":"
+      )
+    )
+    .sort()
     .join(",");
 
-  return [connection, network, hostUrl, coordinatorKey].join("|");
+  return [connection, network, origin, hostUrl, coordinatorKey].join("|");
 }

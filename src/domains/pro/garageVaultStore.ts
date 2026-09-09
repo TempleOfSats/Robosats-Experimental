@@ -5,7 +5,12 @@ import { deriveProRobotLifecycle } from "@/domains/pro/proRobotLifecycle";
 import { useProTradeIndexStore } from "@/domains/pro/proTradeIndexStore";
 import { readUiPreferences } from "@/domains/settings/uiPreferences";
 import { systemClient } from "@/domains/transport/systemClient";
-import { decryptGaragePayload, encryptGaragePayload } from "@/domains/pro/garageCrypto";
+import {
+  activateGarageCryptoCache,
+  clearGarageCryptoCache,
+  decryptGaragePayload,
+  encryptGaragePayload
+} from "@/domains/pro/garageCrypto";
 import { garageSecretStore } from "@/domains/pro/garageSecretStore";
 import {
   activeGarageEntries,
@@ -173,15 +178,16 @@ export const useGarageVaultStore = create<GarageVaultState>((set, get) => ({
         set({ status: "unconfigured", envelope: undefined, manifest: undefined, history: undefined });
         return;
       }
-      garageSecret = decodeGarageToken(storedToken);
-      const envelope = loadLocalEnvelope(garageSecret, currentDeviceId());
+      const storedSecret = decodeGarageToken(storedToken);
+      adoptGarageSecret(storedSecret);
+      const envelope = loadLocalEnvelope(storedSecret, currentDeviceId());
       garageVaultGeneration += 1;
       setEnvelopeState(set, envelope, {
         status: systemClient.getItem(BACKUP_CONFIRMED_KEY) === "true" ? "ready" : "needs-backup"
       });
     })()
       .catch((error) => {
-        garageSecret = undefined;
+        adoptGarageSecret(undefined);
         set({
           status: "error",
           error: error instanceof Error ? error.message : "Could not open Fleet."
@@ -205,14 +211,14 @@ export const useGarageVaultStore = create<GarageVaultState>((set, get) => ({
       let envelope = createLocalEnvelope(currentDeviceId());
       envelope = queueRecord(envelope, preferencesToSyncRecord(envelope.settings));
       persistEnvelope(secret, envelope);
-      garageSecret = secret;
+      adoptGarageSecret(secret);
       garageVaultGeneration += 1;
       setEnvelopeState(set, envelope, { status: "needs-backup", error: undefined, syncStatus: "idle" });
       return token;
     } catch (error) {
       await restoreStoredValue(previousToken);
       restoreSystemValue(ENVELOPE_KEY, previousEnvelope);
-      garageSecret = previousSecret;
+      adoptGarageSecret(previousSecret);
       set(previousState);
       throw error;
     }
@@ -236,7 +242,7 @@ export const useGarageVaultStore = create<GarageVaultState>((set, get) => ({
     await garageSecretStore.remove();
     systemClient.deleteItem(ENVELOPE_KEY);
     systemClient.deleteItem(BACKUP_CONFIRMED_KEY);
-    garageSecret = undefined;
+    adoptGarageSecret(undefined);
     garageVaultGeneration += 1;
     initialization = undefined;
     set({
@@ -414,16 +420,26 @@ export const useGarageVaultStore = create<GarageVaultState>((set, get) => ({
   recordOutboxAcknowledgements: (key, revision, relays, observed) => {
     if (!garageSecret || !get().envelope || relays.length === 0) return;
     if (!get().envelope!.outbox.some((item) => item.key === key && item.revision === revision)) return;
+    let acknowledged = false;
     const outbox = get().envelope!.outbox.map((item) => {
       if (item.key !== key || item.revision !== revision) return item;
       const useObserved = observed.publishedAt >= (item.acceptedPublishedAt ?? 0);
-      return {
-        ...item,
-        acceptedRelays: [...new Set([...item.acceptedRelays, ...relays])].sort(),
-        acceptedEventId: useObserved ? observed.eventId : item.acceptedEventId,
-        acceptedPublishedAt: useObserved ? observed.publishedAt : item.acceptedPublishedAt
-      };
+      const acceptedRelays = [...new Set([...item.acceptedRelays, ...relays])].sort();
+      const acceptedEventId = useObserved ? observed.eventId : item.acceptedEventId;
+      const acceptedPublishedAt = useObserved ? observed.publishedAt : item.acceptedPublishedAt;
+      if (
+        acceptedRelays.join("|") === item.acceptedRelays.join("|") &&
+        acceptedEventId === item.acceptedEventId &&
+        acceptedPublishedAt === item.acceptedPublishedAt
+      ) {
+        return item;
+      }
+      acknowledged = true;
+      return { ...item, acceptedRelays, acceptedEventId, acceptedPublishedAt };
     });
+    // A repeated relay acknowledgement carries no new information. Writing it would
+    // re-encrypt, re-store, and re-notify every subscriber for the same state.
+    if (!acknowledged) return;
     const next = updateEnvelope(get().envelope!, { outbox });
     persistEnvelope(garageSecret, next);
     setEnvelopeState(set, next);
@@ -432,7 +448,15 @@ export const useGarageVaultStore = create<GarageVaultState>((set, get) => ({
     if (!garageSecret || !get().envelope) return;
     const envelope = get().envelope!;
     const outbox = envelope.outbox.filter((item) => item.key !== key || item.revision !== revision);
-    const next = updateEnvelope(envelope, { outbox, observed: { ...envelope.observed, [key]: observed } });
+    const completed = outbox.length !== envelope.outbox.length;
+    const nextObserved = newerObservation(envelope.observed[key], observed);
+    // A late acknowledgement for an event that already completed cannot rewrite
+    // observation state that is newer than what it saw.
+    if (!completed && !nextObserved) return;
+    const next = updateEnvelope(envelope, {
+      outbox,
+      observed: nextObserved ? { ...envelope.observed, [key]: nextObserved } : envelope.observed
+    });
     persistEnvelope(garageSecret, next);
     setEnvelopeState(set, next);
   },
@@ -479,7 +503,7 @@ export function getGarageVaultGeneration(): number {
 }
 
 export function resetGarageVaultRuntimeForTests(): void {
-  garageSecret = undefined;
+  adoptGarageSecret(undefined);
   garageVaultGeneration += 1;
   initialization = undefined;
   useGarageVaultStore.setState({
@@ -849,8 +873,20 @@ function compareRobotEntries(
 }
 
 function compareObserved(incoming: ObservedGarageSyncRecord, current: GarageObservedEvent): number {
-  if (incoming.record.revision !== current.revision) return incoming.record.revision - current.revision;
-  const writerOrder = incoming.record.writerDeviceId.localeCompare(current.writerDeviceId);
+  return compareObservations(
+    {
+      eventId: incoming.eventId,
+      publishedAt: incoming.publishedAt,
+      revision: incoming.record.revision,
+      writerDeviceId: incoming.record.writerDeviceId
+    },
+    current
+  );
+}
+
+function compareObservations(incoming: GarageObservedEvent, current: GarageObservedEvent): number {
+  if (incoming.revision !== current.revision) return incoming.revision - current.revision;
+  const writerOrder = incoming.writerDeviceId.localeCompare(current.writerDeviceId);
   return writerOrder || incoming.eventId.localeCompare(current.eventId);
 }
 
@@ -904,6 +940,19 @@ function updateEnvelope(
   const next = { ...envelope, ...values, revision: envelope.revision + 1, updatedAt: now };
   next.outbox = next.outbox.filter((item) => Boolean(recordForOutboxItem(next, item)));
   return next;
+}
+
+// The same revision-wins ordering used for remote records, applied to the two
+// observations an acknowledgement can bring. An older observation may only
+// advance the recorded timestamp.
+function newerObservation(
+  current: GarageObservedEvent | undefined,
+  next: GarageObservedEvent
+): GarageObservedEvent | undefined {
+  if (!current) return next;
+  if (compareObservations(next, current) > 0)
+    return { ...next, publishedAt: Math.max(next.publishedAt, current.publishedAt) };
+  return next.publishedAt > current.publishedAt ? { ...current, publishedAt: next.publishedAt } : undefined;
 }
 
 function loadLocalEnvelope(secret: Uint8Array, deviceId: string): GarageLocalEnvelope {
@@ -1060,6 +1109,17 @@ function validateRecoverySnapshot(value: unknown): asserts value is GarageRecove
   validateTradeHistoryManifest(snapshot.history);
 }
 
+/**
+ * Install or drop the Fleet secret together with the crypto session that owns
+ * its derived conversation keys. A failed setup or restore reinstates the
+ * previous Fleet's session instead of leaving the abandoned one cached.
+ */
+function adoptGarageSecret(secret: Uint8Array | undefined): void {
+  garageSecret = secret;
+  if (secret) activateGarageCryptoCache(secret);
+  else clearGarageCryptoCache();
+}
+
 function currentDeviceId(): string {
   const stored = systemClient.getItem(DEVICE_ID_KEY);
   if (stored && /^[0-9a-f]{32}$/.test(stored)) return stored;
@@ -1083,13 +1143,13 @@ async function installRestoredFleet(
     await garageSecretStore.save(encodedToken);
     persistEnvelope(secret, envelope);
     systemClient.setItem(BACKUP_CONFIRMED_KEY, "true");
-    garageSecret = secret;
+    adoptGarageSecret(secret);
     garageVaultGeneration += 1;
     setEnvelopeState(set, envelope, { status: "ready", error: undefined, syncStatus: "idle" });
   } catch (error) {
     await restoreStoredValue(previousToken);
     restoreSystemValue(ENVELOPE_KEY, previousEnvelope);
-    garageSecret = previousSecret;
+    adoptGarageSecret(previousSecret);
     throw error;
   }
 }

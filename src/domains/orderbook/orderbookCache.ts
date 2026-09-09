@@ -5,6 +5,13 @@ import { systemClient } from "@/domains/transport/systemClient";
 export const ORDERBOOK_CACHE_MAX_AGE_MS = 30 * 60 * 1000;
 export const ORDERBOOK_CACHE_STALE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const ORDERBOOK_CACHE_KEY = "robosats_exp_orderbook_cache_v1";
+const CACHE_RENEWAL_INTERVAL_MS = 60 * 1000;
+
+let lastWrite: {
+  context: string;
+  orders: string;
+  savedAt: number;
+} | undefined;
 
 export interface CachedOrderbook {
   savedAt: number;
@@ -46,14 +53,19 @@ function readCache(
 
 export function writeOrderbookCache(connection: CoordinatorConnection, network: Network, origin: Origin, orders: PublicOrder[], now = Date.now()): void {
   try {
-    const cached: CachedOrderbook = {
-      savedAt: now,
-      connection,
-      network,
-      origin,
-      orders
-    };
-    systemClient.setItem(ORDERBOOK_CACHE_KEY, JSON.stringify(cached));
+    const context = `${connection}|${network}|${origin}`;
+    const serializedOrders = JSON.stringify(orders);
+    if (
+      lastWrite?.context === context
+      && lastWrite.orders === serializedOrders
+      && now >= lastWrite.savedAt
+      && now - lastWrite.savedAt < CACHE_RENEWAL_INTERVAL_MS
+    ) return;
+
+    const serializedMetadata = JSON.stringify({ savedAt: now, connection, network, origin });
+    const serializedCache = `${serializedMetadata.slice(0, -1)},"orders":${serializedOrders}}`;
+    systemClient.setItem(ORDERBOOK_CACHE_KEY, serializedCache);
+    lastWrite = { context, orders: serializedOrders, savedAt: now };
   } catch {
     // Cache is best-effort; private browsing and storage quota errors should not affect trading.
   }
@@ -64,6 +76,7 @@ export function isFreshOrderbookCache(savedAt: number, now = Date.now()): boolea
 }
 
 export function clearOrderbookCache(): void {
+  lastWrite = undefined;
   try {
     systemClient.deleteItem(ORDERBOOK_CACHE_KEY);
   } catch {

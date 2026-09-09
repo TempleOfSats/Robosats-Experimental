@@ -64,6 +64,7 @@ export function buildJsonHeaders(auth?: Auth): HeadersInit {
 
 export const apiRoutes = {
   info: "/api/info/",
+  federation: "/api/federation/",
   limits: "/api/limits/",
   book: "/api/book/",
   robot: "/api/robot/",
