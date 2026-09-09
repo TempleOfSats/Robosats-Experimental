@@ -6,6 +6,30 @@ afterEach(() => {
 });
 
 describe("Native transport bridge", () => {
+  it("uses the optional binary method and preserves cancellation ownership", async () => {
+    const bridgeWindow = {
+      AndroidAppRobosats: { httpRequest: vi.fn(), httpBinaryRequest: vi.fn(), cancelHttpRequest: vi.fn() }
+    };
+    vi.stubGlobal("window", bridgeWindow);
+    const { nativeHttpRequest } = await import("./androidBridge");
+    const controller = new AbortController();
+    const pending = nativeHttpRequest("http://coordinator.test/blossom/upload", { method: "PUT", body: "/wCA" }, 1000, controller.signal, true);
+    const rejection = expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(bridgeWindow.AndroidAppRobosats.httpBinaryRequest).toHaveBeenCalledWith(expect.any(String), "PUT", "http://coordinator.test/blossom/upload", "{}", "/wCA");
+    expect(bridgeWindow.AndroidAppRobosats.httpRequest).not.toHaveBeenCalled();
+    controller.abort();
+    await rejection;
+    expect(bridgeWindow.AndroidAppRobosats.cancelHttpRequest).toHaveBeenCalledOnce();
+  });
+
+  it("fails closed instead of fetching outside Tor on an older native bridge", async () => {
+    vi.stubGlobal("window", { IOSAppRobosats: { httpRequest: vi.fn() } });
+    const fetcher = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    const { nativeHttpRequest } = await import("./androidBridge");
+    await expect(nativeHttpRequest("http://coordinator.test/blossom/test", {}, 1000, undefined, true)).rejects.toThrow("Update the app");
+    expect(fetcher).not.toHaveBeenCalled();
+  });
   it("can be imported outside a browser", async () => {
     vi.stubGlobal("window", undefined);
     await expect(import("./androidBridge")).resolves.toBeDefined();

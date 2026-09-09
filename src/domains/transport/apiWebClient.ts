@@ -1,8 +1,8 @@
 import type { ApiClient, ApiRequestOptions, Auth, RequestPriority, TimeoutProfile } from "@/domains/transport/apiClient";
 import { buildAuthHeaders, buildJsonHeaders } from "@/domains/transport/apiClient";
 import { recordNetworkPerformance, type NetworkOutcome } from "@/domains/diagnostics/networkPerformance";
-import { transportRequest } from "@/domains/transport/androidBridge";
-import { RoboSatsApiError } from "@/domains/transport/apiError";
+import { transportRequest, type NativeHttpResult } from "@/domains/transport/androidBridge";
+import { ApiResponseValidationError, RoboSatsApiError } from "@/domains/transport/apiError";
 import {
   CoordinatorRequestDeferredError,
   coordinatorRequestScheduler
@@ -19,11 +19,11 @@ class ApiWebClient implements ApiClient {
   async get<T>(baseUrl: string, path: string, auth?: Auth, options?: ApiRequestOptions): Promise<T> {
     const headers = buildAuthHeaders(auth);
     const requestKey = getRequestKey(baseUrl, path, headers);
-    return request<T>(baseUrl, path, { method: "GET", headers }, options, requestKey);
+    return requestCoordinator<T>(baseUrl, path, { method: "GET", headers }, options, requestKey);
   }
 
   async post<T>(baseUrl: string, path: string, body: object, auth?: Auth, options?: ApiRequestOptions): Promise<T> {
-    return request<T>(baseUrl, path, {
+    return requestCoordinator<T>(baseUrl, path, {
       method: "POST",
       headers: buildJsonHeaders(auth),
       body: JSON.stringify(body)
@@ -31,7 +31,7 @@ class ApiWebClient implements ApiClient {
   }
 
   async put<T>(baseUrl: string, path: string, body: object, auth?: Auth, options?: ApiRequestOptions): Promise<T> {
-    return request<T>(baseUrl, path, {
+    return requestCoordinator<T>(baseUrl, path, {
       method: "PUT",
       headers: buildJsonHeaders(auth),
       body: JSON.stringify(body)
@@ -39,16 +39,21 @@ class ApiWebClient implements ApiClient {
   }
 
   async delete<T>(baseUrl: string, path: string, auth?: Auth, options?: ApiRequestOptions): Promise<T> {
-    return request<T>(baseUrl, path, { method: "DELETE", headers: buildAuthHeaders(auth) }, options);
+    return requestCoordinator<T>(baseUrl, path, { method: "DELETE", headers: buildAuthHeaders(auth) }, options);
   }
 }
 
-async function request<T>(
+type CoordinatorExchange = (...args: Parameters<typeof transportRequest>) => Promise<
+  Omit<NativeHttpResult, "body"> & { body: unknown }
+>;
+
+export async function requestCoordinator<T>(
   baseUrl: string,
   path: string,
   init: RequestInit,
   options: ApiRequestOptions = {},
-  requestKey?: string
+  requestKey?: string,
+  exchange: CoordinatorExchange = transportRequest
 ): Promise<T> {
   const timeoutMs = options.timeoutMs ?? timeoutForProfile(options.timeoutProfile ?? "interactive");
   const method = init.method ?? "GET";
@@ -73,12 +78,13 @@ async function request<T>(
     try {
       // The scheduler owns the adjustable caller timeout. Keep a hard transport
       // ceiling in case a native bridge fails to honor cancellation.
-      const response = await transportRequest(baseUrl + path, init, 90_000, signal);
+      const response = await exchange(baseUrl + path, init, 90_000, signal);
       if (!isTransportLifecycleCurrent(lifecycleGeneration)) throw staleTransportError();
       noteTransportReachable(baseUrl);
       coordinatorRequestScheduler.noteOriginReachable(origin);
       const contentType = response.headers["content-type"] ?? "";
-      const data = contentType.includes("application/json") ? JSON.parse(response.body || "null") : response.body;
+      const data = typeof response.body === "string" && contentType.includes("application/json")
+        ? JSON.parse(response.body || "null") : response.body;
       if (response.status < 200 || response.status >= 300) {
         outcome = "http-error";
         throw new RoboSatsApiError(response.status, data, apiStatusFallback(response.status));
@@ -90,6 +96,7 @@ async function request<T>(
       if (
         !stale
         && !(error instanceof RoboSatsApiError)
+        && !(error instanceof ApiResponseValidationError)
         && !(error instanceof CoordinatorRequestDeferredError)
         && outcome !== "cancelled"
       ) {
@@ -150,7 +157,7 @@ function requestOrigin(baseUrl: string): string {
 }
 
 function classifyOutcome(error: unknown): NetworkOutcome {
-  if (error instanceof RoboSatsApiError) return "http-error";
+  if (error instanceof RoboSatsApiError || error instanceof ApiResponseValidationError) return "http-error";
   if (error instanceof CoordinatorRequestDeferredError) return "cancelled";
   if (error instanceof DOMException && error.name === "AbortError") return "cancelled";
   if (error instanceof Error && /timeout/i.test(error.message)) return "timeout";

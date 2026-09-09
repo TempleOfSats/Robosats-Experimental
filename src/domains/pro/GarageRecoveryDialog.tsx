@@ -6,7 +6,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
 import { activeGarageEntries, decodeGarageToken, encodeGarageToken } from "@/domains/pro/garageVault";
 import { useGarageVaultStore } from "@/domains/pro/garageVaultStore";
-import { recoverGarageSnapshot, type GarageRelayQueryProgress } from "@/domains/pro/garageSync";
+import type { GarageRelayQueryProgress } from "@/domains/pro/garageSync";
 import { activeOfferPresets } from "@/domains/pro/portableSettings";
 import { playHaptic } from "@/lib/haptics";
 
@@ -62,6 +62,7 @@ export function GarageRecoveryDialog({
       await waitForFeedbackPaint();
       const secret = decodeGarageToken(candidateKey.trim());
       const normalized = encodeGarageToken(secret);
+      const { recoverGarageSnapshot } = await import("@/domains/pro/garageSync");
       const { coverage, snapshot } = await recoverGarageSnapshot(secret, coordinators, {
         onProgress: (progress) => {
           if (mounted.current) setRelayProgress(progress);

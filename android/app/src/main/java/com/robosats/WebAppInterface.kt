@@ -162,6 +162,24 @@ class WebAppInterface(
         url: String,
         headersJson: String,
         body: String
+    ) = performHttpRequest(requestId, method, url, headersJson, body, false)
+
+    @JavascriptInterface
+    fun httpBinaryRequest(
+        requestId: String,
+        method: String,
+        url: String,
+        headersJson: String,
+        bodyBase64: String
+    ) = performHttpRequest(requestId, method, url, headersJson, bodyBase64, true)
+
+    private fun performHttpRequest(
+        requestId: String,
+        method: String,
+        url: String,
+        headersJson: String,
+        body: String,
+        binary: Boolean
     ) {
         if (!foreground.get()) return
         if (!isIdentifier(requestId) || !isHttpUrl(url)) {
@@ -183,7 +201,12 @@ class WebAppInterface(
 
             val normalizedMethod = method.uppercase()
             val contentType = headers.optString("Content-Type", "application/json; charset=utf-8")
-            val requestBody = body.toRequestBody(contentType.toMediaTypeOrNull())
+            val requestBody = if (binary) {
+                require(body.length <= ((MAX_BINARY_BYTES + 2) / 3) * 4) { "Image is too large" }
+                val bytes = Base64.decode(body, Base64.DEFAULT)
+                require(bytes.size <= MAX_BINARY_BYTES) { "Image is too large" }
+                bytes.toRequestBody(contentType.toMediaTypeOrNull())
+            } else body.toRequestBody(contentType.toMediaTypeOrNull())
             when (normalizedMethod) {
                 "GET" -> requestBuilder.get()
                 "HEAD" -> requestBuilder.head()
@@ -208,7 +231,10 @@ class WebAppInterface(
 
                 runCatching { NativeNetworkClient.requireClient() }
                     .onSuccess { client ->
-                        val call = client.newCall(request)
+                        val transport = if (binary) client.newBuilder()
+                            .followRedirects(false).followSslRedirects(false)
+                            .retryOnConnectionFailure(false).cache(null).build() else client
+                        val call = transport.newCall(request)
                         if (!isCurrent(generation) || cancelledBeforeStart.remove(requestId)) {
                             call.cancel()
                             return@onSuccess
@@ -234,7 +260,7 @@ class WebAppInterface(
                                         val result = JSONObject()
                                             .put("status", response.code)
                                             .put("headers", responseHeaders)
-                                            .put("body", response.body.string())
+                                            .put("body", if (binary) readBinaryBody(response) else response.body.string())
                                         if (httpCalls.remove(requestId, call)) resolve(requestId, result)
                                     }
                                 } catch (error: Throwable) {
@@ -457,7 +483,16 @@ class WebAppInterface(
 
     companion object {
         private const val TAG = "RoboSatsBridge"
+        private const val MAX_BINARY_BYTES = 10 * 1024 * 1024 + 16
         private const val MAX_FILE_BYTES = 8 * 1024 * 1024
         private const val MAX_BASE64_BYTES = ((MAX_FILE_BYTES + 2) / 3) * 4
+
+        internal fun readBinaryBody(response: Response): String {
+            val body = response.body
+            require(body.contentLength() <= MAX_BINARY_BYTES) { "Image is too large" }
+            val source = body.source()
+            if (source.request(MAX_BINARY_BYTES.toLong() + 1)) throw IOException("Image is too large")
+            return java.util.Base64.getEncoder().encodeToString(source.readByteArray())
+        }
     }
 }

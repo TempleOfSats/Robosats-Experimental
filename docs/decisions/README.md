@@ -14,6 +14,7 @@ turning implementation history into a design manual.
 - [ADR-0007: Process-owned native network handoffs](0007-native-network-handoff-ownership.md)
 - [ADR-0008: Early Fleet recovery with safe relay reconciliation](0008-early-fleet-recovery.md)
 - [ADR-0010: Required background work reports failure and the user reloads](0010-required-background-runtime-user-reload.md)
+- [ADR-0011: Encrypted chat images through coordinator Blossom](0011-encrypted-chat-images.md)
 
 ## Adding a decision
 

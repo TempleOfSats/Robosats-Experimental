@@ -1,5 +1,5 @@
 import { Check, Copy, Download, KeyRound, X } from "lucide-react";
-import { nip19 } from "nostr-tools";
+import * as nip19 from "nostr-tools/nip19";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";

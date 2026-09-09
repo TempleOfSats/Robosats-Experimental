@@ -1,4 +1,4 @@
-import { finalizeEvent, verifyEvent, type Event } from "nostr-tools";
+import { finalizeEvent, verifyEvent, type Event } from "nostr-tools/pure";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import { getSharedRelayPool, runRelayQuery, withRelayQueryPool } from "@/domains/nostr/sharedRelayPool";
 import { buildNostrRelayUrl, selectNostrRelays } from "@/domains/orderbook/nostrOrderbook";
