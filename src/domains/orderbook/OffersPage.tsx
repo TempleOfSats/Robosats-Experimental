@@ -259,6 +259,7 @@ export function OffersPage() {
     .filter((coordinator) => coordinator.enabled)
     .map((coordinator) => `${coordinator.shortAlias}:${coordinator.url}:${coordinator.nostrHexPubkey ?? ""}`)
     .join("|");
+  const apiFederationKey = useRef(coordinatorSubscriptionKey);
 
   useEffect(() => {
     if (connection !== "nostr") return;
@@ -270,6 +271,19 @@ export function OffersPage() {
       }
     });
   }, [applyLiveOrders, connection, coordinatorSubscriptionKey, nostrSessionEpoch, origin]);
+
+  useEffect(() => {
+    const changed = apiFederationKey.current !== coordinatorSubscriptionKey;
+    apiFederationKey.current = coordinatorSubscriptionKey;
+    if (connection !== "api" || !changed) return;
+    const state = useFederationStore.getState();
+    void useOrderbookStore.getState().refreshOrderbook(state.coordinators, {
+      connection: state.connection,
+      network: state.network,
+      origin: state.origin,
+      priority: "background"
+    });
+  }, [connection, coordinatorSubscriptionKey]);
 
   useEffect(() => {
     let refreshTimer: number | undefined;

@@ -165,6 +165,8 @@ class NostrOrderbookSession {
   private readonly reconcileAfterInitial: boolean;
   private readonly primarySilenceMs: number;
   private readonly secondarySilenceMs: number;
+  private cachedOrders: PublicOrder[] = [];
+  private ordersDirty = true;
   private started = false;
   private initialSettled = false;
   private receivedUsefulEvent = false;
@@ -342,6 +344,7 @@ class NostrOrderbookSession {
       recordRelayPerformance(relay, "first-event", Date.now() - (this.relayStartedAt.get(relayIndex) ?? Date.now()));
     }
     this.events.set(event.id, event);
+    this.ordersDirty = true;
     if (this.events.size > MAX_RETAINED_EVENTS) {
       const retained = compactNostrOrderbookEvents(
         [...this.events.values()],
@@ -350,6 +353,7 @@ class NostrOrderbookSession {
       );
       this.events.clear();
       retained.forEach((item) => this.events.set(item.id, item));
+      this.ordersDirty = true;
     }
     if (!this.receivedUsefulEvent) {
       this.receivedUsefulEvent = true;
@@ -462,7 +466,10 @@ class NostrOrderbookSession {
   }
 
   private currentOrders(): PublicOrder[] {
-    return nostrEventsToPublicOrders([...this.events.values()], this.coordinators, this.network);
+    if (!this.ordersDirty) return this.cachedOrders;
+    this.cachedOrders = nostrEventsToPublicOrders([...this.events.values()], this.coordinators, this.network);
+    this.ordersDirty = false;
+    return this.cachedOrders;
   }
 
   private emit(partial: boolean, authoritative: boolean, orders = this.currentOrders()): void {

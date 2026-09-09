@@ -30,6 +30,8 @@ import {
 import { createPortableSettingsManifest, saveOfferPreset } from "@/domains/pro/portableSettings";
 import { FakeIndexedDb } from "@/test/fakeIndexedDb";
 
+const ENVELOPE_KEY = "robosats_exp_garage_envelope_v3";
+const PREFERENCES_KEY = "settings-sync:preferences:preferences";
 const remoteDevice = "ffeeddccbbaa99887766554433221100";
 const remoteEntry = "1234567890abcdef1234567890abcdef";
 
@@ -41,14 +43,21 @@ type DirectQueryParams = {
 
 describe("Garage synchronization runtime", () => {
   const storage = new Map<string, string>();
+  let envelopeWrites = 0;
 
   beforeEach(async () => {
     vi.restoreAllMocks();
     storage.clear();
+    envelopeWrites = 0;
     vi.stubGlobal("indexedDB", new FakeIndexedDb().factory);
     vi.stubGlobal("localStorage", {
       getItem: (key: string) => storage.get(key) ?? null,
-      setItem: (key: string, value: string) => storage.set(key, value),
+      setItem: (key: string, value: string) => {
+        // Count Fleet envelope writes only, so unrelated storage traffic cannot
+        // hide a redundant encrypt-store-notify cycle.
+        if (key === ENVELOPE_KEY) envelopeWrites += 1;
+        storage.set(key, value);
+      },
       removeItem: (key: string) => storage.delete(key)
     });
     resetLiveRelaySubscriptionsForTests();
@@ -299,6 +308,35 @@ describe("Garage synchronization runtime", () => {
       { forcePublish: true }
     );
     expect(useGarageVaultStore.getState().pendingOutbox()).toHaveLength(0);
+  });
+
+  it("writes the Fleet envelope once per acknowledgement step when every relay answers", async () => {
+    await useGarageVaultStore.getState().setup();
+    useGarageVaultStore.getState().markBackedUp();
+    const robot = await useGarageVaultStore.getState().createDerivedRobot("Four relay robot");
+    // Fleet setup also queues the settings record. Settle it first so every write
+    // counted below belongs to this one robot event.
+    useGarageVaultStore.getState().acknowledgeOutbox(PREFERENCES_KEY, 1, {
+      eventId: "c".repeat(64),
+      publishedAt: Date.now(),
+      revision: 1,
+      writerDeviceId: remoteDevice
+    });
+    vi.spyOn(SimplePool.prototype, "querySync").mockResolvedValue([]);
+    vi.spyOn(SimplePool.prototype, "publish").mockImplementation(() => [Promise.resolve("accepted")]);
+    envelopeWrites = 0;
+
+    await syncGarageNow([
+      coordinator("one", "https://one.example"),
+      coordinator("two", "https://two.example"),
+      coordinator("three", "https://three.example"),
+      coordinator("four", "https://four.example")
+    ]);
+
+    expect(pendingKeys()).not.toContain(`garage-sync:robot:${robot.id}`);
+    // Heartbeat re-queues the pending item, the first relay answer is persisted as
+    // a durable acknowledgement, and the quorum answer completes the event.
+    expect(envelopeWrites).toBe(3);
   });
 
   it("keeps backup verification pending until the complete Fleet can be read from two relays", async () => {
@@ -1036,6 +1074,13 @@ function installDirectQueryAdapterOn(pool: SimplePool): void {
       }
     } as never;
   });
+}
+
+function pendingKeys(): string[] {
+  return useGarageVaultStore
+    .getState()
+    .pendingOutbox()
+    .map(({ item }) => item.key);
 }
 
 function coordinator(shortAlias = "test", url = "https://example.com"): CoordinatorSummary {

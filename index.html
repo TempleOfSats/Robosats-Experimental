@@ -212,6 +212,18 @@
         <button class="app-boot-retry" type="button" hidden>Try again</button>
       </div>
     </div>
+    <!--
+      Recovery notice for background work the interface needs but cannot start in
+      this document (a required chunk that failed to load, a runtime that refused to
+      start). A browser will not fetch a failed module twice, so the only recovery
+      left is a new document and that decision belongs to the user. Kept hidden
+      until something fails, and outside #root so it still shows when the React tree
+      itself is unhealthy. Keep in sync with src/app/runtimeNotice.ts.
+    -->
+    <div id="app-runtime-notice" class="app-runtime-notice" role="status" data-runtime-notice="true" hidden>
+      <p class="app-runtime-notice-copy" data-runtime-notice-copy="true"></p>
+      <button class="app-runtime-notice-action" type="button" data-runtime-reload="true">Reload interface</button>
+    </div>
     <div id="root"></div>
     <script>
       (() => {
@@ -246,15 +258,21 @@
         let retryShown = false;
         let applicationFontReady = !document.fonts;
         let applicationFontLoadStarted = false;
+        const APPLICATION_FONT_WAIT_MS = 200;
         let ready = false;
         let finished = false;
         let previousFrame = startedAt;
 
-        retry.addEventListener("click", () => {
+        const reloadDocument = () => {
           const url = new URL(window.location.href);
           url.searchParams.set("reload", Date.now().toString());
           window.location.replace(url);
-        });
+        };
+
+        retry.addEventListener("click", reloadDocument);
+        document
+          .querySelector("#app-runtime-notice .app-runtime-notice-action")
+          ?.addEventListener("click", reloadDocument);
 
         const bootMark = overlay.querySelector(".app-boot-mark img");
         if (bootMark) {
@@ -342,13 +360,15 @@
           }
 
           let settled = false;
+          let timeoutId;
           const complete = () => {
             if (settled) return;
             settled = true;
+            if (timeoutId !== undefined) window.clearTimeout(timeoutId);
             applicationFontReady = true;
             maybeFinish();
           };
-          window.setTimeout(complete, 5000);
+          timeoutId = window.setTimeout(complete, APPLICATION_FONT_WAIT_MS);
           document.fonts.load('400 1em "Public Sans Variable"', "RoboSats").then(complete, complete);
         };
 

@@ -3,5 +3,7 @@ export function loadOrderPage() {
 }
 
 export function preloadOrderRoute(): void {
-  void loadOrderPage();
+  // Warm-up only: a chunk that cannot be fetched now is retried when the user
+  // actually navigates, where the route error boundary can report it.
+  void loadOrderPage().catch(() => undefined);
 }

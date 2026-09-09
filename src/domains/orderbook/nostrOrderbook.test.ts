@@ -244,6 +244,59 @@ describe("nostr orderbook", () => {
     unsubscribe();
   });
 
+  it("reuses the converted order array while no new events arrive", async () => {
+    const firstSnapshots: unknown[][] = [];
+    const firstUnsubscribe = subscribeNostrOrderbook([coordinator], "mainnet", {
+      onOrders: (orders) => firstSnapshots.push(orders)
+    });
+
+    poolState.subscriptions[0].params.oneose?.();
+    await vi.waitFor(() => expect(poolState.subscriptions).toHaveLength(2));
+    poolState.subscriptions[1].params.oneose?.();
+    await vi.waitFor(() => expect(firstSnapshots).toHaveLength(1));
+
+    const secondSnapshots: unknown[][] = [];
+    const secondUnsubscribe = subscribeNostrOrderbook([coordinator], "mainnet", {
+      onOrders: (orders) => secondSnapshots.push(orders)
+    });
+
+    expect(secondSnapshots).toHaveLength(1);
+    expect(secondSnapshots[0]).toBe(firstSnapshots[0]);
+    secondUnsubscribe();
+    firstUnsubscribe();
+  });
+
+  it("invalidates the converted order array when an active offer changes", async () => {
+    const snapshots: unknown[][] = [];
+    const unsubscribe = subscribeNostrOrderbook([coordinator], "mainnet", {
+      onOrders: (orders) => snapshots.push(orders)
+    });
+
+    poolState.subscriptions[0].params.onevent?.(
+      event({
+        id: "pending-order",
+        created_at: 10,
+        tags: baseTags({ status: "pending" })
+      })
+    );
+    await vi.waitFor(() => expect(snapshots).toHaveLength(1));
+    const initial = snapshots[0];
+
+    poolState.subscriptions[0].params.onevent?.(
+      event({
+        id: "canceled-order",
+        created_at: 11,
+        tags: baseTags({ status: "canceled" })
+      })
+    );
+    await vi.waitFor(() => expect(snapshots).toHaveLength(2));
+
+    expect(snapshots).toHaveLength(2);
+    expect(snapshots[1]).not.toBe(initial);
+    expect(snapshots[1]).toEqual([]);
+    unsubscribe();
+  });
+
   it("prefers relays whose coordinators are already known online", () => {
     const relays = selectNostrRelays(
       [

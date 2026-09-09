@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   fetchCoordinatorBook,
+  fetchCoordinatorFederation,
   fetchCoordinatorInfo,
   fetchCoordinatorLimits
 } from "@/domains/coordinators/coordinatorApi";
@@ -31,6 +32,18 @@ describe("coordinator API request priority", () => {
 
     expect(get).toHaveBeenCalledWith("http://coordinator.onion", "/api/limits/", undefined, {
       bypassCircuit: undefined,
+      priority: "maintenance",
+      source: "federation",
+      timeoutProfile: "background"
+    });
+  });
+
+  it("fetches a voted federation document through the maintenance lane", async () => {
+    const get = vi.spyOn(apiClient, "get").mockResolvedValue({});
+
+    await fetchCoordinatorFederation("http://coordinator.onion");
+
+    expect(get).toHaveBeenCalledWith("http://coordinator.onion", "/api/federation/", undefined, {
       priority: "maintenance",
       source: "federation",
       timeoutProfile: "background"

@@ -23,11 +23,63 @@ export function deriveGarageDomainKey(secret: Uint8Array, domain: GarageKeyDomai
 }
 
 export function encryptGaragePayload(secret: Uint8Array, domain: GarageKeyDomain, plaintext: string): string {
-  const key = deriveGarageDomainKey(secret, domain);
-  return encrypt(plaintext, getConversationKey(key, getPublicKey(key)));
+  return encrypt(plaintext, conversationKey(secret, domain));
 }
 
 export function decryptGaragePayload(secret: Uint8Array, domain: GarageKeyDomain, ciphertext: string): string {
+  return decrypt(ciphertext, conversationKey(secret, domain));
+}
+
+/**
+ * The active Fleet keeps one NIP-44 conversation key per key domain instead of
+ * running the HKDF search and shared-secret derivation for every payload. Each
+ * `encrypt` call still asks the library for a fresh message nonce — only the
+ * conversation key is reused, and no nonce, ciphertext, or cipher instance is.
+ *
+ * The cache owns a copy of the secret it was activated with, so callers may
+ * `.slice()` or zero their own arrays freely. A payload for any other Fleet —
+ * a recovery preview, an offline import, or an operation that started before a
+ * restore — derives on the spot and never replaces the active session.
+ */
+let activeSecret: Uint8Array | undefined;
+const conversationKeys = new Map<GarageKeyDomain, Uint8Array>();
+
+export function activateGarageCryptoCache(secret: Uint8Array): void {
+  if (activeSecret && isSameSecret(activeSecret, secret)) return;
+  discardCache();
+  activeSecret = secret.slice();
+}
+
+export function clearGarageCryptoCache(): void {
+  discardCache();
+}
+
+function conversationKey(secret: Uint8Array, domain: GarageKeyDomain): Uint8Array {
+  if (!activeSecret || !isSameSecret(activeSecret, secret)) return deriveConversationKey(secret, domain);
+  const cached = conversationKeys.get(domain);
+  if (cached) return cached;
+  const derived = deriveConversationKey(activeSecret, domain);
+  conversationKeys.set(domain, derived);
+  return derived;
+}
+
+function deriveConversationKey(secret: Uint8Array, domain: GarageKeyDomain): Uint8Array {
   const key = deriveGarageDomainKey(secret, domain);
-  return decrypt(ciphertext, getConversationKey(key, getPublicKey(key)));
+  return getConversationKey(key, getPublicKey(key));
+}
+
+function discardCache(): void {
+  for (const key of conversationKeys.values()) key.fill(0);
+  conversationKeys.clear();
+  // Best effort only: JavaScript cannot guarantee removal of every engine or
+  // library copy of these bytes.
+  activeSecret?.fill(0);
+  activeSecret = undefined;
+}
+
+function isSameSecret(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.length !== right.length) return false;
+  let difference = 0;
+  for (let index = 0; index < left.length; index += 1) difference |= (left[index] ?? 0) ^ (right[index] ?? 0);
+  return difference === 0;
 }

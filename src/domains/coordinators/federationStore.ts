@@ -1,9 +1,19 @@
 import { create } from "zustand";
 import { isAbortError, toUserMessage } from "@/lib/userError";
 import { getCoordinatorAvatarUrl, getCoordinatorBadgeIcons } from "@/domains/coordinators/coordinatorAssets";
-import { fetchCoordinatorInfo, fetchCoordinatorLimits } from "@/domains/coordinators/coordinatorApi";
+import {
+  fetchCoordinatorFederation,
+  fetchCoordinatorInfo,
+  fetchCoordinatorLimits
+} from "@/domains/coordinators/coordinatorApi";
 import { buildCoordinatorUrl, detectCoordinatorOrigin } from "@/domains/coordinators/coordinatorUrl";
 import { defaultFederation } from "@/domains/coordinators/defaultFederation";
+import {
+  applyBundledCoordinatorTrust,
+  isFederationDocument,
+  type FederationDocument
+} from "@/domains/coordinators/federationDiscovery";
+import type { FederationHashVote } from "@/domains/coordinators/federationConsensus";
 import type {
   CoordinatorConnection,
   CoordinatorDefinition,
@@ -17,6 +27,7 @@ import { setTransportProbeOrigins } from "@/domains/transport/transportHealth";
 type FederationState = {
   coordinators: CoordinatorSummary[];
   connection: CoordinatorConnection;
+  federationDocument: FederationDocument;
   lastRefreshed?: number;
   network: Network;
   origin: Origin;
@@ -50,7 +61,12 @@ type FederationGet = () => FederationState;
 const FEDERATION_SETTINGS_KEY = "federation_settings";
 const FEDERATION_CACHE_KEY = "robosats_exp_federation_cache_v1";
 const FEDERATION_PREFERENCES_KEY = "robosats_exp_federation_preferences_v1";
+const FEDERATION_MANIFEST_KEY = "federation_manifest";
+const FEDERATION_JOIN_DATES_KEY = "federation_join_dates";
 const defaultCoordinatorAliases = new Set(defaultFederation.map((coordinator) => coordinator.shortAlias));
+const bundledFederationDocument = Object.fromEntries(
+  defaultFederation.map((coordinator) => [coordinator.shortAlias, coordinator])
+) as FederationDocument;
 export const FEDERATION_CACHE_MAX_AGE_MS = 30 * 60 * 1000;
 export const FEDERATION_REFRESH_MIN_INTERVAL_MS = 10 * 60 * 1000;
 const defaultSettings: FederationSettings = {
@@ -61,7 +77,10 @@ const defaultSettings: FederationSettings = {
 };
 const initialSettings = readFederationSettings();
 const initialCachedFederation = readFederationCache(initialSettings);
-const initialCoordinators = applyCoordinatorPreferences(initialCachedFederation?.coordinators ?? buildCoordinatorSummaries(initialSettings));
+const initialFederationDocument = readFederationDocument();
+const initialCoordinators = applyCoordinatorPreferences(
+  buildCoordinatorSummaries(initialFederationDocument, initialSettings, initialCachedFederation?.coordinators)
+);
 persistNativeFederation(initialCoordinators);
 
 let refreshInFlight: Promise<void> | undefined;
@@ -76,6 +95,7 @@ const COORDINATOR_RETRY_MAX_MS = 2 * 60_000;
 export const useFederationStore = create<FederationState>((set, get) => ({
   coordinators: initialCoordinators,
   connection: initialSettings.connection,
+  federationDocument: initialFederationDocument,
   lastRefreshed: initialCachedFederation?.savedAt,
   network: initialSettings.network,
   origin: initialSettings.origin,
@@ -83,19 +103,21 @@ export const useFederationStore = create<FederationState>((set, get) => ({
   selfhostedClient: initialSettings.selfhostedClient,
   refreshCoordinator: async (shortAlias, options = {}) => {
     const settings = currentFederationSettings(get());
-    const requestKey = `${federationSettingsKey(settings)}|${shortAlias}`;
-    const existing = coordinatorRefreshes.get(requestKey);
-    if (existing) return existing;
-
     const coordinator = get().coordinators.find((item) => item.shortAlias === shortAlias);
     if (!coordinator) return false;
+    const identity = coordinatorIdentity(coordinator);
+    const requestKey = `${federationSettingsKey(settings)}|${shortAlias}|${identity}`;
+    const existing = coordinatorRefreshes.get(requestKey);
+    if (existing) return existing;
     if (!options.force && Date.now() < (coordinatorRetryAfter.get(requestKey) ?? 0)) return false;
 
     const refresh = (async () => {
       set((state) => ({
-        coordinators: state.coordinators.map((item) => item.shortAlias === shortAlias
+        coordinators: state.coordinators.map((item) =>
+          item.shortAlias === shortAlias && coordinatorIdentity(item) === identity
           ? { ...item, loading: true, error: undefined }
-          : item)
+          : item
+        )
       }));
 
       const refreshed = await refreshCoordinatorSummary(
@@ -105,29 +127,35 @@ export const useFederationStore = create<FederationState>((set, get) => ({
         options.force,
         options.priority,
         (available) => {
-          if (!sameFederationSettings(currentFederationSettings(get()), settings)) return;
+          if (!isCurrentCoordinator(get, settings, shortAlias, identity)) return;
           set((state) => ({
-            coordinators: state.coordinators.map((item) => item.shortAlias === shortAlias
+            coordinators: state.coordinators.map((item) =>
+              item.shortAlias === shortAlias && coordinatorIdentity(item) === identity
               ? { ...available, enabled: item.enabled }
-              : item)
+              : item
+            )
           }));
         }
       );
       if (!refreshed) {
-        if (!sameFederationSettings(currentFederationSettings(get()), settings)) return false;
+        if (!isCurrentCoordinator(get, settings, shortAlias, identity)) return false;
         set((state) => ({
-          coordinators: state.coordinators.map((item) => item.shortAlias === shortAlias
+          coordinators: state.coordinators.map((item) =>
+            item.shortAlias === shortAlias && coordinatorIdentity(item) === identity
             ? { ...item, loading: false, error: coordinator.error }
-            : item)
+            : item
+          )
         }));
         return false;
       }
-      if (!sameFederationSettings(currentFederationSettings(get()), settings)) return false;
+      if (!isCurrentCoordinator(get, settings, shortAlias, identity)) return false;
 
       const current = get();
-      const coordinators = current.coordinators.map((item) => item.shortAlias === shortAlias
+      const coordinators = current.coordinators.map((item) =>
+        item.shortAlias === shortAlias && coordinatorIdentity(item) === identity
         ? { ...refreshed, enabled: item.enabled }
-        : item);
+        : item
+      );
       set({ coordinators });
       writeFederationCache(settings, coordinators, current.lastRefreshed ?? Date.now());
 
@@ -150,12 +178,12 @@ export const useFederationStore = create<FederationState>((set, get) => ({
   },
   refreshCoordinatorLimits: async (shortAlias, options = {}) => {
     const settings = currentFederationSettings(get());
-    const requestKey = `${federationSettingsKey(settings)}|${shortAlias}`;
-    const existing = coordinatorLimitRefreshes.get(requestKey);
-    if (existing) return existing;
-
     const coordinator = get().coordinators.find((item) => item.shortAlias === shortAlias);
     if (!coordinator?.url) return false;
+    const identity = coordinatorIdentity(coordinator);
+    const requestKey = `${federationSettingsKey(settings)}|${shortAlias}|${identity}`;
+    const existing = coordinatorLimitRefreshes.get(requestKey);
+    if (existing) return existing;
     if (coordinator.limits && !options.force) return true;
 
     const refresh = (async () => {
@@ -164,12 +192,14 @@ export const useFederationStore = create<FederationState>((set, get) => ({
           force: options.force,
           priority: options.priority
         });
-        if (!sameFederationSettings(currentFederationSettings(get()), settings)) return false;
+        if (!isCurrentCoordinator(get, settings, shortAlias, identity)) return false;
 
         const current = get();
-        const coordinators = current.coordinators.map((item) => item.shortAlias === shortAlias
+        const coordinators = current.coordinators.map((item) =>
+          item.shortAlias === shortAlias && coordinatorIdentity(item) === identity
           ? { ...item, limits }
-          : item);
+          : item
+        );
         set({ coordinators });
         writeFederationCache(settings, coordinators, current.lastRefreshed ?? Date.now());
         return true;
@@ -214,7 +244,7 @@ export const useFederationStore = create<FederationState>((set, get) => ({
         network: state.network,
         origin: state.origin,
         selfhostedClient: state.selfhostedClient
-      })
+      }, state.federationDocument)
     ),
   setNetwork: (network) =>
     set((state) =>
@@ -223,7 +253,7 @@ export const useFederationStore = create<FederationState>((set, get) => ({
         network,
         origin: state.origin,
         selfhostedClient: state.selfhostedClient
-      })
+      }, state.federationDocument)
     ),
   setOrigin: (origin) =>
     set((state) =>
@@ -232,7 +262,7 @@ export const useFederationStore = create<FederationState>((set, get) => ({
         network: state.network,
         origin,
         selfhostedClient: state.selfhostedClient
-      })
+      }, state.federationDocument)
     ),
   setSelfhostedClient: (selfhostedClient) =>
     set((state) =>
@@ -241,7 +271,7 @@ export const useFederationStore = create<FederationState>((set, get) => ({
         network: state.network,
         origin: state.origin,
         selfhostedClient
-      })
+      }, state.federationDocument)
     ),
   toggleCoordinator: (shortAlias) => set((state) => {
     const coordinators = state.coordinators.map((coordinator) => coordinator.shortAlias === shortAlias
@@ -267,19 +297,24 @@ export const useFederationStore = create<FederationState>((set, get) => ({
     return { coordinators };
   }),
   removeCustomCoordinator: (shortAlias) => set((state) => {
-    if (defaultFederation.some((item) => item.shortAlias === shortAlias)) return state;
+    if (state.coordinators.find((item) => item.shortAlias === shortAlias)?.federated !== false) return state;
     const coordinators = state.coordinators.filter((item) => item.shortAlias !== shortAlias);
     persistCoordinatorPreferences(coordinators);
     return { coordinators };
   })
 }));
 
-function applyFederationSettings(settings: FederationSettings): Partial<FederationState> {
+function applyFederationSettings(
+  settings: FederationSettings,
+  federationDocument: FederationDocument
+): Partial<FederationState> {
   persistFederationSettings(settings);
   const cached = readFederationCache(settings);
   return {
     ...settings,
-    coordinators: applyCoordinatorPreferences(cached?.coordinators ?? buildCoordinatorSummaries(settings)),
+    coordinators: applyCoordinatorPreferences(
+      buildCoordinatorSummaries(federationDocument, settings, cached?.coordinators)
+    ),
     lastRefreshed: cached?.savedAt,
     refreshing: false
   };
@@ -302,6 +337,7 @@ async function refreshFederation(
 
   let completed = 0;
   await mapWithConcurrency(current, 2, async (coordinator) => {
+    const identity = coordinatorIdentity(coordinator);
     const refreshed = await refreshCoordinatorSummary(
       summaryToDefinition(coordinator),
       settings,
@@ -309,10 +345,10 @@ async function refreshFederation(
       force,
       priority,
       (available) => {
-        if (!sameFederationSettings(currentFederationSettings(get()), settings)) return;
+        if (!isCurrentCoordinator(get, settings, coordinator.shortAlias, identity)) return;
         set((state) => ({
           coordinators: state.coordinators.map((item) =>
-            item.shortAlias === coordinator.shortAlias
+            item.shortAlias === coordinator.shortAlias && coordinatorIdentity(item) === identity
               ? { ...available, enabled: item.enabled }
               : item
           )
@@ -320,10 +356,10 @@ async function refreshFederation(
       }
     );
     if (!refreshed) {
-      if (!sameFederationSettings(currentFederationSettings(get()), settings)) return;
+      if (!isCurrentCoordinator(get, settings, coordinator.shortAlias, identity)) return;
       set((state) => ({
         coordinators: state.coordinators.map((item) =>
-          item.shortAlias === coordinator.shortAlias
+          item.shortAlias === coordinator.shortAlias && coordinatorIdentity(item) === identity
             ? { ...item, loading: false, error: coordinator.error }
             : item
         )
@@ -331,10 +367,10 @@ async function refreshFederation(
       return;
     }
     completed += 1;
-    if (!sameFederationSettings(currentFederationSettings(get()), settings)) return;
+    if (!isCurrentCoordinator(get, settings, coordinator.shortAlias, identity)) return;
     set((state) => {
       const coordinators = state.coordinators.map((item) =>
-        item.shortAlias === coordinator.shortAlias
+        item.shortAlias === coordinator.shortAlias && coordinatorIdentity(item) === identity
           ? { ...refreshed, enabled: item.enabled }
           : item
       );
@@ -342,14 +378,121 @@ async function refreshFederation(
     });
   });
   if (!sameFederationSettings(currentFederationSettings(get()), settings)) return;
-  const coordinators = get().coordinators.map((coordinator) => ({ ...coordinator, loading: false }));
+  let coordinators = get().coordinators.map((coordinator) => ({ ...coordinator, loading: false }));
   if (completed === 0) {
     set({ coordinators, refreshing: false });
     return;
   }
+  set({ coordinators });
+  // Membership discovery is optional; health results remain useful if its deferred code or storage is unavailable.
+  const changedAliases = await refreshFederationDocument(settings, set, get).catch(() => []);
+  if (!sameFederationSettings(currentFederationSettings(get()), settings)) return;
+  coordinators = get().coordinators.map((coordinator) => ({ ...coordinator, loading: false }));
   const savedAt = Date.now();
   writeFederationCache(settings, coordinators, savedAt);
   set({ coordinators, lastRefreshed: savedAt, refreshing: false });
+  changedAliases.forEach((shortAlias) => {
+    void get().refreshCoordinator(shortAlias, { force: true, priority: "background" });
+  });
+}
+
+async function refreshFederationDocument(
+  settings: FederationSettings,
+  set: FederationSet,
+  get: FederationGet
+): Promise<string[]> {
+  const state = get();
+  const { hashFederationDocument, voteOnFederationHashes } = await import(
+    "@/domains/coordinators/federationConsensus"
+  );
+  const votes = collectFederationVotes(state.coordinators);
+  const winnerHash = voteOnFederationHashes(
+    votes,
+    bundledFederationDocument,
+    readFederationJoinDates()
+  );
+  if (!winnerHash || winnerHash === await hashFederationDocument(state.federationDocument)) return [];
+
+  const voter = state.coordinators.find((coordinator) =>
+    coordinator.enabled
+    && coordinator.federated !== false
+    && coordinator.url
+    && coordinator.info?.federation_hash?.toLowerCase() === winnerHash
+  );
+  if (!voter) return [];
+
+  let candidate: unknown;
+  try {
+    candidate = await fetchCoordinatorFederation(voter.url);
+  } catch {
+    return [];
+  }
+  if (!sameFederationSettings(currentFederationSettings(get()), settings)) return [];
+  if (!isFederationDocument(candidate)) return [];
+  const candidateHash = await hashFederationDocument(candidate);
+  if (!sameFederationSettings(currentFederationSettings(get()), settings)) return [];
+  if (candidateHash !== winnerHash) return [];
+
+  const document = applyBundledCoordinatorTrust(candidate, bundledFederationDocument);
+  const current = get().coordinators;
+  const nextFederation = buildCoordinatorSummaries(document, settings, current);
+  const next = applyCoordinatorPreferences([
+    ...nextFederation,
+    ...current.filter((coordinator) => coordinator.federated === false)
+  ]);
+  const changedAliases = changedFederationAliases(current, next);
+
+  recordFederationJoinDates(document);
+  persistFederationDocument(document);
+  persistNativeFederation(next);
+  set({ coordinators: next, federationDocument: document });
+  return changedAliases;
+}
+
+function collectFederationVotes(coordinators: CoordinatorSummary[]): FederationHashVote[] {
+  return coordinators.flatMap((coordinator) => {
+    const hash = coordinator.info?.federation_hash?.toLowerCase();
+    if (
+      !coordinator.enabled
+      || coordinator.federated === false
+      || !coordinator.online
+      || coordinator.error
+      || !hash
+      || !/^[0-9a-f]{64}$/.test(hash)
+    ) return [];
+    return [{ alias: coordinator.shortAlias, hash }];
+  });
+}
+
+function changedFederationAliases(current: CoordinatorSummary[], next: CoordinatorSummary[]): string[] {
+  const currentByAlias = new Map(current.map((coordinator) => [coordinator.shortAlias, coordinator]));
+  return next.flatMap((coordinator) => {
+    if (coordinator.federated === false) return [];
+    const previous = currentByAlias.get(coordinator.shortAlias);
+    return !previous || coordinatorIdentity(previous) !== coordinatorIdentity(coordinator)
+      ? [coordinator.shortAlias]
+      : [];
+  });
+}
+
+function coordinatorIdentity(coordinator: CoordinatorSummary): string {
+  return JSON.stringify([
+    coordinator.url,
+    coordinator.nostrHexPubkey,
+    coordinator.mainnet,
+    coordinator.testnet
+  ]);
+}
+
+function isCurrentCoordinator(
+  get: FederationGet,
+  settings: FederationSettings,
+  shortAlias: string,
+  identity: string
+): boolean {
+  if (!sameFederationSettings(currentFederationSettings(get()), settings)) return false;
+  const coordinator = get().coordinators.find((item) => item.shortAlias === shortAlias);
+  return Boolean(coordinator && coordinatorIdentity(coordinator) === identity);
 }
 
 async function refreshCoordinatorSummary(
@@ -425,14 +568,37 @@ async function mapWithConcurrency<T>(
   }));
 }
 
-function buildCoordinatorSummaries(settings: FederationSettings): CoordinatorSummary[] {
-  return defaultFederation.map((coordinator) =>
-    buildCoordinatorSummary(coordinator, {
+function buildCoordinatorSummaries(
+  document: FederationDocument,
+  settings: FederationSettings,
+  previous: CoordinatorSummary[] = []
+): CoordinatorSummary[] {
+  const previousByAlias = new Map(previous.map((coordinator) => [coordinator.shortAlias, coordinator]));
+  return Object.values(document).map((coordinator) => {
+    const summary = buildCoordinatorSummary({ ...coordinator, federated: true }, {
       ...settings,
       envBaseUrl: import.meta.env.VITE_ROBOSATS_API_BASE_URL,
       hostUrl: typeof window === "undefined" ? undefined : window.location.origin
-    })
-  );
+    });
+    return preserveCoordinatorRuntime(summary, previousByAlias.get(coordinator.shortAlias));
+  });
+}
+
+function preserveCoordinatorRuntime(
+  summary: CoordinatorSummary,
+  previous?: CoordinatorSummary
+): CoordinatorSummary {
+  if (!previous || coordinatorIdentity(previous) !== coordinatorIdentity(summary)) return summary;
+  return {
+    ...summary,
+    enabled: previous.enabled,
+    online: previous.online,
+    lastCheckedAt: previous.lastCheckedAt,
+    loading: previous.loading,
+    error: previous.error,
+    info: previous.info,
+    limits: previous.limits
+  };
 }
 
 export function buildCoordinatorSummary(
@@ -479,6 +645,62 @@ function readFederationSettings(): FederationSettings {
     };
   } catch {
     return defaultSettings;
+  }
+}
+
+function readFederationDocument(): FederationDocument {
+  if (typeof window === "undefined") return bundledFederationDocument;
+  try {
+    const parsed = JSON.parse(systemClient.getItem(FEDERATION_MANIFEST_KEY) ?? "null") as unknown;
+    if (isFederationDocument(parsed)) {
+      return applyBundledCoordinatorTrust(parsed, bundledFederationDocument);
+    }
+  } catch {
+    // A malformed or inaccessible cache never replaces the bundled trust root.
+  }
+  return bundledFederationDocument;
+}
+
+function persistFederationDocument(document: FederationDocument): void {
+  if (typeof window === "undefined") return;
+  try {
+    systemClient.setItem(FEDERATION_MANIFEST_KEY, JSON.stringify(document));
+  } catch {
+    // The accepted in-memory document remains usable when persistence is unavailable.
+  }
+}
+
+function readFederationJoinDates(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  try {
+    const parsed = JSON.parse(systemClient.getItem(FEDERATION_JOIN_DATES_KEY) ?? "null") as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return Object.fromEntries(Object.entries(parsed).filter(([alias, value]) =>
+      /^[a-z0-9]{1,20}$/.test(alias)
+      && typeof value === "string"
+      && !Number.isNaN(new Date(value).getTime())
+    ));
+  } catch {
+    return {};
+  }
+}
+
+function recordFederationJoinDates(document: FederationDocument, now = new Date()): void {
+  if (typeof window === "undefined") return;
+  const joinDates = readFederationJoinDates();
+  const observed = now.toISOString().slice(0, 10);
+  let changed = false;
+  Object.keys(document).forEach((alias) => {
+    if (!defaultCoordinatorAliases.has(alias) && !joinDates[alias]) {
+      joinDates[alias] = observed;
+      changed = true;
+    }
+  });
+  if (!changed) return;
+  try {
+    systemClient.setItem(FEDERATION_JOIN_DATES_KEY, JSON.stringify(joinDates));
+  } catch {
+    // Seniority safely falls back to minimum weight if the ledger cannot be saved.
   }
 }
 
@@ -547,9 +769,14 @@ type CoordinatorPreference = { shortAlias: string; enabled: boolean; custom?: Co
 function applyCoordinatorPreferences(coordinators: CoordinatorSummary[]): CoordinatorSummary[] {
   const preferences = readCoordinatorPreferences();
   const enabled = new Map(preferences.map((item) => [item.shortAlias, item.enabled]));
-  const custom = preferences.flatMap((item) => item.custom ? [item.custom] : []);
-  const currentFederation = coordinators.filter((item) => defaultCoordinatorAliases.has(item.shortAlias));
-  return [...currentFederation, ...custom.filter((item) => !currentFederation.some((base) => base.shortAlias === item.shortAlias))]
+  const currentFederation = coordinators.filter((item) => item.federated !== false);
+  const providedCustom = coordinators.filter((item) => item.federated === false);
+  const storedCustom = preferences.flatMap((item) => item.custom?.federated === false ? [item.custom] : []);
+  const custom = [...providedCustom, ...storedCustom].filter((item, index, all) =>
+    all.findIndex((candidate) => candidate.shortAlias === item.shortAlias) === index
+    && !currentFederation.some((base) => base.shortAlias === item.shortAlias)
+  );
+  return [...currentFederation, ...custom]
     .map((item) => ({ ...item, enabled: enabled.get(item.shortAlias) ?? item.enabled }));
 }
 
@@ -568,7 +795,7 @@ function persistCoordinatorPreferences(coordinators: CoordinatorSummary[]) {
   const preferences: CoordinatorPreference[] = coordinators.map((item) => ({
     shortAlias: item.shortAlias,
     enabled: item.enabled,
-    ...(!defaultFederation.some((base) => base.shortAlias === item.shortAlias) ? { custom: item } : {})
+    ...(item.federated === false ? { custom: item } : {})
   }));
   storage.setItem(FEDERATION_PREFERENCES_KEY, JSON.stringify(preferences));
   persistNativeFederation(coordinators);

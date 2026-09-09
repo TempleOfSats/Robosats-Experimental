@@ -1,5 +1,6 @@
 export const ROUTE_TRANSITION_START_EVENT = "robosats:route-transition-start";
 export const ROUTE_TRANSITION_READY_EVENT = "robosats:route-transition-ready";
+export const INTERFACE_READY_EVENT = "robosats:app-ready";
 
 export type RouteTransitionDetail = {
   path: string;
@@ -21,6 +22,17 @@ export function beginRouteTransition(path: string): void {
 export function finishRouteTransition(path: string): void {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent<{ path: string }>(ROUTE_TRANSITION_READY_EVENT, { detail: { path } }));
+}
+
+/**
+ * Tells the boot overlay and the native splash that the interface has rendered.
+ * A route that rendered its error page counts: leaving the overlay up would hide
+ * the only recovery action behind the loading screen.
+ */
+export function markInterfaceReady(): void {
+  if (typeof window === "undefined" || typeof document === "undefined") return;
+  document.documentElement.dataset.robosatsAppReady = "true";
+  window.dispatchEvent(new Event(INTERFACE_READY_EVENT));
 }
 
 export function routeTransitionDetail(path: string): RouteTransitionDetail {

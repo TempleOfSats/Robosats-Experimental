@@ -13,6 +13,7 @@ afterEach(async () => {
   root = undefined;
   vi.restoreAllMocks();
   document.body.innerHTML = "";
+  delete document.documentElement.dataset.robosatsAppReady;
   window.history.replaceState(null, "", "/");
 });
 
@@ -42,6 +43,51 @@ describe("AppErrorBoundary route recovery", () => {
 
     expect(readyPath).toBe("/settings");
     expect(document.body.textContent).toContain("This page could not load");
+  });
+
+  it("reveals the rendered interface so a failed route keeps its reload action", async () => {
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    document.body.innerHTML = '<div id="root"></div>';
+    delete document.documentElement.dataset.robosatsAppReady;
+    const interfaceReady = vi.fn();
+    window.addEventListener("robosats:app-ready", interfaceReady);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    root = createRoot(document.querySelector("#root")!);
+
+    await act(async () => {
+      root?.render(
+        <AppErrorBoundary scope="route" routePath="/offers">
+          <BrokenRoute />
+        </AppErrorBoundary>
+      );
+    });
+    window.removeEventListener("robosats:app-ready", interfaceReady);
+
+    expect(interfaceReady).toHaveBeenCalledOnce();
+    expect(document.documentElement.dataset.robosatsAppReady).toBe("true");
+    expect(document.querySelector("button")?.textContent).toContain("Reload interface");
+  });
+
+  it("leaves the boot overlay in charge when the whole app fails to start", async () => {
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    document.body.innerHTML = '<div id="root"></div>';
+    delete document.documentElement.dataset.robosatsAppReady;
+    const interfaceReady = vi.fn();
+    window.addEventListener("robosats:app-ready", interfaceReady);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    root = createRoot(document.querySelector("#root")!);
+
+    await act(async () => {
+      root?.render(
+        <AppErrorBoundary scope="app">
+          <BrokenRoute />
+        </AppErrorBoundary>
+      );
+    });
+    window.removeEventListener("robosats:app-ready", interfaceReady);
+
+    expect(interfaceReady).not.toHaveBeenCalled();
+    expect(document.documentElement.dataset.robosatsAppReady).toBeUndefined();
   });
 
   it("recovers when navigation changes the route reset key", async () => {

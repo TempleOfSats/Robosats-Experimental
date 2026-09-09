@@ -1,6 +1,6 @@
 import { preloadAllAppRoutes, preloadPrimaryTradeRoutes, preloadQuickAccessRoutes } from "@/app/routes";
 import { isStandardGarageRoute, ROUTE_TRANSITION_READY_EVENT } from "@/domains/navigation/routeTransition";
-import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
+import type { CoordinatorSummary, Network, Origin } from "@/domains/coordinators/coordinator.types";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
 import {
   getRobotAuthForCoordinator,
@@ -40,6 +40,13 @@ type StandardRobotRefreshScope = {
 };
 
 type CoordinatorHealthRecoveryTarget = "all" | string[];
+
+/** The registry as it looked when API prewarm started reading from it. */
+type ApiOrderbookPrewarm = {
+  network: Network;
+  origin: Origin;
+  sources: string[];
+};
 
 const FEDERATION_RECOVERY_START_DELAY_MS = 1_000;
 const FEDERATION_RECOVERY_RETRY_DELAYS_MS = [15_000, 45_000] as const;
@@ -241,33 +248,100 @@ function prewarmData(): void {
           priority: "background"
         })
         .catch(() => undefined)
-        .then(refreshSecondaryData)
+        .then(() => refreshSecondaryData())
     );
     return;
   }
 
-  swallow(refreshSecondaryData());
+  // An API orderbook request only needs the coordinator URLs already in the
+  // registry, so it starts beside health and robot status instead of waiting for
+  // them. Discovery still gets one follow-up when it changes the sources.
+  const prewarm = apiOrderbookPrewarm(federation);
+  if (prewarm.sources.length > 0) swallow(refreshApiOrderbook(federation.coordinators, prewarm));
+  // Health and robot status settle on their own terms. Ending the wait on the first
+  // rejection would run the follow-up while discovery is still in flight, and the
+  // coordinators that arrive afterwards would never get a book request.
+  swallow(Promise.allSettled(secondaryRefreshes(federation)).then(() => followUpApiOrderbook(prewarm)));
 }
 
 async function refreshSecondaryData(): Promise<void> {
   const cachedFederation = useFederationStore.getState();
-  const coordinatorRefreshOptions = cachedFederation.coordinators.some(coordinatorNeedsHealthRecovery)
-    ? { force: true, priority: "background" as const }
-    : undefined;
-  await Promise.all([
-    cachedFederation.refreshCoordinators(coordinatorRefreshOptions),
-    refreshSelectedStandardRobot(cachedFederation.coordinators, "background")
-  ]);
+  await Promise.all(secondaryRefreshes(cachedFederation));
   const refreshedFederation = useFederationStore.getState();
 
+  // Discovery may have switched the session to API mode while this was running.
   if (refreshedFederation.connection === "api") {
-    await useOrderbookStore.getState().refreshOrderbook(refreshedFederation.coordinators, {
-      connection: refreshedFederation.connection,
-      network: refreshedFederation.network,
-      origin: refreshedFederation.origin,
-      priority: "background"
-    });
+    await refreshApiOrderbook(refreshedFederation.coordinators, apiOrderbookPrewarm(refreshedFederation));
   }
+}
+
+function apiOrderbookPrewarm(federation: ReturnType<typeof useFederationStore.getState>): ApiOrderbookPrewarm {
+  return {
+    network: federation.network,
+    origin: federation.origin,
+    sources: eligibleApiBookUrls(federation.coordinators)
+  };
+}
+
+/**
+ * The two refreshes that follow the first book request: coordinator health and the
+ * selected robot's status. They are returned unsettled so a caller can wait for
+ * both without one failure shortening the wait.
+ */
+function secondaryRefreshes(federation: ReturnType<typeof useFederationStore.getState>): Promise<void>[] {
+  const refreshOptions = federation.coordinators.some(coordinatorNeedsHealthRecovery)
+    ? { force: true, priority: "background" as const }
+    : undefined;
+  return [
+    federation.refreshCoordinators(refreshOptions),
+    refreshSelectedStandardRobot(federation.coordinators, "background")
+  ];
+}
+
+/**
+ * Sources the orderbook store itself would consider: every enabled coordinator. A
+ * stale `online: false` badge must not exclude a reachable coordinator here. Unique
+ * and sorted, so this is a set, not the registry's current order.
+ */
+function eligibleApiBookUrls(coordinators: CoordinatorSummary[]): string[] {
+  return [
+    ...new Set(coordinators.filter((coordinator) => coordinator.enabled).map((coordinator) => coordinator.url))
+  ].sort();
+}
+
+/** Both sides come from `eligibleApiBookUrls`, so equal sets compare equal here. */
+function sameSources(current: string[], previous: string[]): boolean {
+  return current.length === previous.length && current.every((url, index) => url === previous[index]);
+}
+
+function refreshApiOrderbook(
+  coordinators: CoordinatorSummary[],
+  { network, origin }: ApiOrderbookPrewarm
+): Promise<void> {
+  return useOrderbookStore.getState().refreshOrderbook(coordinators, {
+    connection: "api",
+    network,
+    origin,
+    priority: "background"
+  });
+}
+
+async function followUpApiOrderbook(prewarm: ApiOrderbookPrewarm): Promise<void> {
+  const federation = useFederationStore.getState();
+  // Discovery may have switched mode, network or origin, or the app may have
+  // been suspended while health and robot data were in flight.
+  if (
+    federation.connection !== "api" ||
+    federation.network !== prewarm.network ||
+    federation.origin !== prewarm.origin ||
+    (isNativeApp() && (document.visibilityState === "hidden" || !getNativeTorDiagnostics()?.connected))
+  ) {
+    return;
+  }
+  // Only a changed source set deserves a second request; a coordinator that just
+  // came back online is already covered by the first one.
+  if (sameSources(eligibleApiBookUrls(federation.coordinators), prewarm.sources)) return;
+  await refreshApiOrderbook(federation.coordinators, prewarm);
 }
 
 async function refreshSelectedStandardRobotStatus(scope?: StandardRobotRefreshScope): Promise<void> {

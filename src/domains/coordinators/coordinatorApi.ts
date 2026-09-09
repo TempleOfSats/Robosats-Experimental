@@ -30,6 +30,14 @@ export async function fetchCoordinatorLimits(
   });
 }
 
+export async function fetchCoordinatorFederation(baseUrl: string): Promise<unknown> {
+  return apiClient.get<unknown>(baseUrl, apiRoutes.federation, undefined, {
+    timeoutProfile: "background",
+    priority: "maintenance",
+    source: "federation"
+  });
+}
+
 export async function fetchCoordinatorBook(
   baseUrl: string,
   options: { force?: boolean; priority?: "background" | "visible" } = {}

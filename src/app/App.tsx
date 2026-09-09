@@ -1,9 +1,11 @@
 import { useEffect } from "react";
 import { BrowserRouter, HashRouter, MemoryRouter } from "react-router-dom";
 import { AppShell } from "@/components/app/AppShell";
+import { startBackgroundRuntime } from "@/app/backgroundRuntime";
 import { parseRoboSatsSettings } from "@/app/platform";
 import { AppRoutes } from "@/app/routes";
 import { DesktopNotificationRouter } from "@/components/app/DesktopNotificationRouter";
+import { INTERFACE_READY_EVENT } from "@/domains/navigation/routeTransition";
 import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
 
 export function App() {
@@ -15,42 +17,42 @@ export function App() {
   useEffect(() => {
     if (tradeLabContext) return;
 
-    let cleanup: (() => void) | undefined;
-    let cancelled = false;
+    let stopPrewarm: (() => void) | undefined;
     let timer: number | undefined;
     const schedule = () => {
-      if (timer !== undefined || cleanup) return;
+      if (timer !== undefined || stopPrewarm) return;
       // Wait until the first lazy route is mounted. On an onion origin,
       // preloading before this point competes with the page the user opened.
       timer = window.setTimeout(() => {
-        void import("@/app/prewarm").then(({ scheduleAppPrewarm }) => {
-          if (cancelled) return;
-          cleanup = scheduleAppPrewarm();
-        });
+        timer = undefined;
+        stopPrewarm = startBackgroundRuntime(
+          () => import("@/app/prewarm"),
+          ({ scheduleAppPrewarm }) => scheduleAppPrewarm(),
+          "RoboSats could not start its background refresh."
+        );
       }, 250);
     };
-    window.addEventListener("robosats:app-ready", schedule, { once: true });
+    window.addEventListener(INTERFACE_READY_EVENT, schedule, { once: true });
     if (document.documentElement.dataset.robosatsAppReady === "true") schedule();
 
     return () => {
-      cancelled = true;
-      window.removeEventListener("robosats:app-ready", schedule);
       if (timer !== undefined) window.clearTimeout(timer);
-      cleanup?.();
+      window.removeEventListener(INTERFACE_READY_EVENT, schedule);
+      stopPrewarm?.();
     };
   }, [tradeLabContext]);
 
   useEffect(() => {
     if (tradeLabContext || !proEnabled) return;
-    let stop: (() => void) | undefined;
-    let cancelled = false;
-    void import("@/domains/pro/proRuntime").then(({ startProRuntime }) => {
-      if (!cancelled) stop = startProRuntime();
-    });
-    return () => {
-      cancelled = true;
-      stop?.();
-    };
+    // Fleet synchronization is required work. If its chunk cannot be fetched, the
+    // browser will not fetch it again in this document, so the desk says so and
+    // waits for a reload the user chooses instead of reporting a fleet nobody is
+    // actually syncing.
+    return startBackgroundRuntime(
+      () => import("@/domains/pro/proRuntime"),
+      ({ startProRuntime }) => startProRuntime(),
+      "RoboSats could not start Fleet synchronization."
+    );
   }, [proEnabled, tradeLabContext]);
 
   return (

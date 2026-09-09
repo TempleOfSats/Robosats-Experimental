@@ -53,6 +53,8 @@ final class CacheStorage: @unchecked Sendable {
     static func accepts(_ key: String) -> Bool {
         key.hasPrefix("robosats_exp_orderbook_cache_") ||
             key.hasPrefix("robosats_exp_federation_cache_") ||
+            key == "federation_manifest" ||
+            key == "federation_join_dates" ||
             key == "federation_relays" ||
             key == "federation_pubkeys"
     }

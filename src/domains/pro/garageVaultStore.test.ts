@@ -1,12 +1,34 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { garageSecretStore } from "@/domains/pro/garageSecretStore";
 import { decryptGaragePayload, encryptGaragePayload } from "@/domains/pro/garageCrypto";
+
+/**
+ * Wraps the Fleet crypto session controls so these tests can see which Fleet the
+ * vault installs and when it drops it. Encryption itself stays real.
+ */
+const cryptoTrace = vi.hoisted(() => ({ activated: [] as number[][], cleared: 0 }));
+
+vi.mock("@/domains/pro/garageCrypto", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/domains/pro/garageCrypto")>();
+  return {
+    ...actual,
+    activateGarageCryptoCache: (secret: Uint8Array) => {
+      cryptoTrace.activated.push(Array.from(secret));
+      actual.activateGarageCryptoCache(secret);
+    },
+    clearGarageCryptoCache: () => {
+      cryptoTrace.cleared += 1;
+      actual.clearGarageCryptoCache();
+    }
+  };
+});
 import { deriveRobotIdentity } from "@/domains/identity/robotIdentity";
 import type { OrderDto } from "@/domains/orders/order.types";
 import {
   activeGarageEntries,
   createGarageManifest,
   createGarageSecret,
+  decodeGarageToken,
   deriveGarageRobotToken,
   encodeGarageToken,
   GARAGE_LIMITS,
@@ -14,6 +36,7 @@ import {
   removeGarageEntry,
   upsertGarageEntry
 } from "@/domains/pro/garageVault";
+import type { GarageObservedEvent } from "@/domains/pro/garageSyncRecords";
 import { createPortableSettingsManifest } from "@/domains/pro/portableSettings";
 import { createTradeHistoryManifest } from "@/domains/pro/tradeHistory";
 import { hexToBase91 } from "@/lib/hexToBase91";
@@ -152,6 +175,41 @@ describe("Garage vault persistence", () => {
     expect(useGarageVaultStore.getState().exportToken()).toBe(previousToken);
     expect(storage.get(ENVELOPE_KEY)).toBe(previousEnvelope);
     expect(useGarageVaultStore.getState().status).toBe("needs-backup");
+    // The failed restore re-adopts the previous Fleet's crypto session instead of
+    // leaving the abandoned Fleet's derived keys active.
+    expect(sameSecret(cryptoTrace.activated.at(-1), decodeGarageToken(previousToken))).toBe(true);
+    expect(sameSecret(cryptoTrace.activated.at(-1), nextSecret)).toBe(false);
+  });
+
+  it("activates the crypto session of the installed Fleet and drops it on abandon", async () => {
+    cryptoTrace.activated.length = 0;
+    cryptoTrace.cleared = 0;
+
+    const token = await useGarageVaultStore.getState().setup();
+    expect(sameSecret(cryptoTrace.activated.at(-1), decodeGarageToken(token))).toBe(true);
+
+    const nextSecret = createGarageSecret();
+    const entryId = "1234567890abcdef1234567890abcdef";
+    const snapshot: GarageRecoverySnapshot = {
+      format: "robosats-exp-garage-snapshot",
+      version: 3,
+      createdAt: 1,
+      garage: upsertGarageEntry(createGarageManifest("ffeeddccbbaa99887766554433221100"), {
+        id: entryId,
+        tokenId: garageTokenId(deriveGarageRobotToken(nextSecret, entryId)),
+        nickname: "Replacement"
+      }),
+      settings: createPortableSettingsManifest("ffeeddccbbaa99887766554433221100", { theme: "dark" }, 1),
+      history: createTradeHistoryManifest("ffeeddccbbaa99887766554433221100", 1)
+    };
+
+    await useGarageVaultStore.getState().restore(encodeGarageToken(nextSecret), snapshot);
+
+    expect(sameSecret(cryptoTrace.activated.at(-1), nextSecret)).toBe(true);
+
+    await useGarageVaultStore.getState().abandon();
+
+    expect(cryptoTrace.cleared).toBeGreaterThan(0);
   });
 
   it("persists relay coverage with a recovered snapshot across restart", async () => {
@@ -469,6 +527,86 @@ describe("Garage vault persistence", () => {
     );
   });
 
+  it("ignores a repeated relay acknowledgement without writing or notifying", async () => {
+    await useGarageVaultStore.getState().setup();
+    useGarageVaultStore.getState().markBackedUp();
+    const robot = await useGarageVaultStore.getState().createDerivedRobot("Repeated acknowledgement");
+    const pending = robotOutbox(robot.id);
+    const observed = observation(pending, "a".repeat(64), 1_000);
+    useGarageVaultStore
+      .getState()
+      .recordOutboxAcknowledgements(pending.item.key, pending.item.revision, ["wss://first.example/relay/"], observed);
+
+    const revision = useGarageVaultStore.getState().envelope!.revision;
+    const notified = vi.fn();
+    const unsubscribe = useGarageVaultStore.subscribe(notified);
+    envelopeWrites = 0;
+
+    useGarageVaultStore
+      .getState()
+      .recordOutboxAcknowledgements(pending.item.key, pending.item.revision, ["wss://first.example/relay/"], observed);
+
+    expect(envelopeWrites).toBe(0);
+    expect(notified).not.toHaveBeenCalled();
+    expect(useGarageVaultStore.getState().envelope!.revision).toBe(revision);
+    expect(useGarageVaultStore.getState().pendingOutbox()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          item: expect.objectContaining({ acceptedRelays: ["wss://first.example/relay/"] })
+        })
+      ])
+    );
+    unsubscribe();
+  });
+
+  it("keeps a late acknowledgement from clearing a newer pending revision", async () => {
+    await useGarageVaultStore.getState().setup();
+    useGarageVaultStore.getState().markBackedUp();
+    const robot = await useGarageVaultStore.getState().createDerivedRobot("Superseded robot");
+    const first = robotOutbox(robot.id);
+
+    await useGarageVaultStore.getState().renameRobot(robot.token, "Renamed robot");
+    const newer = robotOutbox(robot.id);
+    expect(newer.item.revision).toBeGreaterThan(first.item.revision);
+
+    useGarageVaultStore
+      .getState()
+      .acknowledgeOutbox(first.item.key, first.item.revision, observation(first, "a".repeat(64), 1_000));
+
+    expect(robotOutbox(robot.id).item.revision).toBe(newer.item.revision);
+  });
+
+  it("keeps a completed event's recorded observation against an older acknowledgement", async () => {
+    await useGarageVaultStore.getState().setup();
+    useGarageVaultStore.getState().markBackedUp();
+    const robot = await useGarageVaultStore.getState().createDerivedRobot("Completed robot");
+    await useGarageVaultStore.getState().renameRobot(robot.token, "Renamed robot");
+    const newest = robotOutbox(robot.id);
+    useGarageVaultStore
+      .getState()
+      .acknowledgeOutbox(newest.item.key, newest.item.revision, observation(newest, "b".repeat(64), 2_000));
+    expect(pendingKeys()).not.toContain(newest.item.key);
+
+    const revision = useGarageVaultStore.getState().envelope!.revision;
+    const notified = vi.fn();
+    const unsubscribe = useGarageVaultStore.subscribe(notified);
+    envelopeWrites = 0;
+
+    useGarageVaultStore
+      .getState()
+      .acknowledgeOutbox(newest.item.key, newest.item.revision, observation(newest, "a".repeat(64), 1_000));
+
+    expect(envelopeWrites).toBe(0);
+    expect(notified).not.toHaveBeenCalled();
+    expect(useGarageVaultStore.getState().envelope!.revision).toBe(revision);
+    expect(useGarageVaultStore.getState().envelope!.observed[newest.item.key]).toMatchObject({
+      eventId: "b".repeat(64),
+      publishedAt: 2_000,
+      revision: newest.item.revision
+    });
+    unsubscribe();
+  });
+
   it("queues routine heartbeats only for current stale records", async () => {
     await useGarageVaultStore.getState().setup();
     useGarageVaultStore.getState().markBackedUp();
@@ -566,6 +704,39 @@ describe("Garage vault persistence", () => {
     });
   });
 });
+
+function sameSecret(activated: number[] | undefined, secret: Uint8Array): boolean {
+  return Boolean(activated) && JSON.stringify(activated) === JSON.stringify(Array.from(secret));
+}
+
+function pendingKeys(): string[] {
+  return useGarageVaultStore
+    .getState()
+    .pendingOutbox()
+    .map(({ item }) => item.key);
+}
+
+function robotOutbox(robotId: string) {
+  const pending = useGarageVaultStore
+    .getState()
+    .pendingOutbox()
+    .find(({ record }) => record.id === robotId);
+  if (!pending) throw new Error("Expected a pending Fleet record for this robot.");
+  return pending;
+}
+
+function observation(
+  pending: ReturnType<typeof robotOutbox>,
+  eventId: string,
+  publishedAt: number
+): GarageObservedEvent {
+  return {
+    eventId,
+    publishedAt,
+    revision: pending.record.revision,
+    writerDeviceId: pending.record.writerDeviceId
+  };
+}
 
 function decryptStoredEnvelope(secret: Uint8Array, ciphertext: string | undefined): GarageLocalEnvelope {
   if (!ciphertext) throw new Error("Expected a persisted Fleet envelope.");

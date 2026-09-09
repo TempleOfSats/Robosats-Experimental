@@ -653,3 +653,47 @@
   margin: 0;
   color: var(--muted-foreground);
 }
+
+/* Above the page, below dialogs. The notice never blocks navigation: the only
+   thing it asks for is the reload button it carries. */
+.app-runtime-notice {
+  position: fixed;
+  inset-inline: 0;
+  bottom: 0;
+  z-index: 70;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem 1rem;
+  padding: 0.65rem 1rem;
+  border-top: 1px solid var(--warning-border);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+  color: var(--foreground);
+}
+
+/* display:flex would otherwise override [hidden] and leave the banner on screen. */
+.app-runtime-notice[hidden] {
+  display: none;
+}
+
+.app-runtime-notice-copy {
+  flex: 1 1 16rem;
+  margin: 0;
+  font-size: var(--type-body-sm-size);
+  line-height: var(--type-body-sm-line);
+  color: var(--muted-foreground);
+}
+
+.app-runtime-notice-action {
+  padding: 0.5rem 0.9rem;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-family: inherit;
+  font-size: var(--type-button-size);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+}

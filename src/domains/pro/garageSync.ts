@@ -704,14 +704,18 @@ class GarageSyncEngine {
               if (this.isCurrentSyncContext(context)) {
                 accepted.add(relay);
                 latestPublishedAt = Math.max(latestPublishedAt, observed.publishedAt);
-                useGarageVaultStore.getState().recordOutboxAcknowledgements(item.key, item.revision, [relay], observed);
+                // Quorum completes in one persisted transition. Recording the
+                // acknowledgement and then removing the same outbox item would
+                // encrypt and store the envelope twice for one relay answer.
+                if (accepted.size >= required) {
+                  useGarageVaultStore.getState().acknowledgeOutbox(item.key, item.revision, observed);
+                } else {
+                  useGarageVaultStore.getState().recordOutboxAcknowledgements(item.key, item.revision, [relay], observed);
+                }
                 noteRelaySuccess(relay, Date.now() - startedAt);
                 if (!firstSettled) {
                   firstSettled = true;
                   resolveFirst(true);
-                }
-                if (accepted.size >= required) {
-                  useGarageVaultStore.getState().acknowledgeOutbox(item.key, item.revision, observed);
                 }
               }
             },

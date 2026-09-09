@@ -86,4 +86,36 @@ describe("orderbook cache", () => {
   it("accepts cache exactly at the freshness limit", () => {
     expect(isFreshOrderbookCache(now, now + ORDERBOOK_CACHE_MAX_AGE_MS)).toBe(true);
   });
+
+  it("does not rewrite an unchanged book during the renewal interval", () => {
+    const values = new Map<string, string>();
+    const setItem = vi.fn((key: string, value: string) => values.set(key, value));
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem,
+      removeItem: (key: string) => values.delete(key)
+    });
+
+    writeOrderbookCache("nostr", "mainnet", "onion", orders, now);
+    writeOrderbookCache("nostr", "mainnet", "onion", orders, now + 1_000);
+    writeOrderbookCache("nostr", "mainnet", "onion", orders, now + 60_001);
+
+    expect(setItem).toHaveBeenCalledTimes(2);
+  });
+
+  it("writes again when the system clock moves backwards", () => {
+    const values = new Map<string, string>();
+    const setItem = vi.fn((key: string, value: string) => values.set(key, value));
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem,
+      removeItem: (key: string) => values.delete(key)
+    });
+
+    writeOrderbookCache("nostr", "mainnet", "onion", orders, now);
+    writeOrderbookCache("nostr", "mainnet", "onion", orders, now - 60 * 60 * 1000);
+
+    expect(setItem).toHaveBeenCalledTimes(2);
+    expect(readOrderbookCache("nostr", "mainnet", "onion", now - 60 * 60 * 1000)?.orders).toEqual(orders);
+  });
 });

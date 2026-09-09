@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, type ReactNode } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { AppErrorBoundary } from "@/components/app/AppErrorBoundary";
 import { AppTransitionFeedback } from "@/domains/navigation/AppTransitionFeedback";
-import { finishRouteTransition, routeTransitionDetail } from "@/domains/navigation/routeTransition";
+import { finishRouteTransition, markInterfaceReady, routeTransitionDetail } from "@/domains/navigation/routeTransition";
 import { loadOrderPage, preloadOrderRoute } from "@/domains/orders/orderRoute";
 import { useProPreferencesStore } from "@/domains/pro/proPreferencesStore";
 import {
@@ -22,38 +22,45 @@ const TradeLabPage = (import.meta.env.DEV || import.meta.env.VITE_ENABLE_TRADE_L
   ? lazy(() => import("@/dev/TradeLabPage").then((module) => ({ default: module.TradeLabPage })))
   : null;
 
-export function preloadPrimaryTradeRoutes(): void {
-  void preloadOffersRoute();
-  void preloadCreateOrderRoute();
+export function preloadPrimaryTradeRoutes(): Promise<void> {
+  return settlePreloads([preloadOffersRoute(), preloadCreateOrderRoute()]);
 }
 
-export function preloadQuickAccessRoutes(): void {
-  void Promise.allSettled([
+export function preloadQuickAccessRoutes(): Promise<void> {
+  return settlePreloads([preloadOffersRoute(), preloadSettingsRoute()]);
+}
+
+export function preloadAllAppRoutes(): Promise<void> {
+  preloadOrderRoute();
+  preloadStatisticsRoute();
+  const chunks: Promise<unknown>[] = [
+    preloadGarageRoute(),
     preloadOffersRoute(),
+    preloadCreateOrderRoute(),
+    preloadCoordinatorsRoute(),
     preloadSettingsRoute()
-  ]);
-}
-
-export function preloadAllAppRoutes(): void {
-  void preloadGarageRoute();
-  void preloadOffersRoute();
-  void preloadCreateOrderRoute();
-  void preloadCoordinatorsRoute();
-  void preloadOrderRoute();
-  void preloadSettingsRoute();
-  void preloadStatisticsRoute();
-  if (useProPreferencesStore.getState().enabled) void preloadProRoute();
+  ];
+  if (useProPreferencesStore.getState().enabled) chunks.push(preloadProRoute());
+  return settlePreloads(chunks);
 }
 
 export function preloadAppRoute(path: string): void {
-  if (path === "/garage" || path.startsWith("/garage/")) void preloadGarageRoute();
-  else if (path === "/offers") void preloadOffersRoute();
-  else if (path === "/create") void preloadCreateOrderRoute();
-  else if (path === "/coordinators") void preloadCoordinatorsRoute();
-  else if (path === "/settings") void preloadSettingsRoute();
-  else if (path === "/statistics") void preloadStatisticsRoute();
-  else if (path === "/pro") void preloadProRoute();
-  else if (path === "/order" || path.startsWith("/order/")) void preloadOrderRoute();
+  if (path === "/garage" || path.startsWith("/garage/")) void settlePreloads([preloadGarageRoute()]);
+  else if (path === "/offers") void settlePreloads([preloadOffersRoute()]);
+  else if (path === "/create") void settlePreloads([preloadCreateOrderRoute()]);
+  else if (path === "/coordinators") void settlePreloads([preloadCoordinatorsRoute()]);
+  else if (path === "/settings") void settlePreloads([preloadSettingsRoute()]);
+  else if (path === "/statistics") preloadStatisticsRoute();
+  else if (path === "/pro") void settlePreloads([preloadProRoute()]);
+  else if (path === "/order" || path.startsWith("/order/")) preloadOrderRoute();
+}
+
+// Preloading only decides when a chunk arrives, never whether the app works. A
+// chunk that fails here belongs to a route the user has not opened, so its
+// rejection settles on this boundary; navigating to that route still reaches the
+// route error boundary and its explicit Reload action.
+function settlePreloads(promises: Promise<unknown>[]): Promise<void> {
+  return Promise.allSettled(promises).then(() => undefined);
 }
 
 export function AppRoutes() {
@@ -108,8 +115,7 @@ function RouteFallback() {
 function ReadyRoute({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
   useEffect(() => {
-    document.documentElement.dataset.robosatsAppReady = "true";
-    window.dispatchEvent(new Event("robosats:app-ready"));
+    markInterfaceReady();
     finishRouteTransition(pathname);
   }, [pathname]);
 

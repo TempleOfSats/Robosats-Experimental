@@ -352,6 +352,38 @@ describe("OffersPage filters", () => {
     );
   });
 
+  it("refreshes the API orderbook when federation membership changes", async () => {
+    const refreshOrderbook = vi.fn(async () => undefined);
+    useOrderbookStore.setState({ refreshOrderbook });
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter>
+          <OffersPage />
+        </MemoryRouter>
+      );
+    });
+    await vi.waitFor(() => expect(refreshOrderbook).toHaveBeenCalled());
+    refreshOrderbook.mockClear();
+
+    const newcomer = {
+      ...coordinator,
+      shortAlias: "newcomer",
+      longAlias: "New Coordinator",
+      url: "https://newcomer.example",
+      nostrHexPubkey: "f".repeat(64)
+    } satisfies CoordinatorSummary;
+    await act(async () => {
+      useFederationStore.setState({ coordinators: [coordinator, newcomer] });
+    });
+
+    await vi.waitFor(() => expect(refreshOrderbook).toHaveBeenCalledOnce());
+    expect(refreshOrderbook).toHaveBeenCalledWith(
+      [coordinator, newcomer],
+      expect.objectContaining({ connection: "api", priority: "background" })
+    );
+  });
+
   it("starts a fresh Nostr session after the native app resumes", async () => {
     vi.useFakeTimers();
     nativeRuntime.isNativeApp.mockReturnValue(true);

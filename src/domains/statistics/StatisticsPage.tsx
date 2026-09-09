@@ -26,6 +26,7 @@ import { useOrderbookStore } from "@/domains/orderbook/orderbookStore";
 import type { PublicOrder } from "@/domains/orderbook/orderbook.types";
 import { roleBuysBitcoin } from "@/domains/orders/orderRole";
 import { fetchCompletedVolume, fetchMarketTicks } from "@/domains/statistics/statisticsApi";
+import "@/styles/statistics.css";
 import {
   activityVolumeSeries,
   completedVolumeSeries,
