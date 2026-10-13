@@ -20,7 +20,7 @@
           "buildVersion": "3011006",
           "date": "2026-10-13",
           "localizedDescription": "v0.3.1-alpha.6 (prerelease)\n* [Android universal APK](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.3.1-alpha.6/robosats-exp-0.3.1-alpha.6-universal.apk)\n* [iOS unsigned IPA](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.3.1-alpha.6/robosats-exp-0.3.1-alpha.6-unsigned.ipa)\n* [Linux AppImage](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.3.1-alpha.6/RoboSats.Exp_0.3.1-alpha.6_amd64.AppImage)\n* [Windows installer](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.3.1-alpha.6/RoboSats.Exp_0.3.1-alpha.6_x64-setup.exe)\n* [macOS DMG](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.3.1-alpha.6/RoboSats.Exp_0.3.1-alpha.6_aarch64.dmg)\nDetached signatures and checksums are available in the release assets.\n<!-- Release notes generated using configuration in .github/release.yml at v0.3.1-alpha.6 -->\n**Full Changelog**: https://github.com/TempleOfSats/Robosats-Experimental/compare/v0.3.1-alpha.5...v0.3.1-alpha.6",
-          "size": 6427904,
+          "size": 6430556,
           "minOSVersion": "16.0"
         }
       ]
