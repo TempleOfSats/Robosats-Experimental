@@ -7,7 +7,7 @@ const baseUrl = `http://${host}:${port}`;
 const preview = spawn(
   process.platform === "win32" ? "npm.cmd" : "npm",
   ["run", "preview", "--", "--host", host, "--port", String(port), "--strictPort"],
-  { stdio: ["ignore", "pipe", "pipe"] }
+  { stdio: ["ignore", "pipe", "pipe"], detached: true }
 );
 let previewOutput = "";
 preview.stdout.on("data", (chunk) => {
@@ -547,7 +547,14 @@ try {
   }
 } finally {
   await browser?.close();
-  preview.kill("SIGTERM");
+  // The preview runs as an npm wrapper that spawns Vite as a child. Signal the
+  // whole process group so no orphan keeps our stdio pipes (and the event loop)
+  // alive after the audit finishes.
+  try {
+    process.kill(-preview.pid, "SIGTERM");
+  } catch {
+    preview.kill("SIGTERM");
+  }
   await Promise.race([
     new Promise((resolve) => preview.once("exit", resolve)),
     new Promise((resolve) => setTimeout(resolve, 2_000))
@@ -555,7 +562,9 @@ try {
 }
 
 console.log(JSON.stringify({ cases: cases.length, failures }, null, 2));
-if (failures.length > 0) process.exitCode = 1;
+// Orphan grandchildren can hold the event loop open on CI runners; exit
+// explicitly once the report is written.
+process.exit(failures.length > 0 ? 1 : 0);
 
 function themeCases(theme) {
   const variants = [
