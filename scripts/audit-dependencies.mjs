@@ -18,12 +18,7 @@ if (!(requestedLevel in severityOrder)) {
 // RSC mode, actions, server actions, data routers, SSR, or prerendering. No
 // patched React Router release exists yet; remove this exception once npm no
 // longer reports the advisory for the locked dependency graph.
-const temporaryAllowlist = new Map([
-  [
-    "GHSA-qwww-vcr4-c8h2",
-    "React Router RSC-mode CSRF is unreachable in this client-only SPA",
-  ],
-]);
+const temporaryAllowlist = new Map([]);
 
 const audit = spawnSync("npm", ["audit", "--json"], {
   cwd: process.cwd(),
