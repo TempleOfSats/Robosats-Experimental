@@ -40,6 +40,7 @@ import {
   buildCreateOrderPayload,
   buildProvisionalMakerOrder,
   createOrder,
+  ORDER_DESCRIPTION_MAX_LENGTH,
   validateCreateOrderPayload
 } from "@/domains/maker/makerApi";
 import {
@@ -202,6 +203,8 @@ export function CreateOrderPage() {
     : getRobotOrderAvailability(activeSlot, tradeSnapshots);
   const payload = useMemo(() => buildCreateOrderPayload(draft), [draft]);
   const validationErrors = useMemo(() => validateCreateOrderPayload(payload), [payload]);
+  const descriptionLength = Array.from(draft.description.trim()).length;
+  const descriptionError = validationErrors.find((error) => error.startsWith("Description must be"));
   const submitRequirementsMet = presetEditor
     ? Boolean(presetName.trim())
     : [activeSlot, robotAvailability.available, auth, selectedCoordinator?.url].every(Boolean);
@@ -549,7 +552,12 @@ export function CreateOrderPage() {
                 ) : null}
 
                 {currentStep === 1 ? (
-                  <AmountStep draft={draft} updateDraft={updateDraft} />
+                  <AmountStep
+                    descriptionError={descriptionError}
+                    descriptionLength={descriptionLength}
+                    draft={draft}
+                    updateDraft={updateDraft}
+                  />
                 ) : null}
 
                 {currentStep === 2 ? (
@@ -843,10 +851,14 @@ function SideStep({
 
 function AmountStep({
   draft,
-  updateDraft
+  updateDraft,
+  descriptionError,
+  descriptionLength
 }: {
   draft: CreateOrderDraft;
   updateDraft: (patch: Partial<CreateOrderDraft>) => void;
+  descriptionError?: string;
+  descriptionLength: number;
 }) {
   const paymentMethods = draft.isSwap ? SWAP_PAYMENT_METHODS : NORMAL_PAYMENT_METHODS;
   const selectedMethods = paymentMethodList(draft.paymentMethod);
@@ -1052,16 +1064,26 @@ function AmountStep({
             />
           </div>
           <label className="field-block">
-            <span>
+            <span className="maker-description-label">
               Description
               <InfoHint title="Instructions the taker must read before locking a bond. Do not include personal information." />
+              <small aria-live="polite">
+                {descriptionLength}/{ORDER_DESCRIPTION_MAX_LENGTH}
+              </small>
             </span>
             <textarea
+              aria-describedby={descriptionError ? "maker-description-error" : undefined}
+              aria-invalid={Boolean(descriptionError)}
               rows={3}
               value={draft.description}
               placeholder="Optional instructions for the peer"
               onChange={(event) => updateDraft({ description: event.target.value })}
             />
+            {descriptionError ? (
+              <small className="field-error" id="maker-description-error" role="alert">
+                {descriptionError}
+              </small>
+            ) : null}
           </label>
           <label className="field-block">
             <span>

@@ -106,6 +106,8 @@ export function RobotGaragePage() {
   const displayCoordinators = coordinators
     .filter((coordinator) => coordinator.shortAlias !== "local")
     .sort(compareCoordinatorsByEstablished);
+  const recoveryReturnTo = safeInternalReturnTo(searchParams.get("returnTo"));
+  const recoveryRequested = searchParams.get("recover") === "1";
   const [showFirstRunWizard, setShowFirstRunWizard] = useState(false);
   const [showRobotSwitcher, setShowRobotSwitcher] = useState(false);
   const [showRobotSettings, setShowRobotSettings] = useState(false);
@@ -139,10 +141,14 @@ export function RobotGaragePage() {
   }, [hydrate]);
 
   useEffect(() => {
-    if (hydrated && slots.length === 0) {
+    if (hydrated && slots.length === 0 && !recoveryRequested) {
       setShowFirstRunWizard(true);
     }
-  }, [hydrated, slots.length]);
+  }, [hydrated, recoveryRequested, slots.length]);
+
+  useEffect(() => {
+    if (hydrated && recoveryRequested) setShowRecovery(true);
+  }, [hydrated, recoveryRequested]);
 
   useEffect(() => {
     if (hydrated && searchParams.get("add") === "1") {
@@ -233,10 +239,28 @@ export function RobotGaragePage() {
         markProSetupSeen();
         setProLastView("robots");
         setProEnabled(true);
-        navigate("/pro");
+        navigate(recoveryReturnTo ?? "/pro");
       }}
     />
   );
+
+  const robotRecoveryDialog = showRecovery ? (
+    <RobotRecoveryDialog
+      onClose={() => {
+        setShowRecovery(false);
+        if (!activeSlot) setShowFirstRunWizard(true);
+      }}
+      onFleetRecovery={offerFleetRecovery}
+      onRecover={(token) => {
+        recoverRobotToken(token, addSlot, updateSlotIdentityDetails);
+        playHaptic("success");
+        setShowRecovery(false);
+        setShowFirstRunWizard(false);
+        requestRobotDataRefresh();
+        if (recoveryReturnTo) navigate(recoveryReturnTo, { replace: true });
+      }}
+    />
+  ) : null;
 
   if (!hydrated) {
     return (
@@ -271,6 +295,7 @@ export function RobotGaragePage() {
           <CreateRobotPanel onFleetRecovery={offerFleetRecovery} onProfile={() => setShowFirstRunWizard(false)} />
         </div>
         {fleetRecoveryDialogs}
+        {robotRecoveryDialog}
       </main>
     );
   }
@@ -402,18 +427,7 @@ export function RobotGaragePage() {
         />
       ) : null}
 
-      {showRecovery ? (
-        <RobotRecoveryDialog
-          onClose={() => setShowRecovery(false)}
-          onFleetRecovery={offerFleetRecovery}
-          onRecover={(token) => {
-            recoverRobotToken(token, addSlot, updateSlotIdentityDetails);
-            playHaptic("success");
-            setShowRecovery(false);
-            requestRobotDataRefresh();
-          }}
-        />
-      ) : null}
+      {robotRecoveryDialog}
 
       {fleetRecoveryDialogs}
 
@@ -783,6 +797,11 @@ function recoverRobotToken(
       })
     )
     .catch(() => undefined);
+}
+
+function safeInternalReturnTo(value: string | null): string | undefined {
+  if (!value || !value.startsWith("/") || value.startsWith("//") || value.includes("\\")) return undefined;
+  return value;
 }
 
 export function RobotSettingsDialog({

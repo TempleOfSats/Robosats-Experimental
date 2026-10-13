@@ -191,6 +191,19 @@ describe("makerApi", () => {
     ).toEqual(["Add a payment method.", "Minimum amount must be below maximum amount."]);
   });
 
+  it("rejects descriptions longer than the coordinator limit", () => {
+    const valid = buildCreateOrderPayload({ ...draft, description: "a".repeat(240) });
+    const tooLong = buildCreateOrderPayload({ ...draft, description: "a".repeat(241) });
+
+    expect(validateCreateOrderPayload(valid)).not.toContain("Description must be 240 characters or fewer.");
+    expect(validateCreateOrderPayload(tooLong)).toContain("Description must be 240 characters or fewer.");
+  });
+
+  it("counts Unicode description characters as users see them", () => {
+    const payload = buildCreateOrderPayload({ ...draft, description: "🙂".repeat(240) });
+    expect(validateCreateOrderPayload(payload)).not.toContain("Description must be 240 characters or fewer.");
+  });
+
   it("matches the current timer ranges", () => {
     expect(validateCreateOrderPayload(buildCreateOrderPayload({ ...draft, publicDuration: "599" }))).toContain(
       "Public duration must be between 00:10 and 23:59."

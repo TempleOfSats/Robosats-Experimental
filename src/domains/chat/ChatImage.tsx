@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { isAbortError, toUserMessage } from "@/lib/userError";
 import { parseChatImage } from "@/domains/chat/chatImageMetadata";
+import { RoboSatsApiError } from "@/domains/transport/apiError";
 
 export function ChatImage({ text, baseUrl }: { text: string; baseUrl?: string }) {
   const [image, setImage] = useState<Blob>();
@@ -154,7 +155,7 @@ export function ChatImageComposer({
         setError(
           attemptedSend.current
             ? "Could not confirm delivery. Check the chat before sending again."
-            : imageError(cause, "Could not upload this image. The coordinator may not support images yet.")
+            : uploadError(cause)
         );
       }
     } finally {
@@ -245,6 +246,28 @@ function useImageUrl(blob?: Blob): string | undefined {
     return () => URL.revokeObjectURL(next);
   }, [blob]);
   return url;
+}
+
+function uploadError(error: unknown): string {
+  if (error instanceof RoboSatsApiError) {
+    switch (error.status) {
+      case 404:
+      case 405:
+      case 501:
+        return "Image uploads are not available on this coordinator yet.";
+      case 401:
+      case 403:
+        return "The coordinator did not authorize this image upload. Check your robot and try again.";
+      case 413:
+        return "The coordinator requires a smaller image. Choose a smaller image and try again.";
+      case 415:
+        return "The coordinator rejected the upload format. Update the app and try again.";
+      case 429:
+        return "Too many image uploads. Wait a moment before trying again.";
+    }
+    if (error.status >= 500) return "The coordinator could not accept the image right now. Try again shortly.";
+  }
+  return imageError(error, "Could not upload this image. Check your connection and try again.");
 }
 
 function imageError(error: unknown, fallback: string): string {

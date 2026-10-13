@@ -13,6 +13,11 @@ describe("toUserMessage", () => {
       .toBe("Does not look like a valid Lightning invoice.");
   });
 
+  it("extracts field validation arrays from coordinator responses", () => {
+    expect(toUserMessage({ description: ["Ensure this field has no more than 240 characters."] }))
+      .toBe("Ensure this field has no more than 240 characters.");
+  });
+
   it("turns transport failures into an actionable sentence", () => {
     expect(toUserMessage(new Error("NetworkError when attempting to fetch resource.")))
       .toBe("Could not reach the coordinator. Check your connection and try again.");

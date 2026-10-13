@@ -2,7 +2,7 @@
 
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useGarageStore } from "@/domains/garage/garageStore";
 import { RobotGaragePage } from "@/domains/garage/RobotGaragePage";
@@ -30,6 +30,40 @@ afterEach(async () => {
 });
 
 describe("normal Garage Fleet recovery", () => {
+  it("recovers from an empty Garage and returns to the requested trade", async () => {
+    root = createRoot(document.querySelector("#root")!);
+    await act(async () => {
+      root?.render(
+        <MemoryRouter initialEntries={["/garage?recover=1&returnTo=%2Forder%2Flake%2F123"]}>
+          <Routes>
+            <Route path="/garage" element={<RobotGaragePage />} />
+            <Route path="/order/lake/123" element={<p>Returned to trade</p>} />
+          </Routes>
+        </MemoryRouter>
+      );
+    });
+    const tokenInput = document.querySelector<HTMLTextAreaElement>('textarea[placeholder="Paste your token"]');
+    expect(tokenInput).not.toBeNull();
+    await setInputValue(tokenInput!, "SyntheticRecoveryRobotTokenAa0Bb1Cc2Dd3Ee4");
+    await clickButton("Recover robot");
+    expect(document.body.textContent).toContain("Returned to trade");
+    expect(useGarageStore.getState().slots).toHaveLength(1);
+  });
+
+  it("allows recovery to be cancelled with an empty Garage", async () => {
+    root = createRoot(document.querySelector("#root")!);
+    await act(async () => {
+      root?.render(
+        <MemoryRouter initialEntries={["/garage?recover=1"]}>
+          <RobotGaragePage />
+        </MemoryRouter>
+      );
+    });
+    await clickButton("Close recovery");
+    expect(document.querySelector('textarea[placeholder="Paste your token"]')).toBeNull();
+    expect(document.body.textContent).toContain("Create my robot");
+  });
+
   it("introduces robot setup through one clear action at a time", async () => {
     root = createRoot(document.querySelector("#root")!);
     await act(async () => {

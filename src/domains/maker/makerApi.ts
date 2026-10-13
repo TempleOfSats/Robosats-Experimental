@@ -17,6 +17,8 @@ import {
   paymentMethodHasF2F
 } from "@/domains/location/f2fLocation";
 
+export const ORDER_DESCRIPTION_MAX_LENGTH = 240;
+
 export async function createOrder(
   baseUrl: string,
   payload: CreateOrderPayload,
@@ -117,7 +119,7 @@ export function buildRenewOrderPayload(order: OrderDto, password = ""): CreateOr
 }
 
 export function validateCreateOrderPayload(payload: CreateOrderPayload): string[] {
-  const errors: string[] = [];
+  const errors: string[] = validateDescription(payload.description);
   if (!payload.payment_method) errors.push("Add a payment method.");
   if (
     paymentMethodHasF2F(payload.payment_method)
@@ -144,6 +146,11 @@ export function validateCreateOrderPayload(payload: CreateOrderPayload): string[
   }
   if (payload.bond_size <= 0) errors.push("Bond size must be positive.");
   return errors;
+}
+
+function validateDescription(description: string | null): string[] {
+  if (!description || Array.from(description).length <= ORDER_DESCRIPTION_MAX_LENGTH) return [];
+  return [`Description must be ${ORDER_DESCRIPTION_MAX_LENGTH} characters or fewer.`];
 }
 
 function parseNumericField(value: string): number {

@@ -59,6 +59,7 @@ describe("cold order loading", () => {
   });
 
   it("keeps specific non-transient guidance distinct", () => {
+    const recoverRobot = vi.fn();
     const html = renderToStaticMarkup(
       <ColdOrderLoadState
         failure={{ kind: "authentication", message: "Load a robot to fetch this private order." }}
@@ -68,6 +69,7 @@ describe("cold order loading", () => {
         torReconnectAvailable
         torReconnectFailed={false}
         onReconnectTor={vi.fn()}
+        onRecoverRobot={recoverRobot}
         onRetry={vi.fn()}
       />
     );
@@ -76,6 +78,7 @@ describe("cold order loading", () => {
     expect(html).toContain("Load a robot to fetch this private order.");
     expect(html).toContain("status-panel-warning");
     expect(html).toContain("Retry");
+    expect(html).toContain("Recover your robot");
     expect(html).not.toContain("Reconnect Tor");
   });
 
