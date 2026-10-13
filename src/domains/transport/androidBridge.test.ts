@@ -6,6 +6,39 @@ afterEach(() => {
 });
 
 describe("Native transport bridge", () => {
+  it.each(["AndroidAppRobosats", "IOSAppRobosats"])("round-trips encrypted image bytes through %s with lowercase HTTP headers", async (platform) => {
+    const { base64 } = await import("@scure/base");
+    const uploaded = new Uint8Array([0, 255, 128, 13, 10]);
+    const httpRequest = vi.fn();
+    const bridgeWindow: Record<string, unknown> & Pick<Window, "__robosatsNativeTransport"> = {};
+    const httpBinaryRequest = vi.fn((requestId: string, method: string, _url: string, headersJson: string, body: string) => {
+      if (method === "PUT") {
+        expect(JSON.parse(headersJson)).toEqual({ "content-type": "application/octet-stream", authorization: "Nostr synthetic" });
+        expect(base64.decode(body)).toEqual(uploaded);
+      } else {
+        expect(method).toBe("GET");
+        expect(body).toBe("");
+        expect(JSON.parse(headersJson)).toEqual({});
+      }
+      queueMicrotask(() => bridgeWindow.__robosatsNativeTransport?.resolve(requestId, {
+        status: 200, headers: { "content-type": method === "PUT" ? "application/json" : "application/octet-stream" },
+        body: base64.encode(method === "PUT" ? new TextEncoder().encode('{"ok":true}') : uploaded)
+      }));
+    });
+    bridgeWindow[platform] = { httpRequest, httpBinaryRequest };
+    vi.stubGlobal("window", bridgeWindow);
+    const fetcher = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    const { transferBinary } = await import("./binaryTransfer");
+    await transferBinary("http://coordinator.test", "/blossom/upload", new AbortController().signal, {
+      bytes: uploaded, authorization: "Nostr synthetic"
+    });
+    await expect(transferBinary("http://coordinator.test", "/blossom/test", new AbortController().signal)).resolves.toEqual(uploaded);
+    expect(httpBinaryRequest).toHaveBeenCalledTimes(2);
+    expect(httpRequest).not.toHaveBeenCalled();
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it("uses the optional binary method and preserves cancellation ownership", async () => {
     const bridgeWindow = {
       AndroidAppRobosats: { httpRequest: vi.fn(), httpBinaryRequest: vi.fn(), cancelHttpRequest: vi.fn() }

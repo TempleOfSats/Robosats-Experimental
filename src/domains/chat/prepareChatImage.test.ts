@@ -45,8 +45,8 @@ it("compresses a large photo once at high quality, bounds its edge and releases 
   expect(result.size).toBe(80_000);
   expect(result.type).toBe("image/jpeg");
   expect(result.name).toBe("image");
-  expect(encodingSize).toEqual([2560, 1920]);
-  expect(canvas.toBlob).toHaveBeenCalledWith(expect.any(Function), "image/jpeg", 0.9);
+  expect(encodingSize).toEqual([1600, 1200]);
+  expect(canvas.toBlob).toHaveBeenCalledWith(expect.any(Function), "image/jpeg", 0.78);
   expect(createImageBitmap).toHaveBeenCalledWith(expect.any(Blob), { imageOrientation: "from-image" });
   expect(close).toHaveBeenCalledOnce();
   expect([canvas.width, canvas.height]).toEqual([0, 0]);
@@ -56,6 +56,18 @@ it("honors oriented dimensions and never upscales a small image", async () => {
   vi.mocked(createImageBitmap).mockResolvedValue({ width: 600, height: 800, close } as ImageBitmap);
   await prepareChatImage(photo(), signal());
   expect(encodingSize).toEqual([600, 800]);
+});
+
+it("now optimizes JPEGs between 128 and 256 KiB without re-encoding smaller ones", async () => {
+  const original = new Uint8Array(await photo().arrayBuffer());
+  for (const size of [100_000, 200_000]) {
+    const input = new File([original.subarray(0, size), new Uint8Array([255, 217])], "photo.jpg", {
+      type: "image/jpeg"
+    });
+    const output = await prepareChatImage(input, signal());
+    expect(output.size).toBe(size === 100_000 ? input.size - 11 : 80_000);
+  }
+  expect(createImageBitmap).toHaveBeenCalledOnce();
 });
 
 it.each([

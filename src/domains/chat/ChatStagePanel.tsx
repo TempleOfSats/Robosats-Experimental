@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { sha256 } from "js-sha256";
-import { ChevronDown, Download, MessageSquare, Paperclip, Send } from "lucide-react";
+import { Check, ChevronDown, Copy, Download, MessageSquare, Paperclip, Send } from "lucide-react";
 import { ChatImage, ChatImageComposer } from "@/domains/chat/ChatImage";
 import { CHAT_IMAGE_TYPES, MAX_CHAT_IMAGE_BYTES, isChatImageMessage } from "@/domains/chat/chatImageMetadata";
 import {
@@ -32,6 +32,7 @@ import {
   visiblePreChatMessages
 } from "@/domains/chat/preChat";
 import { downloadTextFile } from "@/domains/transport/downloadFile";
+import { writeClipboard } from "@/lib/clipboard";
 
 type ChatHistoryStatus = "idle" | "loading" | "ready" | "unavailable" | "error";
 
@@ -1055,6 +1056,36 @@ const MessageBubble = memo(function MessageBubble({
   peerNick: string;
 }) {
   const nick = message.nick || (message.mine ? myNick || "Your robot" : peerNick || "Trade peer");
+  const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
+  const copyMounted = useRef(false);
+  const copyResetTimer = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    copyMounted.current = true;
+    return () => {
+      copyMounted.current = false;
+      if (copyResetTimer.current !== undefined) window.clearTimeout(copyResetTimer.current);
+    };
+  }, []);
+
+  const copyMessage = async () => {
+    setCopyFailed(false);
+    try {
+      await writeClipboard(message.plaintext);
+      if (!copyMounted.current) return;
+      setCopied(true);
+      if (copyResetTimer.current !== undefined) window.clearTimeout(copyResetTimer.current);
+      copyResetTimer.current = window.setTimeout(() => {
+        copyResetTimer.current = undefined;
+        setCopied(false);
+      }, 1_500);
+    } catch {
+      if (!copyMounted.current) return;
+      setCopied(false);
+      setCopyFailed(true);
+    }
+  };
+
   if (message.decryptFailed) {
     return (
       <div className="chat-message-unavailable" role="status">
@@ -1077,6 +1108,22 @@ const MessageBubble = memo(function MessageBubble({
         ) : (
           <p>{message.plaintext}</p>
         )}
+        {!isChatImageMessage(message.plaintext) ? (
+          <button
+            aria-label={copied ? "Message copied" : "Copy message"}
+            className="chat-copy-button"
+            onClick={(event) => {
+              event.stopPropagation();
+              void copyMessage();
+            }}
+            title={copied ? "Copied" : "Copy message"}
+            type="button"
+          >
+            {copied ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+            <span aria-live="polite">{copied ? "Copied" : "Copy"}</span>
+          </button>
+        ) : null}
+        {copyFailed ? <span role="status">Could not copy. Select the message text to copy it.</span> : null}
         {message.signatureStatus === "verified" ? (
           <span className="chat-signature-status">Signature verified</span>
         ) : message.signatureStatus === "unverified" ? (

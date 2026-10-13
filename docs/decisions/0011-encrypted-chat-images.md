@@ -44,7 +44,7 @@ third-party Blossom servers, SVGs, videos, or NIP-17-only messaging.
 
 Image preparation is lazy and local, before encryption. Strip location and
 descriptive metadata while preserving color profiles and orientation. Large
-JPEGs use browser encoding at quality 0.9 with a 2560-pixel long-edge ceiling;
+JPEGs above 128 KiB use browser encoding at quality 0.78 with a 1600-pixel long-edge ceiling;
 use the result only when at least 5% smaller than the cleaned original.
 PNG screenshots, WebP and GIF retain their pixel data and animation. Reject
 images exceeding 24 megapixels or a 16384-pixel edge before decoding.

@@ -11,7 +11,7 @@ export async function prepareChatImage(file: File, signal: AbortSignal): Promise
   const original = new Blob([clean.bytes], { type: file.type });
   // Screenshots and animations keep their pixels. Only large JPEG photos are re-encoded.
   const optimized =
-    file.type === "image/jpeg" && original.size > 256 * 1024 ? await compressPhoto(original, signal) : undefined;
+    file.type === "image/jpeg" && original.size > 128 * 1024 ? await compressPhoto(original, signal) : undefined;
   signal.throwIfAborted();
   const selected = optimized && optimized.size < original.size * 0.95 ? optimized : original;
   return new File([selected], "image", { type: selected.type, lastModified: 0 });
@@ -24,7 +24,7 @@ async function compressPhoto(original: Blob, signal: AbortSignal): Promise<Blob 
     if (typeof createImageBitmap !== "function") return undefined;
     bitmap = await createImageBitmap(original, { imageOrientation: "from-image" });
     signal.throwIfAborted();
-    const scale = Math.min(1, 2560 / Math.max(bitmap.width, bitmap.height));
+    const scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
     canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.round(bitmap.width * scale));
     canvas.height = Math.max(1, Math.round(bitmap.height * scale));
@@ -32,7 +32,7 @@ async function compressPhoto(original: Blob, signal: AbortSignal): Promise<Blob 
     if (!context) return undefined;
     context.imageSmoothingQuality = "high";
     context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    const encoded = await new Promise<Blob | null>((resolve) => canvas!.toBlob(resolve, "image/jpeg", 0.9));
+    const encoded = await new Promise<Blob | null>((resolve) => canvas!.toBlob(resolve, "image/jpeg", 0.78));
     signal.throwIfAborted();
     return encoded?.type === "image/jpeg" && encoded.size ? encoded : undefined;
   } catch {

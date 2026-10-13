@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ChatImage, ChatImageComposer } from "./ChatImage";
+import { RoboSatsApiError } from "@/domains/transport/apiError";
 
 const { download, upload, prepare } = vi.hoisted(() => ({ download: vi.fn(), upload: vi.fn(), prepare: vi.fn() }));
 vi.mock("./chatImages", () => ({ downloadChatImage: download, uploadChatImage: upload }));
@@ -113,6 +114,32 @@ it("requires explicit send, keeps an uploaded envelope after uncertain delivery,
   expect(onSend).toHaveBeenCalledTimes(2);
   expect(onSend.mock.calls[0]?.[0]).toBe(JSON.stringify(metadata));
   expect(onClose).toHaveBeenCalledOnce();
+});
+
+it.each([
+  [404, "not available on this coordinator"],
+  [405, "not available on this coordinator"],
+  [401, "did not authorize"],
+  [403, "did not authorize"],
+  [413, "requires a smaller image"],
+  [415, "rejected the upload format"],
+  [429, "Too many image uploads"],
+  [500, "could not accept the image right now"]
+])("explains upload HTTP %s without leaking server details", async (status, message) => {
+  upload.mockRejectedValue(new RoboSatsApiError(status, "private-server-diagnostic", "Upload failed"));
+  await renderComposer();
+  await click("Send image");
+  expect(document.body.textContent).toContain(message);
+  expect(document.body.textContent).not.toContain("private-server-diagnostic");
+});
+
+it("does not blame coordinator image support for a connection failure", async () => {
+  upload.mockRejectedValue(new Error("private-network-diagnostic"));
+  await renderComposer();
+  await click("Send image");
+  expect(document.body.textContent).toContain("Check your connection and try again");
+  expect(document.body.textContent).not.toContain("support images");
+  expect(document.body.textContent).not.toContain("private-network-diagnostic");
 });
 
 it("does not send metadata when the composer is closed during upload", async () => {

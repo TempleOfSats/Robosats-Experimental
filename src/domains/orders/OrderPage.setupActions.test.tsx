@@ -5,6 +5,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { OrderPage } from "@/domains/orders/OrderPage";
+import { useGarageStore } from "@/domains/garage/garageStore";
+import { useFederationStore } from "@/domains/coordinators/federationStore";
+import { useSearchParams } from "react-router-dom";
 
 let root: Root | undefined;
 
@@ -21,6 +24,35 @@ afterEach(async () => {
 });
 
 describe("setup cancellation actions", () => {
+  it("preserves the embedded Pro trade when requesting robot recovery", async () => {
+    useGarageStore.setState({ slots: [], currentToken: "", hydrated: true });
+    const coordinator = useFederationStore.getState().coordinators[0]!;
+    function RecoveryDestination() {
+      const [params] = useSearchParams();
+      return <p>{params.get("returnTo")}</p>;
+    }
+    root = createRoot(document.querySelector("#root")!);
+    await act(async () => {
+      root?.render(
+        <MemoryRouter initialEntries={["/pro"]}>
+          <Routes>
+            <Route
+              path="/pro"
+              element={<OrderPage embeddedLocator={{ shortAlias: coordinator.shortAlias, orderId: 123 }} />}
+            />
+            <Route path="/garage" element={<RecoveryDestination />} />
+          </Routes>
+        </MemoryRouter>
+      );
+    });
+    const recover = [...document.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Recover your robot")
+    );
+    expect(recover).toBeDefined();
+    await act(async () => recover?.click());
+    expect(document.body.textContent).toContain(`/order/${coordinator.shortAlias}/123`);
+  });
+
   it.each(["abc", "0", "1.5", "9007199254740992"])(
     "terminates an invalid %s order route without showing the loading skeleton",
     async (orderId) => {

@@ -12,6 +12,7 @@ import {
 import type { ChatMessage, DisplayChatMessage } from "@/domains/chat/chat.types";
 import type { Auth } from "@/domains/transport/apiClient";
 import * as chatCrypto from "@/domains/chat/chatCrypto";
+import * as clipboard from "@/lib/clipboard";
 
 const mocks = vi.hoisted(() => ({
   fetchChatMessages: vi.fn(),
@@ -90,6 +91,7 @@ describe("ChatStagePanel presence", () => {
     await renderPanel();
     await vi.waitFor(() => expect(document.body.textContent).toContain("Load image"));
     expect(document.body.textContent).not.toContain(metadata.key);
+    expect(document.querySelector(".chat-copy-button")).toBeNull();
     const input = document.querySelector<HTMLInputElement>('input[type="file"]')!;
     Object.defineProperty(input, "files", { value: [new File(["synthetic"], "test.png", { type: "image/png" })] });
     await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
@@ -185,6 +187,46 @@ describe("ChatStagePanel presence", () => {
     });
     await vi.waitFor(() => expect(document.body.textContent).toContain("#Synced"));
     expect(document.querySelector(".chat-new-messages")).toBeNull();
+  });
+
+  it("copies decrypted text from a message without exposing image payloads", async () => {
+    const copy = vi.spyOn(clipboard, "writeClipboard").mockResolvedValue(undefined);
+    mocks.fetchChatMessages.mockResolvedValue({
+      peerConnected: true,
+      peerPubkey: "",
+      messages: [{ index: 1, encryptedMessage: "#Copy this", nick: "Mine", time: "2026-01-01T11:59:00Z" }]
+    });
+
+    await renderPanel();
+    await vi.waitFor(() => expect(document.body.textContent).toContain("#Copy this"));
+
+    const copyButton = document.querySelector<HTMLButtonElement>('button[aria-label="Copy message"]');
+    expect(copyButton).not.toBeNull();
+    await act(async () => copyButton?.click());
+
+    expect(copy).toHaveBeenCalledWith("#Copy this");
+    expect(document.querySelector('button[aria-label="Message copied"]')).not.toBeNull();
+  });
+
+  it("reports clipboard failure and allows copying the same message again", async () => {
+    const copy = vi
+      .spyOn(clipboard, "writeClipboard")
+      .mockRejectedValueOnce(new Error("Clipboard unavailable"))
+      .mockResolvedValueOnce(undefined);
+    mocks.fetchChatMessages.mockResolvedValue({
+      peerConnected: true,
+      peerPubkey: "",
+      messages: [{ index: 1, encryptedMessage: "#Synthetic\nmultiline", nick: "Peer", time: "2026-01-01T11:59:00Z" }]
+    });
+    await renderPanel();
+    await vi.waitFor(() => expect(document.querySelector(".chat-copy-button")).not.toBeNull());
+    const button = document.querySelector<HTMLButtonElement>(".chat-copy-button")!;
+    await act(async () => button.click());
+    expect(document.body.textContent).toContain("Could not copy. Select the message text to copy it.");
+    await act(async () => button.click());
+    expect(copy).toHaveBeenLastCalledWith("#Synthetic\nmultiline");
+    expect(document.body.textContent).not.toContain("Could not copy.");
+    expect(button.getAttribute("aria-label")).toBe("Message copied");
   });
 });
 

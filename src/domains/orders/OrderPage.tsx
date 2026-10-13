@@ -54,7 +54,12 @@ import {
 import { tradePreviewOrder } from "@/domains/orders/tradePreviewFixtures";
 import { shouldShowFinishedReceipt } from "@/domains/orders/tradeConfidence";
 import type { OrderDto, SubmitOrderActionPayload } from "@/domains/orders/order.types";
-import { buildProvisionalMakerOrder, buildRenewOrderPayload, createOrder } from "@/domains/maker/makerApi";
+import {
+  buildProvisionalMakerOrder,
+  buildRenewOrderPayload,
+  createOrder,
+  validateCreateOrderPayload
+} from "@/domains/maker/makerApi";
 import { ingestCoordinatorOrder, recordCoordinatorSettlement } from "@/domains/orders/orderActivity";
 import type { Auth } from "@/domains/transport/apiClient";
 import { tradeMotionClass } from "@/domains/motion/tradeMotion";
@@ -93,6 +98,7 @@ const LazyRewardWithdrawalDialog = lazy(() =>
 );
 const TRADE_LAB_ENABLED = import.meta.env.DEV || import.meta.env.VITE_ENABLE_TRADE_LAB === "true";
 const MAX_DISPUTE_STATEMENT_LENGTH = 500_000;
+const COORDINATOR_DISCOVERY_TIMEOUT_MS = 15_000;
 
 export function OrderPage({
   embeddedLocator,
@@ -110,6 +116,7 @@ export function OrderPage({
   const shortAlias = embeddedLocator?.shortAlias ?? params.shortAlias ?? "local";
   const { orderId, valid: validOrderId } = normalizeOrderId(embeddedLocator?.orderId, params.orderId);
   const coordinators = useFederationStore((state) => state.coordinators);
+  const refreshCoordinators = useFederationStore((state) => state.refreshCoordinators);
   const slots = useGarageStore((state) => state.slots);
   const currentToken = useGarageStore((state) => state.currentToken);
   const proEnabled = useProPreferencesStore((state) => state.enabled);
@@ -129,9 +136,7 @@ export function OrderPage({
   const routeSlot = routeSlotId ? eligibleSlots.find((slot) => slot.tokenSHA256 === routeSlotId) : undefined;
   const currentSlot = routeSlot ?? selectCurrentSlot(eligibleSlots, currentToken);
   const currentSlotId = currentSlot?.tokenSHA256;
-  const coordinator =
-    coordinators.find((item) => item.shortAlias === shortAlias) ??
-    coordinators.find((item) => item.shortAlias === "local");
+  const coordinator = coordinators.find((item) => item.shortAlias === shortAlias);
   const coordinatorRef = useRef(coordinator);
   const coordinatorRefreshKey = orderRefreshCoordinatorKey(coordinator);
   const currentSlotRef = useRef(currentSlot);
@@ -155,6 +160,8 @@ export function OrderPage({
   const visibleOrder = previewOrder ?? loadedOrder;
   const [previewNotice, setPreviewNotice] = useState("");
   const [loadRecoveryPhase, setLoadRecoveryPhase] = useState<OrderLoadRecoveryPhase>("loading");
+  const [coordinatorWaitFailed, setCoordinatorWaitFailed] = useState(false);
+  const [coordinatorWaitAttempt, setCoordinatorWaitAttempt] = useState(0);
   const loadRecovery = useRef<ReturnType<typeof registerOrderLoadRecovery> | undefined>(undefined);
   const visibleError = orderPageError(actionError, loadFailure);
 
@@ -172,6 +179,28 @@ export function OrderPage({
   useEffect(() => {
     hydrateGarage();
   }, [hydrateGarage]);
+
+  useEffect(() => {
+    if (previewOrder || !validOrderId || coordinator) {
+      setCoordinatorWaitFailed(false);
+      return;
+    }
+
+    let disposed = false;
+    setCoordinatorWaitFailed(false);
+    setLoadRecoveryPhase("loading");
+    void refreshCoordinators({ force: true, priority: "visible" }).catch(() => undefined);
+    const timeout = window.setTimeout(() => {
+      if (disposed || useFederationStore.getState().coordinators.some((item) => item.shortAlias === shortAlias)) return;
+      setCoordinatorWaitFailed(true);
+      setLoadRecoveryPhase("idle");
+    }, COORDINATOR_DISCOVERY_TIMEOUT_MS);
+
+    return () => {
+      disposed = true;
+      window.clearTimeout(timeout);
+    };
+  }, [coordinator, coordinatorWaitAttempt, orderId, previewOrder, refreshCoordinators, shortAlias, validOrderId]);
 
   useEffect(() => {
     if (previewOrder) return;
@@ -287,7 +316,7 @@ export function OrderPage({
   if (!visibleOrder) {
     return (
       <OrderPageLoadState
-        failure={loadFailure}
+        failure={coordinatorDiscoveryFailure(coordinatorWaitFailed) ?? loadFailure}
         orderId={orderId}
         phase={loadRecoveryPhase}
         reconnectingTor={torConnection.reconnectState === "reconnecting"}
@@ -296,7 +325,22 @@ export function OrderPage({
         validOrderId={validOrderId}
         onBrowseOffers={() => navigate("/offers", { replace: true })}
         onReconnectTor={() => void torConnection.reconnect()}
-        onRetry={() => loadRecovery.current?.retry()}
+        onRecoverRobot={() => {
+          const returnTo = embeddedLocator
+            ? `/order/${encodeURIComponent(shortAlias)}/${orderId}`
+            : `${location.pathname}${location.search}`;
+          navigate(`/garage?recover=1&returnTo=${encodeURIComponent(returnTo)}`);
+        }}
+        onRetry={() =>
+          retryOrderOpening({
+            coordinator,
+            loadRecovery,
+            refreshCoordinators,
+            setCoordinatorWaitFailed,
+            setLoadRecoveryPhase,
+            setCoordinatorWaitAttempt
+          })
+        }
       />
     );
   }
@@ -378,6 +422,8 @@ export function OrderPage({
               }
 
               const renewalPayload = buildRenewOrderPayload(order, password);
+              const renewalValidationError = validateCreateOrderPayload(renewalPayload)[0];
+              if (renewalValidationError) throw new Error(renewalValidationError);
               const response = await createOrder(coordinator.url, renewalPayload, coordinatorAuth);
               const backendError =
                 response.bad_request ?? response.bad_amount ?? response.bad_payment_method ?? response.bad_password;
@@ -563,6 +609,37 @@ function orderPageError(
   loadFailure: OrderLoadFailure | undefined
 ): string | undefined {
   return actionError ?? loadFailure?.message;
+}
+
+function coordinatorDiscoveryFailure(waitFailed: boolean): OrderLoadFailure | undefined {
+  return waitFailed
+    ? { kind: "transient", message: "The coordinator is not available yet. Check your connection and retry." }
+    : undefined;
+}
+
+function retryOrderOpening({
+  coordinator,
+  loadRecovery,
+  refreshCoordinators,
+  setCoordinatorWaitFailed,
+  setLoadRecoveryPhase,
+  setCoordinatorWaitAttempt
+}: {
+  coordinator?: CoordinatorSummary;
+  loadRecovery: { current: ReturnType<typeof registerOrderLoadRecovery> | undefined };
+  refreshCoordinators: (options?: { force?: boolean; priority?: "background" | "visible" }) => Promise<void>;
+  setCoordinatorWaitFailed: (failed: boolean) => void;
+  setLoadRecoveryPhase: (phase: OrderLoadRecoveryPhase) => void;
+  setCoordinatorWaitAttempt: (update: (attempt: number) => number) => void;
+}): void {
+  if (!coordinator) {
+    setCoordinatorWaitFailed(false);
+    setLoadRecoveryPhase("loading");
+    setCoordinatorWaitAttempt((attempt) => attempt + 1);
+    void refreshCoordinators({ force: true, priority: "visible" }).catch(() => undefined);
+    return;
+  }
+  loadRecovery.current?.retry();
 }
 
 export function orderRefreshDelayMs(status: number, txQueued = false): number {

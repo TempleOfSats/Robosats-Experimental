@@ -1,7 +1,15 @@
 const preferredMessageKeys = [
   "bad_invoice",
   "bad_request",
+  "bad_description",
+  "bad_amount",
+  "bad_payment_method",
+  "bad_password",
+  "description",
+  "amount",
+  "payment_method",
   "detail",
+  "non_field_errors",
   "message",
   "error",
   "reason"
@@ -32,6 +40,14 @@ function extractMessage(value: unknown): string | undefined {
   if (typeof value === "string") return extractFromString(value);
   if (value instanceof Error) return extractFromString(value.message);
   if (!value || typeof value !== "object") return undefined;
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const nested = extractMessage(item);
+      if (nested) return nested;
+    }
+    return undefined;
+  }
 
   const record = value as Record<string, unknown>;
   for (const key of preferredMessageKeys) {

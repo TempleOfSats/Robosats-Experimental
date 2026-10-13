@@ -365,6 +365,13 @@
   gap: 0.35rem;
 }
 
+.maker-description-label small {
+  margin-left: auto;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
 .maker-field-label {
   color: var(--muted-foreground);
   font-size: 0.875rem;

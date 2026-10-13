@@ -23,6 +23,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import okhttp3.Call
 import okhttp3.Callback
+import okhttp3.Headers
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -190,37 +191,8 @@ class WebAppInterface(
 
         try {
             val headers = JSONObject(headersJson.ifBlank { "{}" })
-            val requestBuilder = Request.Builder().url(url)
-            val names = headers.keys()
-            while (names.hasNext()) {
-                val name = names.next()
-                if (!name.equals("host", true) && !name.equals("content-length", true)) {
-                    requestBuilder.header(name, headers.optString(name))
-                }
-            }
-
-            val normalizedMethod = method.uppercase()
-            val contentType = headers.optString("Content-Type", "application/json; charset=utf-8")
-            val requestBody = if (binary) {
-                require(body.length <= ((MAX_BINARY_BYTES + 2) / 3) * 4) { "Image is too large" }
-                val bytes = Base64.decode(body, Base64.DEFAULT)
-                require(bytes.size <= MAX_BINARY_BYTES) { "Image is too large" }
-                bytes.toRequestBody(contentType.toMediaTypeOrNull())
-            } else body.toRequestBody(contentType.toMediaTypeOrNull())
-            when (normalizedMethod) {
-                "GET" -> requestBuilder.get()
-                "HEAD" -> requestBuilder.head()
-                "DELETE" -> if (body.isEmpty()) requestBuilder.delete() else requestBuilder.delete(requestBody)
-                "POST" -> requestBuilder.post(requestBody)
-                "PUT" -> requestBuilder.put(requestBody)
-                "PATCH" -> requestBuilder.patch(requestBody)
-                else -> {
-                    reject(requestId, "Unsupported HTTP method")
-                    return
-                }
-            }
-
-            val request = requestBuilder.build()
+            val request = buildHttpRequest(method, url,
+                headers.keys().asSequence().associateWith { headers.optString(it) }, body, binary)
             context.lifecycleScope.launch(Dispatchers.IO) {
                 val status = ArtiTorManager.start(context.applicationContext)
                 if (!isCurrent(generation)) return@launch
@@ -486,6 +458,40 @@ class WebAppInterface(
         private const val MAX_BINARY_BYTES = 10 * 1024 * 1024 + 16
         private const val MAX_FILE_BYTES = 8 * 1024 * 1024
         private const val MAX_BASE64_BYTES = ((MAX_FILE_BYTES + 2) / 3) * 4
+
+        internal fun buildHttpRequest(
+            method: String,
+            url: String,
+            headers: Map<String, String>,
+            body: String,
+            binary: Boolean
+        ): Request {
+            val requestHeaders = Headers.Builder().apply {
+                headers.forEach { (name, value) ->
+                    if (!name.equals("host", true) && !name.equals("content-length", true)) set(name, value)
+                }
+            }.build()
+            // HTTP headers are case-insensitive; JS Headers normalizes their names to lowercase.
+            val contentType = requestHeaders["Content-Type"]
+                ?: if (binary) "application/octet-stream" else "application/json; charset=utf-8"
+            val requestBody = if (binary) {
+                require(body.length <= ((MAX_BINARY_BYTES + 2) / 3) * 4) { "Image is too large" }
+                val bytes = java.util.Base64.getDecoder().decode(body)
+                require(bytes.size <= MAX_BINARY_BYTES) { "Image is too large" }
+                bytes.toRequestBody(contentType.toMediaTypeOrNull())
+            } else body.toRequestBody(contentType.toMediaTypeOrNull())
+            return Request.Builder().url(url).headers(requestHeaders).apply {
+                when (method.uppercase()) {
+                    "GET" -> get()
+                    "HEAD" -> head()
+                    "DELETE" -> if (body.isEmpty()) delete() else delete(requestBody)
+                    "POST" -> post(requestBody)
+                    "PUT" -> put(requestBody)
+                    "PATCH" -> patch(requestBody)
+                    else -> throw IllegalArgumentException("Unsupported HTTP method")
+                }
+            }.build()
+        }
 
         internal fun readBinaryBody(response: Response): String {
             val body = response.body

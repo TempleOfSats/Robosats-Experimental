@@ -12,6 +12,7 @@ type ColdOrderLoadStateProps = {
   torReconnectAvailable: boolean;
   torReconnectFailed: boolean;
   onReconnectTor(): void;
+  onRecoverRobot?(): void;
   onRetry(): void;
 };
 
@@ -56,6 +57,7 @@ export function ColdOrderLoadState({
   torReconnectAvailable,
   torReconnectFailed,
   onReconnectTor,
+  onRecoverRobot = () => undefined,
   onRetry
 }: ColdOrderLoadStateProps) {
   const retrying = phase === "waiting-to-retry" || phase === "retrying";
@@ -121,6 +123,11 @@ export function ColdOrderLoadState({
                 >
                   {!reconnectingTor ? <RefreshCw size={16} /> : null}
                   Reconnect Tor
+                </Button>
+              ) : null}
+              {failure?.kind === "authentication" ? (
+                <Button type="button" variant="secondary" onClick={onRecoverRobot}>
+                  Recover your robot
                 </Button>
               ) : null}
             </div>
