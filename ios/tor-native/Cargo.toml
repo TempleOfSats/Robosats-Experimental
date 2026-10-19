@@ -23,7 +23,7 @@ arti-client = { version = "0.44", default-features = false, features = [
 futures = "0.3"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "time", "macros"] }
-tor-rtcompat = { version = "0.44", default-features = false, features = ["tokio", "rustls", "static"] }
+tor-rtcompat = { version = "0.47", default-features = false, features = ["tokio", "rustls", "static"] }
 
 [profile.release]
 opt-level = "z"
