@@ -84,8 +84,20 @@ jobs:
       - name: Install Rust audit tooling
         run: cargo install cargo-audit --version 0.22.1 --locked
       - name: Audit Rust lockfiles
+        # RUSTSEC-2023-0071 (rsa/Marvin): verification-only paths, no secret
+        # scalars upstream of it in our stack; upstream rsa unpatched.
+        # RUSTSEC-2026-0387 (crypto-bigint): reached only via arti's
+        # ssh-key-fork-arti authority-signature VERIFICATION chain
+        # (elliptic-curve pins ^0.5; patched only in 0.7.6). No secret
+        # material on the verify path. Review when arti adopts
+        # elliptic-curve >=0.14. Approved 2026-11-11.
+        # RUSTSEC-2026-0459 (libsqlite3-sys bundled SQLite): requires opening
+        # an attacker-supplied .db+wal pair; our sidecars only open their own
+        # arti dirmgr cache DBs. tor-dirmgr 0.48 pins rusqlite <0.41, which
+        # caps libsqlite3-sys below the 0.39.0 patch. Review when arti adopts
+        # rusqlite >=0.41. Approved 2026-11-11.
         run: |
-          cargo audit --file android/tor-native/Cargo.lock --ignore RUSTSEC-2023-0071
+          cargo audit --file android/tor-native/Cargo.lock --ignore RUSTSEC-2023-0071 --ignore RUSTSEC-2026-0387 --ignore RUSTSEC-2026-0459
           cargo audit --file android/robo-identities-native/Cargo.lock
-          cargo audit --file ios/tor-native/Cargo.lock --ignore RUSTSEC-2023-0071
-          cargo audit --file desktop/arti-sidecar/Cargo.lock --ignore RUSTSEC-2023-0071
+          cargo audit --file ios/tor-native/Cargo.lock --ignore RUSTSEC-2023-0071 --ignore RUSTSEC-2026-0387 --ignore RUSTSEC-2026-0459
+          cargo audit --file desktop/arti-sidecar/Cargo.lock --ignore RUSTSEC-2023-0071 --ignore RUSTSEC-2026-0387 --ignore RUSTSEC-2026-0459
