@@ -11,7 +11,7 @@ crate-type = ["staticlib", "rlib"]
 
 [dependencies]
 anyhow = "1"
-arti-client = { version = "0.44", default-features = false, features = [
+arti-client = { version = "0.45", default-features = false, features = [
     "tokio",
     "rustls",
     "compression",
