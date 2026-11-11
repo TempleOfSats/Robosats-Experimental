@@ -7,11 +7,10 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1"
-arti-client = { version = "=0.44.0", default-features = false, features = [
+arti-client = { version = "=0.48.0", default-features = false, features = [
     "tokio",
     "rustls",
     "compression",
-    "flowctl-cc",
     "hs-pow-full",
     "onion-service-client",
     "static",
@@ -22,10 +21,7 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "time", "macros", "signal"] }
-tor-rtcompat = { version = "0.44", default-features = false, features = ["tokio", "rustls", "static"] }
-
-[patch.crates-io]
-saturating-time = { path = "vendor/saturating-time" }
+tor-rtcompat = { version = "0.48", default-features = false, features = ["tokio", "rustls", "static"] }
 
 [profile.release]
 opt-level = "z"
