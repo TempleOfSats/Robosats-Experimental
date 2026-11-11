@@ -1307,6 +1307,7 @@ function TradePaymentPanel({
         orderId={order.id}
         peerNick={order.is_maker ? order.taker_nick : order.maker_nick}
         peerHashId={order.is_maker ? order.taker_hash_id : order.maker_hash_id}
+        {...chatRelayParticipants(order)}
         robot={signingRobot}
         shortAlias={order.shortAlias}
         slotToken={slotToken}
@@ -1980,6 +1981,13 @@ function PayoutSubmissionCard({
 function getSigningRobot(slot: RobotSlot | undefined, shortAlias: string): RobotRecord | undefined {
   if (!slot) return undefined;
   return slot.robots[shortAlias] ?? Object.values(slot.robots)[0];
+}
+
+function chatRelayParticipants(order: OrderDto) {
+  return {
+    ownNostrPublicKey: order.is_maker ? order.maker_nostr_pubkey : order.taker_nostr_pubkey,
+    peerNostrPublicKey: order.is_maker ? order.taker_nostr_pubkey : order.maker_nostr_pubkey
+  };
 }
 
 function getCurrentRobotNick(order: OrderDto): string {
