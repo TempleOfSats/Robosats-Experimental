@@ -46,6 +46,8 @@ export function ChatStagePanel({
   orderId,
   peerNick,
   peerHashId,
+  ownNostrPublicKey,
+  peerNostrPublicKey,
   previewMode = false,
   robot,
   shortAlias,
@@ -61,6 +63,8 @@ export function ChatStagePanel({
   orderId: number;
   peerNick: string;
   peerHashId?: string;
+  ownNostrPublicKey?: string;
+  peerNostrPublicKey?: string;
   previewMode?: boolean;
   robot?: RobotRecord;
   shortAlias?: string;
@@ -71,6 +75,12 @@ export function ChatStagePanel({
   const [imageFile, setImageFile] = useState<File>();
   const imageInputRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState("");
+  const deliveryLifetime = useRef<AbortController | undefined>(undefined);
+  useEffect(() => {
+    const controller = new AbortController();
+    deliveryLifetime.current = controller;
+    return () => controller.abort();
+  }, [baseUrl, orderId, slotToken]);
   const [messages, setMessages] = useState<DisplayChatMessage[]>(() =>
     previewMode ? previewChatMessages(myNick, peerNick) : []
   );
@@ -272,7 +282,8 @@ export function ChatStagePanel({
   );
 
   async function sendEncryptedPayload(text: string, signal?: AbortSignal) {
-    if (!canSend || !baseUrl || !stableAuth || !robotPrivateKey || !slotToken) {
+    signal ??= deliveryLifetime.current?.signal;
+    if (!canSend || !baseUrl || !robotPrivateKey || !slotToken) {
       throw new Error("Chat is not available for sending.");
     }
     const outgoingMessage =
@@ -285,6 +296,42 @@ export function ChatStagePanel({
             peerPublicKeyArmored: peerPubkeyRef.current
           });
     signal?.throwIfAborted();
+    const relayDelivery =
+      variant === "trade" && shortAlias && ownNostrPublicKey && peerNostrPublicKey
+        ? import("@/domains/chat/chatRelay")
+            .then(({ publishChatMessageToRelay }) =>
+              publishChatMessageToRelay({
+                content: text,
+                baseUrl,
+                shortAlias,
+                orderId,
+                token: slotToken,
+                ownPublicKey: ownNostrPublicKey,
+                peerPublicKey: peerNostrPublicKey,
+                signal
+              })
+            )
+            .then(
+              () => true,
+              () => false
+            )
+        : undefined;
+    try {
+      await sendCoordinatorPayload(outgoingMessage, signal);
+    } catch (sendError) {
+      if (!(await relayDelivery)) throw sendError;
+      signal?.throwIfAborted();
+      setError("Sent via encrypted relay. The coordinator history copy could not be saved.");
+      return;
+    }
+    if (relayDelivery && !(await relayDelivery)) {
+      signal?.throwIfAborted();
+      setError("Sent to the coordinator, but relay delivery failed. A peer using Nostr chat may not see it yet.");
+    }
+  }
+
+  async function sendCoordinatorPayload(outgoingMessage: string, signal?: AbortSignal) {
+    if (!baseUrl || !stableAuth) throw new Error("Chat is not available for sending.");
     const socket = socketRef.current;
     if (socket?.readyState === WebSocket.OPEN) {
       socket.send(

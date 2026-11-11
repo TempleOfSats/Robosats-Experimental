@@ -17,10 +17,12 @@ import * as clipboard from "@/lib/clipboard";
 const mocks = vi.hoisted(() => ({
   fetchChatMessages: vi.fn(),
   uploadChatImage: vi.fn(),
+  publishChatMessageToRelay: vi.fn(),
   socket: undefined as FakeSocket | undefined
 }));
 
 vi.mock("@/domains/chat/chatImages", () => ({ uploadChatImage: mocks.uploadChatImage }));
+vi.mock("@/domains/chat/chatRelay", () => ({ publishChatMessageToRelay: mocks.publishChatMessageToRelay }));
 vi.mock("@/domains/chat/prepareChatImage", () => ({ prepareChatImage: vi.fn(async (file: File) => file) }));
 
 vi.mock("@/domains/chat/chatApi", async () => ({
@@ -55,6 +57,7 @@ beforeEach(() => {
   document.body.innerHTML = '<div id="root"></div>';
   mocks.fetchChatMessages.mockReset();
   mocks.uploadChatImage.mockReset();
+  mocks.publishChatMessageToRelay.mockReset().mockResolvedValue(undefined);
   mocks.socket = undefined;
 });
 
@@ -67,6 +70,61 @@ afterEach(async () => {
 });
 
 describe("ChatStagePanel presence", () => {
+  it.each([true, false])(
+    "mirrors outgoing messages for Nostr peers and reports relay failure (%s)",
+    async (succeeds) => {
+      if (!succeeds) mocks.publishChatMessageToRelay.mockRejectedValue(new Error("Relay offline"));
+      mocks.fetchChatMessages.mockResolvedValue({ peerPubkey: "", messages: [] });
+      await renderPanel({ nostr: true });
+      const input = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message to your trade peer"]')!;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(input, "#synthetic command");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await act(async () =>
+        input.closest("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))
+      );
+      await vi.waitFor(() => expect(mocks.publishChatMessageToRelay).toHaveBeenCalledOnce());
+      expect(mocks.publishChatMessageToRelay).toHaveBeenCalledWith(
+        expect.objectContaining({
+          content: "#synthetic command",
+          shortAlias: "test",
+          orderId: 123,
+          ownPublicKey: "a".repeat(64),
+          peerPublicKey: "b".repeat(64)
+        })
+      );
+      expect(mocks.socket?.send).toHaveBeenCalledWith(expect.stringContaining("#synthetic command"));
+      await vi.waitFor(() => expect(input.value).toBe(""));
+      expect(document.body.textContent?.includes("relay delivery failed")).toBe(!succeeds);
+    }
+  );
+
+  it.each([true, false])(
+    "handles a legacy send failure without losing the draft unless relay delivery succeeds (%s)",
+    async (succeeds) => {
+      if (!succeeds) mocks.publishChatMessageToRelay.mockRejectedValue(new Error("Relay offline"));
+      mocks.fetchChatMessages.mockResolvedValue({ peerPubkey: "", messages: [] });
+      await renderPanel({ nostr: true });
+      mocks.socket!.send.mockImplementation(() => {
+        throw new Error("Legacy chat unavailable");
+      });
+      const input = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message to your trade peer"]')!;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(input, "#synthetic command");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await act(async () =>
+        input.closest("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))
+      );
+      await vi.waitFor(() => expect(mocks.publishChatMessageToRelay).toHaveBeenCalledOnce());
+      await vi.waitFor(() =>
+        expect(document.body.textContent).toContain(succeeds ? "Sent via encrypted relay" : "Legacy chat unavailable")
+      );
+      expect(input.value).toBe(succeeds ? "" : "#synthetic command");
+    }
+  );
+
   it("shows attachments without exposing their keys and sends their envelope through encrypted chat", async () => {
     const metadata = {
       type: "image",
@@ -391,9 +449,11 @@ describe("pre-chat reconciliation", () => {
 
 async function renderPanel({
   auth = { tokenSHA256: "token" },
+  nostr = false,
   variant = "trade"
 }: {
   auth?: Auth;
+  nostr?: boolean;
   variant?: "trade" | "pre-chat";
 } = {}): Promise<void> {
   root ??= createRoot(document.querySelector("#root")!);
@@ -410,6 +470,9 @@ async function renderPanel({
         peerHashId="peer"
         robot={{ encPrivKey: "private", pubKey: "public" } as never}
         slotToken="slot-token"
+        shortAlias="test"
+        ownNostrPublicKey={nostr ? "a".repeat(64) : undefined}
+        peerNostrPublicKey={nostr ? "b".repeat(64) : undefined}
         variant={variant}
       />
     );
