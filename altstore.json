@@ -17,6 +17,26 @@
       "versions": [
         {
           "version": "0.3.1",
+          "buildVersion": "3011007",
+          "date": "2026-11-11",
+          "localizedDescription": "v0.3.1-alpha.7 (prerelease)\n* [Android universal APK](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.3.1-alpha.7/robosats-exp-0.3.1-alpha.7-universal.apk)\n* [iOS unsigned IPA](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.3.1-alpha.7/robosats-exp-0.3.1-alpha.7-unsigned.ipa)\n* [Linux AppImage](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.3.1-alpha.7/RoboSats.Exp_0.3.1-alpha.7_amd64.AppImage)\n* [Windows installer](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.3.1-alpha.7/RoboSats.Exp_0.3.1-alpha.7_x64-setup.exe)\n* [macOS DMG](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.3.1-alpha.7/RoboSats.Exp_0.3.1-alpha.7_aarch64.dmg)\nDetached signatures and checksums are available in the release assets.\n<!-- Release notes generated using configuration in .github/release.yml at v0.3.1-alpha.7 -->\n* chore(deps): bump the cargo-minor-patch group across 4 directories with 7 updates by @dependabot[bot] in https://github.com/TempleOfSats/Robosats-Experimental/pull/63\n* chore(deps): bump the github-actions group across 1 directory with 11 updates by @dependabot[bot] in https://github.com/TempleOfSats/Robosats-Experimental/pull/50\n* chore(deps-dev): bump @types/node from 22.20.1 to 26.6.5 by @dependabot[bot] in https://github.com/TempleOfSats/Robosats-Experimental/pull/38\n* chore(deps): bump base64 from 0.22.1 to 0.23.1 in /android/robo-identities-native by @dependabot[bot] in https://github.com/TempleOfSats/Robosats-Experimental/pull/42\n* @dependabot[bot] made their first contribution in https://github.com/TempleOfSats/Robosats-Experimental/pull/63\n**Full Changelog**: https://github.com/TempleOfSats/Robosats-Experimental/compare/v0.3.1-alpha.6...v0.3.1-alpha.7",
+          "size": 6433382,
+          "minOSVersion": "16.0"
+        }
+      ]
+    },
+    {
+      "name": "RoboSats Exp.",
+      "bundleIdentifier": "com.robosats.exp.ios",
+      "developerName": "RoboSats",
+      "subtitle": "Peer-to-peer Bitcoin wallet",
+      "localizedDescription": "RoboSats is a peer-to-peer Bitcoin wallet with built-in Tor routing.\n\nFeatures:\n• Privacy-first P2P trading\n• Built-in Tor (Arti) for coordinator traffic\n• Encrypted trade chat via Nostr\n• Open source (AGPLv3)",
+      "iconURL": "https://raw.githubusercontent.com/TempleOfSats/Robosats-Experimental/main/ios/RoboSatsExp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
+      "tintColor": "FF6600",
+      "minOSVersion": "16.0",
+      "versions": [
+        {
+          "version": "0.3.1",
           "buildVersion": "3011006",
           "date": "2026-10-13",
           "localizedDescription": "v0.3.1-alpha.6 (prerelease)\n* [Android universal APK](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.3.1-alpha.6/robosats-exp-0.3.1-alpha.6-universal.apk)\n* [iOS unsigned IPA](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.3.1-alpha.6/robosats-exp-0.3.1-alpha.6-unsigned.ipa)\n* [Linux AppImage](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.3.1-alpha.6/RoboSats.Exp_0.3.1-alpha.6_amd64.AppImage)\n* [Windows installer](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.3.1-alpha.6/RoboSats.Exp_0.3.1-alpha.6_x64-setup.exe)\n* [macOS DMG](https://github.com/TempleOfSats/Robosats-Experimental/releases/download/v0.3.1-alpha.6/RoboSats.Exp_0.3.1-alpha.6_aarch64.dmg)\nDetached signatures and checksums are available in the release assets.\n<!-- Release notes generated using configuration in .github/release.yml at v0.3.1-alpha.6 -->\n**Full Changelog**: https://github.com/TempleOfSats/Robosats-Experimental/compare/v0.3.1-alpha.5...v0.3.1-alpha.6",
