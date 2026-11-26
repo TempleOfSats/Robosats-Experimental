@@ -1,4 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { readCleartextMessage, readKey, verify } from "openpgp/lightweight";
+import { generatePgpKeyPairOnCurrentThread } from "@/domains/crypto/pgpKeyGeneration";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import {
   compactPayload,
   fetchOrder,
@@ -14,6 +16,28 @@ const auth: Auth = {
   keys: { pubKey: "public-key", encPrivKey: "private-key" }
 };
 const order = { id: 123, status: 1 } as OrderDto;
+
+const coordinator = { url: "https://coordinator", shortAlias: "bazaar" };
+const token = "synthetic-passphrase-for-order-api-tests";
+let signing: { token: string; encPrivKey: string };
+let publicKeyArmored: string;
+
+beforeAll(async () => {
+  const keys = await generatePgpKeyPairOnCurrentThread(token);
+  signing = { token, encPrivKey: keys.encryptedPrivateKeyArmored };
+  publicKeyArmored = keys.publicKeyArmored;
+});
+
+async function expectSignedContent(armoredMessage: string, content: string) {
+  expect(armoredMessage).toMatch(/^-----BEGIN PGP SIGNED MESSAGE-----\nHash: SHA512\n\n/);
+  const message = await readCleartextMessage({ cleartextMessage: armoredMessage });
+  const { data, signatures } = await verify({
+    message,
+    verificationKeys: await readKey({ armoredKey: publicKeyArmored })
+  });
+  await expect(signatures[0].verified).resolves.toBe(true);
+  expect(data).toBe(content);
+}
 
 describe("orderApi", () => {
   it("fetches an order through the current endpoint", async () => {
@@ -41,20 +65,56 @@ describe("orderApi", () => {
     } satisfies ApiClient;
 
     await submitOrderAction(
-      "https://coordinator",
+      coordinator,
       123,
       { action: "update_invoice", invoice: "signed", routing_budget_ppm: 1000, address: undefined },
       auth,
+      signing,
       client
     );
 
     expect(client.post).toHaveBeenCalledWith(
       "https://coordinator",
       "/api/order/?order_id=123",
-      { action: "update_invoice", invoice: "signed", routing_budget_ppm: 1000 },
+      { action: "update_invoice", invoice: "signed", routing_budget_ppm: 1000, signature: expect.any(String) },
       { tokenSHA256: "robot-token" },
       { timeoutProfile: "action", priority: "action", source: "order-action" }
     );
+    await expectSignedContent(client.post.mock.calls[0][2].signature, "update_invoice:123:bazaar");
+  });
+
+  it("signs the action and dispute statement separately", async () => {
+    const post = vi.fn().mockResolvedValue(order);
+    const client = { get: vi.fn(), post, put: vi.fn(), delete: vi.fn() } satisfies ApiClient;
+    const statement = "Synthetic statement with Unicode Ω.\n\nSecond line.";
+
+    await submitOrderAction(coordinator, 123, { action: "submit_statement", statement }, auth, signing, client);
+
+    await expectSignedContent(post.mock.calls[0][2].signature, "submit_statement:123:bazaar");
+    await expectSignedContent(post.mock.calls[0][2].statement, statement);
+  });
+
+  it("does not send a protected write with missing or unusable signing credentials", async () => {
+    const client = { get: vi.fn(), post: vi.fn().mockResolvedValue(order), put: vi.fn(), delete: vi.fn() };
+    const payload = { action: "confirm" } as const;
+
+    await expect(submitOrderAction(coordinator, 123, payload, auth, undefined, client)).rejects.toThrow("Recover");
+    await expect(
+      submitOrderAction(coordinator, 123, payload, auth, { ...signing, token: "incorrect" }, client)
+    ).rejects.toThrow("Recover");
+    expect(client.post).not.toHaveBeenCalled();
+
+    await submitOrderAction(coordinator, 123, payload, auth, signing, client);
+    expect(client.post).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a dispute statement over the coordinator cleartext limit", async () => {
+    const client = { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() };
+
+    await expect(submitOrderAction(
+      coordinator, 123, { action: "submit_statement", statement: "a".repeat(50_001) }, auth, signing, client
+    )).rejects.toThrow("exceed 50,000 characters");
+    expect(client.post).not.toHaveBeenCalled();
   });
 
   it("normalizes action responses from the current endpoint", async () => {
@@ -65,7 +125,7 @@ describe("orderApi", () => {
       delete: vi.fn()
     } satisfies ApiClient;
 
-    await expect(submitOrderAction("https://coordinator", 123, { action: "confirm" }, auth, client)).resolves.toMatchObject({
+    await expect(submitOrderAction(coordinator, 123, { action: "confirm" }, auth, signing, client)).resolves.toMatchObject({
       id: 123,
       status: 14,
       invoice_amount: 2500,
@@ -80,7 +140,7 @@ describe("orderApi", () => {
       put: vi.fn(),
       delete: vi.fn()
     } satisfies ApiClient;
-    const response = await submitOrderAction("https://coordinator", 123, { action: "confirm" }, auth, client);
+    const response = await submitOrderAction(coordinator, 123, { action: "confirm" }, auth, signing, client);
     expect(isCompleteOrderActionResponse(response)).toBe(false);
   });
 
@@ -91,7 +151,7 @@ describe("orderApi", () => {
       put: vi.fn(),
       delete: vi.fn()
     } satisfies ApiClient;
-    const response = await submitOrderAction("https://coordinator", 123, { action: "confirm" }, auth, client);
+    const response = await submitOrderAction(coordinator, 123, { action: "confirm" }, auth, signing, client);
     expect(isCompleteOrderActionResponse(response)).toBe(false);
   });
 
@@ -116,7 +176,7 @@ describe("orderApi", () => {
       put: vi.fn(),
       delete: vi.fn()
     } satisfies ApiClient;
-    const response = await submitOrderAction("https://coordinator", 123, { action: "confirm" }, auth, client);
+    const response = await submitOrderAction(coordinator, 123, { action: "confirm" }, auth, signing, client);
     expect(isCompleteOrderActionResponse(response)).toBe(true);
   });
 

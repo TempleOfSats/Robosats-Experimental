@@ -1,7 +1,11 @@
 import { apiRoutes, type ApiRequestOptions, type Auth, type ApiClient } from "@/domains/transport/apiClient";
 import { apiClient } from "@/domains/transport/apiWebClient";
 import { normalizeOrderDto, type OrderApiResponse } from "@/domains/orders/orderModel";
+import { signRobotAction, type RobotSigningCredentials } from "@/domains/crypto/actionSignature";
+import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import type { OrderDto, SubmitOrderActionPayload } from "@/domains/orders/order.types";
+
+export const MAX_DISPUTE_STATEMENT_LENGTH = 50_000;
 
 const actionResponseCompleteness = new WeakMap<OrderDto, boolean>();
 
@@ -17,16 +21,22 @@ export async function fetchOrder(
 }
 
 export async function submitOrderAction(
-  baseUrl: string,
+  coordinator: Pick<CoordinatorSummary, "url" | "shortAlias">,
   orderId: number,
   payload: SubmitOrderActionPayload,
   auth: Auth,
+  signing: RobotSigningCredentials | undefined,
   client: ApiClient = apiClient
 ): Promise<OrderDto> {
+  const body = compactPayload(payload);
+  if (payload.action === "submit_statement") {
+    body.statement = await signDisputeStatement(payload.statement, signing);
+  }
+  const signature = await signRobotAction(`${payload.action}:${orderId}:${coordinator.shortAlias}`, signing);
   const data = await client.post<OrderApiResponse>(
-    baseUrl,
+    coordinator.url,
     apiRoutes.order(orderId),
-    compactPayload(payload),
+    { ...body, signature },
     { tokenSHA256: auth.tokenSHA256 },
     { timeoutProfile: "action", priority: "action", source: "order-action" }
   );
@@ -43,6 +53,20 @@ export function compactPayload(payload: SubmitOrderActionPayload): SubmitOrderAc
   return Object.fromEntries(
     Object.entries(payload).filter(([, value]) => value !== undefined)
   ) as SubmitOrderActionPayload;
+}
+
+async function signDisputeStatement(
+  statement: string | undefined,
+  signing: RobotSigningCredentials | undefined
+): Promise<string> {
+  const text = statement?.trim();
+  if (!text) throw new Error("Enter a dispute statement before submitting.");
+  if (Array.from(text).length > MAX_DISPUTE_STATEMENT_LENGTH) {
+    throw new Error(
+      "The statement and attached logs exceed 50,000 characters. Shorten it or submit without chat logs."
+    );
+  }
+  return signRobotAction(text, signing);
 }
 
 function hasCompleteActionSnapshot(data: OrderApiResponse): boolean {

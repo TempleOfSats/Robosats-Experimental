@@ -7,6 +7,7 @@ import {
   type RefreshRobotCoordinatorResult,
   type RefreshRobotSlotResult
 } from "@/domains/garage/robotRefreshEvents";
+import type { RobotSigningCredentials } from "@/domains/crypto/actionSignature";
 import type { Auth, RequestPriority, RequestSource } from "@/domains/transport/apiClient";
 import { isNativeApp } from "@/domains/transport/androidBridge";
 import { systemClient } from "@/domains/transport/systemClient";
@@ -552,9 +553,20 @@ export function selectFleetManagedSlots(slots: RobotSlot[]): RobotSlot[] {
   return slots.filter((slot) => slot.managedBy === "fleet");
 }
 
+export function getRobotForCoordinator(slot: RobotSlot | undefined, shortAlias: string): RobotRecord | undefined {
+  return slot?.robots[shortAlias] ?? (slot && Object.values(slot.robots)[0]);
+}
+
+export function getRobotSigningCredentials(
+  slot: RobotSlot | undefined,
+  shortAlias: string
+): RobotSigningCredentials | undefined {
+  return slot && { token: slot.token, encPrivKey: getRobotForCoordinator(slot, shortAlias)?.encPrivKey };
+}
+
 export function getRobotAuthForCoordinator(slot: RobotSlot | undefined, shortAlias: string): Auth | undefined {
   if (!slot) return undefined;
-  const robot = slot.robots[shortAlias] ?? Object.values(slot.robots)[0];
+  const robot = getRobotForCoordinator(slot, shortAlias);
   const tokenSHA256 = robot?.tokenSHA256 ?? slot.tokenSHA256;
   if (!tokenSHA256) return undefined;
 

@@ -33,7 +33,7 @@ import { federationLottery } from "@/domains/coordinators/federationLottery";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
 import { toUserMessage } from "@/lib/userError";
 import { playHaptic } from "@/lib/haptics";
-import { getRobotAuthForCoordinator, selectCurrentSlot, selectStandardGarageSlots, useGarageStore } from "@/domains/garage/garageStore";
+import { getRobotAuthForCoordinator, getRobotSigningCredentials, selectCurrentSlot, selectStandardGarageSlots, useGarageStore } from "@/domains/garage/garageStore";
 import { getRobotOrderAvailability } from "@/domains/garage/robotAvailability";
 import { RobotRequiredActions } from "@/domains/garage/RobotRequiredActions";
 import {
@@ -397,7 +397,8 @@ export function CreateOrderPage() {
       });
       const actionAuth = getRobotAuthForCoordinator(actionSlot, selectedAlias);
       if (!actionAuth) throw new Error("This robot has no credentials for the selected coordinator.");
-      const response = await createOrder(selectedCoordinator.url, payload, actionAuth);
+      const signing = getRobotSigningCredentials(actionSlot, selectedAlias);
+      const response = await createOrder(selectedCoordinator.url, payload, actionAuth, signing);
       const backendError = response.bad_request ?? response.bad_amount ?? response.bad_payment_method ?? response.bad_password;
       if (backendError) {
         playHaptic("reject");

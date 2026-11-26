@@ -32,7 +32,7 @@ export async function signCleartextMessage(
   privateKeyArmored: string,
   passphrase: string
 ): Promise<string> {
-  const { createCleartextMessage, decryptKey, readPrivateKey, sign } = await import("openpgp/lightweight");
+  const { createCleartextMessage, decryptKey, enums, readPrivateKey, sign } = await import("openpgp/lightweight");
   const privateKey = await decryptKey({
     privateKey: await readPrivateKey({ armoredKey: privateKeyArmored }),
     passphrase
@@ -41,7 +41,8 @@ export async function signCleartextMessage(
   return String(
     await sign({
       message: unsignedMessage,
-      signingKeys: privateKey
+      signingKeys: privateKey,
+      config: { preferredHashAlgorithm: enums.hash.sha512 }
     })
   );
 }

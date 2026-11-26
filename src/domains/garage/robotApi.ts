@@ -1,3 +1,4 @@
+import { signRobotAction, timedActionContent, type RobotSigningCredentials } from "@/domains/crypto/actionSignature";
 import { apiRoutes, type ApiClient, type ApiRequestOptions, type Auth } from "@/domains/transport/apiClient";
 import { apiClient } from "@/domains/transport/apiWebClient";
 
@@ -85,13 +86,15 @@ export async function updateRobotWebhook(
   baseUrl: string,
   payload: UpdateRobotWebhookPayload,
   auth: Auth,
+  signing: RobotSigningCredentials | undefined,
   client: ApiClient = apiClient
 ): Promise<UpdateRobotWebhookResult> {
+  const signature = await signRobotAction(timedActionContent("robot"), signing);
   const data = await client.put<UpdateRobotWebhookApiResponse>(
     baseUrl,
     apiRoutes.robot,
-    compactWebhookPayload(payload),
-    auth,
+    { ...compactWebhookPayload(payload), signature },
+    { tokenSHA256: auth.tokenSHA256 },
     { timeoutProfile: "action", priority: "action", source: "order-action" }
   );
   return {
@@ -105,13 +108,15 @@ export async function updateStealthInvoices(
   baseUrl: string,
   wantsStealth: boolean,
   auth: Auth,
+  signing: RobotSigningCredentials | undefined,
   client: ApiClient = apiClient
 ): Promise<boolean> {
+  const signature = await signRobotAction(timedActionContent("stealth"), signing);
   const data = await client.post<{ wantsStealth?: unknown }>(
     baseUrl,
     apiRoutes.stealth,
-    { wantsStealth },
-    auth,
+    { wantsStealth, signature },
+    { tokenSHA256: auth.tokenSHA256 },
     { timeoutProfile: "action", priority: "action", source: "order-action" }
   );
   return toBoolean(data.wantsStealth);

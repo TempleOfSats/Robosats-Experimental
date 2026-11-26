@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { toUserMessage } from "@/lib/userError";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
-import { getRobotAuthForCoordinator, type RobotSlot, useGarageStore } from "@/domains/garage/garageStore";
+import { getRobotAuthForCoordinator, getRobotSigningCredentials, type RobotSlot, useGarageStore } from "@/domains/garage/garageStore";
 import {
   ingestCoordinatorOrder,
   publishCoordinatorOrderActionActivity
@@ -174,7 +174,8 @@ export const useOrderStore = create<OrderState>((set, get) => ({
       publishCoordinatorOrderActionActivity({ ...actionLocator, phase: "start" });
     }
     try {
-      const responseOrder = await submitOrderAction(coordinator.url, orderId, payload, auth);
+      const signing = getRobotSigningCredentials(slot, coordinator.shortAlias);
+      const responseOrder = await submitOrderAction(coordinator, orderId, payload, auth, signing);
       const order = {
         ...responseOrder,
         id: orderId,

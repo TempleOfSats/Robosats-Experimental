@@ -193,6 +193,12 @@ npm run check:desktop
 not emitted. Use `VITE_ROBOSATS_API_BASE_URL` when local development needs a
 separate coordinator backend.
 
+When adding a custom coordinator that enforces signed actions, use its
+federation short alias in the Alias field. For a coordinator outside the
+federation, use its configured `COORDINATOR_ALIAS` in lowercase with spaces
+removed (for example, `Local Dev` becomes `localdev`). The coordinator verifies
+this alias as part of each order action signature.
+
 ## Design
 
 The active semantic color and accessibility rules are documented in

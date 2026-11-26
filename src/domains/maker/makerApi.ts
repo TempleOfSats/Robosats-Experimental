@@ -1,4 +1,5 @@
 import { sha256 } from "js-sha256";
+import { signRobotAction, timedActionContent, type RobotSigningCredentials } from "@/domains/crypto/actionSignature";
 import { apiRoutes, type ApiClient, type Auth } from "@/domains/transport/apiClient";
 import { apiClient } from "@/domains/transport/apiWebClient";
 import {
@@ -23,9 +24,13 @@ export async function createOrder(
   baseUrl: string,
   payload: CreateOrderPayload,
   auth: Auth,
+  signing: RobotSigningCredentials | undefined,
   client: ApiClient = apiClient
 ): Promise<CreateOrderResponse> {
-  return client.post<CreateOrderResponse>(baseUrl, apiRoutes.make, payload, auth, { timeoutProfile: "action" });
+  const signature = await signRobotAction(timedActionContent("make"), signing);
+  return client.post<CreateOrderResponse>(baseUrl, apiRoutes.make, { ...payload, signature }, auth, {
+    timeoutProfile: "action"
+  });
 }
 
 export function buildProvisionalMakerOrder(

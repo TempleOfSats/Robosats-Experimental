@@ -18,12 +18,15 @@ import { useFederationStore } from "@/domains/coordinators/federationStore";
 import type { CoordinatorContact, CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import {
   getRobotAuthForCoordinator,
+  getRobotForCoordinator,
+  getRobotSigningCredentials,
   selectCurrentSlot,
   selectStandardGarageSlots,
   type RobotRecord,
   type RobotSlot,
   useGarageStore
 } from "@/domains/garage/garageStore";
+import { MAX_DISPUTE_STATEMENT_LENGTH } from "@/domains/orders/orderApi";
 import { ChatStagePanel, PreChatDisclosure } from "@/domains/chat/ChatStagePanel";
 import { Dialog } from "@/components/ui/dialog";
 import { shouldOfferPreChat } from "@/domains/chat/preChat";
@@ -97,7 +100,6 @@ const LazyRewardWithdrawalDialog = lazy(() =>
   import("@/domains/rewards/RewardWithdrawalDialog").then((module) => ({ default: module.RewardWithdrawalDialog }))
 );
 const TRADE_LAB_ENABLED = import.meta.env.DEV || import.meta.env.VITE_ENABLE_TRADE_LAB === "true";
-const MAX_DISPUTE_STATEMENT_LENGTH = 500_000;
 const COORDINATOR_DISCOVERY_TIMEOUT_MS = 15_000;
 
 export function OrderPage({
@@ -152,7 +154,7 @@ export function OrderPage({
   const independentInitialLoadKeyRef = useRef<string | undefined>(undefined);
   const previousLoadIdentityKey = useRef<string | undefined>(undefined);
   const coordinatorAuth = coordinator ? getRobotAuthForCoordinator(currentSlot, coordinator.shortAlias) : undefined;
-  const signingRobot = getSigningRobot(currentSlot, shortAlias);
+  const signingRobot = getRobotForCoordinator(currentSlot, shortAlias);
   const previousStatus = useRef<number | undefined>(undefined);
   const previousWasTaker = useRef(false);
   const previewScenario = TRADE_LAB_ENABLED ? searchParams.get("tradePreview") : null;
@@ -424,7 +426,8 @@ export function OrderPage({
               const renewalPayload = buildRenewOrderPayload(order, password);
               const renewalValidationError = validateCreateOrderPayload(renewalPayload)[0];
               if (renewalValidationError) throw new Error(renewalValidationError);
-              const response = await createOrder(coordinator.url, renewalPayload, coordinatorAuth);
+              const signing = getRobotSigningCredentials(currentSlot, coordinator.shortAlias);
+              const response = await createOrder(coordinator.url, renewalPayload, coordinatorAuth, signing);
               const backendError =
                 response.bad_request ?? response.bad_amount ?? response.bad_payment_method ?? response.bad_password;
               if (backendError) throw new Error(backendError);
@@ -455,7 +458,13 @@ export function OrderPage({
                 ? undefined
                 : async (rating) => {
                     const identity = deriveRobotIdentity(currentSlot.token);
-                    const review = await requestReviewToken(coordinator.url, identity.nostrPubKey, coordinatorAuth);
+                    const signing = getRobotSigningCredentials(currentSlot, coordinator.shortAlias);
+                    const review = await requestReviewToken(
+                      coordinator.url,
+                      identity.nostrPubKey,
+                      coordinatorAuth,
+                      signing
+                    );
                     if (!review.token) throw new Error("Coordinator did not issue a review token.");
                     await publishCoordinatorRating({
                       coordinator,
@@ -1978,11 +1987,6 @@ function PayoutSubmissionCard({
   );
 }
 
-function getSigningRobot(slot: RobotSlot | undefined, shortAlias: string): RobotRecord | undefined {
-  if (!slot) return undefined;
-  return slot.robots[shortAlias] ?? Object.values(slot.robots)[0];
-}
-
 function chatRelayParticipants(order: OrderDto) {
   return {
     ownNostrPublicKey: order.is_maker ? order.maker_nostr_pubkey : order.taker_nostr_pubkey,
@@ -2072,9 +2076,9 @@ function DisputeStatementCard({
         const messages = await loadDisputeMessages();
         submittedStatement = JSON.stringify({ statement: submittedStatement, messages }, null, 2);
       }
-      if (submittedStatement.length > MAX_DISPUTE_STATEMENT_LENGTH) {
+      if (Array.from(submittedStatement).length > MAX_DISPUTE_STATEMENT_LENGTH) {
         setLocalError(
-          "The statement and attached logs exceed 500,000 characters. Shorten the statement or submit without chat logs."
+          "The statement and attached logs exceed 50,000 characters. Shorten the statement or submit without chat logs."
         );
         return;
       }

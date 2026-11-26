@@ -36,6 +36,7 @@ import { activePublicOrders, filterPublicOrders } from "@/domains/orderbook/orde
 import { buildTakeOfferPayload, defaultTakeAmount, validateTakeOffer } from "@/domains/orderbook/takeOffer";
 import {
   getRobotAuthForCoordinator,
+  getRobotSigningCredentials,
   selectCurrentSlot,
   selectStandardGarageSlots,
   useGarageStore,
@@ -582,7 +583,8 @@ export function OffersPage() {
       const actionAuth = getRobotAuthForCoordinator(actionSlot, selectedCoordinator.shortAlias);
       if (!actionAuth) throw new Error("This robot is missing coordinator credentials.");
       const payload = buildTakeOfferPayload(selectedOrder, takeAmount, offerPassword);
-      const order = await submitOrderAction(selectedCoordinator.url, selectedOrder.id, payload, actionAuth);
+      const signing = getRobotSigningCredentials(actionSlot, selectedCoordinator.shortAlias);
+      const order = await submitOrderAction(selectedCoordinator, selectedOrder.id, payload, actionAuth, signing);
       if (order.bad_request) {
         playHaptic("reject");
         setPrivateOrder(order);

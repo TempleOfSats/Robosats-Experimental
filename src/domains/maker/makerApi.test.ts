@@ -31,6 +31,12 @@ const draft: CreateOrderDraft = {
   description: "  fast trade  "
 };
 
+vi.mock("@/domains/crypto/pgp", () => ({
+  signCleartextMessage: vi.fn(async (content: string) => `signed:${content}`)
+}));
+
+const signing = { token: "test-passphrase", encPrivKey: "test-private-key" };
+
 describe("makerApi", () => {
   it("builds the current /api/make/ payload shape", () => {
     expect(buildCreateOrderPayload(draft)).toEqual({
@@ -224,6 +230,7 @@ describe("makerApi", () => {
 
   it("posts to the current make endpoint", async () => {
     const auth: Auth = { tokenSHA256: "robot" };
+    vi.spyOn(Date, "now").mockReturnValueOnce(1712345678999);
     const payload = buildCreateOrderPayload(draft);
     const client = {
       get: vi.fn(),
@@ -232,8 +239,8 @@ describe("makerApi", () => {
       delete: vi.fn()
     } satisfies ApiClient;
 
-    await expect(createOrder("https://coordinator", payload, auth, client)).resolves.toEqual({ id: 77 });
-    expect(client.post).toHaveBeenCalledWith("https://coordinator", "/api/make/", payload, auth, {
+    await expect(createOrder("https://coordinator", payload, auth, signing, client)).resolves.toEqual({ id: 77 });
+    expect(client.post).toHaveBeenCalledWith("https://coordinator", "/api/make/", { ...payload, signature: "signed:make:1712345678" }, auth, {
       timeoutProfile: "action"
     });
   });

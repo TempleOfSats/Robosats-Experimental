@@ -27,7 +27,12 @@ import { useFederationStore } from "@/domains/coordinators/federationStore";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import { compareCoordinatorsByEstablished } from "@/domains/coordinators/coordinatorOrder";
 import { deriveRobotIdentity } from "@/domains/identity/robotIdentity";
-import { getRobotAuthForCoordinator, type RobotSlot, useGarageStore } from "@/domains/garage/garageStore";
+import {
+  getRobotAuthForCoordinator,
+  getRobotSigningCredentials,
+  type RobotSlot,
+  useGarageStore
+} from "@/domains/garage/garageStore";
 import { downloadRobotTokenBackup } from "@/domains/garage/tokenBackup";
 import type { CreateOrderDraft } from "@/domains/maker/maker.types";
 import { currencyIdFromCode } from "@/domains/orderbook/currencies";
@@ -530,13 +535,15 @@ export function ProWorkspacePage() {
     markProOrderActionStarted(snapshot.locator);
     playHaptic("commit");
     try {
+      const signing = getRobotSigningCredentials(slot, coordinator.shortAlias);
       const order = await submitOrderAction(
-        coordinator.url,
+        coordinator,
         snapshot.locator.orderId,
         action === "pause" || action === "resume"
           ? { action: "pause" }
           : { action: "cancel", cancel_status: snapshot.order?.status },
-        auth
+        auth,
+        signing
       );
       const audio = tradeAudioEventForOrderTransition(snapshot.order?.status, order.status);
       ingestCoordinatorOrder({

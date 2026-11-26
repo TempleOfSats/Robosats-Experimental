@@ -1,3 +1,4 @@
+import { signRobotAction, type RobotSigningCredentials } from "@/domains/crypto/actionSignature";
 import { apiRoutes, type ApiClient, type Auth } from "@/domains/transport/apiClient";
 import { apiClient } from "@/domains/transport/apiWebClient";
 
@@ -15,9 +16,18 @@ export async function requestReviewToken(
   baseUrl: string,
   pubkey: string,
   auth: Auth,
+  signing: RobotSigningCredentials | undefined,
   client: ApiClient = apiClient
 ): Promise<ReviewToken> {
-  const data = await client.post<ReviewTokenApiResponse>(baseUrl, apiRoutes.review, { pubkey }, auth);
+  const signature = await signRobotAction(`review:${pubkey}`, signing);
+  const data = await client.post<ReviewTokenApiResponse>(
+    baseUrl,
+    apiRoutes.review,
+    { pubkey, signature },
+    {
+      tokenSHA256: auth.tokenSHA256
+    }
+  );
   return {
     pubkey: toStringValue(data.pubkey),
     token: toStringValue(data.token)

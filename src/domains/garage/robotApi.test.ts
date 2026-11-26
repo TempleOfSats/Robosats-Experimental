@@ -2,6 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import { fetchRobot, normalizeRobotResponse, updateRobotWebhook, updateStealthInvoices } from "@/domains/garage/robotApi";
 import type { ApiClient, Auth } from "@/domains/transport/apiClient";
 
+vi.mock("@/domains/crypto/pgp", () => ({
+  signCleartextMessage: vi.fn(async (content: string) => `signed:${content}`)
+}));
+
+const signing = { token: "test-passphrase", encPrivKey: "test-private-key" };
+
 describe("robotApi", () => {
   it("normalizes current /api/robot/ responses", () => {
     expect(
@@ -67,6 +73,7 @@ describe("robotApi", () => {
   });
 
   it("updates webhook settings through the current robot endpoint", async () => {
+    vi.spyOn(Date, "now").mockReturnValueOnce(1712345678999);
     const auth: Auth = { tokenSHA256: "robot" };
     const client = {
       get: vi.fn(),
@@ -84,6 +91,7 @@ describe("robotApi", () => {
         "https://coordinator",
         { webhook_url: "http://hook.onion/callback", webhook_enabled: true, webhook_api_key: "secret" },
         auth,
+        signing,
         client
       )
     ).resolves.toEqual({
@@ -95,13 +103,14 @@ describe("robotApi", () => {
     expect(client.put).toHaveBeenCalledWith(
       "https://coordinator",
       "/api/robot/",
-      { webhook_url: "http://hook.onion/callback", webhook_enabled: true, webhook_api_key: "secret" },
+      { webhook_url: "http://hook.onion/callback", webhook_enabled: true, webhook_api_key: "secret", signature: "signed:robot:1712345678" },
       auth,
       { timeoutProfile: "action", priority: "action", source: "order-action" }
     );
   });
 
   it("updates stealth invoice preference through the current stealth endpoint", async () => {
+    vi.spyOn(Date, "now").mockReturnValueOnce(1712345678999);
     const auth: Auth = { tokenSHA256: "robot" };
     const client = {
       get: vi.fn(),
@@ -110,8 +119,8 @@ describe("robotApi", () => {
       delete: vi.fn()
     } satisfies ApiClient;
 
-    await expect(updateStealthInvoices("https://coordinator", false, auth, client)).resolves.toBe(false);
-    expect(client.post).toHaveBeenCalledWith("https://coordinator", "/api/stealth/", { wantsStealth: false }, auth, {
+    await expect(updateStealthInvoices("https://coordinator", false, auth, signing, client)).resolves.toBe(false);
+    expect(client.post).toHaveBeenCalledWith("https://coordinator", "/api/stealth/", { wantsStealth: false, signature: "signed:stealth:1712345678" }, auth, {
       timeoutProfile: "action",
       priority: "action",
       source: "order-action"
