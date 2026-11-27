@@ -376,13 +376,14 @@ describe("order load outcomes", () => {
   it("keeps action errors separate from load failures", async () => {
     submitOrderActionMock.mockRejectedValue(new Error("The action was rejected."));
 
-    await useOrderStore.getState().submitAction({
+    const applied = await useOrderStore.getState().submitAction({
       coordinator,
       orderId: 123,
       slot,
       payload: { action: "pause" }
     });
 
+    expect(applied).toBe(false);
     expect(useOrderStore.getState()).toMatchObject({
       actionError: "The action was rejected.",
       loadFailure: undefined
@@ -402,13 +403,14 @@ describe("order load outcomes", () => {
     );
     fetchOrderMock.mockResolvedValue({ id: 123, status: 7, is_buyer: true, is_maker: true });
 
-    await useOrderStore.getState().submitAction({
+    const applied = await useOrderStore.getState().submitAction({
       coordinator,
       orderId: 123,
       slot,
       payload: { action: "update_invoice", invoice: "signed" }
     });
 
+    expect(applied).toBe(true);
     expect(fetchOrderMock).toHaveBeenCalledWith(
       coordinator.url,
       123,

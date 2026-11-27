@@ -20,6 +20,7 @@ import {
   getRobotAuthForCoordinator,
   getRobotForCoordinator,
   getRobotSigningCredentials,
+  recoverRobotForSigning,
   selectCurrentSlot,
   selectStandardGarageSlots,
   type RobotRecord,
@@ -30,7 +31,6 @@ import { MAX_DISPUTE_STATEMENT_LENGTH } from "@/domains/orders/orderApi";
 import { ChatStagePanel, PreChatDisclosure } from "@/domains/chat/ChatStagePanel";
 import { Dialog } from "@/components/ui/dialog";
 import { shouldOfferPreChat } from "@/domains/chat/preChat";
-import { signCleartextMessage } from "@/domains/crypto/pgp";
 import {
   getTradeActionCommands,
   shouldLeaveTradeAfterAction,
@@ -426,8 +426,10 @@ export function OrderPage({
               const renewalPayload = buildRenewOrderPayload(order, password);
               const renewalValidationError = validateCreateOrderPayload(renewalPayload)[0];
               if (renewalValidationError) throw new Error(renewalValidationError);
-              const signing = getRobotSigningCredentials(currentSlot, coordinator.shortAlias);
-              const response = await createOrder(coordinator.url, renewalPayload, coordinatorAuth, signing);
+              const actionSlot = await recoverRobotForSigning(currentSlot, coordinator);
+              const signing = getRobotSigningCredentials(actionSlot, coordinator.shortAlias);
+              const auth = getRobotAuthForCoordinator(actionSlot, coordinator.shortAlias) ?? coordinatorAuth;
+              const response = await createOrder(coordinator, renewalPayload, auth, signing);
               const backendError =
                 response.bad_request ?? response.bad_amount ?? response.bad_payment_method ?? response.bad_password;
               if (backendError) throw new Error(backendError);
@@ -458,13 +460,10 @@ export function OrderPage({
                 ? undefined
                 : async (rating) => {
                     const identity = deriveRobotIdentity(currentSlot.token);
-                    const signing = getRobotSigningCredentials(currentSlot, coordinator.shortAlias);
-                    const review = await requestReviewToken(
-                      coordinator.url,
-                      identity.nostrPubKey,
-                      coordinatorAuth,
-                      signing
-                    );
+                    const actionSlot = await recoverRobotForSigning(currentSlot, coordinator);
+                    const signing = getRobotSigningCredentials(actionSlot, coordinator.shortAlias);
+                    const auth = getRobotAuthForCoordinator(actionSlot, coordinator.shortAlias) ?? coordinatorAuth;
+                    const review = await requestReviewToken(coordinator.url, identity.nostrPubKey, auth, signing);
                     if (!review.token) throw new Error("Coordinator did not issue a review token.");
                     await publishCoordinatorRating({
                       coordinator,
@@ -503,17 +502,18 @@ export function OrderPage({
               }
               return undefined;
             }}
-            onSubmitPayout={async (payload, clearInvoice) => {
+            onSubmitPayout={async (payload) => {
               if (previewOrder) {
                 setPreviewNotice(`${previewActionLabel(payload.action)} simulated locally. No request was sent.`);
                 return;
               }
               if (!coordinator || !currentSlot) return;
-              await submitAction({ coordinator, orderId: order.id, slot: currentSlot, payload });
+              const applied = await submitAction({ coordinator, orderId: order.id, slot: currentSlot, payload });
               const result = useOrderStore.getState();
               if (
+                applied &&
                 payload.action === "update_invoice" &&
-                clearInvoice &&
+                payload.invoice &&
                 !result.actionError &&
                 !result.order?.bad_invoice
               ) {
@@ -522,7 +522,7 @@ export function OrderPage({
                   shortAlias: coordinator.shortAlias,
                   orderId: order.id,
                   purpose: "payout-received",
-                  value: clearInvoice
+                  value: payload.invoice
                 });
               }
             }}
@@ -788,7 +788,7 @@ function ContractPanel({
   onStartAgain: () => void;
   onSubmitAction: (payload: SubmitOrderActionPayload) => Promise<void>;
   onSubmitCommand: (action: TradeActionCommand) => Promise<string | undefined>;
-  onSubmitPayout: (payload: SubmitOrderActionPayload, clearInvoice?: string) => Promise<void>;
+  onSubmitPayout: (payload: SubmitOrderActionPayload) => Promise<void>;
 }) {
   const isInvoicePaymentStep = view.requiredAction === "pay_bond" || view.requiredAction === "pay_escrow";
   const isChatStep = view.panel === "chat";
@@ -1257,7 +1257,7 @@ function TradePaymentPanel({
   onStartAgain: () => void;
   onPublishRating?: (rating: number) => Promise<void>;
   onSubmitAction: (payload: SubmitOrderActionPayload) => Promise<void>;
-  onSubmitPayout: (payload: SubmitOrderActionPayload, clearInvoice?: string) => Promise<void>;
+  onSubmitPayout: (payload: SubmitOrderActionPayload) => Promise<void>;
 }) {
   const view = getTradeViewState(order);
   const trustKey = `robosats_trusted_coordinator_${order.shortAlias || "unknown"}`;
@@ -1413,8 +1413,6 @@ function TradePaymentPanel({
         order={order}
         previewMode={previewMode}
         retryInvoice={view.requiredAction === "retry_invoice"}
-        signingRobot={signingRobot}
-        slotToken={slotToken}
         onSubmit={onSubmitPayout}
       />
     );
@@ -1623,8 +1621,6 @@ function PayoutSubmissionCard({
   order,
   previewMode,
   retryInvoice,
-  signingRobot,
-  slotToken,
   onSubmit
 }: {
   canSubmit: boolean;
@@ -1633,9 +1629,7 @@ function PayoutSubmissionCard({
   order: OrderDto;
   previewMode: boolean;
   retryInvoice: boolean;
-  signingRobot?: RobotRecord;
-  slotToken?: string;
-  onSubmit: (payload: SubmitOrderActionPayload, clearInvoice?: string) => Promise<void>;
+  onSubmit: (payload: SubmitOrderActionPayload) => Promise<void>;
 }) {
   const [mode, setMode] = useState<PayoutMode>("lightning");
   const [invoice, setInvoice] = useState("");
@@ -1649,7 +1643,6 @@ function PayoutSubmissionCard({
   const [lnProxyServerIndex, setLnProxyServerIndex] = useState(0);
   const [wrappingProxy, setWrappingProxy] = useState(false);
   const [miningFeeRate, setMiningFeeRate] = useState(String(Math.max(2, order.suggested_mining_fee_rate || 2)));
-  const [signing, setSigning] = useState(false);
   const [localError, setLocalError] = useState("");
 
   useEffect(() => {
@@ -1669,52 +1662,11 @@ function PayoutSubmissionCard({
       return;
     }
 
-    if (previewMode) {
-      await onSubmit(
-        payoutMode === "lightning"
-          ? { action: "update_invoice", invoice: rawValue, routing_budget_ppm: effectiveRoutingPpm }
-          : { action: "update_address", address: rawValue, mining_fee_rate: Number(miningFeeRate) || 2 },
-        payoutMode === "lightning" ? rawValue : undefined
-      );
-      return;
-    }
-
-    const encPrivKey = signingRobot?.encPrivKey;
-    if (!slotToken || !encPrivKey) {
-      setLocalError("This robot is missing local encryption keys. Refresh it from Garage first.");
-      return;
-    }
-
-    setSigning(true);
-    let signedValue = "";
-    try {
-      signedValue = await signCleartextMessage(rawValue, encPrivKey, slotToken);
-    } catch {
-      setLocalError("Could not sign the payout method with this robot key.");
-      setSigning(false);
-      return;
-    }
-
-    try {
-      if (payoutMode === "lightning") {
-        await onSubmit(
-          {
-            action: "update_invoice",
-            invoice: signedValue,
-            routing_budget_ppm: effectiveRoutingPpm
-          },
-          rawValue
-        );
-      } else {
-        await onSubmit({
-          action: "update_address",
-          address: signedValue,
-          mining_fee_rate: Number(miningFeeRate) || 2
-        });
-      }
-    } finally {
-      setSigning(false);
-    }
+    await onSubmit(
+      payoutMode === "lightning"
+        ? { action: "update_invoice", invoice: rawValue, routing_budget_ppm: effectiveRoutingPpm }
+        : { action: "update_address", address: rawValue, mining_fee_rate: Number(miningFeeRate) || 2 }
+    );
   }
 
   const payoutMode = retryInvoice ? "lightning" : mode;
@@ -1732,7 +1684,7 @@ function PayoutSubmissionCard({
   const onchainBreakdown = onchainPayoutBreakdown(order.invoice_amount, order.swap_fee_rate, parsedMiningFeeRate);
   const invalidMiningFee =
     !Number.isFinite(parsedMiningFeeRate) || parsedMiningFeeRate < 2 || parsedMiningFeeRate > 500;
-  const footerDisabled = [loading, signing, wrappingProxy].some(Boolean);
+  const footerDisabled = loading || wrappingProxy;
 
   return (
     <Card className="payout-entry-card">
@@ -1974,7 +1926,7 @@ function PayoutSubmissionCard({
                 ? normalizeLightningInvoice(invoice).length < 20
                 : invalidMiningFee || !address.trim()
             }
-            loading={loading || signing}
+            loading={loading}
             type="submit"
           >
             {payoutMode === "lightning" ? <Zap size={16} /> : <Link2 size={16} />}

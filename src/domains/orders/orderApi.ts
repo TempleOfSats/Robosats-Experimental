@@ -31,6 +31,10 @@ export async function submitOrderAction(
   const body = compactPayload(payload);
   if (payload.action === "submit_statement") {
     body.statement = await signDisputeStatement(payload.statement, signing);
+  } else if (payload.action === "update_invoice" && body.invoice) {
+    body.invoice = await signRobotAction(body.invoice, signing);
+  } else if (payload.action === "update_address" && body.address) {
+    body.address = await signRobotAction(body.address, signing);
   }
   const signature = await signRobotAction(`${payload.action}:${orderId}:${coordinator.shortAlias}`, signing);
   const data = await client.post<OrderApiResponse>(

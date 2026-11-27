@@ -37,6 +37,7 @@ import { buildTakeOfferPayload, defaultTakeAmount, validateTakeOffer } from "@/d
 import {
   getRobotAuthForCoordinator,
   getRobotSigningCredentials,
+  recoverRobotForSigning,
   selectCurrentSlot,
   selectStandardGarageSlots,
   useGarageStore,
@@ -575,13 +576,14 @@ export function OffersPage() {
     playHaptic("commit");
     preloadOrderRoute();
     try {
-      const actionSlot = await revalidateRobotForNewOrder({
+      const availableSlot = await revalidateRobotForNewOrder({
         coordinator: selectedCoordinator,
         proEnabled,
         slotId: takeSlot.tokenSHA256
       });
+      const actionSlot = await recoverRobotForSigning(availableSlot, selectedCoordinator);
       const actionAuth = getRobotAuthForCoordinator(actionSlot, selectedCoordinator.shortAlias);
-      if (!actionAuth) throw new Error("This robot is missing coordinator credentials.");
+      if (!actionSlot || !actionAuth) throw new Error("This robot is missing coordinator credentials.");
       const payload = buildTakeOfferPayload(selectedOrder, takeAmount, offerPassword);
       const signing = getRobotSigningCredentials(actionSlot, selectedCoordinator.shortAlias);
       const order = await submitOrderAction(selectedCoordinator, selectedOrder.id, payload, actionAuth, signing);

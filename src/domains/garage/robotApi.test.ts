@@ -88,7 +88,7 @@ describe("robotApi", () => {
 
     await expect(
       updateRobotWebhook(
-        "https://coordinator",
+        { url: "https://coordinator", shortAlias: "bazaar" },
         { webhook_url: "http://hook.onion/callback", webhook_enabled: true, webhook_api_key: "secret" },
         auth,
         signing,
@@ -103,7 +103,7 @@ describe("robotApi", () => {
     expect(client.put).toHaveBeenCalledWith(
       "https://coordinator",
       "/api/robot/",
-      { webhook_url: "http://hook.onion/callback", webhook_enabled: true, webhook_api_key: "secret", signature: "signed:robot:1712345678" },
+      { webhook_url: "http://hook.onion/callback", webhook_enabled: true, webhook_api_key: "secret", signature: "signed:robot:bazaar:1712345678" },
       auth,
       { timeoutProfile: "action", priority: "action", source: "order-action" }
     );
@@ -119,8 +119,8 @@ describe("robotApi", () => {
       delete: vi.fn()
     } satisfies ApiClient;
 
-    await expect(updateStealthInvoices("https://coordinator", false, auth, signing, client)).resolves.toBe(false);
-    expect(client.post).toHaveBeenCalledWith("https://coordinator", "/api/stealth/", { wantsStealth: false, signature: "signed:stealth:1712345678" }, auth, {
+    await expect(updateStealthInvoices({ url: "https://coordinator", shortAlias: "lake" }, false, auth, signing, client)).resolves.toBe(false);
+    expect(client.post).toHaveBeenCalledWith("https://coordinator", "/api/stealth/", { wantsStealth: false, signature: "signed:stealth:lake:1712345678" }, auth, {
       timeoutProfile: "action",
       priority: "action",
       source: "order-action"

@@ -239,8 +239,8 @@ describe("makerApi", () => {
       delete: vi.fn()
     } satisfies ApiClient;
 
-    await expect(createOrder("https://coordinator", payload, auth, signing, client)).resolves.toEqual({ id: 77 });
-    expect(client.post).toHaveBeenCalledWith("https://coordinator", "/api/make/", { ...payload, signature: "signed:make:1712345678" }, auth, {
+    await expect(createOrder({ url: "https://coordinator", shortAlias: "bazaar" }, payload, auth, signing, client)).resolves.toEqual({ id: 77 });
+    expect(client.post).toHaveBeenCalledWith("https://coordinator", "/api/make/", { ...payload, signature: "signed:make:bazaar:1712345678" }, auth, {
       timeoutProfile: "action"
     });
   });

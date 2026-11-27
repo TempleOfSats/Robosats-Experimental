@@ -1,3 +1,4 @@
+import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import { sha256 } from "js-sha256";
 import { signRobotAction, timedActionContent, type RobotSigningCredentials } from "@/domains/crypto/actionSignature";
 import { apiRoutes, type ApiClient, type Auth } from "@/domains/transport/apiClient";
@@ -21,14 +22,14 @@ import {
 export const ORDER_DESCRIPTION_MAX_LENGTH = 240;
 
 export async function createOrder(
-  baseUrl: string,
+  coordinator: Pick<CoordinatorSummary, "url" | "shortAlias">,
   payload: CreateOrderPayload,
   auth: Auth,
   signing: RobotSigningCredentials | undefined,
   client: ApiClient = apiClient
 ): Promise<CreateOrderResponse> {
-  const signature = await signRobotAction(timedActionContent("make"), signing);
-  return client.post<CreateOrderResponse>(baseUrl, apiRoutes.make, { ...payload, signature }, auth, {
+  const signature = await signRobotAction(timedActionContent("make", coordinator.shortAlias), signing);
+  return client.post<CreateOrderResponse>(coordinator.url, apiRoutes.make, { ...payload, signature }, auth, {
     timeoutProfile: "action"
   });
 }

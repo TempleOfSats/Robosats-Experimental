@@ -1,3 +1,4 @@
+import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import { signRobotAction, timedActionContent, type RobotSigningCredentials } from "@/domains/crypto/actionSignature";
 import { apiRoutes, type ApiClient, type ApiRequestOptions, type Auth } from "@/domains/transport/apiClient";
 import { apiClient } from "@/domains/transport/apiWebClient";
@@ -83,15 +84,15 @@ export function normalizeRobotResponse(data: RobotApiResponse): RobotSnapshot {
 }
 
 export async function updateRobotWebhook(
-  baseUrl: string,
+  coordinator: Pick<CoordinatorSummary, "url" | "shortAlias">,
   payload: UpdateRobotWebhookPayload,
   auth: Auth,
   signing: RobotSigningCredentials | undefined,
   client: ApiClient = apiClient
 ): Promise<UpdateRobotWebhookResult> {
-  const signature = await signRobotAction(timedActionContent("robot"), signing);
+  const signature = await signRobotAction(timedActionContent("robot", coordinator.shortAlias), signing);
   const data = await client.put<UpdateRobotWebhookApiResponse>(
-    baseUrl,
+    coordinator.url,
     apiRoutes.robot,
     { ...compactWebhookPayload(payload), signature },
     { tokenSHA256: auth.tokenSHA256 },
@@ -105,15 +106,15 @@ export async function updateRobotWebhook(
 }
 
 export async function updateStealthInvoices(
-  baseUrl: string,
+  coordinator: Pick<CoordinatorSummary, "url" | "shortAlias">,
   wantsStealth: boolean,
   auth: Auth,
   signing: RobotSigningCredentials | undefined,
   client: ApiClient = apiClient
 ): Promise<boolean> {
-  const signature = await signRobotAction(timedActionContent("stealth"), signing);
+  const signature = await signRobotAction(timedActionContent("stealth", coordinator.shortAlias), signing);
   const data = await client.post<{ wantsStealth?: unknown }>(
-    baseUrl,
+    coordinator.url,
     apiRoutes.stealth,
     { wantsStealth, signature },
     { tokenSHA256: auth.tokenSHA256 },

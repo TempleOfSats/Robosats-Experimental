@@ -33,7 +33,7 @@ import { federationLottery } from "@/domains/coordinators/federationLottery";
 import { useFederationStore } from "@/domains/coordinators/federationStore";
 import { toUserMessage } from "@/lib/userError";
 import { playHaptic } from "@/lib/haptics";
-import { getRobotAuthForCoordinator, getRobotSigningCredentials, selectCurrentSlot, selectStandardGarageSlots, useGarageStore } from "@/domains/garage/garageStore";
+import { getRobotAuthForCoordinator, getRobotSigningCredentials, recoverRobotForSigning, selectCurrentSlot, selectStandardGarageSlots, useGarageStore } from "@/domains/garage/garageStore";
 import { getRobotOrderAvailability } from "@/domains/garage/robotAvailability";
 import { RobotRequiredActions } from "@/domains/garage/RobotRequiredActions";
 import {
@@ -390,15 +390,16 @@ export function CreateOrderPage() {
     preloadOrderRoute();
 
     try {
-      const actionSlot = await revalidateRobotForNewOrder({
+      const availableSlot = await revalidateRobotForNewOrder({
         coordinator: selectedCoordinator,
         proEnabled,
         slotId: activeSlot.tokenSHA256
       });
+      const actionSlot = await recoverRobotForSigning(availableSlot, selectedCoordinator);
       const actionAuth = getRobotAuthForCoordinator(actionSlot, selectedAlias);
       if (!actionAuth) throw new Error("This robot has no credentials for the selected coordinator.");
       const signing = getRobotSigningCredentials(actionSlot, selectedAlias);
-      const response = await createOrder(selectedCoordinator.url, payload, actionAuth, signing);
+      const response = await createOrder(selectedCoordinator, payload, actionAuth, signing);
       const backendError = response.bad_request ?? response.bad_amount ?? response.bad_payment_method ?? response.bad_password;
       if (backendError) {
         playHaptic("reject");
@@ -411,20 +412,20 @@ export function CreateOrderPage() {
         return;
       }
       playHaptic("success");
-      const provisionalOrder = buildProvisionalMakerOrder(response.id, selectedAlias, payload, actionSlot);
+      const provisionalOrder = buildProvisionalMakerOrder(response.id, selectedAlias, payload, availableSlot);
       if (proEnabled) setProLastView("trades");
       openConfirmedOrder(navigate, {
         coordinatorEndpoint: selectedCoordinator.url,
         initialOrder: provisionalOrder,
         orderId: response.id,
         shortAlias: selectedAlias,
-        slotId: actionSlot.tokenSHA256
+        slotId: availableSlot.tokenSHA256
       });
 
       // The successful create must open Trade even if local persistence is
       // unavailable; the first authoritative read repairs this snapshot.
       try {
-        setCurrentToken(actionSlot.token);
+        setCurrentToken(availableSlot.token);
         ingestCoordinatorOrder({
           authoritative: false,
           order: provisionalOrder,

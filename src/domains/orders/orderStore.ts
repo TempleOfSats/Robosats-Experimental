@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { toUserMessage } from "@/lib/userError";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
-import { getRobotAuthForCoordinator, getRobotSigningCredentials, type RobotSlot, useGarageStore } from "@/domains/garage/garageStore";
+import { getRobotAuthForCoordinator, getRobotSigningCredentials, recoverRobotForSigning, type RobotSlot, useGarageStore } from "@/domains/garage/garageStore";
 import {
   ingestCoordinatorOrder,
   publishCoordinatorOrderActionActivity
@@ -23,7 +23,7 @@ type OrderState = {
   actionError?: string;
   primeOrder: (order: OrderDto, identity: OrderLoadIdentity) => void;
   loadOrder: (params: LoadOrderParams) => Promise<OrderLoadResult>;
-  submitAction: (params: SubmitActionParams) => Promise<void>;
+  submitAction: (params: SubmitActionParams) => Promise<boolean>;
   clearOrder: () => void;
 };
 
@@ -158,42 +158,41 @@ export const useOrderStore = create<OrderState>((set, get) => ({
   },
   submitAction: async ({ coordinator, orderId, slot, payload }) => {
     const auth = getRobotAuthForCoordinator(slot, coordinator.shortAlias);
-    if (!auth) {
+    if (!slot || !auth) {
       set({ actionError: "Load a robot before submitting order actions." });
-      return;
+      return false;
     }
 
     const requestId = ++requestSequence;
     const previousOrder = get().order;
-    const actionLocator = slot
-      ? { slotId: slot.tokenSHA256, shortAlias: coordinator.shortAlias, orderId }
-      : undefined;
+    const actionLocator = { slotId: slot.tokenSHA256, shortAlias: coordinator.shortAlias, orderId };
     let snapshotApplied = false;
     set({ submitting: true, refreshing: false, actionError: undefined });
-    if (actionLocator) {
-      publishCoordinatorOrderActionActivity({ ...actionLocator, phase: "start" });
-    }
+    publishCoordinatorOrderActionActivity({ ...actionLocator, phase: "start" });
     try {
-      const signing = getRobotSigningCredentials(slot, coordinator.shortAlias);
-      const responseOrder = await submitOrderAction(coordinator, orderId, payload, auth, signing);
+      const actionSlot = await recoverRobotForSigning(slot, coordinator);
+      if (requestId !== requestSequence) return false;
+      const signing = getRobotSigningCredentials(actionSlot, coordinator.shortAlias);
+      const actionAuth = getRobotAuthForCoordinator(actionSlot, coordinator.shortAlias) ?? auth;
+      const responseOrder = await submitOrderAction(coordinator, orderId, payload, actionAuth, signing);
       const order = {
         ...responseOrder,
         id: orderId,
         shortAlias: coordinator.shortAlias
       };
-      if (requestId !== requestSequence) return;
+      if (requestId !== requestSequence) return false;
       if (!isCompleteOrderActionResponse(responseOrder)) {
         set({ submitting: false });
         const verification = await get().loadOrder({ coordinator, orderId, reason: "post-action", slot });
         snapshotApplied = verification.status === "loaded";
-        return;
+        return snapshotApplied;
       }
       syncGarageOrder(slot, coordinator.shortAlias, order);
       snapshotApplied = true;
-      if (isReleasedEarlyTake(previousOrder, order, payload) && slot) {
+      if (isReleasedEarlyTake(previousOrder, order, payload)) {
         useGarageStore.getState().releaseOrderReservation(slot.token, coordinator.shortAlias, orderId);
       }
-      if (requestId !== requestSequence) return;
+      if (requestId !== requestSequence) return false;
       set({
         order,
         orderIdentity: loadIdentity(coordinator, slot, orderId),
@@ -201,8 +200,9 @@ export const useOrderStore = create<OrderState>((set, get) => ({
         loadFailure: undefined,
         actionError: undefined
       });
+      return true;
     } catch (error) {
-      if (requestId !== requestSequence) return;
+      if (requestId !== requestSequence) return false;
       if (isAlreadyCancelledError(error)) {
         const current = get().order;
         const order = current ? { ...current, status: 4, status_message: "Order cancelled" } : current;
@@ -217,7 +217,7 @@ export const useOrderStore = create<OrderState>((set, get) => ({
           loadFailure: undefined,
           actionError: undefined
         });
-        return;
+        return snapshotApplied;
       }
       const verifiedOrder = await verifyRejectedPayoutAction({
         auth,
@@ -227,7 +227,7 @@ export const useOrderStore = create<OrderState>((set, get) => ({
         payload,
         previousOrder
       });
-      if (requestId !== requestSequence) return;
+      if (requestId !== requestSequence) return false;
       if (verifiedOrder) {
         syncGarageOrder(slot, coordinator.shortAlias, verifiedOrder);
         snapshotApplied = true;
@@ -238,21 +238,20 @@ export const useOrderStore = create<OrderState>((set, get) => ({
           loadFailure: undefined,
           actionError: undefined
         });
-        return;
+        return snapshotApplied;
       }
       set({
         submitting: false,
         actionError: toUserMessage(error, "Could not update the order.")
       });
+      return false;
     } finally {
       const completedOrder = snapshotApplied ? get().order : undefined;
-      if (actionLocator) {
-        publishCoordinatorOrderActionActivity({
-          ...actionLocator,
-          phase: "complete",
-          snapshotApplied: Boolean(completedOrder)
-        });
-      }
+      publishCoordinatorOrderActionActivity({
+        ...actionLocator,
+        phase: "complete",
+        snapshotApplied: Boolean(completedOrder)
+      });
     }
   },
   clearOrder: () => {

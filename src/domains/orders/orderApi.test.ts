@@ -56,7 +56,7 @@ describe("orderApi", () => {
     expect(client.get).toHaveBeenCalledWith("https://coordinator", "/api/order/?order_id=123", auth, undefined);
   });
 
-  it("submits current order action payloads", async () => {
+  it("signs the payout invoice and the action with the same key", async () => {
     const client = {
       get: vi.fn(),
       post: vi.fn().mockResolvedValue(order),
@@ -67,7 +67,7 @@ describe("orderApi", () => {
     await submitOrderAction(
       coordinator,
       123,
-      { action: "update_invoice", invoice: "signed", routing_budget_ppm: 1000, address: undefined },
+      { action: "update_invoice", invoice: "fixture-invoice", routing_budget_ppm: 1000, address: undefined },
       auth,
       signing,
       client
@@ -76,11 +76,23 @@ describe("orderApi", () => {
     expect(client.post).toHaveBeenCalledWith(
       "https://coordinator",
       "/api/order/?order_id=123",
-      { action: "update_invoice", invoice: "signed", routing_budget_ppm: 1000, signature: expect.any(String) },
+      { action: "update_invoice", invoice: expect.any(String), routing_budget_ppm: 1000, signature: expect.any(String) },
       { tokenSHA256: "robot-token" },
       { timeoutProfile: "action", priority: "action", source: "order-action" }
     );
     await expectSignedContent(client.post.mock.calls[0][2].signature, "update_invoice:123:bazaar");
+    await expectSignedContent(client.post.mock.calls[0][2].invoice, "fixture-invoice");
+  });
+
+  it("signs the payout address and the action with the same key", async () => {
+    const post = vi.fn().mockResolvedValue(order);
+    const client = { get: vi.fn(), post, put: vi.fn(), delete: vi.fn() } satisfies ApiClient;
+    const address = "fixture-address";
+
+    await submitOrderAction(coordinator, 123, { action: "update_address", address }, auth, signing, client);
+
+    await expectSignedContent(post.mock.calls[0][2].signature, "update_address:123:bazaar");
+    await expectSignedContent(post.mock.calls[0][2].address, address);
   });
 
   it("signs the action and dispute statement separately", async () => {

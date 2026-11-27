@@ -3,6 +3,7 @@ import { deriveRobotIdentity, type RobotIdentity } from "@/domains/identity/robo
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import { fetchRobot } from "@/domains/garage/robotApi";
 import {
+  didRobotCoordinatorRefreshSucceed,
   publishRobotRefreshResult,
   type RefreshRobotCoordinatorResult,
   type RefreshRobotSlotResult
@@ -199,7 +200,7 @@ export const useGarageStore: UseBoundStore<StoreApi<GarageState>> = create<Garag
     set((state) => {
       const slots = state.slots.map((slot) => {
         if (slot.token !== token) return slot;
-        const existingRobot = slot.robots[shortAlias] ?? Object.values(slot.robots)[0];
+        const existingRobot = slot.robots[shortAlias];
         return {
           ...slot,
           activeOrderId: orderId,
@@ -224,7 +225,7 @@ export const useGarageStore: UseBoundStore<StoreApi<GarageState>> = create<Garag
     set((state) => {
       const slots = state.slots.map((slot) => {
         if (slot.token !== token) return slot;
-        const existingRobot = slot.robots[shortAlias] ?? Object.values(slot.robots)[0];
+        const existingRobot = slot.robots[shortAlias];
         return summarizeSlot({
           ...slot,
           robots: {
@@ -264,7 +265,7 @@ export const useGarageStore: UseBoundStore<StoreApi<GarageState>> = create<Garag
     set((state) => {
       const slots = state.slots.map((slot) => {
         if (slot.token !== token) return slot;
-        const existingRobot = slot.robots[shortAlias] ?? Object.values(slot.robots)[0];
+        const existingRobot = slot.robots[shortAlias];
         return {
           ...slot,
           robots: {
@@ -287,7 +288,7 @@ export const useGarageStore: UseBoundStore<StoreApi<GarageState>> = create<Garag
       const terminal = isTerminalOrderForCurrentRobot({ status, isMaker, isSeller }) && !renewable;
       const slots = state.slots.map((slot) => {
         if (slot.token !== token) return slot;
-        const existingRobot = slot.robots[shortAlias] ?? Object.values(slot.robots)[0];
+        const existingRobot = slot.robots[shortAlias];
         const remainsReleased = status === 1 && existingRobot?.releasedOrderId === orderId;
         const nextRobot: RobotRecord = {
           ...existingRobot,
@@ -403,7 +404,7 @@ export const useGarageStore: UseBoundStore<StoreApi<GarageState>> = create<Garag
               ? {
                   ...item,
                   loading: true,
-                  robots: markTargetRobotsLoading(item, refreshTargets, keys)
+                  robots: markTargetRobotsLoading(item, refreshTargets)
                 }
               : item
           );
@@ -422,7 +423,7 @@ export const useGarageStore: UseBoundStore<StoreApi<GarageState>> = create<Garag
       const networkResults = await Promise.all(
         refreshTargets.map(async (coordinator) => {
           const sessionId = sessions.get(coordinator.shortAlias)!;
-          const startingKeys = coordinatorKeysOrFallback(slot.robots[coordinator.shortAlias], keys);
+          const startingRobot = slot.robots[coordinator.shortAlias];
           let applied = false;
           let transportFailed = false;
           try {
@@ -443,8 +444,8 @@ export const useGarageStore: UseBoundStore<StoreApi<GarageState>> = create<Garag
                 token: slot.token,
                 shortAlias: coordinator.shortAlias,
                 tokenSHA256: slot.tokenSHA256,
-                pubKey: snapshot.pubKey ?? startingKeys.pubKey,
-                encPrivKey: snapshot.encPrivKey ?? startingKeys.encPrivKey,
+                pubKey: snapshot.pubKey ?? startingRobot?.pubKey,
+                encPrivKey: snapshot.encPrivKey ?? startingRobot?.encPrivKey,
                 nostrPubKey: snapshot.nostrPubKey ?? slot.nostrPubKey,
                 earnedRewards: snapshot.earnedRewards,
                 stealthInvoices: snapshot.stealthInvoices,
@@ -464,7 +465,6 @@ export const useGarageStore: UseBoundStore<StoreApi<GarageState>> = create<Garag
           } catch (error) {
             const currentSlot = useGarageStore.getState().slots.find((item) => item.token === slot.token);
             const currentRobot = currentSlot?.robots[coordinator.shortAlias];
-            const currentKeys = coordinatorKeysOrFallback(currentRobot, startingKeys);
             if (isAbortError(error)) {
               applyRobotRefreshResult(set, slot, coordinator.shortAlias, sessionId, {
                 shortAlias: coordinator.shortAlias,
@@ -474,8 +474,6 @@ export const useGarageStore: UseBoundStore<StoreApi<GarageState>> = create<Garag
                   token: slot.token,
                   shortAlias: coordinator.shortAlias,
                   tokenSHA256: slot.tokenSHA256,
-                  pubKey: currentKeys.pubKey,
-                  encPrivKey: currentKeys.encPrivKey,
                   nostrPubKey: currentRobot?.nostrPubKey ?? slot.nostrPubKey,
                   loading: false,
                   error: slot.robots[coordinator.shortAlias]?.error
@@ -492,8 +490,6 @@ export const useGarageStore: UseBoundStore<StoreApi<GarageState>> = create<Garag
                 token: slot.token,
                 shortAlias: coordinator.shortAlias,
                 tokenSHA256: slot.tokenSHA256,
-                pubKey: currentKeys.pubKey,
-                encPrivKey: currentKeys.encPrivKey,
                 nostrPubKey: currentRobot?.nostrPubKey ?? slot.nostrPubKey,
                 loading: false,
                 error: toUserMessage(error, "Could not check this coordinator.")
@@ -554,7 +550,7 @@ export function selectFleetManagedSlots(slots: RobotSlot[]): RobotSlot[] {
 }
 
 export function getRobotForCoordinator(slot: RobotSlot | undefined, shortAlias: string): RobotRecord | undefined {
-  return slot?.robots[shortAlias] ?? (slot && Object.values(slot.robots)[0]);
+  return slot?.robots[shortAlias];
 }
 
 export function getRobotSigningCredentials(
@@ -562,6 +558,20 @@ export function getRobotSigningCredentials(
   shortAlias: string
 ): RobotSigningCredentials | undefined {
   return slot && { token: slot.token, encPrivKey: getRobotForCoordinator(slot, shortAlias)?.encPrivKey };
+}
+
+export async function recoverRobotForSigning(
+  slot: RobotSlot | undefined,
+  coordinator: CoordinatorSummary
+): Promise<RobotSlot | undefined> {
+  if (!slot) return undefined;
+  const garage = useGarageStore.getState();
+  const current = garage.slots.find((item) => item.token === slot.token) ?? slot;
+  if (current.robots[coordinator.shortAlias]?.encPrivKey) return current;
+
+  const result = await garage.refreshRobotSlot(current.token, [coordinator], { priority: "foreground" });
+  if (!didRobotCoordinatorRefreshSucceed(result, coordinator.shortAlias)) return undefined;
+  return useGarageStore.getState().slots.find((item) => item.token === current.token);
 }
 
 export function getRobotAuthForCoordinator(slot: RobotSlot | undefined, shortAlias: string): Auth | undefined {
@@ -744,7 +754,7 @@ function applyRobotRefreshResult(
     const slots = state.slots.map((item) => {
       if (item.token !== slot.token) return item;
       const currentRobot = item.robots[shortAlias];
-      const startingRobot = slot.robots[shortAlias] ?? Object.values(slot.robots)[0];
+      const startingRobot = slot.robots[shortAlias];
       const orderState =
         result.orderSnapshot && !orderStateChanged(startingRobot, currentRobot)
           ? reconcileOrderState(currentRobot, result.orderSnapshot.activeOrderId, result.orderSnapshot.lastOrderId)
@@ -960,21 +970,17 @@ function storeRobotKeys(
 
 function markTargetRobotsLoading(
   slot: RobotSlot,
-  coordinators: CoordinatorSummary[],
-  keys: { pubKey: string; encPrivKey: string }
+  coordinators: CoordinatorSummary[]
 ): Record<string, RobotRecord> {
   return coordinators.reduce<Record<string, RobotRecord>>(
     (robots, coordinator) => {
-      const existingRobot = robots[coordinator.shortAlias] ?? Object.values(robots)[0];
-      const retainedKeys = coordinatorKeysOrFallback(slot.robots[coordinator.shortAlias], keys);
+      const existingRobot = robots[coordinator.shortAlias];
       robots[coordinator.shortAlias] = {
         ...existingRobot,
         token: existingRobot?.token ?? slot.token,
         shortAlias: coordinator.shortAlias,
         tokenSHA256: existingRobot?.tokenSHA256 ?? slot.tokenSHA256,
         nostrPubKey: existingRobot?.nostrPubKey ?? slot.nostrPubKey,
-        pubKey: retainedKeys.pubKey,
-        encPrivKey: retainedKeys.encPrivKey,
         loading: true,
         error: undefined
       };
@@ -982,15 +988,6 @@ function markTargetRobotsLoading(
     },
     { ...slot.robots }
   );
-}
-
-function coordinatorKeysOrFallback(
-  robot: RobotRecord | undefined,
-  fallback: { pubKey: string; encPrivKey: string }
-): { pubKey: string; encPrivKey: string } {
-  return robot?.pubKey && robot.encPrivKey
-    ? { pubKey: robot.pubKey, encPrivKey: robot.encPrivKey }
-    : fallback;
 }
 
 function reconcileOrderState(

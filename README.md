@@ -197,7 +197,8 @@ When adding a custom coordinator that enforces signed actions, use its
 federation short alias in the Alias field. For a coordinator outside the
 federation, use its configured `COORDINATOR_ALIAS` in lowercase with spaces
 removed (for example, `Local Dev` becomes `localdev`). The coordinator verifies
-this alias as part of each order action signature.
+this alias in order actions and timed signatures for offer creation, webhook settings,
+and stealth invoice preferences.
 
 ## Design
 

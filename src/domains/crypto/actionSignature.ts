@@ -20,6 +20,6 @@ export async function signRobotAction(
   }
 }
 
-export function timedActionContent(action: "make" | "robot" | "stealth"): string {
-  return `${action}:${Math.floor(Date.now() / 1000)}`;
+export function timedActionContent(action: "make" | "robot" | "stealth", shortAlias: string): string {
+  return `${action}:${shortAlias}:${Math.floor(Date.now() / 1000)}`;
 }

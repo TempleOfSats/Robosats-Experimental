@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CoordinatorSummary } from "@/domains/coordinators/coordinator.types";
 import {
   getRobotAuthForCoordinator,
+  getRobotSigningCredentials,
+  recoverRobotForSigning,
   selectCurrentSlot,
   selectFleetManagedSlots,
   selectStandardGarageSlots,
@@ -112,6 +114,27 @@ describe("garage selectors", () => {
   it("falls back to token-only auth when PGP keys are unavailable", () => {
     expect(getRobotAuthForCoordinator(slot, "local")).toEqual({ tokenSHA256: "local-token" });
   });
+  it("recovers signing keys from the target even when the slot has keys for another coordinator", async () => {
+    const activeSlot = slotWithCoordinatorKeys();
+    const target = { ...coordinator, shortAlias: "temple", url: "https://temple.example" };
+    useGarageStore.setState({ slots: [activeSlot], currentToken: activeSlot.token, hydrated: true });
+
+    useGarageStore.getState().syncOrderSnapshot({ token: activeSlot.token, shortAlias: "temple", orderId: 12, status: 1 });
+    const current = useGarageStore.getState().slots[0];
+    expect(getRobotSigningCredentials(current, "temple")?.encPrivKey).toBeUndefined();
+    expect(getRobotAuthForCoordinator(current, "temple")).toEqual({ tokenSHA256: activeSlot.tokenSHA256 });
+
+    fetchRobotMock.mockRejectedValueOnce(new Error("Tor request failed"));
+    await expect(recoverRobotForSigning(current, target)).resolves.toBeUndefined();
+    expect(getRobotSigningCredentials(useGarageStore.getState().slots[0], "temple")?.encPrivKey).toBeUndefined();
+
+    fetchRobotMock.mockResolvedValueOnce(robotSnapshot({ pubKey: "temple-pub", encPrivKey: "temple-priv" }));
+    const recovered = await recoverRobotForSigning(current, target);
+    expect(fetchRobotMock).toHaveBeenLastCalledWith(target.url, expect.any(Object), undefined, expect.any(Object));
+    expect(getRobotSigningCredentials(recovered, "temple")).toEqual({ token: current.token, encPrivKey: "temple-priv" });
+    expect(getRobotSigningCredentials(recovered, "lake")?.encPrivKey).toBe("private-key");
+  });
+
 });
 
 describe("garage order sync", () => {

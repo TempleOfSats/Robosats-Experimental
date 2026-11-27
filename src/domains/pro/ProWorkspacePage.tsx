@@ -30,6 +30,7 @@ import { deriveRobotIdentity } from "@/domains/identity/robotIdentity";
 import {
   getRobotAuthForCoordinator,
   getRobotSigningCredentials,
+  recoverRobotForSigning,
   type RobotSlot,
   useGarageStore
 } from "@/domains/garage/garageStore";
@@ -535,14 +536,16 @@ export function ProWorkspacePage() {
     markProOrderActionStarted(snapshot.locator);
     playHaptic("commit");
     try {
-      const signing = getRobotSigningCredentials(slot, coordinator.shortAlias);
+      const actionSlot = await recoverRobotForSigning(slot, coordinator);
+      const signing = getRobotSigningCredentials(actionSlot, coordinator.shortAlias);
+      const actionAuth = getRobotAuthForCoordinator(actionSlot, coordinator.shortAlias) ?? auth;
       const order = await submitOrderAction(
         coordinator,
         snapshot.locator.orderId,
         action === "pause" || action === "resume"
           ? { action: "pause" }
           : { action: "cancel", cancel_status: snapshot.order?.status },
-        auth,
+        actionAuth,
         signing
       );
       const audio = tradeAudioEventForOrderTransition(snapshot.order?.status, order.status);
