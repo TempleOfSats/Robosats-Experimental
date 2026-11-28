@@ -157,7 +157,7 @@ describe("Garage synchronization runtime", () => {
     vi.spyOn(Math, "random").mockReturnValue(0);
     const subscriptions: Array<{
       relay: string;
-      params: { oneose?: () => void; onclose?: (reasons: string[]) => void };
+      params: { oneose?: () => void; onclose?: (reasons: Array<{ url: string; reason: string }>) => void };
     }> = [];
     vi.spyOn(SimplePool.prototype, "subscribeMap").mockImplementation((requests, params) => {
       subscriptions.push({ relay: requests[0].url, params });
@@ -176,7 +176,7 @@ describe("Garage synchronization runtime", () => {
       const failedRelay = subscriptions[0].relay;
       const healthyRelay = subscriptions[1].relay;
 
-      subscriptions[0].params.onclose?.(["network-error"]);
+      subscriptions[0].params.onclose?.([{ url: "wss://relay.example", reason: "network-error" }]);
       await vi.advanceTimersByTimeAsync(14_999);
       expect(subscriptions).toHaveLength(2);
       await vi.advanceTimersByTimeAsync(1);

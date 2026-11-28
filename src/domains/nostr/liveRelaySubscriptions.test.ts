@@ -62,9 +62,9 @@ describe("live relay subscription manager", () => {
     manager.subscribeMany(["wss://relay.example"], { kinds: [38383] }, { onclose: firstClose });
     manager.subscribeMany(["wss://other.example"], { kinds: [30078] }, { onclose: secondClose });
 
-    harness.requests[0].params.onclose?.(["network-error"]);
+    harness.requests[0].params.onclose?.([{ url: "wss://relay.example", reason: "network-error" }]);
 
-    expect(firstClose).toHaveBeenCalledWith(["network-error"]);
+    expect(firstClose).toHaveBeenCalledWith([{ url: "wss://relay.example", reason: "network-error" }]);
     expect(secondClose).not.toHaveBeenCalled();
   });
 
