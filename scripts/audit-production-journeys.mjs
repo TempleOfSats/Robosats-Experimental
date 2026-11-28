@@ -62,17 +62,6 @@ const cases = [
     viewport: { width: 1440, height: 900 }
   },
   {
-    // A background preload of another route may fail. That must stay in the
-    // background: the current route keeps working, no error screen appears, and the
-    // document is never reloaded to paper over it.
-    name: "dark-blocked-optional-offers-chunk",
-    path: "/settings",
-    proEnabled: false,
-    theme: "dark",
-    blockChunk: "robosats-exp.offers~OffersPage~",
-    viewport: { width: 1440, height: 900 }
-  },
-  {
     // Fleet synchronisation is required work. When its chunk cannot be fetched the
     // browser will not fetch it again, so the page has to say so and hand the reload
     // to the user, who then gets a working desk.

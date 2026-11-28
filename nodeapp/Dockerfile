@@ -13,8 +13,8 @@ RUN npm run build
 FROM alpine:3.23.3@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659
 
 RUN apk add --no-cache \
-      nginx=1.28.3-r7 \
-      nginx-mod-http-brotli=1.28.3-r7
+      nginx~1.28.3 \
+      nginx-mod-http-brotli~1.28.3
 
 COPY nodeapp/nginx.conf /etc/nginx/nginx.conf
 COPY nodeapp/security-headers.conf /etc/nginx/security-headers.conf
