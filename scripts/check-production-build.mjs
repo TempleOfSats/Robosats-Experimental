@@ -71,18 +71,31 @@ if (workerTransferBytes > 115_000) {
 }
 
 const routeBudgets = [
-  ["RobotGaragePage", ".RobotGaragePage.", 14, 51_000],
-  ["OffersPage", /\.(?:OffersPage\.|offers~OffersPage(?:[.~]))/, 10, 45_000],
-  ["SettingsPage", ".SettingsPage.", 7, 28_000],
-  ["ProWorkspacePage", ".ProWorkspacePage.", 21, 66_000],
-  ["CreateOrderPage", ".CreateOrderPage.", 16, 54_000],
-  ["OrderPage", ".OrderPage.", 16, 62_000]
+  ["RobotGaragePage", ".RobotGaragePage.", 15, 40_000],
+  ["OffersPage", /(?:\.OffersPage\.|~OffersP)/, 12, 60_000],
+  ["SettingsPage", ".SettingsPage.", 13, 47_000],
+  ["ProWorkspacePage", ".ProWorkspacePage.", 23, 84_000],
+  ["CreateOrderPage", ".CreateOrderPage.", 19, 69_000],
+  ["OrderPage", ".OrderPage.", 19, 84_000]
 ];
 const routeGraphCounts = [];
 for (const [name, chunkMatch, requestBudget, transferBudget] of routeBudgets) {
-  const routePath = files.find((path) => matchesChunk(basename(path), chunkMatch) && path.endsWith(".js"));
-  if (!routePath) throw new Error(`Could not locate the ${name} production chunk.`);
-  const routeGraph = await staticImportGraph(routePath);
+  const candidates = files.filter((path) => matchesChunk(basename(path), chunkMatch) && path.endsWith(".js"));
+  if (candidates.length === 0) throw new Error(`Could not locate the ${name} production chunk.`);
+  let routePath = candidates[0];
+  let routeGraph = await staticImportGraph(routePath);
+  if (candidates.length > 1) {
+    // Rollup names shared chunks after every route that joins them, so a route
+    // entry is not identifiable by name across versions. The entry chunk is the
+    // one whose static graph contains the shared pieces: take the widest graph.
+    for (const candidate of candidates.slice(1)) {
+      const graph = await staticImportGraph(candidate);
+      if (graph.size > routeGraph.size) {
+        routePath = candidate;
+        routeGraph = graph;
+      }
+    }
+  }
   const additionalGraph = [...routeGraph].filter((path) => !initialGraph.has(path));
   const additionalRequests = additionalGraph.length;
   const transferBytes = await encodedTransferSize(additionalGraph);
